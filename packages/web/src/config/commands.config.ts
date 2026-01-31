@@ -1,13 +1,3 @@
-interface Command {
-  id: string;
-  label: string;
-  category: 'pages' | 'actions' | 'settings' | 'help';
-  icon: string;
-  shortcut?: string;
-  action: () => void | string;
-  keywords?: string[];
-}
-
 // Type for the command palette items
 export interface CommandItem {
   id: string;

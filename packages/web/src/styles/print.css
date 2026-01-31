@@ -1,0 +1,109 @@
+/* Print-specific styles for reports */
+@media print {
+  /* Hide non-essential elements during print */
+  header,
+  nav,
+  .no-print,
+  button,
+  [role='navigation'],
+  .sidebar {
+    display: none !important;
+  }
+
+  /* Optimize page breaks */
+  .page-break {
+    page-break-before: always;
+  }
+
+  .page-break-avoid {
+    page-break-inside: avoid;
+  }
+
+  /* Ensure charts and cards render properly */
+  .recharts-wrapper,
+  .card,
+  .metric-card {
+    page-break-inside: avoid;
+  }
+
+  /* Remove shadows and unnecessary styling */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Ensure proper colors for print */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Optimize table printing */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  table th,
+  table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+  }
+
+  /* Make links visible */
+  a[href]:after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+  }
+
+  /* Hide export buttons when printing */
+  .export-buttons {
+    display: none !important;
+  }
+
+  /* Ensure content uses full width */
+  .container,
+  main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Optimize chart sizing for print */
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Add print title */
+  @page {
+    margin: 2cm;
+  }
+
+  /* Ensure proper page margins */
+  body {
+    margin: 0;
+    padding: 1cm;
+  }
+
+  /* Make metrics more print-friendly */
+  .metric-card {
+    border: 1px solid #ddd;
+    margin-bottom: 1rem;
+  }
+
+  /* Optimize grid layout for print */
+  .grid {
+    display: block !important;
+  }
+
+  .grid > * {
+    margin-bottom: 1rem;
+  }
+
+  /* Ensure proper spacing */
+  .space-y-6 > * + * {
+    margin-top: 1.5rem;
+  }
+}

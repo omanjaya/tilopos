@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { CheckCircle, Download, MapPin, Clock, Phone } from 'lucide-react';
+import { CheckCircle, MapPin, Clock, Phone } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';

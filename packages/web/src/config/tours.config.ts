@@ -1,4 +1,3 @@
-import { Tour } from 'react-shepherd';
 import 'shepherd.js/dist/css/shepherd.css';
 
 interface TourConfig {

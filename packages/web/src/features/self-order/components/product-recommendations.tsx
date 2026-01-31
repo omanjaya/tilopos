@@ -30,10 +30,10 @@ export function ProductRecommendations({
     enabled: !!outletId,
   });
 
-  // Get popular items (simulate by sorting - in real app, this would come from API)
+  // Get popular items (in real app, sorting would be based on orderCount from API)
+  // For now, just show available items
   const popularItems = menuItems
     ?.filter((item) => item.id !== currentProductId && item.isAvailable)
-    .sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0))
     .slice(0, showAll ? undefined : maxItems) || [];
 
   if (isLoading) {

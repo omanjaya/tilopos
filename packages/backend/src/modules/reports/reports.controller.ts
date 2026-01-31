@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Post, Query, Body, UseGuards, Res, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -8,6 +8,7 @@ import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { RedisService } from '../../infrastructure/cache/redis.service';
 import { GenerateSalesReportUseCase } from '../../application/use-cases/reports/generate-sales-report.use-case';
 import { GenerateInventoryReportUseCase } from '../../application/use-cases/reports/generate-inventory-report.use-case';
 import { ReportsService, type CustomReportConfig } from './reports.service';
@@ -18,7 +19,20 @@ function getDateRange(dateRange?: string, startDate?: string, endDate?: string):
   end.setHours(23, 59, 59, 999);
 
   if (startDate && endDate) {
-    return { start: new Date(startDate), end: new Date(endDate) };
+    const start = new Date(startDate);
+    const endParsed = new Date(endDate);
+
+    // Validation: start date must be before or equal to end date
+    if (start > endParsed) {
+      throw new BadRequestException('Start date must be before or equal to end date');
+    }
+
+    // Validation: dates must be valid
+    if (isNaN(start.getTime()) || isNaN(endParsed.getTime())) {
+      throw new BadRequestException('Invalid date format. Use YYYY-MM-DD');
+    }
+
+    return { start, end: endParsed };
   }
 
   switch (dateRange) {
@@ -51,8 +65,12 @@ function getDateRange(dateRange?: string, startDate?: string, endDate?: string):
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class ReportsController {
+  private readonly logger = new Logger(ReportsController.name);
+  private readonly CACHE_TTL = 300; // 5 minutes
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly generateSalesReport: GenerateSalesReportUseCase,
     private readonly generateInventoryReport: GenerateInventoryReportUseCase,
     private readonly reportsService: ReportsService,
@@ -66,7 +84,30 @@ export class ReportsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
+    // Validation: outletId is required
+    if (!outletId) {
+      throw new BadRequestException('outletId is required');
+    }
+
+    // Validation: outlet must exist
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
+    }
+
     const { start, end } = getDateRange(dateRange, startDate, endDate);
+
+    // Check cache
+    const cacheKey = `report:sales:${outletId}:${dateRange}:${startDate}:${endDate}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for sales report: ${cacheKey}`);
+      return cached;
+    }
+
     const whereClause = {
       outletId,
       transactionType: 'sale' as const,
@@ -111,13 +152,19 @@ export class ReportsController {
       transactions: data.transactions,
     }));
 
-    return {
+    const result = {
       totalSales,
       totalTransactions,
       averageOrderValue,
       totalCustomers: customerCount.length,
       salesByDate,
     };
+
+    // Cache result
+    await this.redis.set(cacheKey, result, this.CACHE_TTL);
+    this.logger.debug(`Cached sales report: ${cacheKey}`);
+
+    return result;
   }
 
   @Get('sales/daily')
@@ -197,7 +244,29 @@ export class ReportsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
+    // Validation
+    if (!outletId) {
+      throw new BadRequestException('outletId is required');
+    }
+
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
+    }
+
     const { start, end } = getDateRange(dateRange, startDate, endDate);
+
+    // Check cache
+    const cacheKey = `report:financial:${outletId}:${dateRange}:${startDate}:${endDate}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for financial report: ${cacheKey}`);
+      return cached;
+    }
+
     const whereClause = {
       outletId,
       status: 'completed' as const,
@@ -227,12 +296,18 @@ export class ReportsController {
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-    return {
+    const result = {
       totalRevenue,
       totalCost,
       grossProfit,
       grossMargin,
     };
+
+    // Cache result
+    await this.redis.set(cacheKey, result, this.CACHE_TTL);
+    this.logger.debug(`Cached financial report: ${cacheKey}`);
+
+    return result;
   }
 
   @Get('employees')
@@ -524,6 +599,218 @@ export class ReportsController {
         count: s._count,
       })),
     };
+  }
+
+  @Get('products')
+  @ApiOperation({ summary: 'Product sales report (top products by revenue and quantity)' })
+  async productReport(
+    @Query('outletId') outletId: string,
+    @Query('dateRange') dateRange?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    // Validation
+    if (!outletId) {
+      throw new BadRequestException('outletId is required');
+    }
+
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
+    }
+
+    const { start, end } = getDateRange(dateRange, startDate, endDate);
+
+    // Check cache
+    const cacheKey = `report:products:${outletId}:${dateRange}:${startDate}:${endDate}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for products report: ${cacheKey}`);
+      return cached;
+    }
+
+    // Get all completed sale transactions with items
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        outletId,
+        transactionType: 'sale',
+        status: 'completed',
+        createdAt: { gte: start, lte: end },
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                category: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Aggregate product sales
+    const productStats = new Map<
+      string,
+      {
+        productId: string;
+        name: string;
+        category: string | null;
+        quantitySold: number;
+        revenue: number;
+      }
+    >();
+
+    let totalQuantitySold = 0;
+
+    for (const tx of transactions) {
+      for (const item of tx.items) {
+        if (!item.product || !item.productId) continue;
+
+        const key = item.productId;
+        const existing = productStats.get(key);
+        const quantity = item.quantity.toNumber();
+        const itemRevenue = item.unitPrice.toNumber() * quantity;
+
+        totalQuantitySold += quantity;
+
+        if (existing) {
+          existing.quantitySold += quantity;
+          existing.revenue += itemRevenue;
+        } else {
+          productStats.set(key, {
+            productId: item.productId,
+            name: item.product.name,
+            category: item.product.category?.name || null,
+            quantitySold: quantity,
+            revenue: itemRevenue,
+          });
+        }
+      }
+    }
+
+    // Convert to array and sort by revenue
+    const topProducts = Array.from(productStats.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .map((p) => ({
+        ...p,
+        revenue: Math.round(p.revenue * 100) / 100,
+      }));
+
+    const result = {
+      topProducts,
+      totalProducts: productStats.size,
+      totalQuantitySold,
+    };
+
+    // Cache result
+    await this.redis.set(cacheKey, result, this.CACHE_TTL);
+    this.logger.debug(`Cached products report: ${cacheKey}`);
+
+    return result;
+  }
+
+  @Get('payment-methods')
+  @ApiOperation({ summary: 'Payment method breakdown report' })
+  async paymentMethodReport(
+    @Query('outletId') outletId: string,
+    @Query('dateRange') dateRange?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    // Validation
+    if (!outletId) {
+      throw new BadRequestException('outletId is required');
+    }
+
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
+    }
+
+    const { start, end } = getDateRange(dateRange, startDate, endDate);
+
+    // Check cache
+    const cacheKey = `report:payment-methods:${outletId}:${dateRange}:${startDate}:${endDate}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for payment methods report: ${cacheKey}`);
+      return cached;
+    }
+
+    // Get all payments from completed transactions
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        transaction: {
+          outletId,
+          transactionType: 'sale',
+          status: 'completed',
+          createdAt: { gte: start, lte: end },
+        },
+      },
+      select: {
+        paymentMethod: true,
+        amount: true,
+      },
+    });
+
+    // Aggregate by payment method
+    const methodStats = new Map<
+      string,
+      { count: number; amount: number }
+    >();
+
+    let totalAmount = 0;
+    let totalTransactions = 0;
+
+    for (const payment of payments) {
+      const method = payment.paymentMethod;
+      const amount = payment.amount.toNumber();
+      const existing = methodStats.get(method);
+
+      totalAmount += amount;
+      totalTransactions += 1;
+
+      if (existing) {
+        existing.count += 1;
+        existing.amount += amount;
+      } else {
+        methodStats.set(method, { count: 1, amount });
+      }
+    }
+
+    // Convert to array with percentages
+    const methods = Array.from(methodStats.entries())
+      .map(([method, stats]) => ({
+        method,
+        count: stats.count,
+        amount: Math.round(stats.amount * 100) / 100,
+        percentage: totalAmount > 0
+          ? Math.round((stats.amount / totalAmount) * 100 * 10) / 10
+          : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const result = {
+      methods,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      totalTransactions,
+    };
+
+    // Cache result
+    await this.redis.set(cacheKey, result, this.CACHE_TTL);
+    this.logger.debug(`Cached payment methods report: ${cacheKey}`);
+
+    return result;
   }
 
   @Get('promotions')

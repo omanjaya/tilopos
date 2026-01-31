@@ -38,10 +38,11 @@ export type DateRange = 'today' | 'this_week' | 'this_month' | 'this_year' | 'cu
 export interface ProductReport {
   topProducts: ProductSales[];
   totalProducts: number;
+  totalQuantitySold: number;
 }
 
 export interface ProductSales {
-  id: string;
+  productId: string;
   name: string;
   quantitySold: number;
   revenue: number;
@@ -51,6 +52,7 @@ export interface ProductSales {
 export interface PaymentMethodReport {
   methods: PaymentMethodBreakdown[];
   totalAmount: number;
+  totalTransactions: number;
 }
 
 export interface PaymentMethodBreakdown {

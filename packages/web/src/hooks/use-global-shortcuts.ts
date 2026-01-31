@@ -46,7 +46,7 @@ export function useGlobalShortcuts({ enabled = true }: UseGlobalShortcutsOptions
     // Show shortcuts - dispatch event for shortcuts dialog
     {
       key: '/',
-      modifiers: { meta: modKey === '⌘', ctrl: modKey === 'Ctrl', shift: true },
+      modifiers: { meta: modKey === '⌘', ctrl: modKey === 'Ctrl' },
       handler: () => {
         window.dispatchEvent(new CustomEvent('open-shortcuts-dialog', { detail: { open: true } }));
       },

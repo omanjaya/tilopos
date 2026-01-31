@@ -1,5 +1,4 @@
-import { useEffect, useRef } from 'react';
-import { ShepherdTour, Tour } from 'react-shepherd';
+import { useEffect } from 'react';
 import 'shepherd.js/dist/css/shepherd.css';
 
 interface ProductTourProps {
@@ -9,88 +8,24 @@ interface ProductTourProps {
   children?: React.ReactNode;
 }
 
-// Custom Shepherd theme styles
-const tourOptions = {
-  defaultStepOptions: {
-    classes: 'tilo-tour',
-    cancelIcon: {
-      enabled: true,
-    },
-    arrowClass: 'shepherd-arrow',
-    buttons: [
-      {
-        classes: 'shepherd-button-secondary',
-        text: 'Back',
-        type: 'cancel',
-      },
-      {
-        classes: 'shepherd-button-primary',
-        text: 'Next',
-        type: 'cancel',
-      },
-    ],
-    highlightClass: 'shepherd-highlight',
-    scrollTo: {
-      behavior: 'smooth',
-      block: 'center',
-    },
-    showCancelLink: true,
-    tooltipClass: 'shepherd-tooltip',
-    title: '',
-    text: '',
-  },
-  useModalOverlay: true,
-  Shepherd: {
-    classes: 'shepherd-theme-arrows',
-  },
-};
-
-export function ProductTour({ tourId, onComplete, onSkip, children }: ProductTourProps) {
-  const tourRef = useRef<Tour | null>(null);
-  const hasShownRef = useRef(false);
-
+/**
+ * ProductTour component provides styling and tour completion tracking.
+ * Actual tour implementation should use Shepherd.js directly in pages.
+ */
+export function ProductTour({ tourId, children }: ProductTourProps) {
   useEffect(() => {
     // Check if tour has already been shown and completed
     const completedTours = JSON.parse(
       localStorage.getItem('tilo-completed-tours') || '[]'
     );
 
-    if (completedTours.includes(tourId) || hasShownRef.current) {
+    if (completedTours.includes(tourId)) {
       return;
     }
 
-    // Auto-show tour after a short delay
-    const timer = setTimeout(() => {
-      // Only auto-show on first visit
-      hasShownRef.current = true;
-
-      // Check if element exists before starting tour
-      const firstStepElement = document.querySelector('[data-tour]');
-      if (firstStepElement) {
-        tourRef.current?.start();
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
+    // Tours will be implemented with Shepherd.js in individual pages
+    // This component mainly provides the global styling
   }, [tourId]);
-
-  const handleTourComplete = () => {
-    // Mark tour as completed in localStorage
-    const completedTours = JSON.parse(
-      localStorage.getItem('tilo-completed-tours') || '[]'
-    );
-
-    if (!completedTours.includes(tourId)) {
-      completedTours.push(tourId);
-      localStorage.setItem('tilo-completed-tours', JSON.stringify(completedTours));
-    }
-
-    onComplete?.();
-  };
-
-  const handleTourCancel = () => {
-    onSkip?.();
-  };
 
   return (
     <>
@@ -153,8 +88,25 @@ export function ProductTour({ tourId, onComplete, onSkip, children }: ProductTou
         .tilo-tour .shepherd-footer {
           padding: 0 16px 16px;
           display: flex;
-          justify-content: space-between;
-          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .tilo-tour .shepherd-modal-overlay-container {
+          background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .tilo-tour.shepherd-element {
+          background-color: hsl(var(--background));
+          border: 1px solid hsl(var(--border));
+          border-radius: 8px;
+          box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+          max-width: 400px;
+        }
+
+        .tilo-tour .shepherd-arrow::before {
+          background-color: hsl(var(--background));
+          border: 1px solid hsl(var(--border));
         }
 
         .tilo-tour .shepherd-cancel-icon {
@@ -165,35 +117,36 @@ export function ProductTour({ tourId, onComplete, onSkip, children }: ProductTou
           color: hsl(var(--foreground));
         }
 
-        .shepherd-modal-mask-container {
-          background: rgba(0, 0, 0, 0.5);
-          backdrop-filter: blur(2px);
-        }
-
         .shepherd-highlight {
-          border-radius: 8px;
           box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+          border-radius: 4px;
         }
       `}</style>
     </>
   );
 }
 
-// Hook to manually trigger a tour
-export function useProductTour(tourId: string) {
-  const startTour = () => {
-    // This would be implemented with Shepherd instance
-    console.log('Starting tour:', tourId);
-  };
-
-  const resetTour = () => {
-    // Remove tour from completed list
+/**
+ * Hook to mark a tour as completed
+ */
+export function useTourCompletion(tourId: string) {
+  const markCompleted = () => {
     const completedTours = JSON.parse(
       localStorage.getItem('tilo-completed-tours') || '[]'
     );
-    const updated = completedTours.filter((id: string) => id !== tourId);
-    localStorage.setItem('tilo-completed-tours', JSON.stringify(updated));
+
+    if (!completedTours.includes(tourId)) {
+      completedTours.push(tourId);
+      localStorage.setItem('tilo-completed-tours', JSON.stringify(completedTours));
+    }
   };
 
-  return { startTour, resetTour };
+  const isCompleted = () => {
+    const completedTours = JSON.parse(
+      localStorage.getItem('tilo-completed-tours') || '[]'
+    );
+    return completedTours.includes(tourId);
+  };
+
+  return { markCompleted, isCompleted };
 }

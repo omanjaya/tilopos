@@ -24,12 +24,8 @@ import {
   Camera,
   Loader2,
   CheckCircle,
-  XCircle,
-  Globe,
   Clock,
   MapPin,
-  Monitor,
-  Smartphone,
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -459,7 +455,7 @@ export function MyProfilePage() {
                   </div>
                   <Switch
                     id={item.id}
-                    checked={preferences[item.id] as boolean || false}
+                    checked={(preferences[item.id as keyof typeof preferences] as boolean) || false}
                     onCheckedChange={(checked) => handlePreferenceChange(item.id, checked)}
                   />
                 </div>

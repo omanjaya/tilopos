@@ -81,7 +81,7 @@ export function HelpCenterPage() {
 
       {/* Category Cards */}
       <div className="mb-8">
-        <h2 class Name="mb-4 text-xl font-semibold">Kategori</h2>
+        <h2 className="mb-4 text-xl font-semibold">Kategori</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {faqCategories.slice(1).map((category) => {
             const categoryFAQs = getFAQsByCategory(category.id);

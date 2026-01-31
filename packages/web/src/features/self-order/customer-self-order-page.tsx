@@ -251,9 +251,7 @@ export function CustomerSelfOrderPage() {
       <OrderConfirmation
         orderNumber={orderNumber}
         total={cartTotal}
-        tableNumber={session?.tableNumber}
         estimatedTime={15}
-        customerPhone={session?.customerPhone}
         onViewStatus={() => setOrderStatus('idle')}
         onNewOrder={() => {
           setOrderStatus('idle');
@@ -293,10 +291,10 @@ export function CustomerSelfOrderPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-gray-900">
-                {session?.outletName || 'Menu'}
+                Menu
               </h1>
               <p className="text-sm text-gray-600">
-                Meja {session?.tableNumber || '-'}
+                Sesi: {session?.sessionCode || '-'}
               </p>
             </div>
             <Button

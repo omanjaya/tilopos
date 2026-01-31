@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { clsx } from 'clsx';
-import { Button } from '@/components/ui/button';
 
 interface ProductLightboxProps {
   images: string[];

@@ -57,10 +57,12 @@ export const reportsApi = {
       return {
         topProducts: Array.isArray(d.topProducts) ? d.topProducts : [],
         totalProducts: Number(d.totalProducts ?? 0),
+        totalQuantitySold: Number(d.totalQuantitySold ?? 0),
       } as ProductReport;
     }).catch(() => ({
       topProducts: [],
       totalProducts: 0,
+      totalQuantitySold: 0,
     } as ProductReport)),
 
   paymentMethods: (params: ReportParams) =>
@@ -69,10 +71,12 @@ export const reportsApi = {
       return {
         methods: Array.isArray(d.methods) ? d.methods : [],
         totalAmount: Number(d.totalAmount ?? 0),
+        totalTransactions: Number(d.totalTransactions ?? 0),
       } as PaymentMethodReport;
     }).catch(() => ({
       methods: [],
       totalAmount: 0,
+      totalTransactions: 0,
     } as PaymentMethodReport)),
 
   inventory: (params: { outletId: string }) =>

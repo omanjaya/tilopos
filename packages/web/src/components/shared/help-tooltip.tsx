@@ -132,7 +132,6 @@ export function HelpCard({
 }: HelpCardProps) {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
   const VariantIcon = variantIcons[variant];
-  const IconComponent = icon || VariantIcon;
 
   const variantStyles = {
     info: 'border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950',
@@ -155,10 +154,8 @@ export function HelpCard({
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 w-full text-left"
       >
-        {typeof IconComponent === 'string' ? (
+        {icon || (
           <VariantIcon className={clsx('h-4 w-4 flex-shrink-0', iconStyles[variant])} />
-        ) : (
-          <IconComponent className={clsx('h-4 w-4 flex-shrink-0', iconStyles[variant])} />
         )}
         <span className="font-medium text-sm">{title}</span>
         <span className="ml-auto">

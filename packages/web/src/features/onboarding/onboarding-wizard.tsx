@@ -1,6 +1,6 @@
+import { Fragment } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useOnboarding } from './onboarding-provider';
 import { WelcomeStep } from './steps/welcome-step';
 import { BusinessStep } from './steps/business-step';
@@ -25,7 +25,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     return null;
   }
 
-  const handleNext = (data?: unknown) => {
+  const handleNext = () => {
     if (state.currentStep === steps.length - 1) {
       // Last step - complete onboarding
       onComplete?.();
@@ -57,7 +57,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {/* Progress Indicator */}
         <div className="mb-6 flex items-center justify-center gap-2">
           {steps.map((step, idx) => (
-            <React.Fragment key={step.id}>
+            <Fragment key={step.id}>
               <button
                 onClick={() => goToStep(idx)}
                 className={`
@@ -79,14 +79,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   }`}
                 />
               )}
-            </React.Fragment>
+            </Fragment>
           ))}
         </div>
 
         {/* Step Labels */}
         <div className="mb-6 flex justify-center">
           <span className="text-sm font-medium text-muted-foreground">
-            Langkah {state.currentStep + 1} dari {steps.length}: {steps[state.currentStep].title}
+            Langkah {state.currentStep + 1} dari {steps.length}: {steps[state.currentStep]?.title || ''}
           </span>
         </div>
 

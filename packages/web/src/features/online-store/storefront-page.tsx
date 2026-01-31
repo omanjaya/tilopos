@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { onlineStoreApi } from '@/api/endpoints/online-store.api';
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ShoppingCart, Search, Instagram, Facebook, MessageCircle, Minus, Plus, Trash2, Store } from 'lucide-react';
+import { ShoppingCart, Instagram, Facebook, MessageCircle, Plus, Trash2, Store } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface CartItem {
@@ -16,25 +16,13 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
-  imageUrl?: string;
-  variant?: { id: string; name: string; priceAdjustment: number };
+  imageUrl?: string | null;
+  variant?: { id: string; name: string; price: number };
   modifiers?: { id: string; name: string; price: number }[];
 }
 
-interface StoreProduct {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  originalPrice?: number;
-  imageUrl: string;
-  isAvailable: boolean;
-  isOnSale?: boolean;
-  discountPercent?: number;
-  categoryName: string;
-  variants?: { id: string; name: string; priceAdjustment: number }[];
-  modifierGroups?: { id: string; name: string; modifiers: { id: string; name: string; price: number }[] }[];
-}
+// Use StorefrontProduct from types with helper to get category name
+import type { StorefrontProduct } from '@/types/online-store.types';
 
 export function StorefrontPage() {
   const navigate = useNavigate();
@@ -45,7 +33,7 @@ export function StorefrontPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<StorefrontProduct | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(1);
@@ -53,6 +41,7 @@ export function StorefrontPage() {
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
+    email: '',
     address: '',
     notes: '',
   });
@@ -68,27 +57,33 @@ export function StorefrontPage() {
   });
 
   const products = storefront?.products || [];
+  const storeCategories = storefront?.categories || [];
 
-  // Get unique categories
-  const categories = ['all', ...Array.from(new Set(products.map((p) => p.categoryName)))];
+  // Get unique categories with IDs
+  const categories = [
+    { id: 'all', name: 'Semua' },
+    ...storeCategories,
+  ];
 
   // Filter products
   const filteredProducts = products.filter((product) => {
-    const matchesCategory = selectedCategory === 'all' || product.categoryName === selectedCategory;
+    const matchesCategory = selectedCategory === 'all' || product.categoryId === selectedCategory;
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
   // Cart calculations
-  const cartTotal = cart.reduce((sum, item) => {
-    const itemPrice = item.price + (item.variant?.priceAdjustment || 0);
+  const getItemTotal = (item: CartItem) => {
+    const basePrice = item.variant?.price || item.price;
     const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + m.price, 0) || 0;
-    return sum + (itemPrice + modifiersPrice) * item.quantity;
-  }, 0);
+    return (basePrice + modifiersPrice) * item.quantity;
+  };
+
+  const cartTotal = cart.reduce((sum, item) => sum + getItemTotal(item), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   // Add to cart
-  const addToCart = (product: StoreProduct) => {
+  const addToCart = (product: StorefrontProduct) => {
     const variant = product.variants?.find((v) => v.id === selectedVariant);
     const modifiers = selectedModifiers
       .map((id) =>
@@ -96,7 +91,7 @@ export function StorefrontPage() {
           ?.flatMap((g) => g.modifiers)
           .find((m) => m.id === id)
       )
-      .filter(Boolean);
+      .filter((m): m is { id: string; name: string; price: number; isAvailable: boolean } => m !== undefined);
 
     setCart((prev) => {
       const existing = prev.find(
@@ -151,13 +146,6 @@ export function StorefrontPage() {
     setCart((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
   };
 
-  // Calculate item total
-  const getItemTotal = (item: CartItem) => {
-    const variantPrice = item.variant?.priceAdjustment || 0;
-    const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + m.price, 0) || 0;
-    return (item.price + variantPrice + modifiersPrice) * item.quantity;
-  };
-
   // Submit order
   const submitOrder = async () => {
     if (cart.length === 0) return;
@@ -165,14 +153,18 @@ export function StorefrontPage() {
     setOrderStatus('submitting');
     try {
       const result = await onlineStoreApi.createOrder(slug, {
-        customerInfo,
+        customerName: customerInfo.name,
+        customerPhone: customerInfo.phone,
+        customerEmail: customerInfo.email || undefined,
+        deliveryAddress: deliveryMethod === 'delivery' ? customerInfo.address : undefined,
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
-          modifierIds: item.modifiers?.map((m) => m.id) || [],
+          modifiers: item.modifiers?.map((m) => ({ modifierId: m.id })) || [],
+          notes: customerInfo.notes,
         })),
-        deliveryMethod,
+        notes: customerInfo.notes,
       });
 
       setOrderNumber(result.orderNumber);
@@ -274,9 +266,9 @@ export function StorefrontPage() {
       <header className="bg-white shadow-sm">
         <div className="mx-auto max-w-7xl px-4 py-6">
           {/* Banner */}
-          {storefront.bannerUrl && (
+          {storefront.banner && (
             <img
-              src={storefront.bannerUrl}
+              src={storefront.banner}
               alt={storefront.name}
               className="w-full h-48 object-cover rounded-lg mb-4"
             />
@@ -286,7 +278,7 @@ export function StorefrontPage() {
             {/* Logo */}
             <div className="relative">
               <img
-                src={storefront.logoUrl || '/placeholder-store.png'}
+                src={storefront.logo || '/placeholder-store.png'}
                 alt={storefront.name}
                 className="h-20 w-20 rounded-full border-2"
                 onError={(e) => { (e.currentTarget.src = '/placeholder-store.png'); }}
@@ -296,7 +288,9 @@ export function StorefrontPage() {
             {/* Store Info */}
             <div className="flex-1">
               <h1 className="text-2xl font-bold">{storefront.name}</h1>
-              <p className="text-muted-foreground">{storefront.tagline}</p>
+              {storefront.description && (
+                <p className="text-muted-foreground">{storefront.description}</p>
+              )}
 
               {/* Social Links */}
               <div className="flex gap-3 mt-2">
@@ -366,29 +360,18 @@ export function StorefrontPage() {
           <div className="bg-white rounded-lg shadow p-4 sticky top-24">
             <h3 className="font-semibold mb-3">Kategori</h3>
             <nav className="space-y-1">
-              <button
-                onClick={() => setSelectedCategory('all')}
-                className={clsx(
-                  'w-full text-left px-3 py-2 rounded-md transition-colors',
-                  selectedCategory === 'all'
-                    ? 'bg-primary text-white'
-                    : 'hover:bg-gray-100'
-                )}
-              >
-                Semua Produk ({products.length})
-              </button>
-              {categories.slice(1).map((cat) => (
+              {categories.map((cat) => (
                 <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
                   className={clsx(
                     'w-full text-left px-3 py-2 rounded-md transition-colors',
-                    selectedCategory === cat
+                    selectedCategory === cat.id
                       ? 'bg-primary text-white'
                       : 'hover:bg-gray-100'
                   )}
                 >
-                  {cat}
+                  {cat.name} ({cat.id === 'all' ? products.length : products.filter(p => p.categoryId === cat.id).length})
                 </button>
               ))}
             </nav>
@@ -438,9 +421,9 @@ export function StorefrontPage() {
         onClose={() => setIsCartOpen(false)}
         cart={cart}
         cartTotal={cartTotal}
-        cartItemCount={cartItemCount}
         updateQuantity={updateQuantity}
         removeFromCart={removeFromCart}
+        getItemTotal={getItemTotal}
         onCheckout={() => {
           setIsCartOpen(false);
           setCheckoutStep(1);
@@ -450,7 +433,6 @@ export function StorefrontPage() {
       {/* Checkout Flow */}
       {(checkoutStep > 0 || orderStatus === 'submitting') && (
         <CheckoutFlow
-          storeSlug={slug}
           cart={cart}
           cartTotal={cartTotal}
           checkoutStep={checkoutStep}
@@ -473,7 +455,7 @@ export function StorefrontPage() {
 
 // Product Card Component
 interface ProductCardProps {
-  product: StoreProduct;
+  product: StorefrontProduct;
   onAddToCart: () => void;
 }
 
@@ -500,9 +482,9 @@ function ProductCard({ product, onAddToCart }: ProductCardProps) {
             Stok Habis
           </Badge>
         )}
-        {product.isOnSale && product.discountPercent && (
+        {product.compareAtPrice && product.compareAtPrice > product.price && (
           <Badge className="absolute top-2 left-2" variant="destructive">
-            Sale {product.discountPercent}%
+            Sale {Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)}%
           </Badge>
         )}
       </div>
@@ -517,13 +499,13 @@ function ProductCard({ product, onAddToCart }: ProductCardProps) {
 
         <div className="flex items-center justify-between">
           <div>
-            {product.isOnSale && product.originalPrice ? (
+            {product.compareAtPrice && product.compareAtPrice > product.price ? (
               <>
                 <span className="text-lg font-bold text-destructive">
                   {formatCurrency(product.price)}
                 </span>
                 <span className="text-sm text-muted-foreground line-through ml-2">
-                  {formatCurrency(product.originalPrice)}
+                  {formatCurrency(product.compareAtPrice)}
                 </span>
               </>
             ) : (
@@ -546,7 +528,7 @@ function ProductCard({ product, onAddToCart }: ProductCardProps) {
 
 // Product Detail Modal Component
 interface ProductDetailModalProps {
-  product: StoreProduct;
+  product: StorefrontProduct;
   quantity: number;
   setQuantity: (value: number) => void;
   selectedVariant: string;
@@ -571,12 +553,25 @@ function ProductDetailModal({
   const variants = product.variants || [];
   const modifierGroups = product.modifierGroups || [];
 
+  // Calculate modal total
+  const calculateTotal = () => {
+    const selectedVariantObj = variants.find((v) => v.id === selectedVariant);
+    const basePrice = selectedVariantObj?.price || product.price;
+    const modifiersPrice = selectedModifiers.reduce((sum, modId) => {
+      const modifier = modifierGroups
+        .flatMap((g) => g.modifiers)
+        .find((m) => m.id === modId);
+      return sum + (modifier?.price || 0);
+    }, 0);
+    return (basePrice + modifiersPrice) * quantity;
+  };
+
   const toggleModifier = (modifierId: string) => {
-    setSelectedModifiers((prev) =>
-      prev.includes(modifierId)
-        ? prev.filter((id) => id !== modifierId)
-        : [...prev, modifierId]
-    );
+    if (selectedModifiers.includes(modifierId)) {
+      setSelectedModifiers(selectedModifiers.filter((id) => id !== modifierId));
+    } else {
+      setSelectedModifiers([...selectedModifiers, modifierId]);
+    }
   };
 
   return (
@@ -632,9 +627,9 @@ function ProductDetailModal({
                     className="sr-only"
                   />
                   <span>{v.name}</span>
-                  {v.priceAdjustment !== 0 && (
+                  {v.price !== product.price && (
                     <span className="text-sm text-muted-foreground">
-                      (+{formatCurrency(v.priceAdjustment)})
+                      ({v.price > product.price ? '+' : ''}{formatCurrency(v.price - product.price)})
                     </span>
                   )}
                 </label>
@@ -692,7 +687,7 @@ function ProductDetailModal({
               type="number"
               min="1"
               value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || '1')}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
               className="w-20 text-center"
             />
             <Button
@@ -726,21 +721,16 @@ function ProductDetailModal({
   );
 }
 
-function calculateTotal() {
-  // TODO: Calculate based on selected variant, modifiers, and quantity
-  return 0;
-}
-
 // Cart Drawer Component
 interface CartDrawerProps {
   open: boolean;
   onClose: () => void;
   cart: CartItem[];
   cartTotal: number;
-  cartItemCount: number;
   updateQuantity: (productId: string, variantId: string, delta: number) => void;
   removeFromCart: (productId: string, variantId: string) => void;
   onCheckout: () => void;
+  getItemTotal: (item: CartItem) => number;
 }
 
 function CartDrawer({
@@ -748,15 +738,14 @@ function CartDrawer({
   onClose,
   cart,
   cartTotal,
-  cartItemCount,
   updateQuantity,
   removeFromCart,
   onCheckout,
+  getItemTotal,
 }: CartDrawerProps) {
   const subtotal = cartTotal;
   const tax = Math.round(subtotal * 0.11); // 11% tax
-  const shippingFee = deliveryMethod === 'delivery' ? 15000 : 0;
-  const total = subtotal + tax + shippingFee;
+  const total = subtotal + tax;
 
   return (
     <div className={clsx('fixed inset-0 z-50', open ? 'block' : 'hidden')}>
@@ -843,14 +832,13 @@ function CartDrawer({
                 <span className="text-muted-foreground">Pajak (11%)</span>
                 <span>{formatCurrency(tax)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Ongkir</span>
-                <span>{formatCurrency(shippingFee)}</span>
-              </div>
               <div className="flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span className="text-primary">{formatCurrency(total)}</span>
               </div>
+              <p className="text-xs text-muted-foreground">
+                *Ongkir akan dihitung di checkout
+              </p>
             </div>
 
             <Button onClick={onCheckout} className="w-full" size="lg">
@@ -865,12 +853,11 @@ function CartDrawer({
 
 // Checkout Flow Component
 interface CheckoutFlowProps {
-  storeSlug: string;
   cart: CartItem[];
   cartTotal: number;
   checkoutStep: number;
   setCheckoutStep: (step: number) => void;
-  customerInfo: { name: string; phone: string; address: string; notes: string };
+  customerInfo: { name: string; phone: string; email: string; address: string; notes: string };
   setCustomerInfo: (info: any) => void;
   deliveryMethod: 'delivery' | 'pickup';
   setDeliveryMethod: (method: 'delivery' | 'pickup') => void;
@@ -880,7 +867,6 @@ interface CheckoutFlowProps {
 }
 
 function CheckoutFlow({
-  storeSlug,
   cart,
   cartTotal,
   checkoutStep,
@@ -893,6 +879,7 @@ function CheckoutFlow({
   submitOrder,
   onClose,
 }: CheckoutFlowProps) {
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = cartTotal;
   const tax = Math.round(subtotal * 0.11);
   const shippingFee = deliveryMethod === 'delivery' ? 15000 : 0;
