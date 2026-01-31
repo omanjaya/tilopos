@@ -1,0 +1,41 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { writeFile, mkdir, unlink } from 'fs/promises';
+import { join, dirname, resolve } from 'path';
+import type { StorageAdapter } from './storage.service';
+
+@Injectable()
+export class LocalStorageAdapter implements StorageAdapter {
+  private readonly logger = new Logger(LocalStorageAdapter.name);
+  private readonly uploadDir = join(process.cwd(), 'uploads');
+
+  async upload(filename: string, buffer: Buffer): Promise<string> {
+    // Prevent path traversal
+    const safePath = resolve(this.uploadDir, filename);
+    if (!safePath.startsWith(resolve(this.uploadDir))) {
+      throw new Error('Invalid file path: path traversal detected');
+    }
+
+    await mkdir(dirname(safePath), { recursive: true });
+    await writeFile(safePath, buffer);
+    this.logger.log(`File uploaded: ${filename}`);
+    return filename;
+  }
+
+  async delete(filepath: string): Promise<void> {
+    // Prevent path traversal
+    const safePath = resolve(this.uploadDir, filepath);
+    if (!safePath.startsWith(resolve(this.uploadDir))) {
+      throw new Error('Invalid file path: path traversal detected');
+    }
+
+    try {
+      await unlink(safePath);
+    } catch (error) {
+      this.logger.warn(`File not found for deletion: ${filepath}`);
+    }
+  }
+
+  getUrl(filepath: string): string {
+    return `/uploads/${filepath}`;
+  }
+}

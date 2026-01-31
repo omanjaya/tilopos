@@ -1,0 +1,1769 @@
+// ============================================================================
+// TiloPOS - Prisma Schema
+// PostgreSQL | Multi-tenant POS System for SME/UMKM
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum BusinessStatus {
+  active
+  suspended
+  cancelled
+
+  @@map("business_status")
+}
+
+enum SubscriptionPlan {
+  basic
+  standard
+  premium
+  enterprise
+
+  @@map("subscription_plan")
+}
+
+enum EmployeeRole {
+  super_admin
+  owner
+  manager
+  supervisor
+  cashier
+  kitchen
+  inventory
+
+  @@map("employee_role")
+}
+
+enum ShiftStatus {
+  open
+  closed
+
+  @@map("shift_status")
+}
+
+enum TransactionType {
+  sale
+  refund
+
+  @@map("transaction_type")
+}
+
+enum OrderType {
+  dine_in
+  takeaway
+  delivery
+
+  @@map("order_type")
+}
+
+enum TransactionStatus {
+  pending
+  completed
+  voided
+  refunded
+
+  @@map("transaction_status")
+}
+
+enum PaymentMethod {
+  cash
+  card
+  gopay
+  ovo
+  dana
+  shopeepay
+  qris
+  bank_transfer
+  credit_note
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  pending
+  completed
+  failed
+  refunded
+
+  @@map("payment_status")
+}
+
+enum TableStatus {
+  available
+  occupied
+  reserved
+  cleaning
+
+  @@map("table_status")
+}
+
+enum OrderStatus {
+  pending
+  confirmed
+  preparing
+  ready
+  served
+  completed
+  cancelled
+
+  @@map("order_status")
+}
+
+enum OrderItemStatus {
+  pending
+  preparing
+  ready
+  served
+  cancelled
+
+  @@map("order_item_status")
+}
+
+enum ModifierSelectionType {
+  single
+  multiple
+
+  @@map("modifier_selection_type")
+}
+
+enum StockMovementType {
+  sale
+  purchase
+  adjustment
+  transfer_in
+  transfer_out
+  waste
+  return_stock
+
+  @@map("stock_movement_type")
+}
+
+enum IngredientStockMovementType {
+  purchase
+  usage
+  adjustment
+  waste
+  transfer_in
+  transfer_out
+
+  @@map("ingredient_stock_movement_type")
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  partial
+  received
+  cancelled
+
+  @@map("purchase_order_status")
+}
+
+enum StockTransferStatus {
+  pending
+  approved
+  in_transit
+  received
+  rejected
+  cancelled
+
+  @@map("stock_transfer_status")
+}
+
+enum LoyaltyTransactionType {
+  earned
+  redeemed
+  adjusted
+  expired
+
+  @@map("loyalty_transaction_type")
+}
+
+enum SettlementStatus {
+  pending
+  settled
+  disputed
+
+  @@map("settlement_status")
+}
+
+enum OnlineOrderPlatform {
+  gofood
+  grabfood
+  shopeefood
+
+  @@map("online_order_platform")
+}
+
+enum OnlineOrderType {
+  delivery
+  pickup
+
+  @@map("online_order_type")
+}
+
+enum OnlineOrderStatus {
+  received
+  accepted
+  preparing
+  ready
+  picked_up
+  completed
+  cancelled
+
+  @@map("online_order_status")
+}
+
+enum DeviceType {
+  tablet
+  phone
+  desktop
+  kds_display
+
+  @@map("device_type")
+}
+
+enum DevicePlatform {
+  android
+  ios
+  windows
+  web
+
+  @@map("device_platform")
+}
+
+enum NotificationType {
+  low_stock
+  large_transaction
+  refund
+  online_order
+  shift_reminder
+  system_error
+  birthday
+
+  @@map("notification_type")
+}
+
+enum NotificationChannel {
+  push
+  email
+  sms
+  whatsapp
+
+  @@map("notification_channel")
+}
+
+enum NotificationLogStatus {
+  sent
+  delivered
+  read
+  failed
+
+  @@map("notification_log_status")
+}
+
+enum SelfOrderSessionStatus {
+  active
+  submitted
+  paid
+  expired
+
+  @@map("self_order_session_status")
+}
+
+enum StoreOrderPaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+
+  @@map("store_order_payment_status")
+}
+
+enum StoreOrderStatus {
+  pending
+  confirmed
+  processing
+  shipped
+  delivered
+  cancelled
+
+  @@map("store_order_status")
+}
+
+enum WaitingListStatus {
+  waiting
+  notified
+  seated
+  cancelled
+  no_show
+
+  @@map("waiting_list_status")
+}
+
+enum DiscountType {
+  percentage
+  fixed
+  bogo
+
+  @@map("discount_type")
+}
+
+enum CustomerType {
+  individual
+  company
+
+  @@map("customer_type")
+}
+
+// ============================================================================
+// 1. BUSINESS (Multi-tenant Root)
+// ============================================================================
+
+model Business {
+  id                    String            @id @default(uuid()) @db.Uuid
+  name                  String            @db.VarChar(255)
+  legalName             String?           @map("legal_name") @db.VarChar(255)
+  taxId                 String?           @map("tax_id") @db.VarChar(50)
+  phone                 String?           @db.VarChar(20)
+  email                 String?           @db.VarChar(255)
+  address               String?           @db.Text
+  logoUrl               String?           @map("logo_url") @db.VarChar(500)
+  subscriptionPlan      SubscriptionPlan  @default(basic) @map("subscription_plan")
+  subscriptionExpiresAt DateTime?         @map("subscription_expires_at") @db.Timestamptz()
+  settings              Json              @default("{}") @db.JsonB
+  status                BusinessStatus    @default(active)
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlets               Outlet[]
+  employees             Employee[]
+  categories            Category[]
+  products              Product[]
+  customers             Customer[]
+  modifierGroups        ModifierGroup[]
+  ingredients           Ingredient[]
+  suppliers             Supplier[]
+  stockTransfers        StockTransfer[]
+  loyaltyTiers          LoyaltyTier[]
+  loyaltyPrograms       LoyaltyProgram[]
+  auditLogs             AuditLog[]
+  devices               Device[]
+  notificationSettings  NotificationSetting[]
+  notificationLogs      NotificationLog[]
+  onlineStores          OnlineStore[]
+  promotions            Promotion[]
+  vouchers              Voucher[]
+
+  @@map("businesses")
+}
+
+// ============================================================================
+// 2. OUTLET
+// ============================================================================
+
+model Outlet {
+  id                    String    @id @default(uuid()) @db.Uuid
+  businessId            String    @map("business_id") @db.Uuid
+  name                  String    @db.VarChar(255)
+  code                  String?   @unique @db.VarChar(20)
+  address               String?   @db.Text
+  phone                 String?   @db.VarChar(20)
+  email                 String?   @db.VarChar(255)
+  timezone              String    @default("Asia/Jakarta") @db.VarChar(50)
+  taxRate               Decimal   @default(11.00) @map("tax_rate") @db.Decimal(5, 2)
+  serviceCharge         Decimal   @default(0) @map("service_charge") @db.Decimal(5, 2)
+  receiptHeader         String?   @map("receipt_header") @db.Text
+  receiptFooter         String?   @map("receipt_footer") @db.Text
+  settings              Json      @default("{}") @db.JsonB
+  isActive              Boolean   @default(true) @map("is_active")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business              Business  @relation(fields: [businessId], references: [id])
+  employees             Employee[]
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  transactions          Transaction[]
+  shifts                Shift[]
+  tables                Table[]
+  orders                Order[]
+  ingredientStockLevels IngredientStockLevel[]
+  ingredientStockMovements IngredientStockMovement[]
+  purchaseOrders        PurchaseOrder[]
+  sourceTransfers       StockTransfer[]   @relation("SourceOutlet")
+  destinationTransfers  StockTransfer[]   @relation("DestinationOutlet")
+  auditLogs             AuditLog[]
+  paymentSettlements    PaymentSettlement[]
+  onlineOrders          OnlineOrder[]
+  devices               Device[]
+  notificationSettings  NotificationSetting[]
+  notificationLogs      NotificationLog[]
+  selfOrderSessions     SelfOrderSession[]
+  storeOrders           StoreOrder[]
+  waitingList           WaitingList[]
+  employeeSchedules     EmployeeSchedule[]
+  employeeAttendances   EmployeeAttendance[]
+
+  @@index([businessId], map: "idx_outlets_business")
+  @@map("outlets")
+}
+
+// ============================================================================
+// 3. EMPLOYEE
+// ============================================================================
+
+model Employee {
+  id                    String        @id @default(uuid()) @db.Uuid
+  businessId            String        @map("business_id") @db.Uuid
+  outletId              String?       @map("outlet_id") @db.Uuid
+  name                  String        @db.VarChar(255)
+  email                 String?       @db.VarChar(255)
+  phone                 String?       @db.VarChar(20)
+  pin                   String?       @db.VarChar(255)
+  role                  EmployeeRole
+  permissions           Json          @default("[]") @db.JsonB
+  hourlyRate            Decimal?      @map("hourly_rate") @db.Decimal(10, 2)
+  isActive              Boolean       @default(true) @map("is_active")
+  mfaSecret             String?       @map("mfa_secret") @db.VarChar(500)
+  mfaEnabled            Boolean       @default(false) @map("mfa_enabled")
+  googleId              String?       @map("google_id") @db.VarChar(255)
+  authProvider          String        @default("local") @map("auth_provider") @db.VarChar(20)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business              Business      @relation(fields: [businessId], references: [id])
+  outlet                Outlet?       @relation(fields: [outletId], references: [id])
+  shifts                Shift[]
+  transactions          Transaction[] @relation("TransactionEmployee")
+  voidedTransactions    Transaction[] @relation("TransactionVoidedBy")
+  stockMovements        StockMovement[]
+  ingredientStockMovements IngredientStockMovement[]
+  purchaseOrders        PurchaseOrder[]
+  requestedTransfers    StockTransfer[] @relation("TransferRequestedBy")
+  approvedTransfers     StockTransfer[] @relation("TransferApprovedBy")
+  receivedTransfers     StockTransfer[] @relation("TransferReceivedBy")
+  loyaltyTransactions   LoyaltyTransaction[]
+  auditLogs             AuditLog[]
+  notificationSettings  NotificationSetting[]
+  notificationLogs      NotificationLog[]
+  schedules             EmployeeSchedule[]
+  attendances           EmployeeAttendance[]
+
+  @@index([businessId], map: "idx_employees_business")
+  @@index([outletId], map: "idx_employees_outlet")
+  @@map("employees")
+}
+
+// ============================================================================
+// EMPLOYEE SCHEDULE
+// ============================================================================
+
+model EmployeeSchedule {
+  id              String    @id @default(uuid()) @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  outletId        String    @map("outlet_id") @db.Uuid
+  date            DateTime  @db.Date
+  startTime       String    @map("start_time") @db.VarChar(5)
+  endTime         String    @map("end_time") @db.VarChar(5)
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+  outlet          Outlet    @relation(fields: [outletId], references: [id])
+
+  @@index([employeeId], map: "idx_schedule_employee")
+  @@index([outletId, date], map: "idx_schedule_outlet_date")
+  @@map("employee_schedules")
+}
+
+// ============================================================================
+// EMPLOYEE ATTENDANCE
+// ============================================================================
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+
+  @@map("attendance_status")
+}
+
+model EmployeeAttendance {
+  id              String            @id @default(uuid()) @db.Uuid
+  employeeId      String            @map("employee_id") @db.Uuid
+  outletId        String            @map("outlet_id") @db.Uuid
+  clockInTime     DateTime          @map("clock_in_time") @db.Timestamptz()
+  clockOutTime    DateTime?         @map("clock_out_time") @db.Timestamptz()
+  hoursWorked     Decimal?          @map("hours_worked") @db.Decimal(5, 2)
+  status          AttendanceStatus  @default(present)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  employee        Employee          @relation(fields: [employeeId], references: [id])
+  outlet          Outlet            @relation(fields: [outletId], references: [id])
+
+  @@index([employeeId], map: "idx_attendance_employee")
+  @@index([outletId, clockInTime], map: "idx_attendance_outlet_date")
+  @@map("employee_attendances")
+}
+
+// ============================================================================
+// 4. CATEGORY (Self-referencing parent)
+// ============================================================================
+
+model Category {
+  id          String     @id @default(uuid()) @db.Uuid
+  businessId  String     @map("business_id") @db.Uuid
+  parentId    String?    @map("parent_id") @db.Uuid
+  name        String     @db.VarChar(255)
+  description String?    @db.Text
+  imageUrl    String?    @map("image_url") @db.VarChar(500)
+  sortOrder   Int        @default(0) @map("sort_order")
+  isActive    Boolean    @default(true) @map("is_active")
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business    Business   @relation(fields: [businessId], references: [id])
+  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryParent")
+  products    Product[]
+
+  @@index([businessId], map: "idx_categories_business")
+  @@map("categories")
+}
+
+// ============================================================================
+// 5. PRODUCT
+// ============================================================================
+
+model Product {
+  id                    String                @id @default(uuid()) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  categoryId            String?               @map("category_id") @db.Uuid
+  sku                   String?               @db.VarChar(100)
+  name                  String                @db.VarChar(255)
+  description           String?               @db.Text
+  imageUrl              String?               @map("image_url") @db.VarChar(500)
+  basePrice             Decimal               @map("base_price") @db.Decimal(15, 2)
+  costPrice             Decimal?              @map("cost_price") @db.Decimal(15, 2)
+  hasVariants           Boolean               @default(false) @map("has_variants")
+  trackStock            Boolean               @default(true) @map("track_stock")
+  isActive              Boolean               @default(true) @map("is_active")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business              Business              @relation(fields: [businessId], references: [id])
+  category              Category?             @relation(fields: [categoryId], references: [id])
+  variants              ProductVariant[]
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  transactionItems      TransactionItem[]
+  orderItems            OrderItem[]
+  productModifierGroups ProductModifierGroup[]
+  recipes               Recipe[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  stockTransferItems    StockTransferItem[]
+  selfOrderItems        SelfOrderItem[]
+  storeOrderItems       StoreOrderItem[]
+
+  @@unique([businessId, sku], map: "uq_products_business_sku")
+  @@index([businessId], map: "idx_products_business")
+  @@index([categoryId], map: "idx_products_category")
+  @@index([sku], map: "idx_products_sku")
+  @@index([businessId, isActive], map: "idx_products_business_active")
+  @@map("products")
+}
+
+// ============================================================================
+// 6. PRODUCT VARIANT
+// ============================================================================
+
+model ProductVariant {
+  id                    String                @id @default(uuid()) @db.Uuid
+  productId             String                @map("product_id") @db.Uuid
+  sku                   String?               @db.VarChar(100)
+  name                  String                @db.VarChar(255)
+  price                 Decimal               @db.Decimal(15, 2)
+  costPrice             Decimal?              @map("cost_price") @db.Decimal(15, 2)
+  isActive              Boolean               @default(true) @map("is_active")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  product               Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  transactionItems      TransactionItem[]
+  orderItems            OrderItem[]
+  recipes               Recipe[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  stockTransferItems    StockTransferItem[]
+  selfOrderItems        SelfOrderItem[]
+  storeOrderItems       StoreOrderItem[]
+
+  @@index([productId], map: "idx_variants_product")
+  @@map("product_variants")
+}
+
+// ============================================================================
+// 7. STOCK LEVEL (Per Outlet, Product/Variant)
+// ============================================================================
+
+model StockLevel {
+  id              String          @id @default(uuid()) @db.Uuid
+  outletId        String          @map("outlet_id") @db.Uuid
+  productId       String?         @map("product_id") @db.Uuid
+  variantId       String?         @map("variant_id") @db.Uuid
+  quantity        Decimal         @default(0) @db.Decimal(15, 3)
+  lowStockAlert   Int             @default(10) @map("low_stock_alert")
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet          @relation(fields: [outletId], references: [id])
+  product         Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant         ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, productId, variantId], map: "uq_stock_outlet_product_variant")
+  @@index([outletId], map: "idx_stock_outlet")
+  @@index([outletId, productId], map: "idx_stock_outlet_product")
+  @@map("stock_levels")
+}
+
+// ============================================================================
+// 8. STOCK MOVEMENT (Per Outlet)
+// ============================================================================
+
+model StockMovement {
+  id              String              @id @default(uuid()) @db.Uuid
+  outletId        String              @map("outlet_id") @db.Uuid
+  productId       String?             @map("product_id") @db.Uuid
+  variantId       String?             @map("variant_id") @db.Uuid
+  movementType    StockMovementType   @map("movement_type")
+  quantity        Decimal             @db.Decimal(15, 3)
+  referenceId     String?             @map("reference_id") @db.Uuid
+  referenceType   String?             @map("reference_type") @db.VarChar(50)
+  notes           String?             @db.Text
+  createdBy       String?             @map("created_by") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet              @relation(fields: [outletId], references: [id])
+  product         Product?            @relation(fields: [productId], references: [id])
+  variant         ProductVariant?     @relation(fields: [variantId], references: [id])
+  employee        Employee?           @relation(fields: [createdBy], references: [id])
+
+  @@index([outletId], map: "idx_stock_movements_outlet")
+  @@index([createdAt], map: "idx_stock_movements_date")
+  @@map("stock_movements")
+}
+
+// ============================================================================
+// 9. TRANSACTION (Per Outlet)
+// ============================================================================
+
+model Transaction {
+  id                String              @id @default(uuid()) @db.Uuid
+  outletId          String              @map("outlet_id") @db.Uuid
+  employeeId        String?             @map("employee_id") @db.Uuid
+  customerId        String?             @map("customer_id") @db.Uuid
+  shiftId           String?             @map("shift_id") @db.Uuid
+  receiptNumber     String              @unique @map("receipt_number") @db.VarChar(50)
+  transactionType   TransactionType     @default(sale) @map("transaction_type")
+  orderType         OrderType           @default(dine_in) @map("order_type")
+  tableId           String?             @map("table_id") @db.Uuid
+  subtotal          Decimal             @db.Decimal(15, 2)
+  discountAmount    Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  taxAmount         Decimal             @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  serviceCharge     Decimal             @default(0) @map("service_charge") @db.Decimal(15, 2)
+  grandTotal        Decimal             @map("grand_total") @db.Decimal(15, 2)
+  notes             String?             @db.Text
+  status            TransactionStatus   @default(completed)
+  voidedAt          DateTime?           @map("voided_at") @db.Timestamptz()
+  voidedBy          String?             @map("voided_by") @db.Uuid
+  voidReason        String?             @map("void_reason") @db.Text
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet            Outlet              @relation(fields: [outletId], references: [id])
+  employee          Employee?           @relation("TransactionEmployee", fields: [employeeId], references: [id])
+  customer          Customer?           @relation(fields: [customerId], references: [id])
+  shift             Shift?              @relation(fields: [shiftId], references: [id])
+  table             Table?              @relation(fields: [tableId], references: [id])
+  voidedByEmployee  Employee?           @relation("TransactionVoidedBy", fields: [voidedBy], references: [id])
+  items             TransactionItem[]
+  payments          Payment[]
+  onlineOrders      OnlineOrder[]
+  loyaltyTransactions LoyaltyTransaction[]
+
+  @@index([outletId], map: "idx_transactions_outlet")
+  @@index([createdAt], map: "idx_transactions_date")
+  @@index([receiptNumber], map: "idx_transactions_receipt")
+  @@index([outletId, createdAt(sort: Desc)], map: "idx_transactions_outlet_date")
+  @@map("transactions")
+}
+
+// ============================================================================
+// 10. TRANSACTION ITEM
+// ============================================================================
+
+model TransactionItem {
+  id                String                    @id @default(uuid()) @db.Uuid
+  transactionId     String                    @map("transaction_id") @db.Uuid
+  productId         String?                   @map("product_id") @db.Uuid
+  variantId         String?                   @map("variant_id") @db.Uuid
+  productName       String                    @map("product_name") @db.VarChar(255)
+  variantName       String?                   @map("variant_name") @db.VarChar(255)
+  quantity          Decimal                   @db.Decimal(10, 3)
+  unitPrice         Decimal                   @map("unit_price") @db.Decimal(15, 2)
+  discountAmount    Decimal                   @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  subtotal          Decimal                   @db.Decimal(15, 2)
+  notes             String?                   @db.Text
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  transaction       Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product           Product?                  @relation(fields: [productId], references: [id])
+  variant           ProductVariant?           @relation(fields: [variantId], references: [id])
+  modifiers         TransactionItemModifier[]
+
+  @@index([transactionId], map: "idx_trans_items_transaction")
+  @@map("transaction_items")
+}
+
+// ============================================================================
+// 11. PAYMENT
+// ============================================================================
+
+model Payment {
+  id                String          @id @default(uuid()) @db.Uuid
+  transactionId     String          @map("transaction_id") @db.Uuid
+  paymentMethod     PaymentMethod   @map("payment_method")
+  amount            Decimal         @db.Decimal(15, 2)
+  referenceNumber   String?         @map("reference_number") @db.VarChar(100)
+  status            PaymentStatus   @default(completed)
+  metadata          Json            @default("{}") @db.JsonB
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  transaction       Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId], map: "idx_payments_transaction")
+  @@map("payments")
+}
+
+// ============================================================================
+// 12. SHIFT (Per Outlet, Employee)
+// ============================================================================
+
+model Shift {
+  id              String          @id @default(uuid()) @db.Uuid
+  outletId        String          @map("outlet_id") @db.Uuid
+  employeeId      String          @map("employee_id") @db.Uuid
+  startedAt       DateTime        @map("started_at") @db.Timestamptz()
+  endedAt         DateTime?       @map("ended_at") @db.Timestamptz()
+  openingCash     Decimal         @default(0) @map("opening_cash") @db.Decimal(15, 2)
+  closingCash     Decimal?        @map("closing_cash") @db.Decimal(15, 2)
+  expectedCash    Decimal?        @map("expected_cash") @db.Decimal(15, 2)
+  cashDifference  Decimal?        @map("cash_difference") @db.Decimal(15, 2)
+  cashIn          Decimal         @default(0) @map("cash_in") @db.Decimal(15, 2)
+  cashOut         Decimal         @default(0) @map("cash_out") @db.Decimal(15, 2)
+  notes           String?         @db.Text
+  status          ShiftStatus     @default(open)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet          @relation(fields: [outletId], references: [id])
+  employee        Employee        @relation(fields: [employeeId], references: [id])
+  transactions    Transaction[]
+
+  @@index([outletId], map: "idx_shifts_outlet")
+  @@index([employeeId], map: "idx_shifts_employee")
+  @@map("shifts")
+}
+
+// ============================================================================
+// 13. CUSTOMER
+// ============================================================================
+
+model Customer {
+  id                String              @id @default(uuid()) @db.Uuid
+  businessId        String              @map("business_id") @db.Uuid
+  name              String              @db.VarChar(255)
+  email             String?             @db.VarChar(255)
+  phone             String?             @db.VarChar(20)
+  address           String?             @db.Text
+  dateOfBirth       DateTime?           @map("date_of_birth") @db.Date
+  customerType      CustomerType        @default(individual) @map("customer_type")
+  loyaltyPoints     Int                 @default(0) @map("loyalty_points")
+  loyaltyTier       String              @default("regular") @map("loyalty_tier") @db.VarChar(20)
+  totalSpent        Decimal             @default(0) @map("total_spent") @db.Decimal(15, 2)
+  visitCount        Int                 @default(0) @map("visit_count")
+  lastVisitAt       DateTime?           @map("last_visit_at") @db.Timestamptz()
+  notes             String?             @db.Text
+  isActive          Boolean             @default(true) @map("is_active")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business          Business            @relation(fields: [businessId], references: [id])
+  transactions      Transaction[]
+  orders            Order[]
+  loyaltyTransactions LoyaltyTransaction[]
+  vouchers          Voucher[]
+
+  @@index([businessId], map: "idx_customers_business")
+  @@index([phone], map: "idx_customers_phone")
+  @@map("customers")
+}
+
+// ============================================================================
+// 14. TABLE (F&B)
+// ============================================================================
+
+model Table {
+  id                String          @id @default(uuid()) @db.Uuid
+  outletId          String          @map("outlet_id") @db.Uuid
+  name              String          @db.VarChar(50)
+  capacity          Int             @default(4)
+  section           String?         @db.VarChar(50)
+  positionX         Int?            @map("position_x")
+  positionY         Int?            @map("position_y")
+  status            TableStatus     @default(available)
+  currentOrderId    String?         @map("current_order_id") @db.Uuid
+  occupiedAt        DateTime?       @map("occupied_at") @db.Timestamptz()
+  isActive          Boolean         @default(true) @map("is_active")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet            Outlet          @relation(fields: [outletId], references: [id])
+  transactions      Transaction[]
+  orders            Order[]
+  selfOrderSessions SelfOrderSession[]
+  waitingList       WaitingList[]
+
+  @@index([outletId], map: "idx_tables_outlet")
+  @@map("tables")
+}
+
+// ============================================================================
+// 15. ORDER (KDS / Kitchen Orders)
+// ============================================================================
+
+model Order {
+  id              String          @id @default(uuid()) @db.Uuid
+  outletId        String          @map("outlet_id") @db.Uuid
+  orderNumber     String          @map("order_number") @db.VarChar(20)
+  orderType       OrderType       @default(dine_in) @map("order_type")
+  tableId         String?         @map("table_id") @db.Uuid
+  customerId      String?         @map("customer_id") @db.Uuid
+  status          OrderStatus     @default(pending)
+  priority        Int             @default(0)
+  notes           String?         @db.Text
+  estimatedTime   Int?            @map("estimated_time")
+  startedAt       DateTime?       @map("started_at") @db.Timestamptz()
+  completedAt     DateTime?       @map("completed_at") @db.Timestamptz()
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet          @relation(fields: [outletId], references: [id])
+  table           Table?          @relation(fields: [tableId], references: [id])
+  customer        Customer?       @relation(fields: [customerId], references: [id])
+  items           OrderItem[]
+
+  @@index([outletId], map: "idx_orders_outlet")
+  @@index([status], map: "idx_orders_status")
+  @@map("orders")
+}
+
+// ============================================================================
+// 16. ORDER ITEM
+// ============================================================================
+
+model OrderItem {
+  id              String            @id @default(uuid()) @db.Uuid
+  orderId         String            @map("order_id") @db.Uuid
+  productId       String?           @map("product_id") @db.Uuid
+  variantId       String?           @map("variant_id") @db.Uuid
+  productName     String            @map("product_name") @db.VarChar(255)
+  quantity        Int
+  station         String?           @db.VarChar(50)
+  status          OrderItemStatus   @default(pending)
+  notes           String?           @db.Text
+  startedAt       DateTime?         @map("started_at") @db.Timestamptz()
+  completedAt     DateTime?         @map("completed_at") @db.Timestamptz()
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  order           Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product?          @relation(fields: [productId], references: [id])
+  variant         ProductVariant?   @relation(fields: [variantId], references: [id])
+
+  @@index([orderId], map: "idx_order_items_order")
+  @@index([status], map: "idx_order_items_status")
+  @@map("order_items")
+}
+
+// ============================================================================
+// 17. MODIFIER GROUP
+// ============================================================================
+
+model ModifierGroup {
+  id                    String                @id @default(uuid()) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  name                  String                @db.VarChar(255)
+  selectionType         ModifierSelectionType @default(single) @map("selection_type")
+  minSelection          Int                   @default(0) @map("min_selection")
+  maxSelection          Int?                  @map("max_selection")
+  isRequired            Boolean               @default(false) @map("is_required")
+  sortOrder             Int                   @default(0) @map("sort_order")
+  isActive              Boolean               @default(true) @map("is_active")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business              Business              @relation(fields: [businessId], references: [id])
+  modifiers             Modifier[]
+  productModifierGroups ProductModifierGroup[]
+
+  @@index([businessId], map: "idx_modifier_groups_business")
+  @@map("modifier_groups")
+}
+
+// ============================================================================
+// 18. MODIFIER
+// ============================================================================
+
+model Modifier {
+  id                String                    @id @default(uuid()) @db.Uuid
+  modifierGroupId   String                    @map("modifier_group_id") @db.Uuid
+  name              String                    @db.VarChar(255)
+  price             Decimal                   @default(0) @db.Decimal(15, 2)
+  sortOrder         Int                       @default(0) @map("sort_order")
+  isActive          Boolean                   @default(true) @map("is_active")
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  modifierGroup     ModifierGroup             @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  transactionItemModifiers TransactionItemModifier[]
+
+  @@index([modifierGroupId], map: "idx_modifiers_group")
+  @@map("modifiers")
+}
+
+// ============================================================================
+// 19. PRODUCT MODIFIER GROUP (Junction)
+// ============================================================================
+
+model ProductModifierGroup {
+  id                String          @id @default(uuid()) @db.Uuid
+  productId         String          @map("product_id") @db.Uuid
+  modifierGroupId   String          @map("modifier_group_id") @db.Uuid
+  sortOrder         Int             @default(0) @map("sort_order")
+
+  // Relations
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modifierGroup     ModifierGroup   @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, modifierGroupId], map: "uq_product_modifier_group")
+  @@map("product_modifier_groups")
+}
+
+// ============================================================================
+// 20. TRANSACTION ITEM MODIFIER
+// ============================================================================
+
+model TransactionItemModifier {
+  id                  String          @id @default(uuid()) @db.Uuid
+  transactionItemId   String          @map("transaction_item_id") @db.Uuid
+  modifierId          String          @map("modifier_id") @db.Uuid
+  modifierName        String          @map("modifier_name") @db.VarChar(255)
+  price               Decimal         @default(0) @db.Decimal(15, 2)
+  quantity            Int             @default(1)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  transactionItem     TransactionItem @relation(fields: [transactionItemId], references: [id], onDelete: Cascade)
+  modifier            Modifier        @relation(fields: [modifierId], references: [id])
+
+  @@index([transactionItemId], map: "idx_trans_item_mods")
+  @@map("transaction_item_modifiers")
+}
+
+// ============================================================================
+// 21. INGREDIENT
+// ============================================================================
+
+model Ingredient {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  businessId            String                    @map("business_id") @db.Uuid
+  name                  String                    @db.VarChar(255)
+  sku                   String?                   @db.VarChar(100)
+  unit                  String                    @db.VarChar(50)
+  costPerUnit           Decimal                   @default(0) @map("cost_per_unit") @db.Decimal(15, 4)
+  imageUrl              String?                   @map("image_url") @db.VarChar(500)
+  isActive              Boolean                   @default(true) @map("is_active")
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business              Business                  @relation(fields: [businessId], references: [id])
+  stockLevels           IngredientStockLevel[]
+  recipeItems           RecipeItem[]
+  stockMovements        IngredientStockMovement[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  stockTransferItems    StockTransferItem[]
+
+  @@unique([businessId, sku], map: "uq_ingredients_business_sku")
+  @@index([businessId], map: "idx_ingredients_business")
+  @@map("ingredients")
+}
+
+// ============================================================================
+// 22. INGREDIENT STOCK LEVEL (Per Outlet)
+// ============================================================================
+
+model IngredientStockLevel {
+  id              String      @id @default(uuid()) @db.Uuid
+  outletId        String      @map("outlet_id") @db.Uuid
+  ingredientId    String      @map("ingredient_id") @db.Uuid
+  quantity        Decimal     @default(0) @db.Decimal(15, 4)
+  lowStockAlert   Decimal     @default(0) @map("low_stock_alert") @db.Decimal(15, 4)
+  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet      @relation(fields: [outletId], references: [id])
+  ingredient      Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, ingredientId], map: "uq_ing_stock_outlet_ingredient")
+  @@index([outletId], map: "idx_ing_stock_outlet")
+  @@index([outletId, ingredientId], map: "idx_ing_stock_outlet_ing")
+  @@map("ingredient_stock_levels")
+}
+
+// ============================================================================
+// 23. RECIPE
+// ============================================================================
+
+model Recipe {
+  id          String          @id @default(uuid()) @db.Uuid
+  productId   String          @map("product_id") @db.Uuid
+  variantId   String?         @map("variant_id") @db.Uuid
+  notes       String?         @db.Text
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  items       RecipeItem[]
+
+  @@index([productId], map: "idx_recipes_product")
+  @@map("recipes")
+}
+
+// ============================================================================
+// 24. RECIPE ITEM
+// ============================================================================
+
+model RecipeItem {
+  id              String      @id @default(uuid()) @db.Uuid
+  recipeId        String      @map("recipe_id") @db.Uuid
+  ingredientId    String      @map("ingredient_id") @db.Uuid
+  quantity        Decimal     @db.Decimal(15, 4)
+  unit            String      @db.VarChar(50)
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  recipe          Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient      Ingredient  @relation(fields: [ingredientId], references: [id])
+
+  @@index([recipeId], map: "idx_recipe_items_recipe")
+  @@map("recipe_items")
+}
+
+// ============================================================================
+// 25. INGREDIENT STOCK MOVEMENT (Per Outlet)
+// ============================================================================
+
+model IngredientStockMovement {
+  id              String                        @id @default(uuid()) @db.Uuid
+  outletId        String                        @map("outlet_id") @db.Uuid
+  ingredientId    String                        @map("ingredient_id") @db.Uuid
+  movementType    IngredientStockMovementType   @map("movement_type")
+  quantity        Decimal                       @db.Decimal(15, 4)
+  referenceId     String?                       @map("reference_id") @db.Uuid
+  referenceType   String?                       @map("reference_type") @db.VarChar(50)
+  notes           String?                       @db.Text
+  createdBy       String?                       @map("created_by") @db.Uuid
+  createdAt       DateTime                      @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet                        @relation(fields: [outletId], references: [id])
+  ingredient      Ingredient                    @relation(fields: [ingredientId], references: [id])
+  employee        Employee?                     @relation(fields: [createdBy], references: [id])
+
+  @@index([outletId], map: "idx_ing_movements_outlet")
+  @@index([createdAt], map: "idx_ing_movements_date")
+  @@map("ingredient_stock_movements")
+}
+
+// ============================================================================
+// 26. SUPPLIER
+// ============================================================================
+
+model Supplier {
+  id              String            @id @default(uuid()) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  name            String            @db.VarChar(255)
+  contactPerson   String?           @map("contact_person") @db.VarChar(255)
+  phone           String?           @db.VarChar(20)
+  email           String?           @db.VarChar(255)
+  address         String?           @db.Text
+  notes           String?           @db.Text
+  isActive        Boolean           @default(true) @map("is_active")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business        Business          @relation(fields: [businessId], references: [id])
+  purchaseOrders  PurchaseOrder[]
+
+  @@index([businessId], map: "idx_suppliers_business")
+  @@map("suppliers")
+}
+
+// ============================================================================
+// 27. PURCHASE ORDER (Per Outlet, Supplier)
+// ============================================================================
+
+model PurchaseOrder {
+  id              String                @id @default(uuid()) @db.Uuid
+  outletId        String                @map("outlet_id") @db.Uuid
+  supplierId      String                @map("supplier_id") @db.Uuid
+  poNumber        String                @unique @map("po_number") @db.VarChar(50)
+  status          PurchaseOrderStatus   @default(draft)
+  totalAmount     Decimal               @default(0) @map("total_amount") @db.Decimal(15, 2)
+  notes           String?               @db.Text
+  orderedAt       DateTime?             @map("ordered_at") @db.Timestamptz()
+  receivedAt      DateTime?             @map("received_at") @db.Timestamptz()
+  createdBy       String?               @map("created_by") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet                @relation(fields: [outletId], references: [id])
+  supplier        Supplier              @relation(fields: [supplierId], references: [id])
+  employee        Employee?             @relation(fields: [createdBy], references: [id])
+  items           PurchaseOrderItem[]
+
+  @@index([outletId], map: "idx_po_outlet")
+  @@index([supplierId], map: "idx_po_supplier")
+  @@map("purchase_orders")
+}
+
+// ============================================================================
+// 28. PURCHASE ORDER ITEM
+// ============================================================================
+
+model PurchaseOrderItem {
+  id                String          @id @default(uuid()) @db.Uuid
+  purchaseOrderId   String          @map("purchase_order_id") @db.Uuid
+  productId         String?         @map("product_id") @db.Uuid
+  variantId         String?         @map("variant_id") @db.Uuid
+  ingredientId      String?         @map("ingredient_id") @db.Uuid
+  itemName          String          @map("item_name") @db.VarChar(255)
+  quantityOrdered   Decimal         @map("quantity_ordered") @db.Decimal(15, 3)
+  quantityReceived  Decimal         @default(0) @map("quantity_received") @db.Decimal(15, 3)
+  unitCost          Decimal         @map("unit_cost") @db.Decimal(15, 4)
+  subtotal          Decimal         @db.Decimal(15, 2)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  purchaseOrder     PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product           Product?        @relation(fields: [productId], references: [id])
+  variant           ProductVariant? @relation(fields: [variantId], references: [id])
+  ingredient        Ingredient?     @relation(fields: [ingredientId], references: [id])
+
+  @@index([purchaseOrderId], map: "idx_po_items_po")
+  @@map("purchase_order_items")
+}
+
+// ============================================================================
+// 29. STOCK TRANSFER (Inter-outlet)
+// ============================================================================
+
+model StockTransfer {
+  id                    String                @id @default(uuid()) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  transferNumber        String                @unique @map("transfer_number") @db.VarChar(50)
+  sourceOutletId        String                @map("source_outlet_id") @db.Uuid
+  destinationOutletId   String                @map("destination_outlet_id") @db.Uuid
+  status                StockTransferStatus   @default(pending)
+  notes                 String?               @db.Text
+  requestedBy           String?               @map("requested_by") @db.Uuid
+  approvedBy            String?               @map("approved_by") @db.Uuid
+  receivedBy            String?               @map("received_by") @db.Uuid
+  requestedAt           DateTime              @default(now()) @map("requested_at") @db.Timestamptz()
+  approvedAt            DateTime?             @map("approved_at") @db.Timestamptz()
+  shippedAt             DateTime?             @map("shipped_at") @db.Timestamptz()
+  receivedAt            DateTime?             @map("received_at") @db.Timestamptz()
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business              Business              @relation(fields: [businessId], references: [id])
+  sourceOutlet          Outlet                @relation("SourceOutlet", fields: [sourceOutletId], references: [id])
+  destinationOutlet     Outlet                @relation("DestinationOutlet", fields: [destinationOutletId], references: [id])
+  requestedByEmployee   Employee?             @relation("TransferRequestedBy", fields: [requestedBy], references: [id])
+  approvedByEmployee    Employee?             @relation("TransferApprovedBy", fields: [approvedBy], references: [id])
+  receivedByEmployee    Employee?             @relation("TransferReceivedBy", fields: [receivedBy], references: [id])
+  items                 StockTransferItem[]
+
+  @@index([businessId], map: "idx_transfers_business")
+  @@index([sourceOutletId], map: "idx_transfers_source")
+  @@index([destinationOutletId], map: "idx_transfers_dest")
+  @@index([status], map: "idx_transfers_status")
+  @@map("stock_transfers")
+}
+
+// ============================================================================
+// 30. STOCK TRANSFER ITEM
+// ============================================================================
+
+model StockTransferItem {
+  id                String          @id @default(uuid()) @db.Uuid
+  transferId        String          @map("transfer_id") @db.Uuid
+  productId         String?         @map("product_id") @db.Uuid
+  variantId         String?         @map("variant_id") @db.Uuid
+  ingredientId      String?         @map("ingredient_id") @db.Uuid
+  itemName          String          @map("item_name") @db.VarChar(255)
+  quantitySent      Decimal         @map("quantity_sent") @db.Decimal(15, 3)
+  quantityReceived  Decimal?        @map("quantity_received") @db.Decimal(15, 3)
+  notes             String?         @db.Text
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  transfer          StockTransfer   @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product           Product?        @relation(fields: [productId], references: [id])
+  variant           ProductVariant? @relation(fields: [variantId], references: [id])
+  ingredient        Ingredient?     @relation(fields: [ingredientId], references: [id])
+
+  @@index([transferId], map: "idx_transfer_items")
+  @@map("stock_transfer_items")
+}
+
+// ============================================================================
+// 31. LOYALTY TRANSACTION
+// ============================================================================
+
+model LoyaltyTransaction {
+  id              String                  @id @default(uuid()) @db.Uuid
+  customerId      String                  @map("customer_id") @db.Uuid
+  transactionId   String?                 @map("transaction_id") @db.Uuid
+  type            LoyaltyTransactionType
+  points          Int
+  balanceAfter    Int                     @map("balance_after")
+  description     String?                 @db.Text
+  expiresAt       DateTime?               @map("expires_at") @db.Timestamptz()
+  createdBy       String?                 @map("created_by") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  customer        Customer                @relation(fields: [customerId], references: [id])
+  transaction     Transaction?            @relation(fields: [transactionId], references: [id])
+  employee        Employee?               @relation(fields: [createdBy], references: [id])
+
+  @@index([customerId], map: "idx_loyalty_tx_customer")
+  @@index([createdAt], map: "idx_loyalty_tx_date")
+  @@index([customerId, createdAt(sort: Desc)], map: "idx_loyalty_tx_customer_date")
+  @@map("loyalty_transactions")
+}
+
+// ============================================================================
+// 32. LOYALTY TIER
+// ============================================================================
+
+model LoyaltyTier {
+  id                String    @id @default(uuid()) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  name              String    @db.VarChar(50)
+  minPoints         Int       @default(0) @map("min_points")
+  minSpent          Decimal   @default(0) @map("min_spent") @db.Decimal(15, 2)
+  pointMultiplier   Decimal   @default(1.00) @map("point_multiplier") @db.Decimal(5, 2)
+  benefits          Json      @default("{}") @db.JsonB
+  sortOrder         Int       @default(0) @map("sort_order")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business          Business  @relation(fields: [businessId], references: [id])
+
+  @@index([businessId], map: "idx_loyalty_tiers_business")
+  @@map("loyalty_tiers")
+}
+
+// ============================================================================
+// 33. LOYALTY PROGRAM
+// ============================================================================
+
+model LoyaltyProgram {
+  id                String    @id @default(uuid()) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  name              String    @db.VarChar(255)
+  pointsPerAmount   Decimal   @default(1) @map("points_per_amount") @db.Decimal(10, 2)
+  amountPerPoint    Decimal   @default(1000) @map("amount_per_point") @db.Decimal(15, 2)
+  redemptionRate    Decimal   @default(50) @map("redemption_rate") @db.Decimal(10, 2)
+  pointExpiryDays   Int?      @map("point_expiry_days")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business          Business  @relation(fields: [businessId], references: [id])
+
+  @@index([businessId], map: "idx_loyalty_prog_business")
+  @@map("loyalty_programs")
+}
+
+// ============================================================================
+// 34. AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  outletId        String?   @map("outlet_id") @db.Uuid
+  employeeId      String?   @map("employee_id") @db.Uuid
+  action          String    @db.VarChar(100)
+  entityType      String    @map("entity_type") @db.VarChar(50)
+  entityId        String?   @map("entity_id") @db.Uuid
+  oldValue        Json?     @map("old_value") @db.JsonB
+  newValue        Json?     @map("new_value") @db.JsonB
+  ipAddress       String?   @map("ip_address") @db.VarChar(45)
+  deviceId        String?   @map("device_id") @db.Uuid
+  metadata        Json      @default("{}") @db.JsonB
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business        Business  @relation(fields: [businessId], references: [id])
+  outlet          Outlet?   @relation(fields: [outletId], references: [id])
+  employee        Employee? @relation(fields: [employeeId], references: [id])
+  device          Device?   @relation(fields: [deviceId], references: [id])
+
+  @@index([businessId], map: "idx_audit_business")
+  @@index([employeeId], map: "idx_audit_employee")
+  @@index([entityType, entityId], map: "idx_audit_entity")
+  @@index([createdAt], map: "idx_audit_date")
+  @@index([action], map: "idx_audit_action")
+  @@index([businessId, createdAt(sort: Desc)], map: "idx_audit_business_date")
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// 35. PAYMENT SETTLEMENT (Reconciliation)
+// ============================================================================
+
+model PaymentSettlement {
+  id                  String            @id @default(uuid()) @db.Uuid
+  outletId            String            @map("outlet_id") @db.Uuid
+  paymentMethod       String            @map("payment_method") @db.VarChar(50)
+  settlementDate      DateTime          @map("settlement_date") @db.Date
+  totalTransactions   Int               @default(0) @map("total_transactions")
+  grossAmount         Decimal           @map("gross_amount") @db.Decimal(15, 2)
+  feeAmount           Decimal           @default(0) @map("fee_amount") @db.Decimal(15, 2)
+  netAmount           Decimal           @map("net_amount") @db.Decimal(15, 2)
+  status              SettlementStatus  @default(pending)
+  referenceNumber     String?           @map("reference_number") @db.VarChar(100)
+  settledAt           DateTime?         @map("settled_at") @db.Timestamptz()
+  metadata            Json              @default("{}") @db.JsonB
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet              Outlet            @relation(fields: [outletId], references: [id])
+
+  @@index([outletId], map: "idx_settlement_outlet")
+  @@index([settlementDate], map: "idx_settlement_date")
+  @@index([paymentMethod], map: "idx_settlement_method")
+  @@index([outletId, settlementDate(sort: Desc)], map: "idx_settlement_outlet_date")
+  @@map("payment_settlements")
+}
+
+// ============================================================================
+// 36. ONLINE ORDER (Marketplace Integration)
+// ============================================================================
+
+model OnlineOrder {
+  id                  String              @id @default(uuid()) @db.Uuid
+  outletId            String              @map("outlet_id") @db.Uuid
+  platform            OnlineOrderPlatform
+  platformOrderId     String              @map("platform_order_id") @db.VarChar(100)
+  transactionId       String?             @map("transaction_id") @db.Uuid
+  orderType           OnlineOrderType     @default(delivery) @map("order_type")
+  customerName        String?             @map("customer_name") @db.VarChar(255)
+  customerPhone       String?             @map("customer_phone") @db.VarChar(20)
+  deliveryAddress     String?             @map("delivery_address") @db.Text
+  items               Json                @db.JsonB
+  subtotal            Decimal             @db.Decimal(15, 2)
+  deliveryFee         Decimal             @default(0) @map("delivery_fee") @db.Decimal(15, 2)
+  platformFee         Decimal             @default(0) @map("platform_fee") @db.Decimal(15, 2)
+  discountAmount      Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  grandTotal          Decimal             @map("grand_total") @db.Decimal(15, 2)
+  status              OnlineOrderStatus   @default(received)
+  driverName          String?             @map("driver_name") @db.VarChar(255)
+  driverPhone         String?             @map("driver_phone") @db.VarChar(20)
+  notes               String?             @db.Text
+  estimatedDelivery   DateTime?           @map("estimated_delivery") @db.Timestamptz()
+  acceptedAt          DateTime?           @map("accepted_at") @db.Timestamptz()
+  readyAt             DateTime?           @map("ready_at") @db.Timestamptz()
+  completedAt         DateTime?           @map("completed_at") @db.Timestamptz()
+  cancelledAt         DateTime?           @map("cancelled_at") @db.Timestamptz()
+  cancelReason        String?             @map("cancel_reason") @db.Text
+  metadata            Json                @default("{}") @db.JsonB
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet              Outlet              @relation(fields: [outletId], references: [id])
+  transaction         Transaction?        @relation(fields: [transactionId], references: [id])
+
+  @@index([outletId], map: "idx_online_orders_outlet")
+  @@index([platform, platformOrderId], map: "idx_online_orders_platform")
+  @@index([status], map: "idx_online_orders_status")
+  @@index([createdAt], map: "idx_online_orders_date")
+  @@index([outletId, createdAt(sort: Desc)], map: "idx_online_orders_outlet_date")
+  @@map("online_orders")
+}
+
+// ============================================================================
+// 37. DEVICE
+// ============================================================================
+
+model Device {
+  id                  String          @id @default(uuid()) @db.Uuid
+  businessId          String          @map("business_id") @db.Uuid
+  outletId            String?         @map("outlet_id") @db.Uuid
+  deviceName          String          @map("device_name") @db.VarChar(255)
+  deviceType          DeviceType      @map("device_type")
+  platform            DevicePlatform?
+  deviceIdentifier    String?         @unique @map("device_identifier") @db.VarChar(255)
+  appVersion          String?         @map("app_version") @db.VarChar(20)
+  lastSyncAt          DateTime?       @map("last_sync_at") @db.Timestamptz()
+  lastActiveAt        DateTime?       @map("last_active_at") @db.Timestamptz()
+  isActive            Boolean         @default(true) @map("is_active")
+  registeredAt        DateTime        @default(now()) @map("registered_at") @db.Timestamptz()
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business            Business        @relation(fields: [businessId], references: [id])
+  outlet              Outlet?         @relation(fields: [outletId], references: [id])
+  auditLogs           AuditLog[]
+
+  @@index([businessId], map: "idx_devices_business")
+  @@index([outletId], map: "idx_devices_outlet")
+  @@map("devices")
+}
+
+// ============================================================================
+// 38. NOTIFICATION SETTING
+// ============================================================================
+
+model NotificationSetting {
+  id                  String              @id @default(uuid()) @db.Uuid
+  businessId          String              @map("business_id") @db.Uuid
+  outletId            String?             @map("outlet_id") @db.Uuid
+  employeeId          String?             @map("employee_id") @db.Uuid
+  notificationType    NotificationType    @map("notification_type")
+  channel             NotificationChannel
+  isEnabled           Boolean             @default(true) @map("is_enabled")
+  threshold           Json                @default("{}") @db.JsonB
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business            Business            @relation(fields: [businessId], references: [id])
+  outlet              Outlet?             @relation(fields: [outletId], references: [id])
+  employee            Employee?           @relation(fields: [employeeId], references: [id])
+
+  @@unique([businessId, outletId, employeeId, notificationType, channel], map: "uq_notification_setting")
+  @@index([businessId], map: "idx_notif_settings_business")
+  @@map("notification_settings")
+}
+
+// ============================================================================
+// 39. NOTIFICATION LOG
+// ============================================================================
+
+model NotificationLog {
+  id                  String                @id @default(uuid()) @db.Uuid
+  businessId          String                @map("business_id") @db.Uuid
+  outletId            String?               @map("outlet_id") @db.Uuid
+  recipientId         String?               @map("recipient_id") @db.Uuid
+  notificationType    NotificationType      @map("notification_type")
+  channel             NotificationChannel
+  title               String                @db.VarChar(255)
+  body                String?               @db.Text
+  status              NotificationLogStatus @default(sent)
+  metadata            Json                  @default("{}") @db.JsonB
+  sentAt              DateTime              @default(now()) @map("sent_at") @db.Timestamptz()
+  readAt              DateTime?             @map("read_at") @db.Timestamptz()
+
+  // Relations
+  business            Business              @relation(fields: [businessId], references: [id])
+  outlet              Outlet?               @relation(fields: [outletId], references: [id])
+  recipient           Employee?             @relation(fields: [recipientId], references: [id])
+
+  @@index([recipientId], map: "idx_notif_logs_recipient")
+  @@index([sentAt], map: "idx_notif_logs_date")
+  @@map("notification_logs")
+}
+
+// ============================================================================
+// 40. SELF-ORDER SESSION (QR-based)
+// ============================================================================
+
+model SelfOrderSession {
+  id              String                    @id @default(uuid()) @db.Uuid
+  outletId        String                    @map("outlet_id") @db.Uuid
+  tableId         String?                   @map("table_id") @db.Uuid
+  sessionCode     String                    @unique @map("session_code") @db.VarChar(50)
+  status          SelfOrderSessionStatus    @default(active)
+  customerName    String?                   @map("customer_name") @db.VarChar(255)
+  language        String                    @default("id") @db.VarChar(10)
+  expiresAt       DateTime                  @map("expires_at") @db.Timestamptz()
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet                    @relation(fields: [outletId], references: [id])
+  table           Table?                    @relation(fields: [tableId], references: [id])
+  items           SelfOrderItem[]
+
+  @@index([outletId], map: "idx_self_order_outlet")
+  @@index([sessionCode], map: "idx_self_order_code")
+  @@map("self_order_sessions")
+}
+
+// ============================================================================
+// 41. SELF-ORDER ITEM
+// ============================================================================
+
+model SelfOrderItem {
+  id              String            @id @default(uuid()) @db.Uuid
+  sessionId       String            @map("session_id") @db.Uuid
+  productId       String            @map("product_id") @db.Uuid
+  variantId       String?           @map("variant_id") @db.Uuid
+  quantity        Int               @default(1)
+  modifiers       Json              @default("[]") @db.JsonB
+  notes           String?           @db.Text
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  session         SelfOrderSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product         Product           @relation(fields: [productId], references: [id])
+  variant         ProductVariant?   @relation(fields: [variantId], references: [id])
+
+  @@index([sessionId], map: "idx_self_order_items_session")
+  @@map("self_order_items")
+}
+
+// ============================================================================
+// 42. ONLINE STORE
+// ============================================================================
+
+model OnlineStore {
+  id                String        @id @default(uuid()) @db.Uuid
+  businessId        String        @map("business_id") @db.Uuid
+  storeName         String        @map("store_name") @db.VarChar(255)
+  slug              String        @unique @db.VarChar(100)
+  domain            String?       @db.VarChar(255)
+  description       String?       @db.Text
+  logoUrl           String?       @map("logo_url") @db.VarChar(500)
+  bannerUrl         String?       @map("banner_url") @db.VarChar(500)
+  themeSettings     Json          @default("{}") @map("theme_settings") @db.JsonB
+  shippingMethods   Json          @default("[]") @map("shipping_methods") @db.JsonB
+  paymentMethods    Json          @default("[]") @map("payment_methods") @db.JsonB
+  socialLinks       Json          @default("{}") @map("social_links") @db.JsonB
+  isActive          Boolean       @default(true) @map("is_active")
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business          Business      @relation(fields: [businessId], references: [id])
+  storeOrders       StoreOrder[]
+
+  @@index([businessId], map: "idx_online_stores_business")
+  @@index([slug], map: "idx_online_stores_slug")
+  @@map("online_stores")
+}
+
+// ============================================================================
+// 43. STORE ORDER
+// ============================================================================
+
+model StoreOrder {
+  id                String                    @id @default(uuid()) @db.Uuid
+  storeId           String                    @map("store_id") @db.Uuid
+  outletId          String                    @map("outlet_id") @db.Uuid
+  orderNumber       String                    @unique @map("order_number") @db.VarChar(50)
+  customerName      String                    @map("customer_name") @db.VarChar(255)
+  customerEmail     String?                   @map("customer_email") @db.VarChar(255)
+  customerPhone     String                    @map("customer_phone") @db.VarChar(20)
+  shippingAddress   String?                   @map("shipping_address") @db.Text
+  shippingMethod    String?                   @map("shipping_method") @db.VarChar(50)
+  shippingCost      Decimal                   @default(0) @map("shipping_cost") @db.Decimal(15, 2)
+  subtotal          Decimal                   @db.Decimal(15, 2)
+  discountAmount    Decimal                   @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  grandTotal        Decimal                   @map("grand_total") @db.Decimal(15, 2)
+  paymentMethod     String?                   @map("payment_method") @db.VarChar(50)
+  paymentStatus     StoreOrderPaymentStatus   @default(pending) @map("payment_status")
+  orderStatus       StoreOrderStatus          @default(pending) @map("order_status")
+  trackingNumber    String?                   @map("tracking_number") @db.VarChar(100)
+  notes             String?                   @db.Text
+  paidAt            DateTime?                 @map("paid_at") @db.Timestamptz()
+  shippedAt         DateTime?                 @map("shipped_at") @db.Timestamptz()
+  deliveredAt       DateTime?                 @map("delivered_at") @db.Timestamptz()
+  cancelledAt       DateTime?                 @map("cancelled_at") @db.Timestamptz()
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  store             OnlineStore               @relation(fields: [storeId], references: [id])
+  outlet            Outlet                    @relation(fields: [outletId], references: [id])
+  items             StoreOrderItem[]
+
+  @@index([storeId], map: "idx_store_orders_store")
+  @@index([orderStatus], map: "idx_store_orders_status")
+  @@index([createdAt], map: "idx_store_orders_date")
+  @@map("store_orders")
+}
+
+// ============================================================================
+// 44. STORE ORDER ITEM
+// ============================================================================
+
+model StoreOrderItem {
+  id              String          @id @default(uuid()) @db.Uuid
+  storeOrderId    String          @map("store_order_id") @db.Uuid
+  productId       String?         @map("product_id") @db.Uuid
+  variantId       String?         @map("variant_id") @db.Uuid
+  productName     String          @map("product_name") @db.VarChar(255)
+  variantName     String?         @map("variant_name") @db.VarChar(255)
+  quantity        Int
+  unitPrice       Decimal         @map("unit_price") @db.Decimal(15, 2)
+  subtotal        Decimal         @db.Decimal(15, 2)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  storeOrder      StoreOrder      @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
+  product         Product?        @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([storeOrderId], map: "idx_store_order_items")
+  @@map("store_order_items")
+}
+
+// ============================================================================
+// 45. WAITING LIST (F&B)
+// ============================================================================
+
+model WaitingList {
+  id                  String              @id @default(uuid()) @db.Uuid
+  outletId            String              @map("outlet_id") @db.Uuid
+  customerName        String              @map("customer_name") @db.VarChar(255)
+  customerPhone       String?             @map("customer_phone") @db.VarChar(20)
+  partySize           Int                 @default(1) @map("party_size")
+  preferredSection    String?             @map("preferred_section") @db.VarChar(50)
+  tableId             String?             @map("table_id") @db.Uuid
+  status              WaitingListStatus   @default(waiting)
+  estimatedWait       Int?                @map("estimated_wait")
+  notes               String?             @db.Text
+  queuedAt            DateTime            @default(now()) @map("queued_at") @db.Timestamptz()
+  notifiedAt          DateTime?           @map("notified_at") @db.Timestamptz()
+  seatedAt            DateTime?           @map("seated_at") @db.Timestamptz()
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet              Outlet              @relation(fields: [outletId], references: [id])
+  table               Table?              @relation(fields: [tableId], references: [id])
+
+  @@index([outletId], map: "idx_waitlist_outlet")
+  @@index([status], map: "idx_waitlist_status")
+  @@map("waiting_list")
+}
+
+// ============================================================================
+// 46. PROMOTION
+// ============================================================================
+
+model Promotion {
+  id              String        @id @default(uuid()) @db.Uuid
+  businessId      String        @map("business_id") @db.Uuid
+  name            String        @db.VarChar(255)
+  description     String?       @db.Text
+  discountType    DiscountType  @map("discount_type")
+  discountValue   Decimal       @map("discount_value") @db.Decimal(15, 2)
+  minPurchase     Decimal?      @map("min_purchase") @db.Decimal(15, 2)
+  maxDiscount     Decimal?      @map("max_discount") @db.Decimal(15, 2)
+  validFrom       DateTime      @map("valid_from") @db.Timestamptz()
+  validUntil      DateTime      @map("valid_until") @db.Timestamptz()
+  usageLimit      Int?          @map("usage_limit")
+  usedCount       Int           @default(0) @map("used_count")
+  applicableTo    Json          @default("{}") @map("applicable_to") @db.JsonB
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business        Business      @relation(fields: [businessId], references: [id])
+  vouchers        Voucher[]
+
+  @@index([businessId], map: "idx_promotions_business")
+  @@index([validFrom, validUntil], map: "idx_promotions_dates")
+  @@map("promotions")
+}
+
+// ============================================================================
+// 47. VOUCHER
+// ============================================================================
+
+model Voucher {
+  id              String      @id @default(uuid()) @db.Uuid
+  businessId      String      @map("business_id") @db.Uuid
+  code            String      @unique @db.VarChar(50)
+  promotionId     String?     @map("promotion_id") @db.Uuid
+  initialValue    Decimal?    @map("initial_value") @db.Decimal(15, 2)
+  remainingValue  Decimal?    @map("remaining_value") @db.Decimal(15, 2)
+  expiresAt       DateTime?   @map("expires_at") @db.Timestamptz()
+  usedAt          DateTime?   @map("used_at") @db.Timestamptz()
+  usedBy          String?     @map("used_by") @db.Uuid
+  isActive        Boolean     @default(true) @map("is_active")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  business        Business    @relation(fields: [businessId], references: [id])
+  promotion       Promotion?  @relation(fields: [promotionId], references: [id])
+  customer        Customer?   @relation(fields: [usedBy], references: [id])
+
+  @@index([code], map: "idx_vouchers_code")
+  @@map("vouchers")
+}

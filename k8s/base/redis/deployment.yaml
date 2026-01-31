@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tilopos-redis
+  labels:
+    app: tilopos-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tilopos-redis
+  template:
+    metadata:
+      labels:
+        app: tilopos-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          command:
+            - redis-server
+            - --maxmemory
+            - "200mb"
+            - --maxmemory-policy
+            - allkeys-lru
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

@@ -1,0 +1,88 @@
+# Production overlay for TiloPOS
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tilopos-production
+
+resources:
+  - ../../base
+
+namePrefix: prod-
+
+commonLabels:
+  environment: production
+
+patches:
+  # Backend - increase replicas and resources
+  - target:
+      kind: Deployment
+      name: tilopos-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 250m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 512Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 2000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+
+  # HPA - higher max replicas
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: tilopos-backend-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+
+  # Web - increase replicas
+  - target:
+      kind: Deployment
+      name: tilopos-web
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+
+  # Ingress - production hosts
+  - target:
+      kind: Ingress
+      name: tilopos-ingress
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - app.tilopos.id
+          - api.tilopos.id
+      - op: replace
+        path: /spec/rules/0/host
+        value: app.tilopos.id
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.tilopos.id
+
+configMapGenerator:
+  - name: tilopos-config
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=warn
+      - ENABLE_SWAGGER=false
+      - RATE_LIMIT_MAX=1000
+
+images:
+  - name: ghcr.io/tilopos/backend
+    newTag: latest
+  - name: ghcr.io/tilopos/web
+    newTag: latest

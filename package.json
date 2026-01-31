@@ -1,0 +1,44 @@
+{
+  "name": "tilo-pos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TiloPOS - Point of Sale system for Indonesian SME/UMKM",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@tilo/backend",
+    "dev:web": "npm run dev --workspace=@tilo/web",
+    "docker:dev": "docker compose -f docker-compose.dev.yml up --build",
+    "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
+    "docker:dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "docker:prod": "docker compose up --build",
+    "docker:prod:down": "docker compose down",
+    "build": "npm run build --workspaces --if-present",
+    "build:backend": "npm run build --workspace=@tilo/backend",
+    "build:web": "npm run build --workspace=@tilo/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:backend": "npm run test --workspace=@tilo/backend",
+    "test:web": "npm run test --workspace=@tilo/web",
+    "test:e2e": "npm run test:e2e --workspace=@tilo/backend",
+    "db:generate": "npm run db:generate --workspace=@tilo/backend",
+    "db:migrate": "npm run db:migrate --workspace=@tilo/backend",
+    "db:seed": "npm run db:seed --workspace=@tilo/backend",
+    "db:studio": "npm run db:studio --workspace=@tilo/backend",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7"
+  },
+  "lint-staged": {
+    "packages/backend/**/*.ts": [
+      "eslint --fix"
+    ],
+    "packages/web/**/*.{ts,tsx}": [
+      "eslint --fix"
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+
+export interface CreateRecipeParams {
+  productId: string;
+  variantId?: string;
+  notes?: string;
+  items: Array<{
+    ingredientId: string;
+    quantity: number;
+    unit: string;
+  }>;
+}
+
+@Injectable()
+export class CreateRecipeUseCase {
+  constructor(
+    @Inject(REPOSITORY_TOKENS.INGREDIENT)
+    private readonly ingredientRepository: IIngredientRepository,
+  ) {}
+
+  async execute(params: CreateRecipeParams) {
+    // Check if recipe already exists for this product/variant
+    const existing = await this.ingredientRepository.findRecipesByProduct(
+      params.productId,
+      params.variantId,
+    );
+    if (existing.length > 0) {
+      throw new Error('Recipe already exists for this product/variant');
+    }
+
+    // Validate ingredients exist
+    for (const item of params.items) {
+      const ingredient = await this.ingredientRepository.findById(item.ingredientId);
+      if (!ingredient) {
+        throw new NotFoundException(`Ingredient ${item.ingredientId} not found`);
+      }
+    }
+
+    // Create recipe
+    const recipe = await this.ingredientRepository.createRecipe({
+      productId: params.productId,
+      variantId: params.variantId,
+      notes: params.notes,
+      items: params.items,
+    });
+
+    return {
+      id: recipe.id,
+      productId: recipe.productId,
+      variantId: recipe.variantId,
+      notes: recipe.notes,
+      items: recipe.items.map((item) => ({
+        id: item.id,
+        ingredientId: item.ingredientId,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+      })),
+      createdAt: recipe.createdAt,
+    };
+  }
+}

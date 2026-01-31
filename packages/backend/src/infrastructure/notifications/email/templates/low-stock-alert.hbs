@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Low Stock Alert</title></head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #e74c3c;">Low Stock Alert</h2>
+  <p>The following items are running low at <strong>{{outletName}}</strong>:</p>
+  <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+    <tr style="background: #f5f5f5;"><th style="padding: 8px; text-align: left;">Product</th><th style="padding: 8px; text-align: right;">Current Stock</th><th style="padding: 8px; text-align: right;">Alert Level</th></tr>
+    {{#each products}}
+    <tr style="border-bottom: 1px solid #eee; {{#if this.critical}}color: #e74c3c;{{/if}}">
+      <td style="padding: 8px;">{{this.name}}</td>
+      <td style="padding: 8px; text-align: right;">{{this.currentStock}}</td>
+      <td style="padding: 8px; text-align: right;">{{this.alertLevel}}</td>
+    </tr>
+    {{/each}}
+  </table>
+  <p>Please restock these items as soon as possible.</p>
+</body>
+</html>

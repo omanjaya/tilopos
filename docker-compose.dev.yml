@@ -1,0 +1,110 @@
+services:
+  backend:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3001:3001"
+      - "9229:9229"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgresql://tilopos:tilopos_secret@postgres:5432/tilopos?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=dev-secret-change-in-production
+      - JWT_EXPIRES_IN=7d
+      - RABBITMQ_URL=amqp://tilo:tilopass@rabbitmq:5672
+      - RABBITMQ_EXCHANGE=tilo.events
+      - RABBITMQ_QUEUE_PREFIX=tilo
+    volumes:
+      - ./packages/backend/src:/app/src
+      - ./packages/backend/prisma:/app/prisma
+      - ./packages/backend/test:/app/test
+      - ./packages/backend/nest-cli.json:/app/nest-cli.json
+      - ./packages/backend/tsconfig.json:/app/tsconfig.json
+      - ./packages/backend/tsconfig.build.json:/app/tsconfig.build.json
+      - ./packages/backend/.eslintrc.js:/app/.eslintrc.js
+      - backend_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./packages/web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - API_URL=http://backend:3001
+    volumes:
+      - ./packages/web/src:/app/src
+      - ./packages/web/public:/app/public
+      - ./packages/web/index.html:/app/index.html
+      - ./packages/web/vite.config.ts:/app/vite.config.ts
+      - ./packages/web/tailwind.config.ts:/app/tailwind.config.ts
+      - ./packages/web/postcss.config.js:/app/postcss.config.js
+      - ./packages/web/tsconfig.json:/app/tsconfig.json
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: tilopos
+      POSTGRES_USER: tilopos
+      POSTGRES_PASSWORD: tilopos_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tilopos -d tilopos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: tilo
+      RABBITMQ_DEFAULT_PASS: tilopass
+    volumes:
+      - rabbitmq_dev:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata_dev:
+  redisdata_dev:
+  rabbitmq_dev:
+  backend_node_modules:
+  web_node_modules:

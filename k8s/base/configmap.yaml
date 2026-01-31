@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tilopos-config
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  LOG_LEVEL: "info"
+  
+  # Database (host only, credentials in secrets)
+  DB_HOST: "postgres-postgresql.database.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "tilopos"
+  
+  # Redis
+  REDIS_HOST: "tilopos-redis"
+  REDIS_PORT: "6379"
+  
+  # API URLs
+  API_URL: "https://api.tilopos.id"
+  WEB_URL: "https://app.tilopos.id"
+  
+  # Features
+  ENABLE_SWAGGER: "false"
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  
+  # Rate limiting
+  RATE_LIMIT_WINDOW: "60000"
+  RATE_LIMIT_MAX: "100"
+  
+  # Cache TTL
+  CACHE_TTL: "300"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tilopos-web-config
+data:
+  VITE_API_URL: "https://api.tilopos.id"
+  VITE_APP_NAME: "TILO"
+  VITE_ENABLE_PWA: "true"

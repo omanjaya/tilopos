@@ -1,0 +1,434 @@
+# GitHub Actions CI/CD Pipeline for MokaPOS
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '20'
+
+jobs:
+  # ========================================
+  # Code Quality & Security
+  # ========================================
+  lint-and-security:
+    name: Lint & Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript check
+        run: npm run type-check
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # ========================================
+  # Unit & Integration Tests
+  # ========================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: lint-and-security
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: mokapos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup database
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/mokapos_test
+        run: |
+          cd packages/backend
+          npx prisma migrate deploy
+          npx prisma db seed
+
+      - name: Run unit tests
+        run: npm run test:unit -- --coverage
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/mokapos_test
+          REDIS_URL: redis://localhost:6379
+        run: npm run test:integration
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: true
+
+  # ========================================
+  # E2E Tests
+  # ========================================
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  # ========================================
+  # Build Docker Images
+  # ========================================
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "version=$(date +'%Y.%m.%d')-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      # Build Backend
+      - name: Build and push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/backend/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+
+      # Build Web
+      - name: Build and push Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/web/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+
+  # ========================================
+  # Deploy to Staging
+  # ========================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging'
+    environment:
+      name: staging
+      url: https://staging.mokapos.id
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure Kubernetes
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+
+      - name: Update Kubernetes manifests
+        run: |
+          cd k8s/overlays/staging
+          kustomize edit set image backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ needs.build.outputs.version }}
+          kustomize edit set image web=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ needs.build.outputs.version }}
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -k k8s/overlays/staging
+          kubectl rollout status deployment/mokapos-backend -n mokapos-staging --timeout=300s
+          kubectl rollout status deployment/mokapos-web -n mokapos-staging --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          curl -f https://staging.mokapos.id/api/health || exit 1
+          curl -f https://staging.mokapos.id || exit 1
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚀 Deployed to Staging: v${{ needs.build.outputs.version }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ *MokaPOS* deployed to *Staging*\n• Version: `${{ needs.build.outputs.version }}`\n• URL: https://staging.mokapos.id"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # ========================================
+  # Deploy to Production
+  # ========================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build, e2e]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://app.mokapos.id
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure Kubernetes
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+
+      - name: Update Kubernetes manifests
+        run: |
+          cd k8s/overlays/production
+          kustomize edit set image backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ needs.build.outputs.version }}
+          kustomize edit set image web=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ needs.build.outputs.version }}
+
+      - name: Deploy with Canary strategy
+        run: |
+          # Deploy canary (10% traffic)
+          kubectl apply -k k8s/overlays/production
+          kubectl set image deployment/mokapos-backend-canary \
+            backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ needs.build.outputs.version }} \
+            -n mokapos-production
+          
+          # Wait for canary health
+          kubectl rollout status deployment/mokapos-backend-canary -n mokapos-production --timeout=300s
+          
+          # Run canary tests
+          sleep 60
+          
+          # Promote to full deployment
+          kubectl set image deployment/mokapos-backend \
+            backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ needs.build.outputs.version }} \
+            -n mokapos-production
+          kubectl set image deployment/mokapos-web \
+            web=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ needs.build.outputs.version }} \
+            -n mokapos-production
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/mokapos-backend -n mokapos-production --timeout=300s
+          kubectl rollout status deployment/mokapos-web -n mokapos-production --timeout=300s
+          curl -f https://app.mokapos.id/api/health || exit 1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: Release ${{ needs.build.outputs.version }}
+          body: |
+            ## Changes
+            ${{ github.event.head_commit.message }}
+            
+            ## Docker Images
+            - Backend: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ needs.build.outputs.version }}`
+            - Web: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ needs.build.outputs.version }}`
+          draft: false
+          prerelease: false
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🎉 Deployed to Production: v${{ needs.build.outputs.version }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚀 *MokaPOS* deployed to *Production*\n• Version: `${{ needs.build.outputs.version }}`\n• URL: https://app.mokapos.id"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # ========================================
+  # Rollback (manual trigger)
+  # ========================================
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && failure()
+    environment:
+      name: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure Kubernetes
+        run: |
+          mkdir -p ~/.kube
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+            NAMESPACE="mokapos-production"
+          else
+            echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+            NAMESPACE="mokapos-staging"
+          fi
+          echo "NAMESPACE=$NAMESPACE" >> $GITHUB_ENV
+
+      - name: Rollback deployment
+        run: |
+          kubectl rollout undo deployment/mokapos-backend -n ${{ env.NAMESPACE }}
+          kubectl rollout undo deployment/mokapos-web -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/mokapos-backend -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/mokapos-web -n ${{ env.NAMESPACE }}
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "⚠️ Rollback executed in ${{ github.event.inputs.environment }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

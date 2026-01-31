@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Touch-device & Tablet POS optimizations                            */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  /* Hide scrollbar but keep scrolling for category swipe tabs */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Touch-friendly tap highlight removal */
+  .touch-none-highlight {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Touch device specific: larger touch targets, momentum scrolling */
+@media (pointer: coarse) {
+  /* Ensure all interactive elements meet the 44px minimum touch target */
+  .pos-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Smooth momentum scrolling for category swipe */
+  .pos-category-tabs {
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+  }
+
+  .pos-category-tabs > * {
+    scroll-snap-align: start;
+  }
+}
+
+/* Tablet breakpoint (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+  /* Larger product grid items on tablet */
+  .pos-product-grid-tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1rem;
+  }
+
+  /* Larger category tab buttons */
+  .pos-category-tabs button {
+    min-height: 44px;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    font-size: 0.9375rem;
+  }
+
+  /* Product cards - bigger touch area */
+  .pos-product-card-tablet {
+    min-height: 200px;
+  }
+
+  .pos-product-card-tablet .product-card-info {
+    padding: 0.75rem;
+  }
+
+  .pos-product-card-tablet .product-card-name {
+    font-size: 0.9375rem;
+  }
+
+  .pos-product-card-tablet .product-card-price {
+    font-size: 1rem;
+  }
+}
+

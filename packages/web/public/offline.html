@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TILO - Offline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 420px;
+    }
+
+    .icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1.5rem;
+      color: #94a3b8;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    p {
+      color: #64748b;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    button {
+      padding: 0.625rem 1.5rem;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+      stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="m3 3 8.735 8.735m0 0a.374.374 0 1 1 .53.53m-.53-.53.53.53m0 0L21 21M1.106 7.168a18.001 18.001 0 0 1 5.06-2.608m7.669 0a17.955 17.955 0 0 1 5.059 2.608m-3.015 3.015a12.132 12.132 0 0 1 2.233 1.306m-12.33-1.306A12.09 12.09 0 0 0 3.86 11.5m4.908 3.269a6.04 6.04 0 0 1 6.464 0" />
+    </svg>
+    <h1>Anda Sedang Offline</h1>
+    <p>Tidak dapat terhubung ke server. Periksa koneksi internet Anda dan coba lagi. Data yang belum tersimpan akan
+      otomatis disinkronkan saat kembali online.</p>
+    <button onclick="window.location.reload()">Coba Lagi</button>
+  </div>
+</body>
+
+</html>

@@ -1,0 +1,188 @@
+# Prometheus Monitoring Configuration for TiloPOS
+
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tilopos-backend
+  labels:
+    app: tilopos-backend
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: tilopos-backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - tilopos-production
+      - tilopos-staging
+
+---
+# PrometheusRule for alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tilopos-alerts
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: tilopos.rules
+      rules:
+        # High Error Rate
+        - alert: TiloPOSHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{app="tilopos-backend",status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{app="tilopos-backend"}[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate detected"
+            description: "Error rate is {{ $value | humanizePercentage }} (>5%) for the last 5 minutes"
+
+        # High Latency
+        - alert: TiloPOSHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{app="tilopos-backend"}[5m]))
+              by (le)
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High API latency"
+            description: "95th percentile latency is {{ $value | humanizeDuration }}"
+
+        # Pod Memory Usage
+        - alert: TiloPOSHighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{container="backend"}
+              /
+              container_spec_memory_limit_bytes{container="backend"}
+            ) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage"
+            description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+
+        # Pod CPU Usage
+        - alert: TiloPOSHighCPUUsage
+          expr: |
+            (
+              rate(container_cpu_usage_seconds_total{container="backend"}[5m])
+              /
+              container_spec_cpu_quota{container="backend"}
+              * 100000
+            ) > 0.80
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage"
+            description: "CPU usage is {{ $value | humanizePercentage }} of limit"
+
+        # Database Connection Pool
+        - alert: TiloPOSDBConnectionPoolExhausted
+          expr: |
+            prisma_pool_connections_idle{app="tilopos-backend"} == 0
+            and
+            prisma_pool_connections_pending{app="tilopos-backend"} > 5
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Database connection pool exhausted"
+            description: "No idle connections and {{ $value }} pending requests"
+
+        # Transaction Processing Time
+        - alert: TiloPOSSlowTransactions
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(pos_transaction_duration_seconds_bucket[5m]))
+              by (le)
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Slow transaction processing"
+            description: "95th percentile transaction time is {{ $value | humanizeDuration }}"
+
+        # Queue Backlog
+        - alert: TiloPOSQueueBacklog
+          expr: bull_queue_waiting_count{app="tilopos-backend"} > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job queue backlog growing"
+            description: "Queue {{ $labels.queue }} has {{ $value }} waiting jobs"
+
+        # Pod Restart
+        - alert: TiloPOSPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace=~"tilopos.*",
+              container=~"backend|web"
+            }[1h]) > 3
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod restarting frequently"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour"
+
+        # Redis Connection
+        - alert: TiloPOSRedisDown
+          expr: redis_up{app="tilopos-redis"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Redis is down"
+            description: "Redis cache is not responding"
+
+        # Disk Space
+        - alert: TiloPOSLowDiskSpace
+          expr: |
+            (
+              kubelet_volume_stats_available_bytes{namespace=~"tilopos.*"}
+              /
+              kubelet_volume_stats_capacity_bytes{namespace=~"tilopos.*"}
+            ) < 0.15
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Low disk space"
+            description: "Volume {{ $labels.persistentvolumeclaim }} has {{ $value | humanizePercentage }} space remaining"
+
+---
+# PodMonitor for additional pods
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: tilopos-pods
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tilopos
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

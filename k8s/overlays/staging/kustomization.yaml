@@ -1,0 +1,52 @@
+# Staging overlay for TiloPOS
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tilopos-staging
+
+resources:
+  - ../../base
+
+namePrefix: staging-
+
+commonLabels:
+  environment: staging
+
+patches:
+  # Ingress - staging hosts
+  - target:
+      kind: Ingress
+      name: tilopos-ingress
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - staging.tilopos.id
+          - api-staging.tilopos.id
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.tilopos.id
+      - op: replace
+        path: /spec/rules/1/host
+        value: api-staging.tilopos.id
+
+configMapGenerator:
+  - name: tilopos-config
+    behavior: merge
+    literals:
+      - NODE_ENV=staging
+      - LOG_LEVEL=debug
+      - ENABLE_SWAGGER=true
+      - API_URL=https://api-staging.tilopos.id
+      - WEB_URL=https://staging.tilopos.id
+
+  - name: tilopos-web-config
+    behavior: merge
+    literals:
+      - VITE_API_URL=https://api-staging.tilopos.id
+
+images:
+  - name: ghcr.io/tilopos/backend
+    newTag: develop
+  - name: ghcr.io/tilopos/web
+    newTag: develop
