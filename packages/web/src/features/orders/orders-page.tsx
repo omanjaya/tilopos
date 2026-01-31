@@ -5,6 +5,7 @@ import { ordersApi } from '@/api/endpoints/orders.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -208,7 +209,11 @@ export function OrdersPage() {
 
   return (
     <div>
-      <PageHeader title="Pesanan" description="Kelola pesanan dapur" />
+      <PageHeader title="Pesanan" description="Kelola pesanan dapur">
+        <HelpSidebar page="orders" />
+      </PageHeader>
+
+      <InlineHelpCard page="orders" className="mb-4" />
 
       <div className="mb-4">
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>

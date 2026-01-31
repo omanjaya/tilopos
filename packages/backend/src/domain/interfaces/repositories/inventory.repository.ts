@@ -14,6 +14,11 @@ export interface StockLevelRecord {
   quantity: number;
   lowStockAlert: number;
   updatedAt: Date;
+  product?: {
+    id: string;
+    name: string;
+    sku: string | null;
+  };
 }
 
 export interface StockMovementRecord {

@@ -1,7 +1,14 @@
 import { apiClient } from '../client';
-import type { OnlineStore, CreateOnlineStoreRequest } from '@/types/online-store.types';
+import type {
+  OnlineStore,
+  CreateOnlineStoreRequest,
+  Storefront,
+  CreateStorefrontOrderRequest,
+  StorefrontOrder,
+} from '@/types/online-store.types';
 
 export const onlineStoreApi = {
+  // Admin endpoints
   getStores: () =>
     apiClient.get('/online-store/stores').then((r) => {
       const raw = r.data;
@@ -22,4 +29,11 @@ export const onlineStoreApi = {
 
   getStoreBySlug: (slug: string) =>
     apiClient.get<OnlineStore>(`/online-store/s/${slug}`).then((r) => r.data),
+
+  // Customer storefront endpoints
+  getStorefront: (slug: string) =>
+    apiClient.get<Storefront>(`/online-store/s/${slug}/storefront`).then((r) => r.data),
+
+  createOrder: (slug: string, data: CreateStorefrontOrderRequest) =>
+    apiClient.post<StorefrontOrder>(`/online-store/s/${slug}/orders`, data).then((r) => r.data),
 };

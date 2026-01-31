@@ -88,6 +88,9 @@ import { SettlementsPage } from '@/features/transactions/settlements-page';
 import { VoucherGeneratorPage } from '@/features/promotions/voucher-generator-page';
 import { CustomerSegmentsPage } from '@/features/customers/customer-segments-page';
 import { LandingPage } from '@/pages/landing-page';
+import { HelpCenterPage } from '@/features/help/help-center-page';
+import { TutorialLibraryPage } from '@/features/help/tutorial-library-page';
+import { MyProfilePage } from '@/features/profile/my-profile-page';
 
 export const router = createBrowserRouter([
   // Landing page (public)
@@ -227,6 +230,9 @@ export const router = createBrowserRouter([
       { path: 'settlements', element: <SettlementsPage /> },
       { path: 'promotions/vouchers', element: <VoucherGeneratorPage /> },
       { path: 'customers/segments', element: <CustomerSegmentsPage /> },
+      { path: 'profile', element: <MyProfilePage /> },
+      { path: 'help', element: <HelpCenterPage /> },
+      { path: 'help/tutorials', element: <TutorialLibraryPage /> },
       {
         path: 'settings/tax',
         element: (

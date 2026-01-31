@@ -5,6 +5,7 @@ import { employeesApi } from '@/api/endpoints/employees.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -112,10 +113,13 @@ export function EmployeesPage() {
   return (
     <div>
       <PageHeader title="Karyawan" description="Kelola daftar karyawan Anda">
+        <HelpSidebar page="employees" />
         <Button onClick={() => navigate('/app/employees/new')}>
           <Plus className="mr-2 h-4 w-4" /> Tambah Karyawan
         </Button>
       </PageHeader>
+
+      <InlineHelpCard page="employees" className="mb-4" />
 
       <DataTable
         columns={columns}

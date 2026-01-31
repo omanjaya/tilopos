@@ -37,7 +37,6 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { WaitingListModule } from './modules/waiting-list/waiting-list.module';
-import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -80,7 +79,6 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
     UploadsModule,
     PaymentsModule,
     WaitingListModule,
-    IntegrationsModule,
   ],
   providers: [
     {

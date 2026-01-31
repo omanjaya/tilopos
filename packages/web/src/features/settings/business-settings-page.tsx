@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,7 +61,9 @@ export function BusinessSettingsPage() {
   if (isLoading) {
     return (
       <div>
-        <PageHeader title="Pengaturan Bisnis" description="Kelola informasi bisnis Anda" />
+        <PageHeader title="Pengaturan Bisnis" description="Kelola informasi bisnis Anda">
+          <HelpSidebar page="settings" />
+        </PageHeader>
         <Card>
           <CardHeader>
             <Skeleton className="h-6 w-48" />
@@ -78,7 +81,11 @@ export function BusinessSettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Pengaturan Bisnis" description="Kelola informasi bisnis Anda" />
+      <PageHeader title="Pengaturan Bisnis" description="Kelola informasi bisnis Anda">
+        <HelpSidebar page="settings" />
+      </PageHeader>
+
+      <InlineHelpCard page="settings" className="mb-4" />
 
       <Card>
         <CardHeader>

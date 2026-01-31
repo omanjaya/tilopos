@@ -5,6 +5,7 @@ import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -97,10 +98,13 @@ export function CustomersPage() {
   return (
     <div>
       <PageHeader title="Pelanggan" description="Kelola data pelanggan Anda">
+        <HelpSidebar page="customers" />
         <Button onClick={() => navigate('/app/customers/new')}>
           <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
         </Button>
       </PageHeader>
+
+      <InlineHelpCard page="customers" className="mb-4" />
 
       <DataTable
         columns={columns}

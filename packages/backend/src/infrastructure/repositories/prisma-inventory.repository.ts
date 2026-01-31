@@ -6,7 +6,12 @@ import type {
 } from '../../domain/interfaces/repositories/inventory.repository';
 import { PrismaService } from '../database/prisma.service';
 import { decimalToNumberRequired } from './decimal.helper';
-import type { StockLevel as PrismaStockLevel, StockMovement as PrismaStockMovement } from '@prisma/client';
+import type { StockLevel as PrismaStockLevel, StockMovement as PrismaStockMovement, Product } from '@prisma/client';
+
+/** Extended Prisma StockLevel type with product relation included */
+type StockLevelWithProduct = PrismaStockLevel & {
+  product?: Pick<Product, 'id' | 'name' | 'sku'> | null;
+};
 
 @Injectable()
 export class PrismaInventoryRepository implements IInventoryRepository {
@@ -23,6 +28,15 @@ export class PrismaInventoryRepository implements IInventoryRepository {
         productId,
         variantId: variantId ?? null,
       },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+          },
+        },
+      },
     });
 
     if (!stockLevel) {
@@ -35,6 +49,15 @@ export class PrismaInventoryRepository implements IInventoryRepository {
   async findStockLevelsByOutlet(outletId: string): Promise<StockLevelRecord[]> {
     const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+          },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
 
@@ -90,7 +113,7 @@ export class PrismaInventoryRepository implements IInventoryRepository {
     return this.toStockMovementRecord(created);
   }
 
-  private toStockLevelRecord(stockLevel: PrismaStockLevel): StockLevelRecord {
+  private toStockLevelRecord(stockLevel: StockLevelWithProduct): StockLevelRecord {
     return {
       id: stockLevel.id,
       outletId: stockLevel.outletId,
@@ -99,6 +122,11 @@ export class PrismaInventoryRepository implements IInventoryRepository {
       quantity: decimalToNumberRequired(stockLevel.quantity),
       lowStockAlert: stockLevel.lowStockAlert,
       updatedAt: stockLevel.updatedAt,
+      product: stockLevel.product ? {
+        id: stockLevel.product.id,
+        name: stockLevel.product.name,
+        sku: stockLevel.product.sku,
+      } : undefined,
     };
   }
 

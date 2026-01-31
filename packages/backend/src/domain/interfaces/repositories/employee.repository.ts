@@ -23,6 +23,11 @@ export interface EmployeeRecord {
   mfaEnabled: boolean;
   googleId: string | null;
   authProvider: string;
+  profilePhotoUrl: string | null;
+  preferences: Record<string, unknown> | null;
+  onboardingCompleted: boolean;
+  lastLoginAt: Date | null;
+  lastLoginIp: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

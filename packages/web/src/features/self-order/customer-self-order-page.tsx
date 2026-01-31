@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { selfOrderApi } from '@/api/endpoints/self-order.api';
@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -14,18 +15,15 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  MenuIcon,
-  ShoppingBagIcon,
-  PlusIcon,
-  MinusIcon,
-  XIcon,
-  CheckIcon,
-  UtensilsCrossedIcon,
-  Loader2Icon,
-} from 'lucide-react';
-import clsx from 'clsx';
+import { AlertCircle, RefreshCw, X, Check, UtensilsCrossed, Loader2, ShoppingCart, Menu, Plus } from 'lucide-react';
+import { clsx } from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { SelfOrderMenuItem } from '@/types/self-order.types';
+import { ProductLightbox } from './components/product-lightbox';
+import { ProductRecommendations } from './components/product-recommendations';
+import { StickyCartFooter } from './components/sticky-cart-footer';
+import { OrderConfirmation } from './components/order-confirmation';
+import { OfflineIndicator } from './components/offline-indicator';
 
 interface CartItem {
   productId: string;
@@ -50,9 +48,29 @@ export function CustomerSelfOrderPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<SelfOrderMenuItem | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [orderStatus, setOrderStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [orderNumber, setOrderNumber] = useState('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOfflineError, setShowOfflineError] = useState(false);
 
   const queryClient = useQueryClient();
+
+  // Monitor online/offline status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Get session info
   const { data: session, isLoading: sessionLoading } = useQuery({
@@ -79,9 +97,11 @@ export function CustomerSelfOrderPage() {
       }
 
       // Submit session
-      await selfOrderApi.submitSession(sessionCode);
+      const result = await selfOrderApi.submitSession(sessionCode);
+      return result;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setOrderNumber(data.orderNumber || `ORD-${Date.now()}`);
       setOrderStatus('success');
       setCart([]);
       queryClient.invalidateQueries({ queryKey: ['self-order-session', sessionCode] });
@@ -151,6 +171,12 @@ export function CustomerSelfOrderPage() {
 
   // Submit order
   const handleSubmitOrder = useCallback(() => {
+    if (!isOnline) {
+      setShowOfflineError(true);
+      setTimeout(() => setShowOfflineError(false), 5000);
+      return;
+    }
+
     if (cart.length === 0) return;
 
     setOrderStatus('submitting');
@@ -161,17 +187,42 @@ export function CustomerSelfOrderPage() {
     }));
 
     submitOrderMutation.mutate(orderItems);
-  }, [cart, submitOrderMutation]);
+  }, [cart, isOnline, submitOrderMutation]);
+
+  // Open product detail with lightbox support
+  const openProductDetail = useCallback((product: SelfOrderMenuItem) => {
+    setSelectedProduct(product);
+  }, []);
+
+  // Open lightbox
+  const openLightbox = useCallback((images: string[], index: number) => {
+    setLightboxImages(images);
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  }, []);
 
   // Loading state
   if (sessionLoading || menuLoading) {
     return (
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="mx-auto max-w-4xl space-y-4">
-          <Skeleton className="h-20 w-full" />
+          {/* Header skeleton */}
+          <Skeleton className="h-24 w-full" />
+
+          {/* Search skeleton */}
+          <Skeleton className="h-12 w-full" />
+
+          {/* Categories skeleton */}
+          <div className="flex gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-20" />
+            ))}
+          </div>
+
+          {/* Menu grid skeleton */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-48 w-full" />
+              <Skeleton key={i} className="h-64 w-full" />
             ))}
           </div>
         </div>
@@ -184,7 +235,7 @@ export function CustomerSelfOrderPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-md p-8 text-center">
-          <UtensilsCrossedIcon className="mx-auto h-16 w-16 text-gray-400" />
+          <UtensilsCrossed className="mx-auto h-16 w-16 text-gray-400" />
           <h2 className="mt-4 text-xl font-semibold">Sesi Tidak Ditemukan</h2>
           <p className="mt-2 text-gray-600">
             QR code yang Anda scan tidak valid atau telah kedaluwarsa. Silakan minta bantuan dari staff kami.
@@ -195,37 +246,47 @@ export function CustomerSelfOrderPage() {
   }
 
   // Order success state
-  if (orderStatus === 'success') {
+  if (orderStatus === 'success' && orderNumber) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-        <Card className="w-full max-w-md p-8 text-center">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
-            <CheckIcon className="h-10 w-10 text-green-600" />
-          </div>
-          <h2 className="mt-6 text-2xl font-semibold text-gray-900">Pesanan Berhasil!</h2>
-          <p className="mt-2 text-gray-600">
-            Terima kasih telah memesan. Pesanan Anda sedang diproses dan akan segera disiapkan.
-          </p>
-          <div className="mt-6 rounded-lg bg-gray-100 p-4">
-            <p className="text-sm text-gray-600">Nomor Meja</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">
-              {session?.tableNumber || '-'}
-            </p>
-          </div>
-          <Button
-            className="mt-6 w-full"
-            size="lg"
-            onClick={() => setOrderStatus('idle')}
-          >
-            Pesan Lagi
-          </Button>
-        </Card>
-      </div>
+      <OrderConfirmation
+        orderNumber={orderNumber}
+        total={cartTotal}
+        tableNumber={session?.tableNumber}
+        estimatedTime={15}
+        customerPhone={session?.customerPhone}
+        onViewStatus={() => setOrderStatus('idle')}
+        onNewOrder={() => {
+          setOrderStatus('idle');
+          setOrderNumber('');
+        }}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gray-50 pb-32">
+      {/* Offline Indicator */}
+      <OfflineIndicator isOnline={isOnline} />
+
+      {/* Offline Error Alert */}
+      <AnimatePresence>
+        {showOfflineError && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mx-auto max-w-4xl px-4 pt-4"
+          >
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Tidak dapat terhubung ke server. Periksa koneksi internet Anda.
+              </AlertDescription>
+            </Alert>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white border-b shadow-sm">
         <div className="mx-auto max-w-6xl px-4 py-4">
@@ -243,7 +304,7 @@ export function CustomerSelfOrderPage() {
               className="relative gap-2"
               size="lg"
             >
-              <ShoppingBagIcon className="h-5 w-5" />
+              <ShoppingCart className="h-5 w-5" />
               <span>Keranjang</span>
               {cartItemCount > 0 && (
                 <Badge className="absolute -right-2 -top-2 h-6 w-6 rounded-full p-0 text-center">
@@ -283,12 +344,21 @@ export function CustomerSelfOrderPage() {
         </div>
       </header>
 
-      {/* Menu Grid */}
+      {/* Main Content */}
       <main className="mx-auto max-w-6xl px-4 py-6">
+        {/* Product Recommendations */}
+        {selectedCategory === 'all' && !searchQuery && (
+          <ProductRecommendations
+            outletId={session?.outletId || ''}
+            onAddToCart={addToCart}
+          />
+        )}
+
+        {/* Menu Grid */}
         {filteredItems.length === 0 ? (
           <div className="flex min-h-[400px] items-center justify-center">
             <div className="text-center">
-              <MenuIcon className="mx-auto h-16 w-16 text-gray-400" />
+              <Menu className="mx-auto h-16 w-16 text-gray-400" />
               <p className="mt-4 text-gray-600">Tidak ada menu yang ditemukan</p>
             </div>
           </div>
@@ -298,18 +368,19 @@ export function CustomerSelfOrderPage() {
               <Card
                 key={item.id}
                 className="cursor-pointer overflow-hidden transition-shadow hover:shadow-lg"
-                onClick={() => setSelectedProduct(item)}
+                onClick={() => openProductDetail(item)}
               >
-                <div className="aspect-video w-full overflow-hidden bg-gray-100">
+                <div className="aspect-video w-full overflow-hidden bg-gray-100 relative group">
                   {item.imageUrl ? (
                     <img
                       src={item.imageUrl}
                       alt={item.name}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      loading="lazy"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center">
-                      <MenuIcon className="h-16 w-16 text-gray-300" />
+                      <Menu className="h-16 w-16 text-gray-300" />
                     </div>
                   )}
                 </div>
@@ -329,11 +400,15 @@ export function CustomerSelfOrderPage() {
                     <p className="text-lg font-bold text-gray-900">
                       {formatCurrency(item.price)}
                     </p>
-                    <Button size="sm" onClick={(e) => {
-                      e.stopPropagation();
-                      addToCart(item);
-                    }}>
-                      <PlusIcon className="h-4 w-4" />
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addToCart(item);
+                      }}
+                      className="min-h-[44px] min-w-[44px]"
+                    >
+                      <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
@@ -343,9 +418,24 @@ export function CustomerSelfOrderPage() {
         )}
       </main>
 
+      {/* Sticky Cart Footer */}
+      <StickyCartFooter
+        itemCount={cartItemCount}
+        total={cartTotal}
+        onViewCart={() => setIsCartOpen(true)}
+      />
+
+      {/* Product Lightbox */}
+      <ProductLightbox
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+      />
+
       {/* Product Detail Modal */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <>
               <DialogHeader>
@@ -353,11 +443,19 @@ export function CustomerSelfOrderPage() {
               </DialogHeader>
               <div className="space-y-4">
                 {selectedProduct.imageUrl && (
-                  <img
-                    src={selectedProduct.imageUrl}
-                    alt={selectedProduct.name}
-                    className="w-full rounded-lg object-cover"
-                  />
+                  <div
+                    className="relative cursor-pointer rounded-lg overflow-hidden"
+                    onClick={() => openLightbox([selectedProduct.imageUrl!], 0)}
+                  >
+                    <img
+                      src={selectedProduct.imageUrl}
+                      alt={selectedProduct.name}
+                      className="w-full rounded-lg object-cover"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 hover:opacity-100 transition-opacity">
+                      <p className="text-white text-sm font-medium">Klik untuk perbesar</p>
+                    </div>
+                  </div>
                 )}
                 {selectedProduct.description && (
                   <p className="text-gray-600">{selectedProduct.description}</p>
@@ -389,14 +487,14 @@ export function CustomerSelfOrderPage() {
             <DialogTitle className="flex items-center justify-between">
               <span>Keranjang Belanja</span>
               <Button variant="ghost" size="icon" onClick={() => setIsCartOpen(false)}>
-                <XIcon className="h-5 w-5" />
+                <X className="h-5 w-5" />
               </Button>
             </DialogTitle>
           </DialogHeader>
 
           {cart.length === 0 ? (
             <div className="py-12 text-center">
-              <ShoppingBagIcon className="mx-auto h-16 w-16 text-gray-400" />
+              <ShoppingCart className="mx-auto h-16 w-16 text-gray-400" />
               <p className="mt-4 text-gray-600">Keranjang Anda kosong</p>
             </div>
           ) : (
@@ -423,28 +521,28 @@ export function CustomerSelfOrderPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="h-8 w-8"
                         onClick={() => removeFromCart(item.productId)}
                       >
-                        <XIcon className="h-4 w-4" />
+                        <X className="h-4 w-4" />
                       </Button>
                       <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-9 w-9 min-h-[44px]"
                           onClick={() => updateQuantity(item.productId, -1)}
                         >
-                          <MinusIcon className="h-4 w-4" />
+                          <Plus className="h-4 w-4 rotate-45" />
                         </Button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <span className="w-9 text-center font-medium">{item.quantity}</span>
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-9 w-9 min-h-[44px]"
                           onClick={() => updateQuantity(item.productId, 1)}
                         >
-                          <PlusIcon className="h-4 w-4" />
+                          <Plus className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -465,25 +563,33 @@ export function CustomerSelfOrderPage() {
                 className="w-full"
                 size="lg"
                 onClick={handleSubmitOrder}
-                disabled={orderStatus === 'submitting'}
+                disabled={orderStatus === 'submitting' || !isOnline}
               >
                 {orderStatus === 'submitting' ? (
                   <>
-                    <Loader2Icon className="mr-2 h-5 w-5 animate-spin" />
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Memproses...
+                  </>
+                ) : !isOnline ? (
+                  <>
+                    <RefreshCw className="mr-2 h-5 w-5" />
+                    Menunggu Koneksi...
                   </>
                 ) : (
                   <>
-                    <CheckIcon className="mr-2 h-5 w-5" />
+                    <Check className="mr-2 h-5 w-5" />
                     Kirim Pesanan
                   </>
                 )}
               </Button>
 
               {orderStatus === 'error' && (
-                <p className="text-center text-sm text-red-600">
-                  Gagal mengirim pesanan. Silakan coba lagi.
-                </p>
+                <Alert variant="destructive" className="mt-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Gagal mengirim pesanan. Silakan coba lagi.
+                  </AlertDescription>
+                </Alert>
               )}
             </div>
           )}

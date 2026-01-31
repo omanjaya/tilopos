@@ -7,6 +7,9 @@ import { AuthService } from './auth.service';
 import { MfaService } from './mfa/mfa.service';
 import { MfaController } from './mfa/mfa.controller';
 import { LoginUseCase } from '../../application/use-cases/auth/login.use-case';
+import { UpdateProfileUseCase } from '../../application/use-cases/auth/update-profile.use-case';
+import { ChangePinUseCase } from '../../application/use-cases/auth/change-pin.use-case';
+import { GetActivityLogUseCase } from '../../application/use-cases/auth/get-activity-log.use-case';
 import { JwtStrategy } from '../../infrastructure/auth/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
@@ -29,6 +32,9 @@ import { PrismaEmployeeRepository } from '../../infrastructure/repositories/pris
     AuthService,
     MfaService,
     LoginUseCase,
+    UpdateProfileUseCase,
+    ChangePinUseCase,
+    GetActivityLogUseCase,
     JwtStrategy,
     GoogleStrategy,
     { provide: REPOSITORY_TOKENS.EMPLOYEE, useClass: PrismaEmployeeRepository },

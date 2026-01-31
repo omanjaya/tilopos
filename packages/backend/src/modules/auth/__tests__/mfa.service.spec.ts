@@ -23,6 +23,11 @@ describe('MfaService', () => {
     mfaEnabled: false,
     googleId: null,
     authProvider: 'local',
+    profilePhotoUrl: null,
+    preferences: null,
+    onboardingCompleted: false,
+    lastLoginAt: null,
+    lastLoginIp: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

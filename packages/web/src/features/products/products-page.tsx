@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { CategoryManager } from './components/category-manager';
+import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -129,6 +130,7 @@ export function ProductsPage() {
   return (
     <div>
       <PageHeader title="Produk" description="Kelola daftar produk Anda">
+        <HelpSidebar page="products" />
         <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
           <Tags className="mr-2 h-4 w-4" /> Kategori
         </Button>
@@ -136,6 +138,8 @@ export function ProductsPage() {
           <Plus className="mr-2 h-4 w-4" /> Tambah Produk
         </Button>
       </PageHeader>
+
+      <InlineHelpCard page="products" className="mb-4" />
 
       <DataTable
         columns={columns}

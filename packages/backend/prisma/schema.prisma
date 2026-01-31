@@ -442,6 +442,11 @@ model Employee {
   mfaEnabled            Boolean       @default(false) @map("mfa_enabled")
   googleId              String?       @map("google_id") @db.VarChar(255)
   authProvider          String        @default("local") @map("auth_provider") @db.VarChar(20)
+  onboardingCompleted   Boolean       @default(false) @map("onboarding_completed")
+  profilePhotoUrl       String?       @map("profile_photo_url") @db.VarChar(500)
+  preferences           Json?         @db.JsonB
+  lastLoginAt           DateTime?     @map("last_login_at") @db.Timestamptz()
+  lastLoginIp           String?       @map("last_login_ip") @db.VarChar(45)
   createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -1766,4 +1771,46 @@ model Voucher {
 
   @@index([code], map: "idx_vouchers_code")
   @@map("vouchers")
+}
+
+// ============================================================================
+// 48. SAGA STATE (for saga persistence and recovery)
+// ============================================================================
+
+enum SagaStatus {
+  pending
+  running
+  completed
+  compensating
+  compensated
+  failed
+
+  @@map("saga_status")
+}
+
+model SagaState {
+  id              String      @id @default(uuid()) @db.Uuid
+  sagaId          String      @unique @map("saga_id") @db.VarChar(255)
+  sagaName        String      @map("saga_name") @db.VarChar(255)
+  status          SagaStatus  @default(pending)
+  context         Json        @db.JsonB
+  currentStep     Int?        @default(0) @map("current_step")
+  completedSteps  Json?       @map("completed_steps") @db.JsonB
+  failedStep      String?     @map("failed_step") @db.VarChar(255)
+  error           String?     @db.VarChar(1000)
+  startedAt       DateTime    @default(now()) @map("started_at") @db.Timestamptz()
+  completedAt     DateTime?   @map("completed_at") @db.Timestamptz()
+  lastRetryAt     DateTime?   @map("last_retry_at") @db.Timestamptz()
+  retryCount      Int         @default(0) @map("retry_count")
+  maxRetries      Int         @default(3) @map("max_retries")
+  businessId      String?     @map("business_id") @db.Uuid
+  metadata        Json?       @db.JsonB
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([sagaName], map: "idx_saga_states_name")
+  @@index([status], map: "idx_saga_states_status")
+  @@index([businessId], map: "idx_saga_states_business")
+  @@index([startedAt], map: "idx_saga_states_started_at")
+  @@map("saga_states")
 }
