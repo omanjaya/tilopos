@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productsApi } from '@/api/endpoints/products.api';
@@ -127,6 +127,34 @@ export function ProductsPage() {
     },
   ];
 
+  // Keyboard shortcuts
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // N - New product
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/app/products/new');
+      }
+
+      // / - Focus search
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [navigate]);
+
   return (
     <div>
       <PageHeader title="Produk" description="Kelola daftar produk Anda">
@@ -134,7 +162,7 @@ export function ProductsPage() {
         <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
           <Tags className="mr-2 h-4 w-4" /> Kategori
         </Button>
-        <Button onClick={() => navigate('/app/products/new')}>
+        <Button onClick={() => navigate('/app/products/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Produk
         </Button>
       </PageHeader>

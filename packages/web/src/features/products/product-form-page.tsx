@@ -285,7 +285,12 @@ export function ProductFormPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/app/products')}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending}>
+          <Button
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending}
+            aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Creating product...') : undefined}
+          >
             {isPending && <Loader2 className="animate-spin" />}
             {isEdit ? 'Simpan Perubahan' : 'Buat Produk'}
           </Button>
