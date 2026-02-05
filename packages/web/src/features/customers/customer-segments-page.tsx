@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tantml:parameter>
+</invoke>
 import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
@@ -244,6 +245,22 @@ export function CustomerSegmentsPage() {
     },
   ];
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsCreateOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
   const customerColumns: Column<Customer>[] = [
     { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
     { key: 'email', header: 'Email', cell: (row) => <span className="text-muted-foreground">{row.email ?? '-'}</span> },
@@ -255,7 +272,7 @@ export function CustomerSegmentsPage() {
   return (
     <div>
       <PageHeader title="Segmen Pelanggan" description="Kelola segmentasi pelanggan Anda">
-        <Button onClick={() => setIsCreateOpen(true)}>
+        <Button onClick={() => setIsCreateOpen(true)} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Buat Segmen
         </Button>
       </PageHeader>
@@ -350,7 +367,12 @@ export function CustomerSegmentsPage() {
               <Button type="button" variant="outline" onClick={resetCreateForm}>
                 Batal
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={createMutation.isPending}
+                aria-busy={createMutation.isPending}
+                aria-label={createMutation.isPending ? 'Creating segment...' : undefined}
+              >
                 {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Buat Segmen
               </Button>
