@@ -154,6 +154,8 @@ export function useOfflinePOS(): UseOfflinePOSReturn {
       syncEngine.off('queueProcessed', handleProcessed);
       syncEngine.off('syncError', handleError);
     };
+    // refreshPendingCount is intentionally omitted - it's defined later and not needed in setup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- Refresh pending count ----

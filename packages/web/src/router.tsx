@@ -3,6 +3,7 @@ import { AuthGuard } from '@/features/auth/auth-guard';
 import { RoleGuard } from '@/features/auth/role-guard';
 import { AppLayout } from '@/components/layout/app-layout';
 
+// eslint-disable-next-line react-refresh/only-export-components
 function RouteErrorPage() {
   const error = useRouteError() as Error & { status?: number; statusText?: string };
   const navigate = useNavigate();
@@ -46,26 +47,34 @@ function RouteErrorPage() {
     </div>
   );
 }
+import { DeviceRoute } from '@/components/shared/device-route';
 import { LoginPage } from '@/features/auth/login-page';
 import { DashboardPage } from '@/features/dashboard/dashboard-page';
+import { DashboardPage as DashboardPageMobile } from '@/features/dashboard/dashboard-page.mobile';
 import { ProductsPage } from '@/features/products/products-page';
+import { ProductsPage as ProductsPageMobile } from '@/features/products/products-page.mobile';
 import { ProductFormPage } from '@/features/products/product-form-page';
 import { EmployeesPage } from '@/features/employees/employees-page';
 import { EmployeeFormPage } from '@/features/employees/employee-form-page';
 import { CustomersPage } from '@/features/customers/customers-page';
+import { CustomersPage as CustomersPageMobile } from '@/features/customers/customers-page.mobile';
 import { CustomerFormPage } from '@/features/customers/customer-form-page';
 import { POSPage } from '@/features/pos/pos-page';
 import { ReportsPage } from '@/features/reports/reports-page';
+import { ReportsPage as ReportsPageMobile } from '@/features/reports/reports-page.mobile';
 import { TransactionsPage } from '@/features/transactions/transactions-page';
 import { TransactionDetailPage } from '@/features/transactions/transaction-detail-page';
 import { StockPage } from '@/features/inventory/stock-page';
+import { StockPage as StockPageMobile } from '@/features/inventory/stock-page.mobile';
 import { TransfersPage } from '@/features/inventory/transfers-page';
 import { TransferDetailPage } from '@/features/inventory/transfer-detail-page';
 import { SuppliersPage } from '@/features/inventory/suppliers-page';
 import { PurchaseOrdersPage } from '@/features/inventory/purchase-orders-page';
 import { OrdersPage } from '@/features/orders/orders-page';
+import { OrdersPage as OrdersPageMobile } from '@/features/orders/orders-page.mobile';
 import { OrderDetailPage } from '@/features/orders/order-detail-page';
 import { TablesPage } from '@/features/tables/tables-page';
+import { TablesPage as TablesPageMobile } from '@/features/tables/tables-page.mobile';
 import { ShiftsPage } from '@/features/shifts/shifts-page';
 import { PromotionsPage } from '@/features/promotions/promotions-page';
 import { PromotionFormPage } from '@/features/promotions/promotion-form-page';
@@ -137,8 +146,14 @@ export const router = createBrowserRouter([
       </AuthGuard>
     ),
     children: [
-      { index: true, element: <DashboardPage /> },
-      { path: 'products', element: <ProductsPage /> },
+      {
+        index: true,
+        element: <DeviceRoute desktop={DashboardPage} mobile={DashboardPageMobile} />
+      },
+      {
+        path: 'products',
+        element: <DeviceRoute desktop={ProductsPage} mobile={ProductsPageMobile} />
+      },
       { path: 'products/new', element: <ProductFormPage /> },
       { path: 'products/:id/edit', element: <ProductFormPage /> },
       {
@@ -165,20 +180,35 @@ export const router = createBrowserRouter([
           </RoleGuard>
         ),
       },
-      { path: 'customers', element: <CustomersPage /> },
+      {
+        path: 'customers',
+        element: <DeviceRoute desktop={CustomersPage} mobile={CustomersPageMobile} />
+      },
       { path: 'customers/new', element: <CustomerFormPage /> },
       { path: 'customers/:id/edit', element: <CustomerFormPage /> },
       { path: 'transactions', element: <TransactionsPage /> },
       { path: 'transactions/:id', element: <TransactionDetailPage /> },
-      { path: 'reports', element: <ReportsPage /> },
-      { path: 'inventory/stock', element: <StockPage /> },
+      {
+        path: 'reports',
+        element: <DeviceRoute desktop={ReportsPage} mobile={ReportsPageMobile} />
+      },
+      {
+        path: 'inventory/stock',
+        element: <DeviceRoute desktop={StockPage} mobile={StockPageMobile} />
+      },
       { path: 'inventory/transfers', element: <TransfersPage /> },
       { path: 'inventory/transfers/:id', element: <TransferDetailPage /> },
       { path: 'inventory/suppliers', element: <SuppliersPage /> },
       { path: 'inventory/purchase-orders', element: <PurchaseOrdersPage /> },
-      { path: 'orders', element: <OrdersPage /> },
+      {
+        path: 'orders',
+        element: <DeviceRoute desktop={OrdersPage} mobile={OrdersPageMobile} />
+      },
       { path: 'orders/:id', element: <OrderDetailPage /> },
-      { path: 'tables', element: <TablesPage /> },
+      {
+        path: 'tables',
+        element: <DeviceRoute desktop={TablesPage} mobile={TablesPageMobile} />
+      },
       { path: 'shifts', element: <ShiftsPage /> },
       { path: 'promotions', element: <PromotionsPage /> },
       { path: 'promotions/new', element: <PromotionFormPage /> },

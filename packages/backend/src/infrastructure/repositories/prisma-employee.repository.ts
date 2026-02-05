@@ -144,11 +144,11 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
     mfaEnabled: boolean;
     googleId: string | null;
     authProvider: string;
-    profilePhotoUrl: string | null;
-    preferences: Prisma.JsonValue | null;
-    onboardingCompleted: boolean;
-    lastLoginAt: Date | null;
-    lastLoginIp: string | null;
+    profilePhotoUrl?: string | null;
+    preferences?: Prisma.JsonValue | null;
+    onboardingCompleted?: boolean;
+    lastLoginAt?: Date | null;
+    lastLoginIp?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }): EmployeeRecord {
@@ -168,11 +168,11 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
       mfaEnabled: employee.mfaEnabled,
       googleId: employee.googleId,
       authProvider: employee.authProvider,
-      profilePhotoUrl: employee.profilePhotoUrl,
-      preferences: employee.preferences as Record<string, unknown> | null,
-      onboardingCompleted: employee.onboardingCompleted,
-      lastLoginAt: employee.lastLoginAt,
-      lastLoginIp: employee.lastLoginIp,
+      profilePhotoUrl: employee.profilePhotoUrl ?? null,
+      preferences: (employee.preferences as Record<string, unknown> | null) ?? null,
+      onboardingCompleted: employee.onboardingCompleted ?? false,
+      lastLoginAt: employee.lastLoginAt ?? null,
+      lastLoginIp: employee.lastLoginIp ?? null,
       createdAt: employee.createdAt,
       updatedAt: employee.updatedAt,
     };

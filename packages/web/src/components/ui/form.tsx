@@ -174,6 +174,7 @@ const Slot = React.forwardRef<
 })
 Slot.displayName = "Slot"
 
+/* eslint-disable react-refresh/only-export-components */
 export {
   useFormField,
   Form,

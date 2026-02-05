@@ -204,6 +204,7 @@ function CartItemRow({ item, onQuantityChange, onRemove, onEdit }: CartItemRowPr
                             size="sm"
                             onClick={onEdit}
                             className="h-8 w-8 p-0"
+                            aria-label="Ubah item"
                         >
                             <Edit3 className="h-4 w-4" />
                         </Button>
@@ -213,6 +214,7 @@ function CartItemRow({ item, onQuantityChange, onRemove, onEdit }: CartItemRowPr
                         size="sm"
                         onClick={onRemove}
                         className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        aria-label="Hapus item"
                     >
                         <Trash2 className="h-4 w-4" />
                     </Button>
@@ -224,6 +226,7 @@ function CartItemRow({ item, onQuantityChange, onRemove, onEdit }: CartItemRowPr
                         size="sm"
                         onClick={() => onQuantityChange(item.quantity - 1)}
                         className="h-8 w-8 p-0"
+                        aria-label="Kurangi jumlah"
                     >
                         <Minus className="h-4 w-4" />
                     </Button>
@@ -235,6 +238,7 @@ function CartItemRow({ item, onQuantityChange, onRemove, onEdit }: CartItemRowPr
                         size="sm"
                         onClick={() => onQuantityChange(item.quantity + 1)}
                         className="h-8 w-8 p-0"
+                        aria-label="Tambah jumlah"
                     >
                         <Plus className="h-4 w-4" />
                     </Button>

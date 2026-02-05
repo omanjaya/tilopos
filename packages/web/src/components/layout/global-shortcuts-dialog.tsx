@@ -55,6 +55,7 @@ export function GlobalShortcutsDialog() {
  * }
  * ```
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useOpenShortcutsDialog() {
   return () => {
     window.dispatchEvent(

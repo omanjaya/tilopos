@@ -8,6 +8,7 @@ interface RealtimeContextValue {
 
 const RealtimeContext = createContext<RealtimeContextValue>({ isConnected: false });
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useRealtimeStatus() {
   return useContext(RealtimeContext);
 }

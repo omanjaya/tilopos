@@ -280,7 +280,7 @@ export function POSPage() {
             {/* Header */}
             <header className="h-14 md:h-16 bg-card border-b flex items-center justify-between px-3 md:px-4 shrink-0">
                 <div className="flex items-center gap-2 md:gap-4">
-                    <Button variant="ghost" size="icon" onClick={() => navigate('/app')} className="min-h-[44px] min-w-[44px]">
+                    <Button variant="ghost" size="icon" onClick={() => navigate('/app')} className="min-h-[44px] min-w-[44px]" aria-label="Kembali ke dashboard">
                         <ArrowLeft className="h-5 w-5" />
                     </Button>
                     <div>
@@ -384,7 +384,7 @@ export function POSPage() {
                     {/* Menu */}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
+                            <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]" aria-label="Menu">
                                 <Menu className="h-5 w-5" />
                             </Button>
                         </DropdownMenuTrigger>

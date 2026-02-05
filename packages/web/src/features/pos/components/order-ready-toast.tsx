@@ -62,7 +62,11 @@ function playOrderReadySound(): void {
 export function OrderReadyToast() {
   const { soundEnabled } = useSoundEffects();
   const soundEnabledRef = useRef(soundEnabled);
-  soundEnabledRef.current = soundEnabled;
+
+  // Update ref in effect to avoid accessing ref during render
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   const handleOrderStatusChanged = useCallback((event: OrderReadyEvent) => {
     // Only react when the new status signals "ready" (KDS marks order as ready)

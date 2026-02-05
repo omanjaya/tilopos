@@ -117,10 +117,10 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
                       className="h-8"
                       autoFocus
                     />
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveEdit}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveEdit} aria-label="Simpan">
                       <Check className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingId(null)}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingId(null)} aria-label="Batal">
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
@@ -131,7 +131,7 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
                       {!cat.isActive && <Badge variant="outline" className="text-xs">Nonaktif</Badge>}
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(cat)}>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(cat)} aria-label="Edit kategori">
                         <Pencil className="h-3 w-3" />
                       </Button>
                       <Button

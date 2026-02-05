@@ -484,7 +484,7 @@ export function CustomerSelfOrderPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <span>Keranjang Belanja</span>
-              <Button variant="ghost" size="icon" onClick={() => setIsCartOpen(false)}>
+              <Button variant="ghost" size="icon" onClick={() => setIsCartOpen(false)} aria-label="Tutup keranjang">
                 <X className="h-5 w-5" />
               </Button>
             </DialogTitle>

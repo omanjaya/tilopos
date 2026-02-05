@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -34,7 +34,7 @@ interface CommandItem {
   id: string;
   label: string;
   category: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   shortcut?: string;
   path?: string;
   action?: () => void;
@@ -146,6 +146,33 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     return groups;
   }, [filteredCommands, recentCommands]);
 
+  // Command selection handler
+  const handleSelectCommand = useCallback((command: CommandItem) => {
+    // Add to recent commands
+    addRecentCommand(command.id);
+
+    // Special handling for keyboard shortcuts command
+    if (command.id === 'shortcuts') {
+      openShortcutsDialog();
+      onOpenChange(false);
+      return;
+    }
+
+    // Execute action or navigate
+    if (command.action) {
+      command.action();
+    } else if (command.path) {
+      if (command.path.startsWith('#')) {
+        // Handle anchor links
+        document.querySelector(command.path)?.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        navigate(command.path);
+      }
+    }
+
+    onOpenChange(false);
+  }, [navigate, openShortcutsDialog, onOpenChange]);
+
   // Reset state when dialog opens/closes
   useEffect(() => {
     if (open) {
@@ -178,13 +205,14 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           e.preventDefault();
           setSelectedIndex(prev => (prev - 1 + flatCommands.length) % flatCommands.length);
           break;
-        case 'Enter':
+        case 'Enter': {
           e.preventDefault();
           const selected = flatCommands[selectedIndex];
           if (selected) {
             handleSelectCommand(selected);
           }
           break;
+        }
         case 'Escape':
           onOpenChange(false);
           break;
@@ -193,33 +221,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, selectedIndex, filteredCommands, recentCommands, groupedCommands, searchQuery]);
-
-  const handleSelectCommand = (command: CommandItem) => {
-    // Add to recent commands
-    addRecentCommand(command.id);
-
-    // Special handling for keyboard shortcuts command
-    if (command.id === 'shortcuts') {
-      openShortcutsDialog();
-      onOpenChange(false);
-      return;
-    }
-
-    // Execute action or navigate
-    if (command.action) {
-      command.action();
-    } else if (command.path) {
-      if (command.path.startsWith('#')) {
-        // Handle anchor links
-        document.querySelector(command.path)?.scrollIntoView({ behavior: 'smooth' });
-      } else {
-        navigate(command.path);
-      }
-    }
-
-    onOpenChange(false);
-  };
+  }, [open, selectedIndex, filteredCommands, recentCommands, groupedCommands, searchQuery, handleSelectCommand, onOpenChange]);
 
   const getCategoryLabel = (category: string) => {
     const labels: Record<string, string> = {
@@ -349,6 +351,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 // Hook to use command palette
 // Note: The ⌘K/Ctrl+K shortcut is now handled by useGlobalShortcuts hook
 // This hook is for manual control of the command palette
+// eslint-disable-next-line react-refresh/only-export-components
 export function useCommandPalette() {
   const [open, setOpen] = useState(false);
 

@@ -171,7 +171,7 @@ export function StorefrontPage() {
       setOrderStatus('success');
       setCart([]);
       setCheckoutStep(0);
-    } catch (error) {
+    } catch {
       setOrderStatus('error');
     }
   };
@@ -852,13 +852,21 @@ function CartDrawer({
 }
 
 // Checkout Flow Component
+interface CustomerInfo {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  notes: string;
+}
+
 interface CheckoutFlowProps {
   cart: CartItem[];
   cartTotal: number;
   checkoutStep: number;
   setCheckoutStep: (step: number) => void;
-  customerInfo: { name: string; phone: string; email: string; address: string; notes: string };
-  setCustomerInfo: (info: any) => void;
+  customerInfo: CustomerInfo;
+  setCustomerInfo: (info: CustomerInfo) => void;
   deliveryMethod: 'delivery' | 'pickup';
   setDeliveryMethod: (method: 'delivery' | 'pickup') => void;
   orderStatus: 'idle' | 'submitting' | 'success' | 'error';

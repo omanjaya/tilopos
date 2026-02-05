@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -269,7 +269,11 @@ export function useSoundEffects(): UseSoundEffectsReturn {
 
   // Keep a ref so the `play` callback identity is stable
   const enabledRef = useRef(soundEnabled);
-  enabledRef.current = soundEnabled;
+
+  // Update ref in effect to avoid accessing ref during render
+  useEffect(() => {
+    enabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   const play = useCallback((name: SoundName) => {
     if (!enabledRef.current) return;

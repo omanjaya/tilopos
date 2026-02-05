@@ -129,6 +129,7 @@ export function ProductTour({ tourId, children }: ProductTourProps) {
 /**
  * Hook to mark a tour as completed
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTourCompletion(tourId: string) {
   const markCompleted = () => {
     const completedTours = JSON.parse(

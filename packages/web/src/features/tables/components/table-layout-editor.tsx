@@ -319,16 +319,16 @@ export function TableLayoutEditor({
 
         {/* Controls */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={handleZoomOut} title="Zoom Out">
+          <Button variant="outline" size="icon" onClick={handleZoomOut} title="Zoom Out" aria-label="Zoom out">
             <ZoomOut className="h-4 w-4" />
           </Button>
           <span className="text-xs font-medium tabular-nums w-10 text-center">
             {Math.round(zoom * 100)}%
           </span>
-          <Button variant="outline" size="icon" onClick={handleZoomIn} title="Zoom In">
+          <Button variant="outline" size="icon" onClick={handleZoomIn} title="Zoom In" aria-label="Zoom in">
             <ZoomIn className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={handleZoomReset} title="Reset Zoom">
+          <Button variant="outline" size="icon" onClick={handleZoomReset} title="Reset Zoom" aria-label="Reset zoom">
             <Maximize2 className="h-4 w-4" />
           </Button>
 
@@ -548,6 +548,7 @@ export function TableLayoutEditor({
 // Helper: generate demo tables when no API data is available.
 // ---------------------------------------------------------------------------
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function generateDemoTables(): LayoutTable[] {
   const sections = ['Indoor', 'Outdoor', 'VIP Room'];
   const statuses: TableStatus[] = ['available', 'occupied', 'reserved', 'available', 'available', 'merged'];
