@@ -72,6 +72,9 @@ jobs:
         with:
           node-version: '25'
           cache: 'npm'
-      - run: npm ci
+      - name: Clean install dependencies
+        run: |
+          rm -rf node_modules
+          npm ci
       - run: npm run db:generate
       - run: npm run build
