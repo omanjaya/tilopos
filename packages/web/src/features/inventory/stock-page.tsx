@@ -27,7 +27,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Package, AlertTriangle, XCircle, Loader2, SlidersHorizontal } from 'lucide-react';
 import type { StockLevel } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
@@ -43,7 +43,6 @@ function getStockStatus(item: StockLevel): 'normal' | 'low' | 'out' {
 
 export function StockPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId || user?.outletId || '';
@@ -65,14 +64,16 @@ export function StockPage() {
     mutationFn: inventoryApi.adjustStock,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
-      toast({ title: 'Stok berhasil disesuaikan' });
+      toast.success({
+        title: 'Stok berhasil disesuaikan',
+        description: `Stok "${adjustProduct?.productName}" telah diperbarui`,
+      });
       closeAdjustDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyesuaikan stok',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat menyesuaikan stok',
       });
     },
   });
@@ -207,7 +208,7 @@ export function StockPage() {
         isLoading={isLoading}
         searchPlaceholder="Cari produk..."
         emptyTitle="Tidak ada data stok"
-        emptyDescription="Belum ada data stok untuk outlet ini."
+        emptyDescription="Belum ada data stok untuk outlet ini. Tambahkan produk terlebih dahulu untuk mulai tracking stok."
       />
 
       {/* Stock Adjustment Dialog */}

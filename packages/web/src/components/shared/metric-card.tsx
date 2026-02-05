@@ -30,10 +30,10 @@ export function MetricCard({
   const showTrend = currentValue !== undefined && previousValue !== undefined;
 
   return (
-    <Card className={cn(className)}>
+    <Card className={cn('group cursor-default', className)}>
       <CardContent className="flex items-center gap-4 p-6">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-          <Icon className="h-6 w-6 text-primary" />
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-all duration-200 group-hover:bg-primary/20 group-hover:scale-110">
+          <Icon className="h-6 w-6 text-primary transition-transform duration-200 group-hover:scale-110" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm text-muted-foreground">{title}</p>

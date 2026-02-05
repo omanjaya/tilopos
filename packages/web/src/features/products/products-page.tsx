@@ -23,8 +23,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/format';
+import { toast } from '@/lib/toast-utils';
 import { Plus, MoreHorizontal, Pencil, Trash2, Tags } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
@@ -33,7 +33,6 @@ import type { ApiErrorResponse } from '@/types/api.types';
 export function ProductsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -57,14 +56,16 @@ export function ProductsPage() {
     mutationFn: (id: string) => productsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast({ title: 'Produk dihapus' });
+      toast.success({
+        title: 'Produk berhasil dihapus',
+        description: `"${deleteTarget?.name}" telah dihapus dari daftar produk`,
+      });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menghapus',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
+      toast.error({
+        title: 'Gagal menghapus produk',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat menghapus produk',
       });
     },
   });
@@ -176,7 +177,12 @@ export function ProductsPage() {
         searchPlaceholder="Cari produk..."
         onSearch={setSearch}
         emptyTitle="Belum ada produk"
-        emptyDescription="Tambahkan produk pertama Anda."
+        emptyDescription="Mulai dengan menambahkan produk pertama Anda untuk mulai berjualan."
+        emptyAction={
+          <Button onClick={() => navigate('/app/products/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Produk Pertama
+          </Button>
+        }
         filters={
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="w-[180px]">

@@ -15,9 +15,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
+import { toast } from '@/lib/toast-utils';
 import { MoreHorizontal, Eye, Play, Check, HandPlatter, CheckCircle2, XCircle } from 'lucide-react';
 import type { Order, OrderStatus } from '@/types/order.types';
 import type { AxiosError } from 'axios';
@@ -82,7 +82,6 @@ function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
 export function OrdersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const [statusFilter, setStatusFilter] = useState('all');
   const [confirmAction, setConfirmAction] = useState<{ order: Order; action: StatusAction } | null>(null);
@@ -100,16 +99,19 @@ export function OrdersPage() {
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       ordersApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
-      toast({ title: 'Status pesanan berhasil diperbarui' });
+      const statusLabel = STATUS_MAP[variables.status as OrderStatus]?.label || variables.status;
+      toast.success({
+        title: 'Status pesanan diperbarui',
+        description: `Pesanan "${confirmAction?.order.orderNumber}" telah diubah menjadi "${statusLabel}"`,
+      });
       setConfirmAction(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memperbarui status',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat memperbarui status pesanan',
       });
     },
   });
@@ -259,7 +261,7 @@ export function OrdersPage() {
         isLoading={isLoading}
         searchPlaceholder="Cari no. pesanan..."
         emptyTitle="Belum ada pesanan"
-        emptyDescription="Pesanan akan muncul di sini setelah pelanggan memesan."
+        emptyDescription="Pesanan akan muncul di sini setelah pelanggan memesan. Gunakan POS untuk membuat pesanan baru."
       />
 
       <ConfirmDialog

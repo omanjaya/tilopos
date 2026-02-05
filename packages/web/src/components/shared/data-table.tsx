@@ -27,6 +27,7 @@ interface DataTableProps<T> {
   onSearch?: (query: string) => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  emptyAction?: React.ReactNode;
   filters?: React.ReactNode;
 }
 
@@ -38,6 +39,7 @@ export function DataTable<T>({
   onSearch,
   emptyTitle = 'Tidak ada data',
   emptyDescription = 'Data belum tersedia.',
+  emptyAction,
   filters,
 }: DataTableProps<T>) {
   const data = Array.isArray(rawData) ? rawData : [];
@@ -87,8 +89,12 @@ export function DataTable<T>({
               ))
             ) : data.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-40">
-                  <EmptyState title={emptyTitle} description={emptyDescription} />
+                <TableCell colSpan={columns.length} className="h-64">
+                  <EmptyState
+                    title={emptyTitle}
+                    description={emptyDescription}
+                    action={emptyAction}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

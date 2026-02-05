@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
+import { OfflineBanner } from '@/components/shared/offline-banner';
 import { OnboardingProvider } from '@/features/onboarding/onboarding-provider';
 import { router } from './router';
 
@@ -20,6 +21,7 @@ export function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <OnboardingProvider>
+          <OfflineBanner />
           <RouterProvider router={router} />
           <Toaster />
         </OnboardingProvider>

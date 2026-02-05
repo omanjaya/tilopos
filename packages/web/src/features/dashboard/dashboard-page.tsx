@@ -7,8 +7,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/format';
+import { MetricCardsSkeleton, ChartSkeleton } from '@/components/shared/loading-skeletons';
 import { DollarSign, ShoppingCart, TrendingUp, Users } from 'lucide-react';
 import {
   BarChart,
@@ -61,13 +61,7 @@ export function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <Skeleton className="h-20 w-full" />
-              </CardContent>
-            </Card>
-          ))
+          <MetricCardsSkeleton count={4} />
         ) : (
           <>
             <MetricCard
@@ -94,14 +88,14 @@ export function DashboardPage() {
         )}
       </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Penjualan</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {salesLoading ? (
-            <Skeleton className="h-[300px] w-full" />
-          ) : (
+      {salesLoading ? (
+        <ChartSkeleton height={300} />
+      ) : (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Penjualan</CardTitle>
+          </CardHeader>
+          <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={salesReport?.salesByDate ?? []}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -118,9 +112,9 @@ export function DashboardPage() {
                 <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {financialReport && (
         <div className="mt-6 grid gap-4 md:grid-cols-3">

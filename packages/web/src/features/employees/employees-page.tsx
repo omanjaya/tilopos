@@ -21,8 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
 import { ROLE_LABELS, ROLE_OPTIONS, STATUS_OPTIONS } from '@/lib/constants';
+import { toast } from '@/lib/toast-utils';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Employee } from '@/types/employee.types';
 import type { EmployeeRole } from '@/types/auth.types';
@@ -32,7 +32,6 @@ import type { ApiErrorResponse } from '@/types/api.types';
 export function EmployeesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -52,14 +51,16 @@ export function EmployeesPage() {
     mutationFn: (id: string) => employeesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      toast({ title: 'Karyawan dihapus' });
+      toast.success({
+        title: 'Karyawan berhasil dihapus',
+        description: `"${deleteTarget?.name}" telah dihapus dari daftar karyawan`,
+      });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menghapus',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
+      toast.error({
+        title: 'Gagal menghapus karyawan',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat menghapus karyawan',
       });
     },
   });
@@ -144,7 +145,12 @@ export function EmployeesPage() {
         searchPlaceholder="Cari karyawan..."
         onSearch={setSearch}
         emptyTitle="Belum ada karyawan"
-        emptyDescription="Tambahkan karyawan pertama Anda."
+        emptyDescription="Mulai dengan menambahkan karyawan untuk mengelola akses dan operasional bisnis Anda."
+        emptyAction={
+          <Button onClick={() => navigate('/app/employees/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Karyawan Pertama
+          </Button>
+        }
         filters={
           <div className="flex gap-2">
             <Select value={roleFilter} onValueChange={setRoleFilter}>

@@ -14,8 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/format';
+import { toast } from '@/lib/toast-utils';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
 import type { AxiosError } from 'axios';
@@ -24,7 +24,6 @@ import type { ApiErrorResponse } from '@/types/api.types';
 export function CustomersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
 
@@ -40,14 +39,16 @@ export function CustomersPage() {
     mutationFn: (id: string) => customersApi.update(id, { isActive: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      toast({ title: 'Pelanggan dinonaktifkan' });
+      toast.success({
+        title: 'Pelanggan dinonaktifkan',
+        description: `"${deleteTarget?.name}" telah dinonaktifkan`,
+      });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menonaktifkan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
+      toast.error({
+        title: 'Gagal menonaktifkan pelanggan',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat menonaktifkan pelanggan',
       });
     },
   });
@@ -129,7 +130,12 @@ export function CustomersPage() {
         searchPlaceholder="Cari pelanggan..."
         onSearch={setSearch}
         emptyTitle="Belum ada pelanggan"
-        emptyDescription="Tambahkan pelanggan pertama Anda."
+        emptyDescription="Mulai membangun database pelanggan Anda untuk tracking loyalitas dan riwayat pembelian."
+        emptyAction={
+          <Button onClick={() => navigate('/app/customers/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan Pertama
+          </Button>
+        }
       />
 
       <ConfirmDialog

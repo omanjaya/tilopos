@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Loader2, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import type { CreateProductRequest, CreateVariantRequest } from '@/types/product.types';
 import type { AxiosError } from 'axios';
@@ -29,7 +29,6 @@ export function ProductFormPage() {
   const isEdit = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -75,25 +74,37 @@ export function ProductFormPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: CreateProductRequest) => productsApi.create(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast({ title: 'Produk berhasil dibuat' });
+      toast.success({
+        title: 'Produk berhasil dibuat',
+        description: `"${data.name}" telah ditambahkan ke daftar produk`,
+      });
       navigate('/app/products');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({ variant: 'destructive', title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
+      toast.error({
+        title: 'Gagal membuat produk',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat membuat produk',
+      });
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: (data: CreateProductRequest) => productsApi.update(id!, data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast({ title: 'Produk berhasil diperbarui' });
+      toast.success({
+        title: 'Produk berhasil diperbarui',
+        description: `Perubahan pada "${data.name}" telah disimpan`,
+      });
       navigate('/app/products');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({ variant: 'destructive', title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
+      toast.error({
+        title: 'Gagal memperbarui produk',
+        description: error.response?.data?.message || 'Terjadi kesalahan saat memperbarui produk',
+      });
     },
   });
 

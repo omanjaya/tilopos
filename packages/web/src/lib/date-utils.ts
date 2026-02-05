@@ -90,16 +90,111 @@ function formatDate(date: Date): string {
 
 /**
  * Calculate percentage change between two values
+ *
+ * Handles edge cases:
+ * - previous = 0: returns 100 if current > 0, -100 if current < 0, 0 if current = 0
+ * - NaN/Infinity: returns 0
+ * - null/undefined: returns 0
+ *
+ * @param current - Current period value
+ * @param previous - Previous period value
+ * @returns Percentage change
  */
-export function calculatePercentageChange(current: number, previous: number): number {
-  if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+export function calculatePercentageChange(
+  current: number | null | undefined,
+  previous: number | null | undefined
+): number {
+  // Handle null/undefined
+  if (current === null || current === undefined) current = 0;
+  if (previous === null || previous === undefined) previous = 0;
+
+  // Handle non-finite numbers
+  if (!isFinite(current) || !isFinite(previous)) return 0;
+
+  // Handle division by zero
+  if (previous === 0) {
+    if (current > 0) return 100;
+    if (current < 0) return -100;
+    return 0;
+  }
+
+  const change = ((current - previous) / previous) * 100;
+
+  // Handle result overflow
+  return isFinite(change) ? change : 0;
 }
 
 /**
  * Format percentage change for display
+ *
+ * @param change - Percentage change value
+ * @returns Formatted string with sign and %
+ *
+ * @example
+ * ```tsx
+ * formatPercentageChange(15.5) // "+15.5%"
+ * formatPercentageChange(-10.2) // "-10.2%"
+ * formatPercentageChange(0) // "0.0%"
+ * ```
  */
-export function formatPercentageChange(change: number): string {
+export function formatPercentageChange(change: number | null | undefined): string {
+  if (change === null || change === undefined || !isFinite(change)) {
+    return '0.0%';
+  }
+
   const sign = change > 0 ? '+' : '';
   return `${sign}${change.toFixed(1)}%`;
+}
+
+/**
+ * Check if a date is valid
+ *
+ * @param date - Date to check
+ * @returns True if valid date
+ *
+ * @example
+ * ```tsx
+ * if (!isValidDate(userInput)) {
+ *   errors.date = 'Tanggal tidak valid';
+ * }
+ * ```
+ */
+export function isValidDate(date: string | Date | null | undefined): boolean {
+  if (!date) return false;
+
+  try {
+    const dateObj = new Date(date);
+    return !isNaN(dateObj.getTime());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if date is in the future
+ *
+ * @param date - Date to check
+ * @returns True if date is in the future
+ *
+ * @example
+ * ```tsx
+ * if (isFutureDate(selectedDate)) {
+ *   errors.date = 'Tanggal tidak boleh di masa depan';
+ * }
+ * ```
+ */
+export function isFutureDate(date: string | Date): boolean {
+  if (!isValidDate(date)) return false;
+  return new Date(date) > new Date();
+}
+
+/**
+ * Check if date is in the past
+ *
+ * @param date - Date to check
+ * @returns True if date is in the past
+ */
+export function isPastDate(date: string | Date): boolean {
+  if (!isValidDate(date)) return false;
+  return new Date(date) < new Date();
 }
