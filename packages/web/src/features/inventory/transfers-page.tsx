@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -102,6 +102,22 @@ export function TransfersPage() {
     }
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/app/inventory/transfers/new');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [navigate]);
+
   const columns: Column<StockTransfer>[] = [
     {
       key: 'transferNumber',
@@ -176,7 +192,7 @@ export function TransfersPage() {
   return (
     <div>
       <PageHeader title="Transfer Stok" description="Kelola transfer stok antar outlet">
-        <Button onClick={() => navigate('/app/inventory/transfers/new')}>
+        <Button onClick={() => navigate('/app/inventory/transfers/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Buat Transfer
         </Button>
       </PageHeader>

@@ -220,6 +220,8 @@ export function TablesPage() {
                 });
               }}
               disabled={splitBillMutation.isPending || !splitTransactionId.trim() || Number(splitCount) < 2}
+              aria-busy={splitBillMutation.isPending}
+              aria-label={splitBillMutation.isPending ? 'Splitting bill...' : undefined}
             >
               {splitBillMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Split Bill
@@ -274,6 +276,8 @@ export function TablesPage() {
                   .map((id) => id.trim())
                   .filter(Boolean).length < 2
               }
+              aria-busy={mergeBillMutation.isPending}
+              aria-label={mergeBillMutation.isPending ? 'Merging bills...' : undefined}
             >
               {mergeBillMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Merge Bill

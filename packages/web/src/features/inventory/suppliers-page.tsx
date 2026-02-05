@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -139,6 +139,22 @@ export function SuppliersPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        openCreateDialog();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
   const columns: Column<Supplier>[] = [
     {
       key: 'name',
@@ -199,7 +215,7 @@ export function SuppliersPage() {
   return (
     <div>
       <PageHeader title="Supplier" description="Kelola data supplier">
-        <Button onClick={openCreateDialog}>
+        <Button onClick={openCreateDialog} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
         </Button>
       </PageHeader>
@@ -272,7 +288,12 @@ export function SuppliersPage() {
             <Button variant="outline" onClick={closeDialog} disabled={isSaving}>
               Batal
             </Button>
-            <Button onClick={handleSubmit} disabled={!form.name || isSaving}>
+            <Button
+              onClick={handleSubmit}
+              disabled={!form.name || isSaving}
+              aria-busy={isSaving}
+              aria-label={isSaving ? (editTarget ? 'Saving supplier...' : 'Adding supplier...') : undefined}
+            >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {editTarget ? 'Simpan' : 'Tambah'}
             </Button>

@@ -284,6 +284,8 @@ export function TransactionsPage() {
               variant="destructive"
               onClick={() => voidTarget && voidMutation.mutate({ id: voidTarget.id, reason: voidReason })}
               disabled={voidMutation.isPending || !voidReason.trim()}
+              aria-busy={voidMutation.isPending}
+              aria-label={voidMutation.isPending ? 'Voiding transaction...' : undefined}
             >
               {voidMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Void Transaksi
@@ -332,6 +334,8 @@ export function TransactionsPage() {
                 })
               }
               disabled={refundMutation.isPending || !refundReason.trim()}
+              aria-busy={refundMutation.isPending}
+              aria-label={refundMutation.isPending ? 'Processing refund...' : undefined}
             >
               {refundMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Proses Refund
