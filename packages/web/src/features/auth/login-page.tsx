@@ -90,7 +90,6 @@ export function LoginPage() {
               className="w-full"
               disabled={loginMutation.isPending}
               aria-busy={loginMutation.isPending}
-              aria-label={loginMutation.isPending ? 'Logging in...' : 'Log in'}
             >
               {loginMutation.isPending && <Loader2 className="animate-spin" />}
               Masuk

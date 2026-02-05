@@ -1,0 +1,20 @@
+# TiloPOS - robots.txt
+# Allow all crawlers to access the site
+
+User-agent: *
+Allow: /
+
+# Allow crawling of public pages
+Allow: /login
+Allow: /store/*
+Allow: /self-order/*
+
+# Disallow private/admin pages (requires authentication)
+Disallow: /app/*
+Disallow: /api/*
+
+# Crawl-delay (optional, helps reduce server load)
+Crawl-delay: 1
+
+# Sitemap location (update with production URL when deployed)
+# Sitemap: https://tilopos.com/sitemap.xml
