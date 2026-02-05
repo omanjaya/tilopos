@@ -48,7 +48,12 @@ export class CashOutUseCase {
       entityType: 'shift',
       entityId: input.shiftId,
       oldValue: { cashBalance: currentCash },
-      newValue: { cashBalance: newBalance, amount: input.amount, reason: input.reason, notes: input.notes },
+      newValue: {
+        cashBalance: newBalance,
+        amount: input.amount,
+        reason: input.reason,
+        notes: input.notes,
+      },
       ipAddress: null,
       deviceId: null,
       metadata: null,

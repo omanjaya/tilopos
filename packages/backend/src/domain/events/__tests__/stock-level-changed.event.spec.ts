@@ -3,13 +3,7 @@ import { DomainEvent } from '../domain-event';
 
 describe('StockLevelChangedEvent', () => {
   it('should create event with correct payload', () => {
-    const event = new StockLevelChangedEvent(
-      'outlet-1',
-      'prod-1',
-      null,
-      50,
-      48,
-    );
+    const event = new StockLevelChangedEvent('outlet-1', 'prod-1', null, 50, 48);
 
     expect(event.outletId).toBe('outlet-1');
     expect(event.productId).toBe('prod-1');

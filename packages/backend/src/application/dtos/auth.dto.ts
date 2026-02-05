@@ -35,7 +35,7 @@ export class UpdateProfileDto {
 
   @ApiPropertyOptional({
     example: { language: 'id', timezone: 'asia-jakarta', currencyFormat: 'dot' },
-    description: 'User preferences as JSON object'
+    description: 'User preferences as JSON object',
   })
   @IsOptional()
   preferences?: Record<string, unknown>;

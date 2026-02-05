@@ -25,9 +25,6 @@ import { SettlementSchedulerService } from '../../infrastructure/services/settle
     // Scheduler
     SettlementSchedulerService,
   ],
-  exports: [
-    AutoSettlementUseCase,
-    SettlementSchedulerService,
-  ],
+  exports: [AutoSettlementUseCase, SettlementSchedulerService],
 })
 export class SettlementsModule {}

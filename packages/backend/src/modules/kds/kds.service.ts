@@ -7,7 +7,7 @@ import { KdsGateway } from './kds.gateway';
 // ============================================================================
 
 export interface CookingTimerSettings {
-  dineIn: number;   // minutes
+  dineIn: number; // minutes
   takeaway: number; // minutes
   delivery: number; // minutes
 }
@@ -75,7 +75,8 @@ export class KdsService {
     }
 
     const businessSettings = (business.settings as Record<string, unknown>) || {};
-    const timerSettings = (businessSettings['cookingTimerSettings'] as CookingTimerSettings) || DEFAULT_TIMER_SETTINGS;
+    const timerSettings =
+      (businessSettings['cookingTimerSettings'] as CookingTimerSettings) || DEFAULT_TIMER_SETTINGS;
 
     return {
       businessId,
@@ -105,12 +106,15 @@ export class KdsService {
     }
 
     const currentSettings = (business.settings as Record<string, unknown>) || {};
-    const currentTimerSettings = (currentSettings['cookingTimerSettings'] as CookingTimerSettings) || DEFAULT_TIMER_SETTINGS;
+    const currentTimerSettings =
+      (currentSettings['cookingTimerSettings'] as CookingTimerSettings) || DEFAULT_TIMER_SETTINGS;
 
     const updatedTimerSettings: CookingTimerSettings = {
       dineIn: settings.dineIn ?? currentTimerSettings.dineIn ?? DEFAULT_TIMER_SETTINGS.dineIn,
-      takeaway: settings.takeaway ?? currentTimerSettings.takeaway ?? DEFAULT_TIMER_SETTINGS.takeaway,
-      delivery: settings.delivery ?? currentTimerSettings.delivery ?? DEFAULT_TIMER_SETTINGS.delivery,
+      takeaway:
+        settings.takeaway ?? currentTimerSettings.takeaway ?? DEFAULT_TIMER_SETTINGS.takeaway,
+      delivery:
+        settings.delivery ?? currentTimerSettings.delivery ?? DEFAULT_TIMER_SETTINGS.delivery,
     };
 
     const now = new Date().toISOString();
@@ -221,7 +225,9 @@ export class KdsService {
    * Sends WebSocket event to cashier when order is bumped to "ready".
    * Emits `order:ready` event to the outlet room.
    */
-  async notifyCashierOrderReady(orderId: string): Promise<{ notified: boolean; orderId: string; orderNumber: string }> {
+  async notifyCashierOrderReady(
+    orderId: string,
+  ): Promise<{ notified: boolean; orderId: string; orderNumber: string }> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -249,7 +255,9 @@ export class KdsService {
       readyAt: new Date().toISOString(),
     });
 
-    this.logger.log(`Order ready notification sent for order ${order.orderNumber} to outlet ${order.outletId}`);
+    this.logger.log(
+      `Order ready notification sent for order ${order.orderNumber} to outlet ${order.outletId}`,
+    );
 
     return {
       notified: true,

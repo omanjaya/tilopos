@@ -1,6 +1,17 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query,
-  UseGuards, Inject, NotFoundException, BadRequestException, Res,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+  BadRequestException,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -145,10 +156,7 @@ export class InventoryController {
   @Post('products/import')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Batch import products from CSV or JSON' })
-  async importProducts(
-    @Body() dto: ImportProductsDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async importProducts(@Body() dto: ImportProductsDto, @CurrentUser() user: AuthUser) {
     let rows;
 
     if (dto.format === 'csv') {
@@ -177,10 +185,7 @@ export class InventoryController {
     @Res() res: Response,
   ) {
     if (query.format === 'csv') {
-      const csv = await this.inventoryService.exportProductsCsv(
-        user.businessId,
-        query.categoryId,
-      );
+      const csv = await this.inventoryService.exportProductsCsv(user.businessId, query.categoryId);
       res.set({
         'Content-Type': 'text/csv',
         'Content-Disposition': `attachment; filename="products-${new Date().toISOString().split('T')[0]}.csv"`,
@@ -226,10 +231,7 @@ export class InventoryController {
   @Post('stock/auto-request')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Auto-create transfer request for low stock items' })
-  async autoRequestTransfer(
-    @Body() dto: AutoRequestTransferDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async autoRequestTransfer(@Body() dto: AutoRequestTransferDto, @CurrentUser() user: AuthUser) {
     return this.inventoryService.autoRequestTransfer(
       user.businessId,
       dto.outletId,

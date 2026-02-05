@@ -31,10 +31,6 @@ import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/ge
     GetLoyaltyBalanceUseCase,
     GetLoyaltyHistoryUseCase,
   ],
-  exports: [
-    EarnLoyaltyPointsUseCase,
-    RedeemLoyaltyPointsUseCase,
-    CustomersService,
-  ],
+  exports: [EarnLoyaltyPointsUseCase, RedeemLoyaltyPointsUseCase, CustomersService],
 })
 export class CustomersModule {}

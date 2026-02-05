@@ -1,4 +1,17 @@
-import { Controller, Get, Put, Post, Delete, Body, Param, Query, UseGuards, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -11,7 +24,10 @@ import type { ISettingsRepository } from '../../domain/interfaces/repositories/s
 import { UpdateTaxConfigDto } from '../../application/dtos/settings.dto';
 import { UpdateReceiptTemplateDto } from '../../application/dtos/settings.dto';
 import { UpdateOperatingHoursDto } from '../../application/dtos/settings.dto';
-import { CreatePaymentMethodDto, UpdatePaymentMethodDto } from '../../application/dtos/settings.dto';
+import {
+  CreatePaymentMethodDto,
+  UpdatePaymentMethodDto,
+} from '../../application/dtos/settings.dto';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -22,7 +38,7 @@ export class SettingsController {
   constructor(
     @Inject(REPOSITORY_TOKENS.SETTINGS)
     private readonly settingsRepo: ISettingsRepository,
-  ) { }
+  ) {}
 
   @Get('business')
   async getBusiness(@CurrentUser() user: AuthUser) {
@@ -30,7 +46,17 @@ export class SettingsController {
   }
 
   @Put('business')
-  async updateBusiness(@CurrentUser() user: AuthUser, @Body() dto: { name?: string; phone?: string; email?: string; address?: string; settings?: Record<string, unknown> }) {
+  async updateBusiness(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    dto: {
+      name?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+      settings?: Record<string, unknown>;
+    },
+  ) {
     return this.settingsRepo.updateBusiness(user.businessId, {
       name: dto.name,
       phone: dto.phone,
@@ -46,7 +72,18 @@ export class SettingsController {
   }
 
   @Post('outlets')
-  async createOutlet(@Body() dto: { name: string; code?: string; address?: string; phone?: string; taxRate?: number; serviceCharge?: number }, @CurrentUser() user: AuthUser) {
+  async createOutlet(
+    @Body()
+    dto: {
+      name: string;
+      code?: string;
+      address?: string;
+      phone?: string;
+      taxRate?: number;
+      serviceCharge?: number;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.settingsRepo.createOutlet({
       businessId: user.businessId,
       name: dto.name,
@@ -69,7 +106,18 @@ export class SettingsController {
   }
 
   @Post('modifier-groups')
-  async createModifierGroup(@Body() dto: { name: string; selectionType?: 'single' | 'multiple'; minSelection?: number; maxSelection?: number; isRequired?: boolean; modifiers: { name: string; price: number }[] }, @CurrentUser() user: AuthUser) {
+  async createModifierGroup(
+    @Body()
+    dto: {
+      name: string;
+      selectionType?: 'single' | 'multiple';
+      minSelection?: number;
+      maxSelection?: number;
+      isRequired?: boolean;
+      modifiers: { name: string; price: number }[];
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.settingsRepo.createModifierGroup({
       businessId: user.businessId,
       name: dto.name,
@@ -82,7 +130,10 @@ export class SettingsController {
   }
 
   @Put('modifier-groups/:id')
-  async updateModifierGroup(@Param('id') id: string, @Body() dto: { name?: string; isActive?: boolean }) {
+  async updateModifierGroup(
+    @Param('id') id: string,
+    @Body() dto: { name?: string; isActive?: boolean },
+  ) {
     return this.settingsRepo.updateModifierGroup(id, {
       name: dto.name,
       isActive: dto.isActive,
@@ -103,7 +154,11 @@ export class SettingsController {
   }
 
   @Post('loyalty')
-  async createLoyaltyProgram(@Body() dto: { name: string; amountPerPoint: number; redemptionRate: number; pointExpiryDays?: number }, @CurrentUser() user: AuthUser) {
+  async createLoyaltyProgram(
+    @Body()
+    dto: { name: string; amountPerPoint: number; redemptionRate: number; pointExpiryDays?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.settingsRepo.createLoyaltyProgram({
       businessId: user.businessId,
       name: dto.name,
@@ -132,12 +187,33 @@ export class SettingsController {
   }
 
   @Put('loyalty')
-  async updateLoyaltyProgram(@Body() dto: { name?: string; amountPerPoint?: number; redemptionRate?: number; pointExpiryDays?: number; isActive?: boolean }, @CurrentUser() user: AuthUser) {
+  async updateLoyaltyProgram(
+    @Body()
+    dto: {
+      name?: string;
+      amountPerPoint?: number;
+      redemptionRate?: number;
+      pointExpiryDays?: number;
+      isActive?: boolean;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.settingsRepo.updateLoyaltyProgram(user.businessId, dto);
   }
 
   @Post('loyalty/tiers')
-  async createLoyaltyTier(@Body() dto: { name: string; minPoints: number; minSpent?: number; pointMultiplier: number; benefits?: string[]; sortOrder?: number }, @CurrentUser() user: AuthUser) {
+  async createLoyaltyTier(
+    @Body()
+    dto: {
+      name: string;
+      minPoints: number;
+      minSpent?: number;
+      pointMultiplier: number;
+      benefits?: string[];
+      sortOrder?: number;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.settingsRepo.createLoyaltyTier({
       businessId: user.businessId,
       name: dto.name,
@@ -150,7 +226,19 @@ export class SettingsController {
   }
 
   @Put('loyalty/tiers/:id')
-  async updateLoyaltyTier(@Param('id') id: string, @Body() dto: { name?: string; minPoints?: number; minSpent?: number; pointMultiplier?: number; benefits?: string[]; sortOrder?: number; isActive?: boolean }) {
+  async updateLoyaltyTier(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      name?: string;
+      minPoints?: number;
+      minSpent?: number;
+      pointMultiplier?: number;
+      benefits?: string[];
+      sortOrder?: number;
+      isActive?: boolean;
+    },
+  ) {
     return this.settingsRepo.updateLoyaltyTier(id, dto);
   }
 
@@ -167,7 +255,17 @@ export class SettingsController {
   }
 
   @Put('outlets/:id/tax')
-  async updateTaxConfig(@Param('id') outletId: string, @Body() dto: { taxRate?: number; serviceCharge?: number; taxInclusive?: boolean; taxName?: string; taxNumber?: string }) {
+  async updateTaxConfig(
+    @Param('id') outletId: string,
+    @Body()
+    dto: {
+      taxRate?: number;
+      serviceCharge?: number;
+      taxInclusive?: boolean;
+      taxName?: string;
+      taxNumber?: string;
+    },
+  ) {
     return this.settingsRepo.updateTaxConfig(outletId, dto);
   }
 
@@ -178,7 +276,21 @@ export class SettingsController {
   }
 
   @Put('outlets/:id/receipt')
-  async updateReceiptTemplate(@Param('id') outletId: string, @Body() dto: { header?: string; footer?: string; showLogo?: boolean; logoUrl?: string; showQRCode?: boolean; showTaxDetails?: boolean; showServiceCharge?: boolean; paperSize?: '58mm' | '80mm'; fontSize?: 'small' | 'medium' | 'large' }) {
+  async updateReceiptTemplate(
+    @Param('id') outletId: string,
+    @Body()
+    dto: {
+      header?: string;
+      footer?: string;
+      showLogo?: boolean;
+      logoUrl?: string;
+      showQRCode?: boolean;
+      showTaxDetails?: boolean;
+      showServiceCharge?: boolean;
+      paperSize?: '58mm' | '80mm';
+      fontSize?: 'small' | 'medium' | 'large';
+    },
+  ) {
     return this.settingsRepo.updateReceiptTemplate(outletId, dto);
   }
 
@@ -189,7 +301,18 @@ export class SettingsController {
   }
 
   @Put('outlets/:id/hours')
-  async updateOperatingHours(@Param('id') outletId: string, @Body() dto: { dayOfWeek: number; isOpen: boolean; openTime?: string; closeTime?: string; breakStart?: string; breakEnd?: string }[]) {
+  async updateOperatingHours(
+    @Param('id') outletId: string,
+    @Body()
+    dto: {
+      dayOfWeek: number;
+      isOpen: boolean;
+      openTime?: string;
+      closeTime?: string;
+      breakStart?: string;
+      breakEnd?: string;
+    }[],
+  ) {
     await this.settingsRepo.updateOperatingHours(outletId, dto);
     return { message: 'Operating hours updated' };
   }
@@ -201,7 +324,20 @@ export class SettingsController {
   }
 
   @Put('payment-methods')
-  async updatePaymentMethods(@CurrentUser() user: AuthUser, @Body() dto: { method: string; enabled: boolean; displayName: string; processingFee?: number; feeType?: 'percentage' | 'fixed'; minAmount?: number; maxAmount?: number; sortOrder?: number }[]) {
+  async updatePaymentMethods(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    dto: {
+      method: string;
+      enabled: boolean;
+      displayName: string;
+      processingFee?: number;
+      feeType?: 'percentage' | 'fixed';
+      minAmount?: number;
+      maxAmount?: number;
+      sortOrder?: number;
+    }[],
+  ) {
     await this.settingsRepo.updatePaymentMethods(user.businessId, dto);
     return { message: 'Payment methods updated' };
   }
@@ -216,14 +352,14 @@ export class SettingsController {
 
   @Put('tax')
   @ApiOperation({ summary: 'Update tax configuration for business' })
-  async updateBusinessTaxConfig(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: UpdateTaxConfigDto,
-  ) {
+  async updateBusinessTaxConfig(@CurrentUser() user: AuthUser, @Body() dto: UpdateTaxConfigDto) {
     if (dto.taxRate !== undefined && (dto.taxRate < 0 || dto.taxRate > 100)) {
       throw new BadRequestException('taxRate must be between 0 and 100');
     }
-    if (dto.serviceChargeRate !== undefined && (dto.serviceChargeRate < 0 || dto.serviceChargeRate > 100)) {
+    if (
+      dto.serviceChargeRate !== undefined &&
+      (dto.serviceChargeRate < 0 || dto.serviceChargeRate > 100)
+    ) {
       throw new BadRequestException('serviceChargeRate must be between 0 and 100');
     }
     return this.settingsRepo.updateBusinessTaxConfig(user.businessId, {
@@ -299,19 +435,26 @@ export class SettingsController {
     const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
     for (const entry of hours) {
       if (!timeRegex.test(entry.openTime)) {
-        throw new BadRequestException(`Invalid openTime format for day ${entry.dayOfWeek}: ${entry.openTime}`);
+        throw new BadRequestException(
+          `Invalid openTime format for day ${entry.dayOfWeek}: ${entry.openTime}`,
+        );
       }
       if (!timeRegex.test(entry.closeTime)) {
-        throw new BadRequestException(`Invalid closeTime format for day ${entry.dayOfWeek}: ${entry.closeTime}`);
+        throw new BadRequestException(
+          `Invalid closeTime format for day ${entry.dayOfWeek}: ${entry.closeTime}`,
+        );
       }
     }
 
-    return this.settingsRepo.updateOutletOperatingHours(outletId, hours.map((h) => ({
-      dayOfWeek: h.dayOfWeek,
-      openTime: h.openTime,
-      closeTime: h.closeTime,
-      isClosed: h.isClosed,
-    })));
+    return this.settingsRepo.updateOutletOperatingHours(
+      outletId,
+      hours.map((h) => ({
+        dayOfWeek: h.dayOfWeek,
+        openTime: h.openTime,
+        closeTime: h.closeTime,
+        isClosed: h.isClosed,
+      })),
+    );
   }
 
   // ==================== Payment Method Setup API (CRUD) ====================
@@ -355,10 +498,7 @@ export class SettingsController {
 
   @Delete('payment-methods/:id')
   @ApiOperation({ summary: 'Deactivate a payment method' })
-  async deleteBusinessPaymentMethod(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-  ) {
+  async deleteBusinessPaymentMethod(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.settingsRepo.deleteBusinessPaymentMethod(user.businessId, id);
     return { message: 'Payment method deactivated' };
   }

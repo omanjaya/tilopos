@@ -1,5 +1,9 @@
 export interface IInventoryRepository {
-  findStockLevel(outletId: string, productId: string, variantId?: string | null): Promise<StockLevelRecord | null>;
+  findStockLevel(
+    outletId: string,
+    productId: string,
+    variantId?: string | null,
+  ): Promise<StockLevelRecord | null>;
   findStockLevelsByOutlet(outletId: string): Promise<StockLevelRecord[]>;
   findLowStockItems(outletId: string): Promise<StockLevelRecord[]>;
   updateStockLevel(id: string, quantity: number): Promise<StockLevelRecord>;

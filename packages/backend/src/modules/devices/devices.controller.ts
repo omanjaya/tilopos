@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Inject, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -32,7 +44,17 @@ export class DevicesController {
 
   @Post()
   @ApiOperation({ summary: 'Register a new device' })
-  async register(@Body() dto: { deviceName: string; deviceType: 'tablet' | 'phone' | 'desktop' | 'kds_display'; platform?: 'android' | 'ios' | 'windows' | 'web'; deviceIdentifier?: string; outletId?: string }, @CurrentUser() user: AuthUser) {
+  async register(
+    @Body()
+    dto: {
+      deviceName: string;
+      deviceType: 'tablet' | 'phone' | 'desktop' | 'kds_display';
+      platform?: 'android' | 'ios' | 'windows' | 'web';
+      deviceIdentifier?: string;
+      outletId?: string;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.deviceRepo.create({
       businessId: user.businessId,
       outletId: dto.outletId || null,
@@ -97,7 +119,8 @@ export class DevicesController {
   @Get(':id/update-check')
   @ApiOperation({
     summary: 'Check for available updates for a device',
-    description: 'Returns whether an update is available, the latest version info, and whether the update is forced.',
+    description:
+      'Returns whether an update is available, the latest version info, and whether the update is forced.',
   })
   async checkForUpdate(@Param('id') id: string) {
     return this.devicesService.checkForUpdate(id);
@@ -106,12 +129,10 @@ export class DevicesController {
   @Post(':id/update-ack')
   @ApiOperation({
     summary: 'Acknowledge update installed on device',
-    description: 'Called by the device after successfully installing an update. Updates the device app version.',
+    description:
+      'Called by the device after successfully installing an update. Updates the device app version.',
   })
-  async acknowledgeUpdate(
-    @Param('id') id: string,
-    @Body() dto: DeviceUpdateAckDto,
-  ) {
+  async acknowledgeUpdate(@Param('id') id: string, @Body() dto: DeviceUpdateAckDto) {
     return this.devicesService.acknowledgeUpdate(id, dto.version);
   }
 }

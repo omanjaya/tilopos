@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma, EmployeeRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import type { IEmployeeRepository, EmployeeRecord } from '../../domain/interfaces/repositories/employee.repository';
+import type {
+  IEmployeeRepository,
+  EmployeeRecord,
+} from '../../domain/interfaces/repositories/employee.repository';
 
 @Injectable()
 export class PrismaEmployeeRepository implements IEmployeeRepository {

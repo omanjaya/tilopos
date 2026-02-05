@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Inject, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -9,7 +21,12 @@ import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { StartShiftUseCase } from '../../application/use-cases/employees/start-shift.use-case';
 import { EndShiftUseCase } from '../../application/use-cases/employees/end-shift.use-case';
-import { CreateEmployeeDto, UpdateEmployeeDto, StartShiftDto, EndShiftDto } from '../../application/dtos/employee.dto';
+import {
+  CreateEmployeeDto,
+  UpdateEmployeeDto,
+  StartShiftDto,
+  EndShiftDto,
+} from '../../application/dtos/employee.dto';
 import {
   ShiftReportQueryDto,
   ShiftSummaryQueryDto,
@@ -27,7 +44,10 @@ import type { IEmployeeRepository } from '../../domain/interfaces/repositories/e
 import type { IShiftRepository } from '../../domain/interfaces/repositories/shift.repository';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { EmployeesService } from './employees.service';
-import { decimalToNumberRequired, decimalToNumber } from '../../infrastructure/repositories/decimal.helper';
+import {
+  decimalToNumberRequired,
+  decimalToNumber,
+} from '../../infrastructure/repositories/decimal.helper';
 
 @ApiTags('Employees')
 @ApiBearerAuth()
@@ -174,7 +194,11 @@ export class EmployeesController {
   }
 
   @Post('shifts/:shiftId/end')
-  async endShift(@Param('shiftId') shiftId: string, @Body() dto: EndShiftDto, @CurrentUser() user: AuthUser) {
+  async endShift(
+    @Param('shiftId') shiftId: string,
+    @Body() dto: EndShiftDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.endShiftUseCase.execute({
       shiftId,
       employeeId: user.employeeId,
@@ -288,10 +312,7 @@ export class EmployeesController {
 
   @Get(':id/shifts/report')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getEmployeeShiftReport(
-    @Param('id') id: string,
-    @Query() query: ShiftReportQueryDto,
-  ) {
+  async getEmployeeShiftReport(@Param('id') id: string, @Query() query: ShiftReportQueryDto) {
     return this.employeesService.getEmployeeShiftReport(
       id,
       new Date(query.from),
@@ -319,18 +340,12 @@ export class EmployeesController {
   @Get('schedule')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
   async getSchedule(@Query() query: ScheduleQueryDto) {
-    return this.employeesService.getWeeklySchedule(
-      query.outletId,
-      new Date(query.weekStart),
-    );
+    return this.employeesService.getWeeklySchedule(query.outletId, new Date(query.weekStart));
   }
 
   @Put('schedule/:id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async updateSchedule(
-    @Param('id') id: string,
-    @Body() dto: UpdateScheduleDto,
-  ) {
+  async updateSchedule(@Param('id') id: string, @Body() dto: UpdateScheduleDto) {
     return this.employeesService.updateSchedule(id, {
       employeeId: dto.employeeId,
       outletId: dto.outletId,
@@ -363,10 +378,7 @@ export class EmployeesController {
 
   @Get(':id/commissions')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getEmployeeCommissions(
-    @Param('id') id: string,
-    @Query() query: CommissionQueryDto,
-  ) {
+  async getEmployeeCommissions(@Param('id') id: string, @Query() query: CommissionQueryDto) {
     return this.employeesService.getEmployeeCommissions(
       id,
       new Date(query.from),
@@ -399,14 +411,7 @@ export class EmployeesController {
   }
 
   @Get(':id/attendance')
-  async getAttendanceRecords(
-    @Param('id') id: string,
-    @Query() query: AttendanceQueryDto,
-  ) {
-    return this.employeesService.getAttendanceRecords(
-      id,
-      new Date(query.from),
-      new Date(query.to),
-    );
+  async getAttendanceRecords(@Param('id') id: string, @Query() query: AttendanceQueryDto) {
+    return this.employeesService.getAttendanceRecords(id, new Date(query.from), new Date(query.to));
   }
 }

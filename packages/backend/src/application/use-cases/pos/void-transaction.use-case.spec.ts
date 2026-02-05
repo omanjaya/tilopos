@@ -3,8 +3,15 @@ import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { TransactionVoidedEvent } from '@domain/events/transaction-voided.event';
 import { VoidNotAllowedException } from '@domain/exceptions/void-not-allowed.exception';
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
-import type { ITransactionRepository, TransactionRecord, TransactionItemRecord } from '@domain/interfaces/repositories/transaction.repository';
-import type { IInventoryRepository, StockLevelRecord } from '@domain/interfaces/repositories/inventory.repository';
+import type {
+  ITransactionRepository,
+  TransactionRecord,
+  TransactionItemRecord,
+} from '@domain/interfaces/repositories/transaction.repository';
+import type {
+  IInventoryRepository,
+  StockLevelRecord,
+} from '@domain/interfaces/repositories/inventory.repository';
 import type { IAuditLogRepository } from '@domain/interfaces/repositories/audit.repository';
 
 describe('VoidTransactionUseCase', () => {
@@ -111,12 +118,61 @@ describe('VoidTransactionUseCase', () => {
 
   it('should void transaction successfully', async () => {
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(baseItems);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'return_stock',
+      quantity: 2,
+      referenceId: 'txn-1',
+      referenceType: 'void',
+      notes: 'Void: Customer changed mind',
+      createdBy: 'emp-2',
+      createdAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseInput);
 
@@ -170,12 +226,61 @@ describe('VoidTransactionUseCase', () => {
 
   it('should restore stock after void', async () => {
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(baseItems);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'return_stock',
+      quantity: 2,
+      referenceId: 'txn-1',
+      referenceType: 'void',
+      notes: 'Void: Customer changed mind',
+      createdBy: 'emp-2',
+      createdAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
@@ -200,9 +305,46 @@ describe('VoidTransactionUseCase', () => {
     ];
 
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(itemsWithoutProduct);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
@@ -212,12 +354,61 @@ describe('VoidTransactionUseCase', () => {
 
   it('should create audit trail after void', async () => {
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(baseItems);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'return_stock',
+      quantity: 2,
+      referenceId: 'txn-1',
+      referenceType: 'void',
+      notes: 'Void: Customer changed mind',
+      createdBy: 'emp-2',
+      createdAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
@@ -242,18 +433,65 @@ describe('VoidTransactionUseCase', () => {
 
   it('should publish TransactionVoidedEvent', async () => {
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(baseItems);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'return_stock',
+      quantity: 2,
+      referenceId: 'txn-1',
+      referenceType: 'void',
+      notes: 'Void: Customer changed mind',
+      createdBy: 'emp-2',
+      createdAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
-    expect(mockEventBus.publish).toHaveBeenCalledWith(
-      expect.any(TransactionVoidedEvent),
-    );
+    expect(mockEventBus.publish).toHaveBeenCalledWith(expect.any(TransactionVoidedEvent));
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         transactionId: 'txn-1',
@@ -306,14 +544,63 @@ describe('VoidTransactionUseCase', () => {
     };
 
     mockTransactionRepo.findById.mockResolvedValue(baseTransaction);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'voided',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      voidedAt: new Date(),
+      voidedBy: 'emp-2',
+      voidReason: 'Customer changed mind',
+    });
     mockTransactionRepo.findItemsByTransactionId.mockResolvedValue(multipleItems);
     mockInventoryRepo.findStockLevel
       .mockResolvedValueOnce(baseStockLevel)
       .mockResolvedValueOnce(stockLevel2);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue({} as any);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'return_stock',
+      quantity: 2,
+      referenceId: 'txn-1',
+      referenceType: 'void',
+      notes: 'Void: Customer changed mind',
+      createdBy: 'emp-2',
+      createdAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-2',
+      action: 'void',
+      entityType: 'transaction',
+      entityId: 'txn-1',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 

@@ -31,7 +31,11 @@ export class AuditController {
   @ApiOperation({ summary: 'List audit logs by date range' })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
-  async list(@CurrentUser() user: AuthUser, @Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
+  async list(
+    @CurrentUser() user: AuthUser,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
     return this.auditRepo.findByDateRange(user.businessId, start, end);
@@ -52,7 +56,8 @@ export class AuditController {
   @Get('suspicious-activities')
   @ApiOperation({
     summary: 'Get flagged suspicious activities',
-    description: 'Detects patterns like multiple voids, unusual discounts, cash drawer abuse, after-hours, and large refunds',
+    description:
+      'Detects patterns like multiple voids, unusual discounts, cash drawer abuse, after-hours, and large refunds',
   })
   @ApiQuery({ name: 'startDate', required: true })
   @ApiQuery({ name: 'endDate', required: true })
@@ -65,9 +70,7 @@ export class AuditController {
     @Query('types') types?: SuspiciousActivityType | SuspiciousActivityType[],
     @Query('outletId') outletId?: string,
   ) {
-    const typesArray = types
-      ? Array.isArray(types) ? types : [types]
-      : undefined;
+    const typesArray = types ? (Array.isArray(types) ? types : [types]) : undefined;
 
     return this.auditService.detectSuspiciousActivities(
       user.businessId,
@@ -85,12 +88,10 @@ export class AuditController {
   @Post('compliance-export')
   @ApiOperation({
     summary: 'Generate compliance report (CSV or JSON)',
-    description: 'Exports audit trail for tax compliance with date range, action type, and employee filters',
+    description:
+      'Exports audit trail for tax compliance with date range, action type, and employee filters',
   })
-  async generateComplianceExport(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ComplianceExportDto,
-  ) {
+  async generateComplianceExport(@CurrentUser() user: AuthUser, @Body() dto: ComplianceExportDto) {
     return this.auditService.generateComplianceExport(
       user.businessId,
       new Date(dto.startDate),
@@ -108,11 +109,10 @@ export class AuditController {
   @Get('suspicious-activity')
   @ApiOperation({
     summary: 'Get flagged suspicious activities (last 30 days by default)',
-    description: 'Quick detection of suspicious patterns: multiple voids, large discounts, after-hours transactions, repeated failed logins',
+    description:
+      'Quick detection of suspicious patterns: multiple voids, large discounts, after-hours transactions, repeated failed logins',
   })
-  async getSuspiciousActivity(
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getSuspiciousActivity(@CurrentUser() user: AuthUser) {
     return this.auditService.detectSuspiciousActivity(user.businessId);
   }
 
@@ -139,7 +139,9 @@ export class AuditController {
     @Query('employeeId') employeeId?: string,
   ) {
     const actionTypesArray = actionTypes
-      ? Array.isArray(actionTypes) ? actionTypes : [actionTypes]
+      ? Array.isArray(actionTypes)
+        ? actionTypes
+        : [actionTypes]
       : undefined;
 
     return this.auditService.exportComplianceReport(
@@ -159,7 +161,8 @@ export class AuditController {
   @Get('summary')
   @ApiOperation({
     summary: 'Get audit summary stats',
-    description: 'Returns aggregated counts by action, entity type, employee, and suspicious activity count',
+    description:
+      'Returns aggregated counts by action, entity type, employee, and suspicious activity count',
   })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })

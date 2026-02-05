@@ -53,7 +53,7 @@ export class RabbitMqModule implements OnApplicationBootstrap {
   constructor(
     private readonly rabbitMqService: RabbitMqService,
     private readonly consumer: MessageConsumerService,
-  ) { }
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     // Connect to RabbitMQ (no-op if not configured)

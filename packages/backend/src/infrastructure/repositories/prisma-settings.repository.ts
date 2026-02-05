@@ -27,17 +27,22 @@ import type {
   BusinessPaymentMethod,
   CreateBusinessPaymentMethodData,
   UpdateBusinessPaymentMethodData,
+  BusinessRecord,
+  OutletRecord,
+  ModifierGroupRecord,
+  LoyaltyProgramRecord,
+  LoyaltyTierRecord,
 } from '../../domain/interfaces/repositories/settings.repository';
 
 @Injectable()
 export class PrismaSettingsRepository implements ISettingsRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
-  async findBusiness(businessId: string): Promise<any> {
+  async findBusiness(businessId: string): Promise<BusinessRecord> {
     return this.prisma.business.findUnique({ where: { id: businessId } });
   }
 
-  async updateBusiness(businessId: string, data: UpdateBusinessData): Promise<any> {
+  async updateBusiness(businessId: string, data: UpdateBusinessData): Promise<BusinessRecord> {
     return this.prisma.business.update({
       where: { id: businessId },
       data: {
@@ -50,15 +55,15 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async findOutlets(businessId: string): Promise<any[]> {
+  async findOutlets(businessId: string): Promise<OutletRecord[]> {
     return this.prisma.outlet.findMany({ where: { businessId } });
   }
 
-  async findOutletById(id: string): Promise<any | null> {
+  async findOutletById(id: string): Promise<OutletRecord | null> {
     return this.prisma.outlet.findUnique({ where: { id } });
   }
 
-  async createOutlet(data: CreateOutletData): Promise<any> {
+  async createOutlet(data: CreateOutletData): Promise<OutletRecord> {
     return this.prisma.outlet.create({
       data: {
         businessId: data.businessId,
@@ -72,21 +77,21 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async updateOutlet(id: string, data: Record<string, unknown>): Promise<any> {
+  async updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord> {
     return this.prisma.outlet.update({
       where: { id },
       data: data as Record<string, never>,
     });
   }
 
-  async findModifierGroups(businessId: string): Promise<any[]> {
+  async findModifierGroups(businessId: string): Promise<ModifierGroupRecord[]> {
     return this.prisma.modifierGroup.findMany({
       where: { businessId, isActive: true },
       include: { modifiers: true },
     });
   }
 
-  async createModifierGroup(data: CreateModifierGroupData): Promise<any> {
+  async createModifierGroup(data: CreateModifierGroupData): Promise<ModifierGroupRecord> {
     return this.prisma.modifierGroup.create({
       data: {
         businessId: data.businessId,
@@ -100,7 +105,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async updateModifierGroup(id: string, data: UpdateModifierGroupData): Promise<any> {
+  async updateModifierGroup(
+    id: string,
+    data: UpdateModifierGroupData,
+  ): Promise<ModifierGroupRecord> {
     return this.prisma.modifierGroup.update({
       where: { id },
       data: {
@@ -117,11 +125,11 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async findLoyaltyProgram(businessId: string): Promise<any | null> {
+  async findLoyaltyProgram(businessId: string): Promise<LoyaltyProgramRecord | null> {
     return this.prisma.loyaltyProgram.findFirst({ where: { businessId } });
   }
 
-  async createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<any> {
+  async createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<LoyaltyProgramRecord> {
     return this.prisma.loyaltyProgram.create({
       data: {
         businessId: data.businessId,
@@ -133,7 +141,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async findLoyaltyTiers(businessId: string): Promise<any[]> {
+  async findLoyaltyTiers(businessId: string): Promise<LoyaltyTierRecord[]> {
     return this.prisma.loyaltyTier.findMany({
       where: { businessId },
       orderBy: { sortOrder: 'asc' },
@@ -147,7 +155,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async updateLoyaltyProgram(businessId: string, data: UpdateLoyaltyProgramData): Promise<any> {
+  async updateLoyaltyProgram(
+    businessId: string,
+    data: UpdateLoyaltyProgramData,
+  ): Promise<LoyaltyProgramRecord> {
     return this.prisma.loyaltyProgram.updateMany({
       where: { businessId },
       data: {
@@ -160,7 +171,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async createLoyaltyTier(data: CreateLoyaltyTierData): Promise<any> {
+  async createLoyaltyTier(data: CreateLoyaltyTierData): Promise<LoyaltyTierRecord> {
     return this.prisma.loyaltyTier.create({
       data: {
         businessId: data.businessId,
@@ -174,7 +185,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     });
   }
 
-  async updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<any> {
+  async updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord> {
     return this.prisma.loyaltyTier.update({
       where: { id },
       data: {
@@ -211,7 +222,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         taxName: 'PPN',
       };
     }
-    const settings = outlet.settings as Record<string, unknown> || {};
+    const settings = (outlet.settings as Record<string, unknown>) || {};
     return {
       outletId,
       taxRate: Number(outlet.taxRate),
@@ -222,7 +233,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     };
   }
 
-  async updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<any> {
+  async updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<TaxConfig> {
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { settings: true },
@@ -263,7 +274,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         fontSize: 'medium',
       };
     }
-    const settings = outlet.settings as Record<string, unknown> || {};
+    const settings = (outlet.settings as Record<string, unknown>) || {};
     return {
       outletId,
       header: outlet.receiptHeader || '',
@@ -278,7 +289,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     };
   }
 
-  async updateReceiptTemplate(outletId: string, data: UpdateReceiptTemplateData): Promise<any> {
+  async updateReceiptTemplate(
+    outletId: string,
+    data: UpdateReceiptTemplateData,
+  ): Promise<ReceiptTemplate> {
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { settings: true },
@@ -310,7 +324,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
       where: { id: outletId },
       select: { settings: true },
     });
-    const settings = outlet?.settings as Record<string, unknown> || {};
+    const settings = (outlet?.settings as Record<string, unknown>) || {};
     const hours = settings.operatingHours as OperatingHours[] | undefined;
     if (hours && Array.isArray(hours)) {
       return hours;
@@ -350,7 +364,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
       where: { id: businessId },
       select: { settings: true },
     });
-    const settings = business?.settings as Record<string, unknown> || {};
+    const settings = (business?.settings as Record<string, unknown>) || {};
     const methods = settings.paymentMethods as PaymentMethodConfig[] | undefined;
     if (methods && Array.isArray(methods)) {
       return methods;
@@ -358,12 +372,54 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     // Default payment methods
     return [
       { method: 'cash', enabled: true, displayName: 'Tunai', sortOrder: 1 },
-      { method: 'qris', enabled: true, displayName: 'QRIS', processingFee: 0.7, feeType: 'percentage', sortOrder: 2 },
-      { method: 'card', enabled: true, displayName: 'Kartu Debit/Kredit', processingFee: 2.5, feeType: 'percentage', sortOrder: 3 },
-      { method: 'gopay', enabled: true, displayName: 'GoPay', processingFee: 2, feeType: 'percentage', sortOrder: 4 },
-      { method: 'ovo', enabled: true, displayName: 'OVO', processingFee: 2, feeType: 'percentage', sortOrder: 5 },
-      { method: 'dana', enabled: true, displayName: 'DANA', processingFee: 1.5, feeType: 'percentage', sortOrder: 6 },
-      { method: 'shopeepay', enabled: true, displayName: 'ShopeePay', processingFee: 1.5, feeType: 'percentage', sortOrder: 7 },
+      {
+        method: 'qris',
+        enabled: true,
+        displayName: 'QRIS',
+        processingFee: 0.7,
+        feeType: 'percentage',
+        sortOrder: 2,
+      },
+      {
+        method: 'card',
+        enabled: true,
+        displayName: 'Kartu Debit/Kredit',
+        processingFee: 2.5,
+        feeType: 'percentage',
+        sortOrder: 3,
+      },
+      {
+        method: 'gopay',
+        enabled: true,
+        displayName: 'GoPay',
+        processingFee: 2,
+        feeType: 'percentage',
+        sortOrder: 4,
+      },
+      {
+        method: 'ovo',
+        enabled: true,
+        displayName: 'OVO',
+        processingFee: 2,
+        feeType: 'percentage',
+        sortOrder: 5,
+      },
+      {
+        method: 'dana',
+        enabled: true,
+        displayName: 'DANA',
+        processingFee: 1.5,
+        feeType: 'percentage',
+        sortOrder: 6,
+      },
+      {
+        method: 'shopeepay',
+        enabled: true,
+        displayName: 'ShopeePay',
+        processingFee: 1.5,
+        feeType: 'percentage',
+        sortOrder: 7,
+      },
       { method: 'bank_transfer', enabled: false, displayName: 'Transfer Bank', sortOrder: 8 },
     ];
   }
@@ -407,7 +463,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     };
   }
 
-  async updateBusinessTaxConfig(businessId: string, data: UpdateBusinessTaxConfigData): Promise<BusinessTaxConfig> {
+  async updateBusinessTaxConfig(
+    businessId: string,
+    data: UpdateBusinessTaxConfigData,
+  ): Promise<BusinessTaxConfig> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { settings: true },
@@ -423,7 +482,9 @@ export class PrismaSettingsRepository implements ISettingsRepository {
       ...(data.taxRate !== undefined && { taxRate: data.taxRate }),
       ...(data.taxName !== undefined && { taxName: data.taxName }),
       ...(data.taxInclusive !== undefined && { taxInclusive: data.taxInclusive }),
-      ...(data.serviceChargeEnabled !== undefined && { serviceChargeEnabled: data.serviceChargeEnabled }),
+      ...(data.serviceChargeEnabled !== undefined && {
+        serviceChargeEnabled: data.serviceChargeEnabled,
+      }),
       ...(data.serviceChargeRate !== undefined && { serviceChargeRate: data.serviceChargeRate }),
     };
     await this.prisma.business.update({
@@ -470,7 +531,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     };
   }
 
-  async updateOutletReceiptTemplate(outletId: string, data: UpdateOutletReceiptTemplateData): Promise<OutletReceiptTemplate> {
+  async updateOutletReceiptTemplate(
+    outletId: string,
+    data: UpdateOutletReceiptTemplateData,
+  ): Promise<OutletReceiptTemplate> {
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { receiptHeader: true, receiptFooter: true, settings: true },
@@ -544,7 +608,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     ];
   }
 
-  async updateOutletOperatingHours(outletId: string, data: OutletOperatingHoursEntry[]): Promise<OutletOperatingHoursEntry[]> {
+  async updateOutletOperatingHours(
+    outletId: string,
+    data: OutletOperatingHoursEntry[],
+  ): Promise<OutletOperatingHoursEntry[]> {
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { settings: true },
@@ -586,17 +653,62 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     }
     // Default payment methods
     const defaults: BusinessPaymentMethod[] = [
-      { id: this.generatePaymentMethodId(), name: 'Tunai', type: 'cash', isActive: true, processingFee: 0, settings: {} },
-      { id: this.generatePaymentMethodId(), name: 'QRIS', type: 'qris', isActive: true, processingFee: 0.7, settings: {} },
-      { id: this.generatePaymentMethodId(), name: 'Kartu Debit/Kredit', type: 'card', isActive: true, processingFee: 2.5, settings: {} },
-      { id: this.generatePaymentMethodId(), name: 'GoPay', type: 'ewallet', isActive: true, processingFee: 2, settings: {} },
-      { id: this.generatePaymentMethodId(), name: 'OVO', type: 'ewallet', isActive: true, processingFee: 2, settings: {} },
-      { id: this.generatePaymentMethodId(), name: 'Transfer Bank', type: 'bank_transfer', isActive: false, processingFee: 0, settings: {} },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'Tunai',
+        type: 'cash',
+        isActive: true,
+        processingFee: 0,
+        settings: {},
+      },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'QRIS',
+        type: 'qris',
+        isActive: true,
+        processingFee: 0.7,
+        settings: {},
+      },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'Kartu Debit/Kredit',
+        type: 'card',
+        isActive: true,
+        processingFee: 2.5,
+        settings: {},
+      },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'GoPay',
+        type: 'ewallet',
+        isActive: true,
+        processingFee: 2,
+        settings: {},
+      },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'OVO',
+        type: 'ewallet',
+        isActive: true,
+        processingFee: 2,
+        settings: {},
+      },
+      {
+        id: this.generatePaymentMethodId(),
+        name: 'Transfer Bank',
+        type: 'bank_transfer',
+        isActive: false,
+        processingFee: 0,
+        settings: {},
+      },
     ];
     return defaults;
   }
 
-  async createBusinessPaymentMethod(businessId: string, data: CreateBusinessPaymentMethodData): Promise<BusinessPaymentMethod> {
+  async createBusinessPaymentMethod(
+    businessId: string,
+    data: CreateBusinessPaymentMethodData,
+  ): Promise<BusinessPaymentMethod> {
     const methods = await this.getBusinessPaymentMethods(businessId);
     const newMethod: BusinessPaymentMethod = {
       id: this.generatePaymentMethodId(),
@@ -611,7 +723,11 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return newMethod;
   }
 
-  async updateBusinessPaymentMethod(businessId: string, id: string, data: UpdateBusinessPaymentMethodData): Promise<BusinessPaymentMethod> {
+  async updateBusinessPaymentMethod(
+    businessId: string,
+    id: string,
+    data: UpdateBusinessPaymentMethodData,
+  ): Promise<BusinessPaymentMethod> {
     const methods = await this.getBusinessPaymentMethods(businessId);
     const index = methods.findIndex((m) => m.id === id);
     if (index === -1) {
@@ -642,7 +758,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     await this.saveBusinessPaymentMethods(businessId, methods);
   }
 
-  private async saveBusinessPaymentMethods(businessId: string, methods: BusinessPaymentMethod[]): Promise<void> {
+  private async saveBusinessPaymentMethods(
+    businessId: string,
+    methods: BusinessPaymentMethod[],
+  ): Promise<void> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { settings: true },

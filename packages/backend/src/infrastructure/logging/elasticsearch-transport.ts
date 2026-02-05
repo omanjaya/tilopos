@@ -63,8 +63,15 @@ export class ElasticsearchTransport extends TransportStream {
     };
 
     const knownKeys = new Set([
-      'timestamp', 'level', 'message', 'service', 'traceId',
-      'userId', 'outletId', 'action', 'context',
+      'timestamp',
+      'level',
+      'message',
+      'service',
+      'traceId',
+      'userId',
+      'outletId',
+      'action',
+      'context',
     ]);
     for (const [key, value] of Object.entries(info)) {
       if (!knownKeys.has(key)) {
@@ -89,13 +96,14 @@ export class ElasticsearchTransport extends TransportStream {
     const entries = this.buffer.splice(0, this.batchSize);
     const indexName = this.getIndexName();
 
-    const bulkBody = entries
-      .map((entry) => {
-        const action = JSON.stringify({ index: { _index: indexName } });
-        const doc = JSON.stringify(entry);
-        return `${action}\n${doc}`;
-      })
-      .join('\n') + '\n';
+    const bulkBody =
+      entries
+        .map((entry) => {
+          const action = JSON.stringify({ index: { _index: indexName } });
+          const doc = JSON.stringify(entry);
+          return `${action}\n${doc}`;
+        })
+        .join('\n') + '\n';
 
     try {
       await this.sendToElasticsearch('/_bulk', bulkBody);
@@ -174,7 +182,9 @@ export class ElasticsearchTransport extends TransportStream {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(data);
           } else {
-            reject(new Error(`Elasticsearch returned status ${res.statusCode ?? 'unknown'}: ${data}`));
+            reject(
+              new Error(`Elasticsearch returned status ${res.statusCode ?? 'unknown'}: ${data}`),
+            );
           }
         });
       });

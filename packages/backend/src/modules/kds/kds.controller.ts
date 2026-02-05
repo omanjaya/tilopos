@@ -22,11 +22,14 @@ export class KdsController {
     private readonly getStationOrdersUseCase: GetStationOrdersUseCase,
     private readonly analyticsService: KdsAnalyticsService,
     private readonly kdsService: KdsService,
-  ) { }
+  ) {}
 
   @Post('bump')
   @ApiOperation({ summary: 'Bump an order item (mark as completed)' })
-  async bumpOrder(@Body() dto: { orderItemId: string; station: string }, @CurrentUser() user: AuthUser) {
+  async bumpOrder(
+    @Body() dto: { orderItemId: string; station: string },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.bumpOrderUseCase.execute({
       orderItemId: dto.orderItemId,
       employeeId: user.employeeId,
@@ -37,9 +40,22 @@ export class KdsController {
   @Get('orders')
   @ApiOperation({ summary: 'Get orders for KDS display, optionally filtered by priority' })
   @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({ name: 'station', required: false, enum: ['grill', 'fryer', 'cold', 'hot', 'drinks', 'dessert', 'general'] })
-  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'preparing', 'ready', 'completed'] })
-  @ApiQuery({ name: 'priority', required: false, enum: ['normal', 'urgent', 'vip'], description: 'Filter by priority level' })
+  @ApiQuery({
+    name: 'station',
+    required: false,
+    enum: ['grill', 'fryer', 'cold', 'hot', 'drinks', 'dessert', 'general'],
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'preparing', 'ready', 'completed'],
+  })
+  @ApiQuery({
+    name: 'priority',
+    required: false,
+    enum: ['normal', 'urgent', 'vip'],
+    description: 'Filter by priority level',
+  })
   @ApiQuery({ name: 'includeCompleted', required: false, type: Boolean })
   async getStationOrders(
     @Query('outletId') outletId: string,
@@ -58,9 +74,7 @@ export class KdsController {
     if (priority) {
       const priorityMap: Record<string, number> = { normal: 0, urgent: 5, vip: 10 };
       const targetPriority = priorityMap[priority];
-      const filteredItems = result.items.filter(
-        (item) => item.priority === targetPriority,
-      );
+      const filteredItems = result.items.filter((item) => item.priority === targetPriority);
       return {
         items: filteredItems,
         summary: {
@@ -87,11 +101,13 @@ export class KdsController {
   @Get('analytics')
   @ApiOperation({ summary: 'Get kitchen analytics for outlet' })
   @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({ name: 'date', required: false, type: String, description: 'Date in ISO format (defaults to today)' })
-  async getAnalytics(
-    @Query('outletId') outletId: string,
-    @Query('date') date?: string,
-  ) {
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    type: String,
+    description: 'Date in ISO format (defaults to today)',
+  })
+  async getAnalytics(@Query('outletId') outletId: string, @Query('date') date?: string) {
     const targetDate = date ? new Date(date) : undefined;
     return this.analyticsService.getAnalytics(outletId, targetDate);
   }
@@ -125,19 +141,13 @@ export class KdsController {
 
   @Put('items/:id/ready')
   @ApiOperation({ summary: 'Mark order item as ready' })
-  async markItemReady(
-    @Param('id') orderItemId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async markItemReady(@Param('id') orderItemId: string, @CurrentUser() user: AuthUser) {
     return this.analyticsService.markItemReady(orderItemId, user.employeeId);
   }
 
   @Put('items/:id/recall')
   @ApiOperation({ summary: 'Recall order item (send back for re-preparation)' })
-  async recallItem(
-    @Param('id') orderItemId: string,
-    @Body() dto: { reason?: string },
-  ) {
+  async recallItem(@Param('id') orderItemId: string, @Body() dto: { reason?: string }) {
     return this.analyticsService.recallItem(orderItemId, dto.reason);
   }
 
@@ -169,10 +179,7 @@ export class KdsController {
   @Get('overdue')
   @ApiOperation({ summary: 'Get orders exceeding SLA cooking time' })
   @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getOverdueOrders(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-  ) {
+  async getOverdueOrders(@CurrentUser() user: AuthUser, @Query('outletId') outletId: string) {
     return this.kdsService.getOverdueOrders(user.businessId, outletId);
   }
 

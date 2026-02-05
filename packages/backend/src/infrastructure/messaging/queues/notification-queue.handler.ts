@@ -39,32 +39,27 @@ export class NotificationQueueHandler implements OnModuleInit {
   onModuleInit(): void {
     this.consumer.registerHandler(
       QUEUES.NOTIFICATIONS_SEND,
-      (envelope: MessageEnvelope, rawMessage: AmqpMessage) =>
-        this.handle(envelope, rawMessage),
+      (envelope: MessageEnvelope, rawMessage: AmqpMessage) => this.handle(envelope, rawMessage),
     );
   }
 
   private async handle(envelope: MessageEnvelope, _rawMessage: AmqpMessage): Promise<void> {
     switch (envelope.eventType) {
       case ROUTING_KEYS.NOTIFICATION_SEND:
-        await this.handleNotificationSend(
-          envelope.payload as unknown as NotificationSendPayload,
-        );
+        await this.handleNotificationSend(envelope.payload as unknown as NotificationSendPayload);
         break;
       case ROUTING_KEYS.STOCK_CHANGED:
         await this.handleStockAlert(envelope.payload as unknown as StockAlertPayload);
         break;
       default:
-        this.logger.warn(
-          `NotificationQueueHandler: unhandled event type "${envelope.eventType}"`,
-        );
+        this.logger.warn(`NotificationQueueHandler: unhandled event type "${envelope.eventType}"`);
     }
   }
 
   private async handleNotificationSend(payload: NotificationSendPayload): Promise<void> {
     this.logger.log(
       `Processing notification.send: to ${payload.recipientId} ` +
-      `via ${payload.channel} — "${payload.title}"`,
+        `via ${payload.channel} — "${payload.title}"`,
     );
 
     // Notification dispatch is handled by NotificationDispatcherService
@@ -76,7 +71,7 @@ export class NotificationQueueHandler implements OnModuleInit {
   private async handleStockAlert(payload: StockAlertPayload): Promise<void> {
     this.logger.log(
       `Processing stock alert notification: product ${payload.productId} ` +
-      `at outlet ${payload.outletId} (qty: ${payload.newQuantity})`,
+        `at outlet ${payload.outletId} (qty: ${payload.newQuantity})`,
     );
 
     // Stock alert notifications are handled by StockEventListener via

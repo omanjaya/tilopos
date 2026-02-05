@@ -96,16 +96,14 @@ export class CustomersService {
     const vipThresholdIndex = Math.max(1, Math.ceil(customers.length * 0.1));
     const vipThreshold =
       sortedBySpend.length > 0
-        ? sortedBySpend[Math.min(vipThresholdIndex - 1, sortedBySpend.length - 1)].totalSpent.toNumber()
+        ? sortedBySpend[
+            Math.min(vipThresholdIndex - 1, sortedBySpend.length - 1)
+          ].totalSpent.toNumber()
         : 0;
 
-    const newCount = customers.filter(
-      (c) => c.createdAt >= thirtyDaysAgo,
-    ).length;
+    const newCount = customers.filter((c) => c.createdAt >= thirtyDaysAgo).length;
 
-    const returningCount = customers.filter(
-      (c) => c.visitCount >= 3,
-    ).length;
+    const returningCount = customers.filter((c) => c.visitCount >= 3).length;
 
     const vipCount = customers.filter(
       (c) => c.totalSpent.toNumber() >= vipThreshold && vipThreshold > 0,
@@ -190,7 +188,9 @@ export class CustomersService {
         const vipThresholdIndex = Math.max(1, Math.ceil(customers.length * 0.1));
         const vipThreshold =
           sortedBySpend.length > 0
-            ? sortedBySpend[Math.min(vipThresholdIndex - 1, sortedBySpend.length - 1)].totalSpent.toNumber()
+            ? sortedBySpend[
+                Math.min(vipThresholdIndex - 1, sortedBySpend.length - 1)
+              ].totalSpent.toNumber()
             : 0;
         filtered = customers.filter(
           (c) => c.totalSpent.toNumber() >= vipThreshold && vipThreshold > 0,
@@ -310,11 +310,7 @@ export class CustomersService {
       if (!customer.dateOfBirth) continue;
 
       const dob = new Date(customer.dateOfBirth);
-      const birthdayThisYear = new Date(
-        now.getFullYear(),
-        dob.getMonth(),
-        dob.getDate(),
-      );
+      const birthdayThisYear = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
 
       // If birthday already passed this year, check next year
       if (birthdayThisYear < now) {
@@ -430,9 +426,8 @@ export class CustomersService {
       }
 
       const validTiers = ['regular', 'silver', 'gold', 'platinum'];
-      const tier = row.loyaltyTier && validTiers.includes(row.loyaltyTier)
-        ? row.loyaltyTier
-        : 'regular';
+      const tier =
+        row.loyaltyTier && validTiers.includes(row.loyaltyTier) ? row.loyaltyTier : 'regular';
 
       try {
         await this.prisma.customer.create({
@@ -447,7 +442,11 @@ export class CustomersService {
         });
         imported++;
       } catch {
-        errors.push({ row: rowNum, field: 'general', message: `Failed to import customer "${row.name}"` });
+        errors.push({
+          row: rowNum,
+          field: 'general',
+          message: `Failed to import customer "${row.name}"`,
+        });
       }
     }
 
@@ -493,7 +492,8 @@ export class CustomersService {
   async exportCustomersCsv(businessId: string, segment?: string): Promise<string> {
     const customers = await this.getCustomersForExport(businessId, segment);
 
-    const header = 'Name,Email,Phone,Birthday,Loyalty Tier,Loyalty Points,Total Spent,Visit Count,Created At';
+    const header =
+      'Name,Email,Phone,Birthday,Loyalty Tier,Loyalty Points,Total Spent,Visit Count,Created At';
     const rows = customers.map((c) =>
       [
         this.escapeCsvField(c.name),
@@ -532,17 +532,19 @@ export class CustomersService {
   private async getCustomersForExport(
     businessId: string,
     segment?: string,
-  ): Promise<Array<{
-    name: string;
-    email: string | null;
-    phone: string | null;
-    dateOfBirth: Date | null;
-    loyaltyTier: string;
-    loyaltyPoints: number;
-    totalSpent: number;
-    visitCount: number;
-    createdAt: Date;
-  }>> {
+  ): Promise<
+    Array<{
+      name: string;
+      email: string | null;
+      phone: string | null;
+      dateOfBirth: Date | null;
+      loyaltyTier: string;
+      loyaltyPoints: number;
+      totalSpent: number;
+      visitCount: number;
+      createdAt: Date;
+    }>
+  > {
     if (segment) {
       const validSegments = ['new', 'returning', 'vip', 'at-risk', 'inactive'];
       if (!validSegments.includes(segment)) {

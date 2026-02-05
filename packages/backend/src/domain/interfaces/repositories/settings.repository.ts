@@ -1,43 +1,129 @@
+export interface BusinessRecord {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  settings: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OutletRecord {
+  id: string;
+  businessId: string;
+  name: string;
+  code: string | null;
+  address: string | null;
+  phone: string | null;
+  taxRate: number;
+  serviceCharge: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ModifierGroupRecord {
+  id: string;
+  businessId: string;
+  name: string;
+  selectionType: string;
+  minSelection: number;
+  maxSelection: number | null;
+  isRequired: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LoyaltyProgramRecord {
+  id: string;
+  businessId: string;
+  name: string;
+  amountPerPoint: number;
+  redemptionRate: number;
+  pointExpiryDays: number | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LoyaltyTierRecord {
+  id: string;
+  businessId: string;
+  name: string;
+  minPoints: number;
+  minSpent: number;
+  pointMultiplier: number;
+  benefits: unknown;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ISettingsRepository {
-  findBusiness(businessId: string): Promise<any>;
-  updateBusiness(businessId: string, data: UpdateBusinessData): Promise<any>;
-  findOutlets(businessId: string): Promise<any[]>;
-  findOutletById(id: string): Promise<any | null>;
-  createOutlet(data: CreateOutletData): Promise<any>;
-  updateOutlet(id: string, data: Record<string, unknown>): Promise<any>;
+  findBusiness(businessId: string): Promise<BusinessRecord>;
+  updateBusiness(businessId: string, data: UpdateBusinessData): Promise<BusinessRecord>;
+  findOutlets(businessId: string): Promise<OutletRecord[]>;
+  findOutletById(id: string): Promise<OutletRecord | null>;
+  createOutlet(data: CreateOutletData): Promise<OutletRecord>;
+  updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord>;
   deleteOutlet(id: string): Promise<void>;
-  findModifierGroups(businessId: string): Promise<any[]>;
-  createModifierGroup(data: CreateModifierGroupData): Promise<any>;
-  updateModifierGroup(id: string, data: UpdateModifierGroupData): Promise<any>;
+  findModifierGroups(businessId: string): Promise<ModifierGroupRecord[]>;
+  createModifierGroup(data: CreateModifierGroupData): Promise<ModifierGroupRecord>;
+  updateModifierGroup(id: string, data: UpdateModifierGroupData): Promise<ModifierGroupRecord>;
   deleteModifierGroup(id: string): Promise<void>;
-  findLoyaltyProgram(businessId: string): Promise<any | null>;
-  createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<any>;
-  updateLoyaltyProgram(businessId: string, data: UpdateLoyaltyProgramData): Promise<any>;
-  findLoyaltyTiers(businessId: string): Promise<any[]>;
-  createLoyaltyTier(data: CreateLoyaltyTierData): Promise<any>;
-  updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<any>;
+  findLoyaltyProgram(businessId: string): Promise<LoyaltyProgramRecord | null>;
+  createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<LoyaltyProgramRecord>;
+  updateLoyaltyProgram(
+    businessId: string,
+    data: UpdateLoyaltyProgramData,
+  ): Promise<LoyaltyProgramRecord>;
+  findLoyaltyTiers(businessId: string): Promise<LoyaltyTierRecord[]>;
+  createLoyaltyTier(data: CreateLoyaltyTierData): Promise<LoyaltyTierRecord>;
+  updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord>;
   deleteLoyaltyTier(id: string): Promise<void>;
   // Tax Configuration
   getTaxConfig(outletId: string): Promise<TaxConfig>;
-  updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<any>;
+  updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<TaxConfig>;
   getBusinessTaxConfig(businessId: string): Promise<BusinessTaxConfig>;
-  updateBusinessTaxConfig(businessId: string, data: UpdateBusinessTaxConfigData): Promise<BusinessTaxConfig>;
+  updateBusinessTaxConfig(
+    businessId: string,
+    data: UpdateBusinessTaxConfigData,
+  ): Promise<BusinessTaxConfig>;
   // Receipt Template
   getReceiptTemplate(outletId: string): Promise<ReceiptTemplate>;
-  updateReceiptTemplate(outletId: string, data: UpdateReceiptTemplateData): Promise<any>;
+  updateReceiptTemplate(
+    outletId: string,
+    data: UpdateReceiptTemplateData,
+  ): Promise<ReceiptTemplate>;
   getOutletReceiptTemplate(outletId: string): Promise<OutletReceiptTemplate>;
-  updateOutletReceiptTemplate(outletId: string, data: UpdateOutletReceiptTemplateData): Promise<OutletReceiptTemplate>;
+  updateOutletReceiptTemplate(
+    outletId: string,
+    data: UpdateOutletReceiptTemplateData,
+  ): Promise<OutletReceiptTemplate>;
   // Operating Hours
   getOperatingHours(outletId: string): Promise<OperatingHours[]>;
   updateOperatingHours(outletId: string, data: OperatingHoursData[]): Promise<void>;
   getOutletOperatingHours(outletId: string): Promise<OutletOperatingHoursEntry[]>;
-  updateOutletOperatingHours(outletId: string, data: OutletOperatingHoursEntry[]): Promise<OutletOperatingHoursEntry[]>;
+  updateOutletOperatingHours(
+    outletId: string,
+    data: OutletOperatingHoursEntry[],
+  ): Promise<OutletOperatingHoursEntry[]>;
   // Payment Methods
   getPaymentMethods(businessId: string): Promise<PaymentMethodConfig[]>;
   updatePaymentMethods(businessId: string, data: PaymentMethodConfig[]): Promise<void>;
   getBusinessPaymentMethods(businessId: string): Promise<BusinessPaymentMethod[]>;
-  createBusinessPaymentMethod(businessId: string, data: CreateBusinessPaymentMethodData): Promise<BusinessPaymentMethod>;
-  updateBusinessPaymentMethod(businessId: string, id: string, data: UpdateBusinessPaymentMethodData): Promise<BusinessPaymentMethod>;
+  createBusinessPaymentMethod(
+    businessId: string,
+    data: CreateBusinessPaymentMethodData,
+  ): Promise<BusinessPaymentMethod>;
+  updateBusinessPaymentMethod(
+    businessId: string,
+    id: string,
+    data: UpdateBusinessPaymentMethodData,
+  ): Promise<BusinessPaymentMethod>;
   deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void>;
 }
 

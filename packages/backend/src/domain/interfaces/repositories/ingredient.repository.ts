@@ -93,10 +93,25 @@ export interface IIngredientRepository {
 
   // Stock Level
   getStockLevel(outletId: string, ingredientId: string): Promise<IngredientStockLevelRecord | null>;
-  getStockLevelsByOutlet(outletId: string): Promise<Array<IngredientStockLevelRecord & { ingredient?: PartialIngredient }>>;
-  getLowStock(outletId: string): Promise<Array<IngredientStockLevelRecord & { ingredient: PartialIngredient }>>;
-  updateStockLevel(outletId: string, ingredientId: string, quantity: number): Promise<IngredientStockLevelRecord>;
-  adjustStock(outletId: string, ingredientId: string, quantity: number, referenceId?: string, referenceType?: string, notes?: string): Promise<void>;
+  getStockLevelsByOutlet(
+    outletId: string,
+  ): Promise<Array<IngredientStockLevelRecord & { ingredient?: PartialIngredient }>>;
+  getLowStock(
+    outletId: string,
+  ): Promise<Array<IngredientStockLevelRecord & { ingredient: PartialIngredient }>>;
+  updateStockLevel(
+    outletId: string,
+    ingredientId: string,
+    quantity: number,
+  ): Promise<IngredientStockLevelRecord>;
+  adjustStock(
+    outletId: string,
+    ingredientId: string,
+    quantity: number,
+    referenceId?: string,
+    referenceType?: string,
+    notes?: string,
+  ): Promise<void>;
 
   // Recipe
   findRecipeById(id: string): Promise<RecipeRecord | null>;

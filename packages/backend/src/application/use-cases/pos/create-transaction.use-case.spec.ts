@@ -4,9 +4,18 @@ import { TransactionCreatedEvent } from '@domain/events/transaction-created.even
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
 import { BusinessError } from '@shared/errors/business-error';
-import type { IShiftRepository, ShiftRecord } from '@domain/interfaces/repositories/shift.repository';
-import type { IProductRepository, ProductRecord } from '@domain/interfaces/repositories/product.repository';
-import type { IInventoryRepository, StockLevelRecord } from '@domain/interfaces/repositories/inventory.repository';
+import type {
+  IShiftRepository,
+  ShiftRecord,
+} from '@domain/interfaces/repositories/shift.repository';
+import type {
+  IProductRepository,
+  ProductRecord,
+} from '@domain/interfaces/repositories/product.repository';
+import type {
+  IInventoryRepository,
+  StockLevelRecord,
+} from '@domain/interfaces/repositories/inventory.repository';
 import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
 
 describe('CreateTransactionUseCase', () => {
@@ -66,12 +75,8 @@ describe('CreateTransactionUseCase', () => {
     employeeId: 'emp-1',
     shiftId: 'shift-1',
     orderType: 'dine_in',
-    items: [
-      { productId: 'prod-1', quantity: 2 },
-    ],
-    payments: [
-      { method: 'cash', amount: 100000 },
-    ],
+    items: [{ productId: 'prod-1', quantity: 2 }],
+    payments: [{ method: 'cash', amount: 100000 }],
   };
 
   beforeEach(() => {
@@ -242,7 +247,19 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     const input: CreateTransactionInput = {
       ...baseInput,
@@ -271,7 +288,19 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     const input: CreateTransactionInput = {
       ...baseInput,
@@ -295,7 +324,19 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     const input: CreateTransactionInput = {
       ...baseInput,
@@ -315,7 +356,19 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
@@ -349,13 +402,23 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseInput);
 
-    expect(mockEventBus.publish).toHaveBeenCalledWith(
-      expect.any(TransactionCreatedEvent),
-    );
+    expect(mockEventBus.publish).toHaveBeenCalledWith(expect.any(TransactionCreatedEvent));
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         transactionId: 'txn-1',
@@ -375,13 +438,23 @@ describe('CreateTransactionUseCase', () => {
     };
 
     mockShiftRepo.findById.mockResolvedValue(baseShift);
-    mockProductRepo.findById
-      .mockResolvedValueOnce(baseProduct)
-      .mockResolvedValueOnce(product2);
+    mockProductRepo.findById.mockResolvedValueOnce(baseProduct).mockResolvedValueOnce(product2);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     const input: CreateTransactionInput = {
       ...baseInput,
@@ -406,7 +479,19 @@ describe('CreateTransactionUseCase', () => {
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'sale',
+      quantity: -2,
+      referenceId: 'txn-1',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
 
     const input: CreateTransactionInput = {
       ...baseInput,

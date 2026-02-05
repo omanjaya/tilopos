@@ -4,23 +4,24 @@ import { PrismaService } from '../database/prisma.service';
 import type {
   IDeviceRepository,
   CreateDeviceData,
+  DeviceRecord,
 } from '../../domain/interfaces/repositories/device.repository';
 
 @Injectable()
 export class PrismaDeviceRepository implements IDeviceRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByBusinessId(businessId: string): Promise<any[]> {
+  async findByBusinessId(businessId: string): Promise<DeviceRecord[]> {
     return this.prisma.device.findMany({
       where: { businessId, isActive: true },
     });
   }
 
-  async findById(id: string): Promise<any | null> {
+  async findById(id: string): Promise<DeviceRecord | null> {
     return this.prisma.device.findUnique({ where: { id } });
   }
 
-  async create(data: CreateDeviceData): Promise<any> {
+  async create(data: CreateDeviceData): Promise<DeviceRecord> {
     return this.prisma.device.create({
       data: {
         businessId: data.businessId,
@@ -33,7 +34,7 @@ export class PrismaDeviceRepository implements IDeviceRepository {
     });
   }
 
-  async updateSync(id: string): Promise<any> {
+  async updateSync(id: string): Promise<DeviceRecord> {
     return this.prisma.device.update({
       where: { id },
       data: {

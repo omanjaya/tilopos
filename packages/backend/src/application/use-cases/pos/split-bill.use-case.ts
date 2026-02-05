@@ -2,7 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
-import type { ITransactionRepository, TransactionRecord, TransactionItemRecord } from '@domain/interfaces/repositories/transaction.repository';
+import type {
+  ITransactionRepository,
+  TransactionRecord,
+  TransactionItemRecord,
+} from '@domain/interfaces/repositories/transaction.repository';
 
 export interface SplitByItemsInput {
   splitType: 'by_items';
@@ -51,7 +55,10 @@ export class SplitBillUseCase {
     }
 
     if (transaction.status !== 'completed') {
-      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Only completed transactions can be split');
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Only completed transactions can be split',
+      );
     }
 
     const items = await this.transactionRepo.findItemsByTransactionId(input.transactionId);
@@ -73,14 +80,20 @@ export class SplitBillUseCase {
     const requestedItemIds = input.splits.flatMap((s) => s.itemIds);
     for (const itemId of requestedItemIds) {
       if (!allItemIds.includes(itemId)) {
-        throw new BusinessError(ErrorCode.INVALID_TRANSACTION, `Item ${itemId} not found in transaction`);
+        throw new BusinessError(
+          ErrorCode.INVALID_TRANSACTION,
+          `Item ${itemId} not found in transaction`,
+        );
       }
     }
 
     // Validate all items are covered
     const coveredItemIds = new Set(requestedItemIds);
     if (coveredItemIds.size !== allItemIds.length) {
-      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'All items must be assigned to a split');
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'All items must be assigned to a split',
+      );
     }
 
     const childTransactions: SplitBillOutput['childTransactions'] = [];
@@ -91,10 +104,14 @@ export class SplitBillUseCase {
       const subtotal = splitItems.reduce((sum, item) => sum + item.subtotal, 0);
       const taxRatio = transaction.taxAmount / transaction.subtotal;
       const taxAmount = Math.round(subtotal * taxRatio);
-      const grandTotal = subtotal - splitItems.reduce((sum, item) => sum + item.discountAmount, 0) + taxAmount;
+      const grandTotal =
+        subtotal - splitItems.reduce((sum, item) => sum + item.discountAmount, 0) + taxAmount;
 
       if (split.paymentAmount < grandTotal) {
-        throw new BusinessError(ErrorCode.INVALID_PAYMENT, `Payment for split ${i + 1} is insufficient`);
+        throw new BusinessError(
+          ErrorCode.INVALID_PAYMENT,
+          `Payment for split ${i + 1} is insufficient`,
+        );
       }
 
       const receiptNumber = `${transaction.receiptNumber}-S${i + 1}`;
@@ -122,7 +139,10 @@ export class SplitBillUseCase {
     // Validate total matches
     const totalSplit = childTransactions.reduce((sum, c) => sum + c.grandTotal, 0);
     if (totalSplit !== transaction.grandTotal) {
-      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Split totals do not match original transaction total');
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Split totals do not match original transaction total',
+      );
     }
 
     return {
@@ -141,7 +161,10 @@ export class SplitBillUseCase {
     }
 
     if (input.payments.length !== input.numberOfSplits) {
-      throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'Number of payments must match number of splits');
+      throw new BusinessError(
+        ErrorCode.INVALID_PAYMENT,
+        'Number of payments must match number of splits',
+      );
     }
 
     const splitAmount = Math.floor(transaction.grandTotal / input.numberOfSplits);
@@ -154,7 +177,10 @@ export class SplitBillUseCase {
       const payment = input.payments[i];
 
       if (payment.paymentAmount < grandTotal) {
-        throw new BusinessError(ErrorCode.INVALID_PAYMENT, `Payment for split ${i + 1} is insufficient`);
+        throw new BusinessError(
+          ErrorCode.INVALID_PAYMENT,
+          `Payment for split ${i + 1} is insufficient`,
+        );
       }
 
       const receiptNumber = `${transaction.receiptNumber}-S${i + 1}`;
@@ -182,7 +208,10 @@ export class SplitBillUseCase {
     // Validate total matches
     const totalSplit = childTransactions.reduce((sum, c) => sum + c.grandTotal, 0);
     if (totalSplit !== transaction.grandTotal) {
-      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Split totals do not match original transaction total');
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Split totals do not match original transaction total',
+      );
     }
 
     return {

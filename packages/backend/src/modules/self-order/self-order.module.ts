@@ -17,5 +17,4 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
   ],
   exports: [SelfOrderPaymentService, SelfOrderScheduler],
 })
-export class SelfOrderModule { }
-
+export class SelfOrderModule {}

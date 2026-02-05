@@ -106,9 +106,7 @@ describe('OrdersService', () => {
       (mockPrisma.orderItem.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const input: ModifyItemsInput = {
-        updateItems: [
-          { itemId: 'item-1', quantity: 5, notes: 'No chili' },
-        ],
+        updateItems: [{ itemId: 'item-1', quantity: 5, notes: 'No chili' }],
       };
 
       const result = await service.modifyItems('order-1', 'emp-1', input);
@@ -123,12 +121,12 @@ describe('OrdersService', () => {
     it('should throw NotFoundException when order is not found', async () => {
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        service.modifyItems('nonexistent', 'emp-1', { addItems: [] }),
-      ).rejects.toThrow(NotFoundException);
-      await expect(
-        service.modifyItems('nonexistent', 'emp-1', { addItems: [] }),
-      ).rejects.toThrow('Order nonexistent not found');
+      await expect(service.modifyItems('nonexistent', 'emp-1', { addItems: [] })).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.modifyItems('nonexistent', 'emp-1', { addItems: [] })).rejects.toThrow(
+        'Order nonexistent not found',
+      );
     });
 
     it('should throw BadRequestException when order is not in modifiable status', async () => {
@@ -136,12 +134,12 @@ describe('OrdersService', () => {
         makeOrder({ status: 'preparing' }),
       );
 
-      await expect(
-        service.modifyItems('order-1', 'emp-1', { addItems: [] }),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.modifyItems('order-1', 'emp-1', { addItems: [] }),
-      ).rejects.toThrow('Cannot modify order in status: preparing');
+      await expect(service.modifyItems('order-1', 'emp-1', { addItems: [] })).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.modifyItems('order-1', 'emp-1', { addItems: [] })).rejects.toThrow(
+        'Cannot modify order in status: preparing',
+      );
     });
 
     it('should throw NotFoundException when added product is not found', async () => {
@@ -152,9 +150,9 @@ describe('OrdersService', () => {
         addItems: [{ productId: 'prod-nonexistent', quantity: 1 }],
       };
 
-      await expect(
-        service.modifyItems('order-1', 'emp-1', input),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.modifyItems('order-1', 'emp-1', input)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should allow modifications when order status is confirmed', async () => {
@@ -177,9 +175,7 @@ describe('OrdersService', () => {
   describe('cancel', () => {
     it('should cancel a pending order successfully', async () => {
       const order = makeOrder({
-        items: [
-          makeOrderItem({ status: 'pending' }),
-        ],
+        items: [makeOrderItem({ status: 'pending' })],
       });
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(order);
       (mockPrisma.order.update as jest.Mock).mockResolvedValue({});
@@ -204,7 +200,12 @@ describe('OrdersService', () => {
     it('should identify wasted items that are preparing or ready', async () => {
       const order = makeOrder({
         items: [
-          makeOrderItem({ id: 'item-1', productName: 'Nasi Goreng', quantity: 2, status: 'preparing' }),
+          makeOrderItem({
+            id: 'item-1',
+            productName: 'Nasi Goreng',
+            quantity: 2,
+            status: 'preparing',
+          }),
           makeOrderItem({ id: 'item-2', productName: 'Mie Goreng', quantity: 1, status: 'ready' }),
           makeOrderItem({ id: 'item-3', productName: 'Es Teh', quantity: 1, status: 'pending' }),
         ],
@@ -233,9 +234,9 @@ describe('OrdersService', () => {
     it('should throw NotFoundException when order is not found', async () => {
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        service.cancel('nonexistent', 'emp-1', 'Reason'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.cancel('nonexistent', 'emp-1', 'Reason')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw BadRequestException when order is not cancellable', async () => {
@@ -245,12 +246,12 @@ describe('OrdersService', () => {
       });
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(order);
 
-      await expect(
-        service.cancel('order-1', 'emp-1', 'Reason'),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.cancel('order-1', 'emp-1', 'Reason'),
-      ).rejects.toThrow('Cannot cancel order in status: completed');
+      await expect(service.cancel('order-1', 'emp-1', 'Reason')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.cancel('order-1', 'emp-1', 'Reason')).rejects.toThrow(
+        'Cannot cancel order in status: completed',
+      );
     });
 
     it('should free up the table when order has a tableId', async () => {

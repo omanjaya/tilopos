@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Inject, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -9,8 +20,16 @@ import { EmployeeRole } from '../../shared/constants/roles';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { IOnlineStoreRepository } from '../../domain/interfaces/repositories/online-store.repository';
 import { OnlineStoreSyncService } from './online-store-sync.service';
-import { OnlineStoreService, type StoreSettingsInput, type StorefrontOrderInput } from './online-store.service';
-import { CatalogSyncDto, ShippingCalculateDto, OnlineOrderFulfillDto } from '../../application/dtos/online-store.dto';
+import {
+  OnlineStoreService,
+  type StoreSettingsInput,
+  type StorefrontOrderInput,
+} from './online-store.service';
+import {
+  CatalogSyncDto,
+  ShippingCalculateDto,
+  OnlineOrderFulfillDto,
+} from '../../application/dtos/online-store.dto';
 
 @ApiTags('Online Store')
 @Controller('online-store')
@@ -20,7 +39,7 @@ export class OnlineStoreController {
     private readonly onlineStoreRepo: IOnlineStoreRepository,
     private readonly syncService: OnlineStoreSyncService,
     private readonly onlineStoreService: OnlineStoreService,
-  ) { }
+  ) {}
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -34,8 +53,16 @@ export class OnlineStoreController {
   @UseGuards(JwtAuthGuard)
   @Post('stores')
   @ApiOperation({ summary: 'Create a new online store' })
-  async createStore(@Body() dto: { storeName: string; slug: string; description?: string }, @CurrentUser() user: AuthUser) {
-    return this.onlineStoreRepo.createStore({ businessId: user.businessId, storeName: dto.storeName, slug: dto.slug, description: dto.description || null });
+  async createStore(
+    @Body() dto: { storeName: string; slug: string; description?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.onlineStoreRepo.createStore({
+      businessId: user.businessId,
+      storeName: dto.storeName,
+      slug: dto.slug,
+      description: dto.description || null,
+    });
   }
 
   @Get('s/:slug')
@@ -57,13 +84,37 @@ export class OnlineStoreController {
 
   @Post('s/:slug/orders')
   @ApiOperation({ summary: 'Create a new store order' })
-  async createStoreOrder(@Param('slug') slug: string, @Body() dto: { outletId: string; customerName: string; customerPhone: string; customerEmail?: string; shippingAddress?: string; shippingCost?: number; items: { productId: string; variantId?: string; productName: string; variantName?: string; quantity: number; unitPrice: number }[] }) {
+  async createStoreOrder(
+    @Param('slug') slug: string,
+    @Body()
+    dto: {
+      outletId: string;
+      customerName: string;
+      customerPhone: string;
+      customerEmail?: string;
+      shippingAddress?: string;
+      shippingCost?: number;
+      items: {
+        productId: string;
+        variantId?: string;
+        productName: string;
+        variantName?: string;
+        quantity: number;
+        unitPrice: number;
+      }[];
+    },
+  ) {
     const store = await this.onlineStoreRepo.findStoreBySlug(slug);
     if (!store) throw new NotFoundException('Store not found');
 
     // Check stock for all items
     for (const item of dto.items) {
-      const hasStock = await this.syncService.checkStock(item.productId, item.variantId || null, dto.outletId, item.quantity);
+      const hasStock = await this.syncService.checkStock(
+        item.productId,
+        item.variantId || null,
+        dto.outletId,
+        item.quantity,
+      );
       if (!hasStock) {
         throw new NotFoundException(`Product ${item.productName} is out of stock`);
       }
@@ -86,7 +137,15 @@ export class OnlineStoreController {
       shippingAddress: dto.shippingAddress || null,
       subtotal,
       grandTotal: subtotal + shippingCost,
-      items: dto.items.map(i => ({ productId: i.productId, variantId: i.variantId || null, productName: i.productName, variantName: i.variantName || null, quantity: i.quantity, unitPrice: i.unitPrice, subtotal: i.unitPrice * i.quantity })),
+      items: dto.items.map((i) => ({
+        productId: i.productId,
+        variantId: i.variantId || null,
+        productName: i.productName,
+        variantName: i.variantName || null,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        subtotal: i.unitPrice * i.quantity,
+      })),
     });
   }
 
@@ -113,7 +172,9 @@ export class OnlineStoreController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('catalog/sync')
-  @ApiOperation({ summary: 'Selectively sync products to online store with optional price overrides' })
+  @ApiOperation({
+    summary: 'Selectively sync products to online store with optional price overrides',
+  })
   async syncCatalogSelective(
     @Body() dto: CatalogSyncDto,
     @CurrentUser() user: AuthUser,
@@ -131,10 +192,7 @@ export class OnlineStoreController {
   @UseGuards(JwtAuthGuard)
   @Post('stores/:id/sync-inventory')
   @ApiOperation({ summary: 'Sync inventory levels from POS to online store' })
-  async syncInventory(
-    @Param('id') storeId: string,
-    @Query('outletId') outletId: string,
-  ) {
+  async syncInventory(@Param('id') storeId: string, @Query('outletId') outletId: string) {
     return this.syncService.syncInventory(outletId, storeId);
   }
 
@@ -154,12 +212,19 @@ export class OnlineStoreController {
     @Query('outletId') outletId: string,
     @Query('quantity') quantity: number,
   ) {
-    const inStock = await this.syncService.checkStock(productId, variantId || null, outletId, quantity);
+    const inStock = await this.syncService.checkStock(
+      productId,
+      variantId || null,
+      outletId,
+      quantity,
+    );
     return { productId, variantId, quantity, inStock };
   }
 
   @Post('shipping/calculate')
-  @ApiOperation({ summary: 'Calculate shipping cost based on zone (same-city / inter-city / inter-province)' })
+  @ApiOperation({
+    summary: 'Calculate shipping cost based on zone (same-city / inter-city / inter-province)',
+  })
   async calculateShipping(@Body() dto: ShippingCalculateDto) {
     return this.syncService.calculateShipping(dto.origin, dto.destination, dto.weight);
   }
@@ -172,10 +237,7 @@ export class OnlineStoreController {
   @UseGuards(JwtAuthGuard)
   @Put('orders/:id/fulfill')
   @ApiOperation({ summary: 'Mark order as fulfilled / shipped with tracking number' })
-  async fulfillOrder(
-    @Param('id') orderId: string,
-    @Body() dto: OnlineOrderFulfillDto,
-  ) {
+  async fulfillOrder(@Param('id') orderId: string, @Body() dto: OnlineOrderFulfillDto) {
     return this.syncService.fulfillOrder(
       orderId,
       dto.trackingNumber,
@@ -192,11 +254,10 @@ export class OnlineStoreController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @Post('stores/:storeId/sync-catalog')
-  @ApiOperation({ summary: 'Sync catalog from main POS to online store with stock availability check' })
-  async syncCatalogEnhanced(
-    @Param('storeId') storeId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  @ApiOperation({
+    summary: 'Sync catalog from main POS to online store with stock availability check',
+  })
+  async syncCatalogEnhanced(@Param('storeId') storeId: string, @CurrentUser() user: AuthUser) {
     return this.onlineStoreService.syncCatalog(user.businessId, storeId);
   }
 
@@ -209,10 +270,7 @@ export class OnlineStoreController {
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @Get('stores/:storeId/analytics')
   @ApiOperation({ summary: 'Get store analytics: orders, revenue, popular products' })
-  async getStoreAnalytics(
-    @Param('storeId') storeId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getStoreAnalytics(@Param('storeId') storeId: string, @CurrentUser() user: AuthUser) {
     return this.onlineStoreService.getStoreAnalytics(user.businessId, storeId);
   }
 
@@ -224,11 +282,10 @@ export class OnlineStoreController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY)
   @Get('stores/:storeId/inventory')
-  @ApiOperation({ summary: 'Get inventory status for store products (in stock, low stock, out of stock)' })
-  async getStoreInventory(
-    @Param('storeId') storeId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  @ApiOperation({
+    summary: 'Get inventory status for store products (in stock, low stock, out of stock)',
+  })
+  async getStoreInventory(@Param('storeId') storeId: string, @CurrentUser() user: AuthUser) {
     return this.onlineStoreService.getStoreInventory(user.businessId, storeId);
   }
 
@@ -280,20 +337,13 @@ export class OnlineStoreController {
 
   @Get('s/:slug/products/:productId')
   @ApiOperation({ summary: 'Get public product detail (no auth)' })
-  async getStorefrontProduct(
-    @Param('slug') slug: string,
-    @Param('productId') productId: string,
-  ) {
+  async getStorefrontProduct(@Param('slug') slug: string, @Param('productId') productId: string) {
     return this.onlineStoreService.getStorefrontProduct(slug, productId);
   }
 
   @Post('s/:slug/checkout')
   @ApiOperation({ summary: 'Public checkout - place an order (no auth)' })
-  async storefrontCheckout(
-    @Param('slug') slug: string,
-    @Body() dto: StorefrontOrderInput,
-  ) {
+  async storefrontCheckout(@Param('slug') slug: string, @Body() dto: StorefrontOrderInput) {
     return this.onlineStoreService.createStorefrontOrder(slug, dto);
   }
 }
-

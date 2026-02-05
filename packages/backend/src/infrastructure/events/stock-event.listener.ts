@@ -17,7 +17,7 @@ export class StockEventListener implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.eventBus.ofType(StockLevelChangedEvent).subscribe(event => {
+    this.eventBus.ofType(StockLevelChangedEvent).subscribe((event) => {
       void this.handleStockLevelChanged(event);
     });
   }
@@ -98,7 +98,10 @@ export class StockEventListener implements OnModuleInit {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to process StockLevelChangedEvent for product ${event.productId}`, error);
+      this.logger.error(
+        `Failed to process StockLevelChangedEvent for product ${event.productId}`,
+        error,
+      );
     }
   }
 }

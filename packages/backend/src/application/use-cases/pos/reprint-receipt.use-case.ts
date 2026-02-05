@@ -30,7 +30,7 @@ export class ReprintReceiptUseCase {
       grandTotal: transaction.grandTotal,
       notes: transaction.notes,
       createdAt: transaction.createdAt,
-      items: items.map(item => ({
+      items: items.map((item) => ({
         productName: item.productName,
         variantName: item.variantName,
         quantity: item.quantity,
@@ -38,7 +38,7 @@ export class ReprintReceiptUseCase {
         discountAmount: item.discountAmount,
         subtotal: item.subtotal,
       })),
-      payments: payments.map(p => ({
+      payments: payments.map((p) => ({
         method: p.paymentMethod,
         amount: p.amount,
         referenceNumber: p.referenceNumber,

@@ -87,7 +87,10 @@ export class CreateTransactionUseCase {
     for (const item of input.items) {
       const product = await this.productRepo.findById(item.productId);
       if (!product || !product.isActive) {
-        throw new AppError(ErrorCode.PRODUCT_NOT_FOUND, `Product ${item.productId} not found or inactive`);
+        throw new AppError(
+          ErrorCode.PRODUCT_NOT_FOUND,
+          `Product ${item.productId} not found or inactive`,
+        );
       }
 
       const unitPrice = product.basePrice;
@@ -137,7 +140,10 @@ export class CreateTransactionUseCase {
 
     const totalPayments = input.payments.reduce((sum, p) => sum + p.amount, 0);
     if (totalPayments < grandTotal) {
-      throw new BusinessError(ErrorCode.INVALID_PAYMENT, `Payment total ${totalPayments} is less than grand total ${grandTotal}`);
+      throw new BusinessError(
+        ErrorCode.INVALID_PAYMENT,
+        `Payment total ${totalPayments} is less than grand total ${grandTotal}`,
+      );
     }
 
     const change = totalPayments - grandTotal;

@@ -6,7 +6,11 @@ import type {
 } from '../../domain/interfaces/repositories/inventory.repository';
 import { PrismaService } from '../database/prisma.service';
 import { decimalToNumberRequired } from './decimal.helper';
-import type { StockLevel as PrismaStockLevel, StockMovement as PrismaStockMovement, Product } from '@prisma/client';
+import type {
+  StockLevel as PrismaStockLevel,
+  StockMovement as PrismaStockMovement,
+  Product,
+} from '@prisma/client';
 
 /** Extended Prisma StockLevel type with product relation included */
 type StockLevelWithProduct = PrismaStockLevel & {
@@ -122,11 +126,13 @@ export class PrismaInventoryRepository implements IInventoryRepository {
       quantity: decimalToNumberRequired(stockLevel.quantity),
       lowStockAlert: stockLevel.lowStockAlert,
       updatedAt: stockLevel.updatedAt,
-      product: stockLevel.product ? {
-        id: stockLevel.product.id,
-        name: stockLevel.product.name,
-        sku: stockLevel.product.sku,
-      } : undefined,
+      product: stockLevel.product
+        ? {
+            id: stockLevel.product.id,
+            name: stockLevel.product.name,
+            sku: stockLevel.product.sku,
+          }
+        : undefined,
     };
   }
 
@@ -141,9 +147,8 @@ export class PrismaInventoryRepository implements IInventoryRepository {
       productId: row.product_id ?? null,
       variantId: row.variant_id ?? null,
       quantity: typeof row.quantity === 'number' ? row.quantity : Number(row.quantity),
-      lowStockAlert: typeof row.low_stock_alert === 'number'
-        ? row.low_stock_alert
-        : Number(row.low_stock_alert),
+      lowStockAlert:
+        typeof row.low_stock_alert === 'number' ? row.low_stock_alert : Number(row.low_stock_alert),
       updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(String(row.updated_at)),
     };
   }

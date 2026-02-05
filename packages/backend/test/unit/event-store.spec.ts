@@ -1,4 +1,8 @@
-import { EventStore, EventEnvelope, EventReducer } from '../../src/infrastructure/events/event-store';
+import {
+  EventStore,
+  EventEnvelope,
+  EventReducer,
+} from '../../src/infrastructure/events/event-store';
 import { PrismaService } from '../../src/infrastructure/database/prisma.service';
 
 describe('EventStore', () => {

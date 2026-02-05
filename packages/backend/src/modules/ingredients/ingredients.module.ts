@@ -47,8 +47,6 @@ import { DeductIngredientsOnSaleUseCase } from '../../application/use-cases/ingr
     // Use Cases - Existing
     DeductIngredientsOnSaleUseCase,
   ],
-  exports: [
-    DeductIngredientsOnSaleUseCase,
-  ],
+  exports: [DeductIngredientsOnSaleUseCase],
 })
 export class IngredientsModule {}

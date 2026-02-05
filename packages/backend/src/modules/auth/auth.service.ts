@@ -2,7 +2,10 @@ import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
-import type { IEmployeeRepository, EmployeeRecord } from '@domain/interfaces/repositories/employee.repository';
+import type {
+  IEmployeeRepository,
+  EmployeeRecord,
+} from '@domain/interfaces/repositories/employee.repository';
 import type { GoogleOAuthProfile } from './dto/oauth-login.dto';
 import { verifyTotp } from './mfa/totp.util';
 
@@ -57,9 +60,7 @@ export class AuthService {
     );
   }
 
-  async loginWithOAuth(
-    employee: EmployeeRecord,
-  ): Promise<OAuthLoginResult | MfaPendingResult> {
+  async loginWithOAuth(employee: EmployeeRecord): Promise<OAuthLoginResult | MfaPendingResult> {
     if (!employee.isActive) {
       throw new UnauthorizedException('Account is inactive');
     }
@@ -78,9 +79,7 @@ export class AuthService {
     }
 
     try {
-      const payloadBase64 = parts[1]
-        .replace(/-/g, '+')
-        .replace(/_/g, '/');
+      const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf8');
       const payload = JSON.parse(payloadJson) as {
         sub?: string;
@@ -119,10 +118,7 @@ export class AuthService {
     }
   }
 
-  async verifyMfaAndLogin(
-    mfaToken: string,
-    totpToken: string,
-  ): Promise<OAuthLoginResult> {
+  async verifyMfaAndLogin(mfaToken: string, totpToken: string): Promise<OAuthLoginResult> {
     let payload: MfaTokenPayload;
 
     try {

@@ -20,9 +20,7 @@ export class ReportProcessor extends WorkerHost {
   private readonly logger = new Logger(ReportProcessor.name);
 
   async process(job: Job<ReportJobData>): Promise<void> {
-    this.logger.log(
-      `Processing report job ${job.id}: ${job.data.reportType} (${job.data.format})`,
-    );
+    this.logger.log(`Processing report job ${job.id}: ${job.data.reportType} (${job.data.format})`);
     // Will be replaced with real PDF/Excel generation in Phase 3
     this.logger.log(`[Queue] Report generated: ${job.data.reportType}.${job.data.format}`);
   }

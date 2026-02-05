@@ -75,7 +75,7 @@ export class EventStore {
     });
 
     const currentVersion = latestEvent?.oldValue
-      ? (latestEvent.oldValue as Record<string, unknown>).version as number ?? 0
+      ? (((latestEvent.oldValue as Record<string, unknown>).version as number) ?? 0)
       : 0;
 
     const newVersion = currentVersion + 1;
@@ -128,13 +128,13 @@ export class EventStore {
       orderBy: { createdAt: 'asc' },
     });
 
-    return records.map(record => ({
+    return records.map((record) => ({
       id: record.id,
       aggregateId: record.entityId ?? aggregateId,
       aggregateType: record.entityType,
       eventType: record.action.replace('event:', ''),
       eventData: record.newValue as Record<string, unknown>,
-      version: (record.oldValue as Record<string, unknown>)?.version as number ?? 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) ?? 0,
       occurredOn: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
     }));
@@ -157,13 +157,13 @@ export class EventStore {
       orderBy: { createdAt: 'asc' },
     });
 
-    return records.map(record => ({
+    return records.map((record) => ({
       id: record.id,
       aggregateId: record.entityId ?? '',
       aggregateType: record.entityType,
       eventType: record.action.replace('event:', ''),
       eventData: record.newValue as Record<string, unknown>,
-      version: (record.oldValue as Record<string, unknown>)?.version as number ?? 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) ?? 0,
       occurredOn: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
     }));

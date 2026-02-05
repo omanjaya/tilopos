@@ -112,7 +112,7 @@ export class CreateOrderRecordStep implements SagaStep<CreateOrderContext> {
       data: {
         outletId: context.outletId,
         orderNumber: context.orderNumber,
-        orderType: context.orderType as any,
+        orderType: context.orderType as 'dine_in' | 'takeaway' | 'delivery',
         tableId: context.tableId,
         customerId: context.customerId,
         status: 'pending',
@@ -302,9 +302,7 @@ export class SendToKdsStep implements SagaStep<CreateOrderContext> {
  * Create all saga steps for the CreateOrder saga.
  * Pass a PrismaService instance to construct all steps.
  */
-export function createOrderSagaSteps(
-  prisma: PrismaService,
-): SagaStep<CreateOrderContext>[] {
+export function createOrderSagaSteps(prisma: PrismaService): SagaStep<CreateOrderContext>[] {
   return [
     new ValidateStockStep(prisma),
     new CreateOrderRecordStep(prisma),

@@ -2,7 +2,10 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { LoginUseCase, LoginInput } from './login.use-case';
-import type { IEmployeeRepository, EmployeeRecord } from '@domain/interfaces/repositories/employee.repository';
+import type {
+  IEmployeeRepository,
+  EmployeeRecord,
+} from '@domain/interfaces/repositories/employee.repository';
 
 jest.mock('bcrypt');
 

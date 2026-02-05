@@ -41,7 +41,7 @@ export class RequestTransferUseCase {
         notes: input.notes || null,
         requestedBy: input.requestedBy,
         items: {
-          create: input.items.map(item => ({
+          create: input.items.map((item) => ({
             productId: item.productId || null,
             variantId: item.variantId || null,
             ingredientId: item.ingredientId || null,

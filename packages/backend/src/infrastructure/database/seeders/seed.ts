@@ -242,13 +242,23 @@ async function main() {
     data: { businessId: business.id, name: 'Makanan', sortOrder: 1 },
   });
   const catNasi = await prisma.category.create({
-    data: { businessId: business.id, name: 'Nasi & Rice Bowl', parentId: catMakanan.id, sortOrder: 1 },
+    data: {
+      businessId: business.id,
+      name: 'Nasi & Rice Bowl',
+      parentId: catMakanan.id,
+      sortOrder: 1,
+    },
   });
   const catMie = await prisma.category.create({
     data: { businessId: business.id, name: 'Mie & Pasta', parentId: catMakanan.id, sortOrder: 2 },
   });
   const catSnack = await prisma.category.create({
-    data: { businessId: business.id, name: 'Snack & Appetizer', parentId: catMakanan.id, sortOrder: 3 },
+    data: {
+      businessId: business.id,
+      name: 'Snack & Appetizer',
+      parentId: catMakanan.id,
+      sortOrder: 3,
+    },
   });
   const catMinuman = await prisma.category.create({
     data: { businessId: business.id, name: 'Minuman', sortOrder: 2 },
@@ -339,7 +349,9 @@ async function main() {
     },
     include: { modifiers: true },
   });
-  console.log(`  Created 4 modifier groups with ${mgSpiceLevel.modifiers.length + mgTopping.modifiers.length + mgSugarLevel.modifiers.length + mgIceLevel.modifiers.length} modifiers`);
+  console.log(
+    `  Created 4 modifier groups with ${mgSpiceLevel.modifiers.length + mgTopping.modifiers.length + mgSugarLevel.modifiers.length + mgIceLevel.modifiers.length} modifiers`,
+  );
 
   // ============================================================
   // 6. PRODUCTS
@@ -382,10 +394,22 @@ async function main() {
   });
 
   const ayamBakarReg = await prisma.productVariant.create({
-    data: { productId: nasiAyam.id, sku: 'FOOD-002-R', name: 'Regular', price: 40000, costPrice: 18000 },
+    data: {
+      productId: nasiAyam.id,
+      sku: 'FOOD-002-R',
+      name: 'Regular',
+      price: 40000,
+      costPrice: 18000,
+    },
   });
   const ayamBakarJumbo = await prisma.productVariant.create({
-    data: { productId: nasiAyam.id, sku: 'FOOD-002-J', name: 'Jumbo', price: 55000, costPrice: 25000 },
+    data: {
+      productId: nasiAyam.id,
+      sku: 'FOOD-002-J',
+      name: 'Jumbo',
+      price: 55000,
+      costPrice: 25000,
+    },
   });
 
   await prisma.productModifierGroup.createMany({
@@ -435,10 +459,22 @@ async function main() {
     },
   });
   const kentangReg = await prisma.productVariant.create({
-    data: { productId: kentangGoreng.id, sku: 'FOOD-005-R', name: 'Regular', price: 20000, costPrice: 8000 },
+    data: {
+      productId: kentangGoreng.id,
+      sku: 'FOOD-005-R',
+      name: 'Regular',
+      price: 20000,
+      costPrice: 8000,
+    },
   });
   const kentangLarge = await prisma.productVariant.create({
-    data: { productId: kentangGoreng.id, sku: 'FOOD-005-L', name: 'Large', price: 30000, costPrice: 12000 },
+    data: {
+      productId: kentangGoreng.id,
+      sku: 'FOOD-005-L',
+      name: 'Large',
+      price: 30000,
+      costPrice: 12000,
+    },
   });
 
   const dimsum = await prisma.product.create({
@@ -585,7 +621,22 @@ async function main() {
     data: { productId: esKrim.id, sku: 'DST-002-M', name: 'Matcha', price: 25000 },
   });
 
-  const allProducts = [nasiGoreng, nasiAyam, mieGoreng, mieAyam, kentangGoreng, dimsum, espresso, cappuccino, kopiSusu, esJeruk, tehTarik, airMineral, pisangGoreng, esKrim];
+  const allProducts = [
+    nasiGoreng,
+    nasiAyam,
+    mieGoreng,
+    mieAyam,
+    kentangGoreng,
+    dimsum,
+    espresso,
+    cappuccino,
+    kopiSusu,
+    esJeruk,
+    tehTarik,
+    airMineral,
+    pisangGoreng,
+    esKrim,
+  ];
   console.log(`  Created ${allProducts.length} products with variants`);
 
   // ============================================================
@@ -594,14 +645,36 @@ async function main() {
   console.log('Creating stock levels...');
   const stockableProducts = [
     { product: nasiGoreng, qty: 100 },
-    { product: nasiAyam, qty: 80, variants: [{ v: ayamBakarReg, qty: 50 }, { v: ayamBakarJumbo, qty: 30 }] },
+    {
+      product: nasiAyam,
+      qty: 80,
+      variants: [
+        { v: ayamBakarReg, qty: 50 },
+        { v: ayamBakarJumbo, qty: 30 },
+      ],
+    },
     { product: mieGoreng, qty: 100 },
     { product: mieAyam, qty: 80 },
-    { product: kentangGoreng, qty: 0, variants: [{ v: kentangReg, qty: 60 }, { v: kentangLarge, qty: 40 }] },
+    {
+      product: kentangGoreng,
+      qty: 0,
+      variants: [
+        { v: kentangReg, qty: 60 },
+        { v: kentangLarge, qty: 40 },
+      ],
+    },
     { product: dimsum, qty: 50 },
     { product: airMineral, qty: 200 },
     { product: pisangGoreng, qty: 40 },
-    { product: esKrim, qty: 0, variants: [{ v: esKrimVanilla, qty: 30 }, { v: esKrimCoklat, qty: 25 }, { v: esKrimMatcha, qty: 20 }] },
+    {
+      product: esKrim,
+      qty: 0,
+      variants: [
+        { v: esKrimVanilla, qty: 30 },
+        { v: esKrimCoklat, qty: 25 },
+        { v: esKrimMatcha, qty: 20 },
+      ],
+    },
   ];
 
   for (const outlet of [outletPusat, outletCabang]) {
@@ -609,12 +682,23 @@ async function main() {
       if (sp.variants) {
         for (const sv of sp.variants) {
           await prisma.stockLevel.create({
-            data: { outletId: outlet.id, productId: sp.product.id, variantId: sv.v.id, quantity: sv.qty, lowStockAlert: 10 },
+            data: {
+              outletId: outlet.id,
+              productId: sp.product.id,
+              variantId: sv.v.id,
+              quantity: sv.qty,
+              lowStockAlert: 10,
+            },
           });
         }
       } else {
         await prisma.stockLevel.create({
-          data: { outletId: outlet.id, productId: sp.product.id, quantity: sp.qty, lowStockAlert: 10 },
+          data: {
+            outletId: outlet.id,
+            productId: sp.product.id,
+            quantity: sp.qty,
+            lowStockAlert: 10,
+          },
         });
       }
     }
@@ -626,28 +710,76 @@ async function main() {
   // ============================================================
   console.log('Creating ingredients & recipes...');
   const ingBeras = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Beras Putih', sku: 'ING-001', unit: 'kg', costPerUnit: 15000 },
+    data: {
+      businessId: business.id,
+      name: 'Beras Putih',
+      sku: 'ING-001',
+      unit: 'kg',
+      costPerUnit: 15000,
+    },
   });
   const ingAyam = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Daging Ayam', sku: 'ING-002', unit: 'kg', costPerUnit: 40000 },
+    data: {
+      businessId: business.id,
+      name: 'Daging Ayam',
+      sku: 'ING-002',
+      unit: 'kg',
+      costPerUnit: 40000,
+    },
   });
   const ingMie = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Mie Telur', sku: 'ING-003', unit: 'kg', costPerUnit: 20000 },
+    data: {
+      businessId: business.id,
+      name: 'Mie Telur',
+      sku: 'ING-003',
+      unit: 'kg',
+      costPerUnit: 20000,
+    },
   });
   const ingMinyak = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Minyak Goreng', sku: 'ING-004', unit: 'liter', costPerUnit: 18000 },
+    data: {
+      businessId: business.id,
+      name: 'Minyak Goreng',
+      sku: 'ING-004',
+      unit: 'liter',
+      costPerUnit: 18000,
+    },
   });
   const ingTelur = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Telur Ayam', sku: 'ING-005', unit: 'butir', costPerUnit: 2500 },
+    data: {
+      businessId: business.id,
+      name: 'Telur Ayam',
+      sku: 'ING-005',
+      unit: 'butir',
+      costPerUnit: 2500,
+    },
   });
   const ingKopi = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Biji Kopi Arabica', sku: 'ING-006', unit: 'kg', costPerUnit: 200000 },
+    data: {
+      businessId: business.id,
+      name: 'Biji Kopi Arabica',
+      sku: 'ING-006',
+      unit: 'kg',
+      costPerUnit: 200000,
+    },
   });
   const ingSusu = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Susu Segar', sku: 'ING-007', unit: 'liter', costPerUnit: 25000 },
+    data: {
+      businessId: business.id,
+      name: 'Susu Segar',
+      sku: 'ING-007',
+      unit: 'liter',
+      costPerUnit: 25000,
+    },
   });
   const ingGula = await prisma.ingredient.create({
-    data: { businessId: business.id, name: 'Gula Aren', sku: 'ING-008', unit: 'kg', costPerUnit: 50000 },
+    data: {
+      businessId: business.id,
+      name: 'Gula Aren',
+      sku: 'ING-008',
+      unit: 'kg',
+      costPerUnit: 50000,
+    },
   });
 
   const ingredients = [ingBeras, ingAyam, ingMie, ingMinyak, ingTelur, ingKopi, ingSusu, ingGula];
@@ -786,7 +918,14 @@ async function main() {
       receivedAt: new Date('2026-01-22'),
       items: {
         create: [
-          { ingredientId: ingBeras.id, itemName: 'Beras Putih', quantityOrdered: 50, quantityReceived: 50, unitCost: 15000, subtotal: 750000 },
+          {
+            ingredientId: ingBeras.id,
+            itemName: 'Beras Putih',
+            quantityOrdered: 50,
+            quantityReceived: 50,
+            unitCost: 15000,
+            subtotal: 750000,
+          },
         ],
       },
     },
@@ -881,7 +1020,12 @@ async function main() {
   // Kemang outlet tables
   for (let i = 1; i <= 6; i++) {
     await prisma.table.create({
-      data: { outletId: outletCabang.id, name: `K${i}`, section: i <= 4 ? 'Indoor' : 'Outdoor', capacity: 4 },
+      data: {
+        outletId: outletCabang.id,
+        name: `K${i}`,
+        section: i <= 4 ? 'Indoor' : 'Outdoor',
+        capacity: 4,
+      },
     });
   }
   console.log(`  Created ${tableNames.length + 6} tables across 2 outlets`);
@@ -902,10 +1046,42 @@ async function main() {
 
   await prisma.loyaltyTier.createMany({
     data: [
-      { businessId: business.id, name: 'regular', minPoints: 0, minSpent: 0, pointMultiplier: 1.0, sortOrder: 1, benefits: { discount: 0 } },
-      { businessId: business.id, name: 'silver', minPoints: 200, minSpent: 500000, pointMultiplier: 1.25, sortOrder: 2, benefits: { discount: 5 } },
-      { businessId: business.id, name: 'gold', minPoints: 1000, minSpent: 2000000, pointMultiplier: 1.5, sortOrder: 3, benefits: { discount: 10, freeDelivery: true } },
-      { businessId: business.id, name: 'platinum', minPoints: 2500, minSpent: 10000000, pointMultiplier: 2.0, sortOrder: 4, benefits: { discount: 15, freeDelivery: true, priorityService: true } },
+      {
+        businessId: business.id,
+        name: 'regular',
+        minPoints: 0,
+        minSpent: 0,
+        pointMultiplier: 1.0,
+        sortOrder: 1,
+        benefits: { discount: 0 },
+      },
+      {
+        businessId: business.id,
+        name: 'silver',
+        minPoints: 200,
+        minSpent: 500000,
+        pointMultiplier: 1.25,
+        sortOrder: 2,
+        benefits: { discount: 5 },
+      },
+      {
+        businessId: business.id,
+        name: 'gold',
+        minPoints: 1000,
+        minSpent: 2000000,
+        pointMultiplier: 1.5,
+        sortOrder: 3,
+        benefits: { discount: 10, freeDelivery: true },
+      },
+      {
+        businessId: business.id,
+        name: 'platinum',
+        minPoints: 2500,
+        minSpent: 10000000,
+        pointMultiplier: 2.0,
+        sortOrder: 4,
+        benefits: { discount: 15, freeDelivery: true, priorityService: true },
+      },
     ],
   });
   console.log(`  Created loyalty program with 4 tiers`);
@@ -947,10 +1123,32 @@ async function main() {
 
   await prisma.voucher.createMany({
     data: [
-      { businessId: business.id, code: 'WELCOME2026', promotionId: promoNewYear.id, expiresAt: new Date('2026-02-28') },
-      { businessId: business.id, code: 'WEEKEND10', promotionId: promoDiskon10.id, expiresAt: new Date('2026-12-31') },
-      { businessId: business.id, code: 'LOYAL50K', initialValue: 50000, remainingValue: 50000, expiresAt: new Date('2026-06-30') },
-      { businessId: business.id, code: 'GIFT100K', initialValue: 100000, remainingValue: 100000, expiresAt: new Date('2026-12-31') },
+      {
+        businessId: business.id,
+        code: 'WELCOME2026',
+        promotionId: promoNewYear.id,
+        expiresAt: new Date('2026-02-28'),
+      },
+      {
+        businessId: business.id,
+        code: 'WEEKEND10',
+        promotionId: promoDiskon10.id,
+        expiresAt: new Date('2026-12-31'),
+      },
+      {
+        businessId: business.id,
+        code: 'LOYAL50K',
+        initialValue: 50000,
+        remainingValue: 50000,
+        expiresAt: new Date('2026-06-30'),
+      },
+      {
+        businessId: business.id,
+        code: 'GIFT100K',
+        initialValue: 100000,
+        remainingValue: 100000,
+        expiresAt: new Date('2026-12-31'),
+      },
     ],
   });
   console.log(`  Created 2 promotions, 4 vouchers`);
@@ -1008,8 +1206,20 @@ async function main() {
       status: 'completed',
       items: {
         create: [
-          { productId: nasiGoreng.id, productName: 'Nasi Goreng Spesial', quantity: 1, unitPrice: 35000, subtotal: 35000 },
-          { productId: esJeruk.id, productName: 'Es Jeruk Segar', quantity: 1, unitPrice: 15000, subtotal: 15000 },
+          {
+            productId: nasiGoreng.id,
+            productName: 'Nasi Goreng Spesial',
+            quantity: 1,
+            unitPrice: 35000,
+            subtotal: 35000,
+          },
+          {
+            productId: esJeruk.id,
+            productName: 'Es Jeruk Segar',
+            quantity: 1,
+            unitPrice: 15000,
+            subtotal: 15000,
+          },
         ],
       },
       payments: {
@@ -1036,13 +1246,42 @@ async function main() {
       status: 'completed',
       items: {
         create: [
-          { productId: nasiAyam.id, variantId: ayamBakarJumbo.id, productName: 'Nasi Ayam Bakar', variantName: 'Jumbo', quantity: 1, unitPrice: 55000, subtotal: 55000 },
-          { productId: cappuccino.id, variantId: cappIce.id, productName: 'Cappuccino', variantName: 'Iced', quantity: 1, unitPrice: 32000, subtotal: 32000 },
-          { productId: dimsum.id, productName: 'Dimsum Ayam (5 pcs)', quantity: 1, unitPrice: 25000, subtotal: 25000 },
+          {
+            productId: nasiAyam.id,
+            variantId: ayamBakarJumbo.id,
+            productName: 'Nasi Ayam Bakar',
+            variantName: 'Jumbo',
+            quantity: 1,
+            unitPrice: 55000,
+            subtotal: 55000,
+          },
+          {
+            productId: cappuccino.id,
+            variantId: cappIce.id,
+            productName: 'Cappuccino',
+            variantName: 'Iced',
+            quantity: 1,
+            unitPrice: 32000,
+            subtotal: 32000,
+          },
+          {
+            productId: dimsum.id,
+            productName: 'Dimsum Ayam (5 pcs)',
+            quantity: 1,
+            unitPrice: 25000,
+            subtotal: 25000,
+          },
         ],
       },
       payments: {
-        create: [{ paymentMethod: 'qris', amount: 129920, referenceNumber: 'QRIS-20260130-001', status: 'completed' }],
+        create: [
+          {
+            paymentMethod: 'qris',
+            amount: 129920,
+            referenceNumber: 'QRIS-20260130-001',
+            status: 'completed',
+          },
+        ],
       },
     },
   });
@@ -1065,17 +1304,55 @@ async function main() {
       status: 'completed',
       items: {
         create: [
-          { productId: nasiGoreng.id, productName: 'Nasi Goreng Spesial', quantity: 3, unitPrice: 35000, subtotal: 105000 },
-          { productId: nasiAyam.id, variantId: ayamBakarJumbo.id, productName: 'Nasi Ayam Bakar', variantName: 'Jumbo', quantity: 2, unitPrice: 55000, subtotal: 110000 },
-          { productId: mieGoreng.id, productName: 'Mie Goreng Jawa', quantity: 1, unitPrice: 30000, subtotal: 30000 },
-          { productId: kopiSusu.id, productName: 'Kopi Susu Gula Aren', quantity: 3, unitPrice: 25000, subtotal: 75000 },
-          { productId: airMineral.id, productName: 'Air Mineral', quantity: 3, unitPrice: 8000, subtotal: 24000, notes: 'Dingin' },
+          {
+            productId: nasiGoreng.id,
+            productName: 'Nasi Goreng Spesial',
+            quantity: 3,
+            unitPrice: 35000,
+            subtotal: 105000,
+          },
+          {
+            productId: nasiAyam.id,
+            variantId: ayamBakarJumbo.id,
+            productName: 'Nasi Ayam Bakar',
+            variantName: 'Jumbo',
+            quantity: 2,
+            unitPrice: 55000,
+            subtotal: 110000,
+          },
+          {
+            productId: mieGoreng.id,
+            productName: 'Mie Goreng Jawa',
+            quantity: 1,
+            unitPrice: 30000,
+            subtotal: 30000,
+          },
+          {
+            productId: kopiSusu.id,
+            productName: 'Kopi Susu Gula Aren',
+            quantity: 3,
+            unitPrice: 25000,
+            subtotal: 75000,
+          },
+          {
+            productId: airMineral.id,
+            productName: 'Air Mineral',
+            quantity: 3,
+            unitPrice: 8000,
+            subtotal: 24000,
+            notes: 'Dingin',
+          },
         ],
       },
       payments: {
         create: [
           { paymentMethod: 'cash', amount: 200000, status: 'completed' },
-          { paymentMethod: 'card', amount: 168880, referenceNumber: 'CC-20260130-001', status: 'completed' },
+          {
+            paymentMethod: 'card',
+            amount: 168880,
+            referenceNumber: 'CC-20260130-001',
+            status: 'completed',
+          },
         ],
       },
     },
@@ -1095,12 +1372,33 @@ async function main() {
       status: 'completed',
       items: {
         create: [
-          { productId: nasiAyam.id, variantId: ayamBakarReg.id, productName: 'Nasi Ayam Bakar', variantName: 'Regular', quantity: 1, unitPrice: 40000, subtotal: 40000 },
-          { productId: mieAyam.id, productName: 'Mie Ayam Bakso', quantity: 1, unitPrice: 28000, subtotal: 28000 },
+          {
+            productId: nasiAyam.id,
+            variantId: ayamBakarReg.id,
+            productName: 'Nasi Ayam Bakar',
+            variantName: 'Regular',
+            quantity: 1,
+            unitPrice: 40000,
+            subtotal: 40000,
+          },
+          {
+            productId: mieAyam.id,
+            productName: 'Mie Ayam Bakso',
+            quantity: 1,
+            unitPrice: 28000,
+            subtotal: 28000,
+          },
         ],
       },
       payments: {
-        create: [{ paymentMethod: 'gopay', amount: 75480, referenceNumber: 'GOPAY-20260130-001', status: 'completed' }],
+        create: [
+          {
+            paymentMethod: 'gopay',
+            amount: 75480,
+            referenceNumber: 'GOPAY-20260130-001',
+            status: 'completed',
+          },
+        ],
       },
     },
   });
@@ -1121,9 +1419,27 @@ async function main() {
       startedAt: new Date(),
       items: {
         create: [
-          { productId: nasiGoreng.id, productName: 'Nasi Goreng Spesial', quantity: 2, station: 'wok', status: 'preparing' },
-          { productId: mieGoreng.id, productName: 'Mie Goreng Jawa', quantity: 1, station: 'wok', status: 'pending' },
-          { productId: esJeruk.id, productName: 'Es Jeruk Segar', quantity: 2, station: 'bar', status: 'ready' },
+          {
+            productId: nasiGoreng.id,
+            productName: 'Nasi Goreng Spesial',
+            quantity: 2,
+            station: 'wok',
+            status: 'preparing',
+          },
+          {
+            productId: mieGoreng.id,
+            productName: 'Mie Goreng Jawa',
+            quantity: 1,
+            station: 'wok',
+            status: 'pending',
+          },
+          {
+            productId: esJeruk.id,
+            productName: 'Es Jeruk Segar',
+            quantity: 2,
+            station: 'bar',
+            status: 'ready',
+          },
         ],
       },
     },
@@ -1139,8 +1455,22 @@ async function main() {
       notes: 'Buru-buru, customer nunggu di depan',
       items: {
         create: [
-          { productId: nasiAyam.id, variantId: ayamBakarReg.id, productName: 'Nasi Ayam Bakar (Regular)', quantity: 3, station: 'grill', status: 'pending' },
-          { productId: kentangGoreng.id, variantId: kentangLarge.id, productName: 'Kentang Goreng (Large)', quantity: 2, station: 'fryer', status: 'pending' },
+          {
+            productId: nasiAyam.id,
+            variantId: ayamBakarReg.id,
+            productName: 'Nasi Ayam Bakar (Regular)',
+            quantity: 3,
+            station: 'grill',
+            status: 'pending',
+          },
+          {
+            productId: kentangGoreng.id,
+            variantId: kentangLarge.id,
+            productName: 'Kentang Goreng (Large)',
+            quantity: 2,
+            station: 'fryer',
+            status: 'pending',
+          },
         ],
       },
     },
@@ -1155,8 +1485,22 @@ async function main() {
       status: 'ready',
       items: {
         create: [
-          { productId: dimsum.id, productName: 'Dimsum Ayam (5 pcs)', quantity: 2, station: 'steam', status: 'ready', completedAt: new Date() },
-          { productId: tehTarik.id, productName: 'Teh Tarik', quantity: 2, station: 'bar', status: 'ready', completedAt: new Date() },
+          {
+            productId: dimsum.id,
+            productName: 'Dimsum Ayam (5 pcs)',
+            quantity: 2,
+            station: 'steam',
+            status: 'ready',
+            completedAt: new Date(),
+          },
+          {
+            productId: tehTarik.id,
+            productName: 'Teh Tarik',
+            quantity: 2,
+            station: 'bar',
+            status: 'ready',
+            completedAt: new Date(),
+          },
         ],
       },
     },
@@ -1253,11 +1597,49 @@ async function main() {
   console.log('Creating notification settings...');
   await prisma.notificationSetting.createMany({
     data: [
-      { businessId: business.id, outletId: outletPusat.id, employeeId: owner.id, notificationType: 'low_stock', channel: 'push', isEnabled: true, threshold: { quantity: 10 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: owner.id, notificationType: 'large_transaction', channel: 'push', isEnabled: true, threshold: { amount: 500000 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: owner.id, notificationType: 'refund', channel: 'push', isEnabled: true },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: manager.id, notificationType: 'low_stock', channel: 'push', isEnabled: true, threshold: { quantity: 10 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: manager.id, notificationType: 'online_order', channel: 'push', isEnabled: true },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: owner.id,
+        notificationType: 'low_stock',
+        channel: 'push',
+        isEnabled: true,
+        threshold: { quantity: 10 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: owner.id,
+        notificationType: 'large_transaction',
+        channel: 'push',
+        isEnabled: true,
+        threshold: { amount: 500000 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: owner.id,
+        notificationType: 'refund',
+        channel: 'push',
+        isEnabled: true,
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: manager.id,
+        notificationType: 'low_stock',
+        channel: 'push',
+        isEnabled: true,
+        threshold: { quantity: 10 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: manager.id,
+        notificationType: 'online_order',
+        channel: 'push',
+        isEnabled: true,
+      },
     ],
   });
   console.log(`  Created 5 notification settings`);
@@ -1273,7 +1655,10 @@ async function main() {
       slug: 'warung-nusantara',
       description: 'Pesan makanan & minuman Warung Nusantara secara online',
       themeSettings: { primaryColor: '#D4A574', secondaryColor: '#2C1810', fontFamily: 'Inter' },
-      shippingMethods: [{ name: 'Ambil di Toko', cost: 0 }, { name: 'Kurir Toko', cost: 15000 }],
+      shippingMethods: [
+        { name: 'Ambil di Toko', cost: 0 },
+        { name: 'Kurir Toko', cost: 15000 },
+      ],
       paymentMethods: ['qris', 'bank_transfer', 'cash'],
     },
   });
@@ -1307,8 +1692,24 @@ async function main() {
   console.log('Creating waiting list...');
   await prisma.waitingList.createMany({
     data: [
-      { outletId: outletPusat.id, customerName: 'Keluarga Surya', customerPhone: '081122334455', partySize: 6, preferredSection: 'Indoor', status: 'waiting', estimatedWait: 15 },
-      { outletId: outletPusat.id, customerName: 'Ibu Kartini', customerPhone: '081998877665', partySize: 2, preferredSection: 'Outdoor', status: 'waiting', estimatedWait: 10 },
+      {
+        outletId: outletPusat.id,
+        customerName: 'Keluarga Surya',
+        customerPhone: '081122334455',
+        partySize: 6,
+        preferredSection: 'Indoor',
+        status: 'waiting',
+        estimatedWait: 15,
+      },
+      {
+        outletId: outletPusat.id,
+        customerName: 'Ibu Kartini',
+        customerPhone: '081998877665',
+        partySize: 2,
+        preferredSection: 'Outdoor',
+        status: 'waiting',
+        estimatedWait: 10,
+      },
     ],
   });
   console.log(`  Created 2 waiting list entries`);
@@ -1319,11 +1720,50 @@ async function main() {
   console.log('Creating audit logs...');
   await prisma.auditLog.createMany({
     data: [
-      { businessId: business.id, outletId: outletPusat.id, employeeId: cashier1.id, action: 'transaction_created', entityType: 'transaction', entityId: tx1.id, newValue: { grandTotal: 58000 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: cashier1.id, action: 'transaction_created', entityType: 'transaction', entityId: tx2.id, newValue: { grandTotal: 129920 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: cashier1.id, action: 'transaction_created', entityType: 'transaction', entityId: tx3.id, newValue: { grandTotal: 368880 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: owner.id, action: 'shift_started', entityType: 'shift', entityId: openShift.id, newValue: { openingCash: 500000 } },
-      { businessId: business.id, outletId: outletPusat.id, employeeId: inventoryStaff.id, action: 'stock_adjusted', entityType: 'stock_level', newValue: { product: 'Air Mineral', adjustment: '+200' } },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: cashier1.id,
+        action: 'transaction_created',
+        entityType: 'transaction',
+        entityId: tx1.id,
+        newValue: { grandTotal: 58000 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: cashier1.id,
+        action: 'transaction_created',
+        entityType: 'transaction',
+        entityId: tx2.id,
+        newValue: { grandTotal: 129920 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: cashier1.id,
+        action: 'transaction_created',
+        entityType: 'transaction',
+        entityId: tx3.id,
+        newValue: { grandTotal: 368880 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: owner.id,
+        action: 'shift_started',
+        entityType: 'shift',
+        entityId: openShift.id,
+        newValue: { openingCash: 500000 },
+      },
+      {
+        businessId: business.id,
+        outletId: outletPusat.id,
+        employeeId: inventoryStaff.id,
+        action: 'stock_adjusted',
+        entityType: 'stock_level',
+        newValue: { product: 'Air Mineral', adjustment: '+200' },
+      },
     ],
   });
   console.log(`  Created 5 audit log entries`);

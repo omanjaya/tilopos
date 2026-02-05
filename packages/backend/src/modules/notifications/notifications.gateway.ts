@@ -38,7 +38,9 @@ interface JoinRoomData {
   namespace: '/notifications',
   cors: { origin: '*' },
 })
-export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect {
+export class NotificationsGateway
+  implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server!: Server;
 
@@ -49,7 +51,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
 
   onModuleInit() {
     // Order events
-    this.eventBus.ofType(OrderStatusChangedEvent).subscribe(event => {
+    this.eventBus.ofType(OrderStatusChangedEvent).subscribe((event) => {
       this.server.to(`outlet:${event.outletId}`).emit('order:status_changed', {
         orderId: event.orderId,
         previousStatus: event.previousStatus,
@@ -59,7 +61,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
 
     // Transaction events
-    this.eventBus.ofType(TransactionCreatedEvent).subscribe(event => {
+    this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
       // Emit to the specific outlet
       this.server.to(`outlet:${event.outletId}`).emit('transaction:created', {
         transactionId: event.transactionId,
@@ -71,7 +73,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
 
     // Stock level events — emit to outlet when stock levels change
-    this.eventBus.ofType(StockLevelChangedEvent).subscribe(event => {
+    this.eventBus.ofType(StockLevelChangedEvent).subscribe((event) => {
       this.server.to(`outlet:${event.outletId}`).emit('inventory:stock_changed', {
         outletId: event.outletId,
         productId: event.productId,
@@ -102,7 +104,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
 
     // Stock transfer status change — notify both source and destination outlets
-    this.eventBus.ofType(StockTransferStatusChangedEvent).subscribe(event => {
+    this.eventBus.ofType(StockTransferStatusChangedEvent).subscribe((event) => {
       const payload = {
         transferId: event.transferId,
         sourceOutletId: event.sourceOutletId,
@@ -119,22 +121,30 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
 
       // Notify destination outlet (if different) — outlet B gets notified when outlet A ships
       if (event.destinationOutletId !== event.sourceOutletId) {
-        this.server.to(`outlet:${event.destinationOutletId}`).emit('transfer:status_changed', payload);
+        this.server
+          .to(`outlet:${event.destinationOutletId}`)
+          .emit('transfer:status_changed', payload);
       }
 
       // Also notify at business level
       this.server.to(`business:${event.businessId}`).emit('transfer:status_changed', payload);
 
       // Emit inventory:transfer-status-changed (kebab-case) for inventory screens
-      this.server.to(`outlet:${event.sourceOutletId}`).emit('inventory:transfer-status-changed', payload);
+      this.server
+        .to(`outlet:${event.sourceOutletId}`)
+        .emit('inventory:transfer-status-changed', payload);
       if (event.destinationOutletId !== event.sourceOutletId) {
-        this.server.to(`outlet:${event.destinationOutletId}`).emit('inventory:transfer-status-changed', payload);
+        this.server
+          .to(`outlet:${event.destinationOutletId}`)
+          .emit('inventory:transfer-status-changed', payload);
       }
-      this.server.to(`business:${event.businessId}`).emit('inventory:transfer-status-changed', payload);
+      this.server
+        .to(`business:${event.businessId}`)
+        .emit('inventory:transfer-status-changed', payload);
     });
 
     // Shift events
-    this.eventBus.ofType(ShiftStartedEvent).subscribe(event => {
+    this.eventBus.ofType(ShiftStartedEvent).subscribe((event) => {
       this.server.to(`outlet:${event.outletId}`).emit('shift:started', {
         shiftId: event.shiftId,
         employeeId: event.employeeId,
@@ -144,7 +154,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
       });
     });
 
-    this.eventBus.ofType(ShiftEndedEvent).subscribe(event => {
+    this.eventBus.ofType(ShiftEndedEvent).subscribe((event) => {
       this.server.to(`outlet:${event.outletId}`).emit('shift:ended', {
         shiftId: event.shiftId,
         employeeId: event.employeeId,
@@ -157,7 +167,7 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
 
     // Device sync status events
-    this.eventBus.ofType(DeviceSyncStatusEvent).subscribe(event => {
+    this.eventBus.ofType(DeviceSyncStatusEvent).subscribe((event) => {
       const payload = {
         deviceId: event.deviceId,
         deviceName: event.deviceName,
@@ -193,7 +203,10 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
   }
 
   @SubscribeMessage('joinRoom')
-  async handleJoinRoom(@MessageBody() data: JoinRoomData, @ConnectedSocket() client: AuthenticatedSocket) {
+  async handleJoinRoom(
+    @MessageBody() data: JoinRoomData,
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
     const { room, businessId, outletId } = data;
 
     // Store user context
@@ -230,7 +243,10 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
   }
 
   @SubscribeMessage('leaveRoom')
-  async handleLeaveRoom(@MessageBody() data: { room: string }, @ConnectedSocket() client: AuthenticatedSocket) {
+  async handleLeaveRoom(
+    @MessageBody() data: { room: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
     await client.leave(data.room);
 
     // Remove from tracking
@@ -245,13 +261,16 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
 
   // --- Queue events for waiting list ---
 
-  emitQueueCustomerAdded(outletId: string, data: {
-    customerId: string;
-    customerName: string;
-    partySize: number;
-    position: number;
-    estimatedWaitMinutes: number;
-  }) {
+  emitQueueCustomerAdded(
+    outletId: string,
+    data: {
+      customerId: string;
+      customerName: string;
+      partySize: number;
+      position: number;
+      estimatedWaitMinutes: number;
+    },
+  ) {
     this.server.to(`outlet:${outletId}`).emit('queue:customer_added', {
       outletId,
       ...data,
@@ -259,12 +278,15 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
   }
 
-  emitQueueCustomerCalled(outletId: string, data: {
-    customerId: string;
-    customerName: string;
-    tableId: string;
-    tableName: string;
-  }) {
+  emitQueueCustomerCalled(
+    outletId: string,
+    data: {
+      customerId: string;
+      customerName: string;
+      tableId: string;
+      tableName: string;
+    },
+  ) {
     this.server.to(`outlet:${outletId}`).emit('queue:customer_called', {
       outletId,
       ...data,
@@ -272,12 +294,15 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
     });
   }
 
-  emitQueueCustomerSeated(outletId: string, data: {
-    customerId: string;
-    customerName: string;
-    tableId: string;
-    tableName: string;
-  }) {
+  emitQueueCustomerSeated(
+    outletId: string,
+    data: {
+      customerId: string;
+      customerName: string;
+      tableId: string;
+      tableName: string;
+    },
+  ) {
     this.server.to(`outlet:${outletId}`).emit('queue:customer_seated', {
       outletId,
       ...data,
@@ -309,15 +334,18 @@ export class NotificationsGateway implements OnModuleInit, OnGatewayConnection, 
    * Emit a new notification to a specific user or outlet.
    * Frontend listens on 'notification:new'.
    */
-  emitNotification(target: { userId?: string; outletId?: string; businessId?: string }, notification: {
-    id: string;
-    type: string;
-    title: string;
-    message: string;
-    isRead: boolean;
-    createdAt: string;
-    data?: Record<string, unknown>;
-  }) {
+  emitNotification(
+    target: { userId?: string; outletId?: string; businessId?: string },
+    notification: {
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      isRead: boolean;
+      createdAt: string;
+      data?: Record<string, unknown>;
+    },
+  ) {
     if (target.userId) {
       this.server.to(`user:${target.userId}`).emit('notification:new', notification);
     }

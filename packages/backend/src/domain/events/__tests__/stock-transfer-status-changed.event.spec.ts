@@ -25,7 +25,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should have correct event name', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', 'approved', 'emp-1',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'requested',
+      'approved',
+      'emp-1',
     );
 
     expect(event.eventName).toBe('stock_transfer.status_changed');
@@ -34,7 +40,13 @@ describe('StockTransferStatusChangedEvent', () => {
   it('should set occurredOn timestamp', () => {
     const before = new Date();
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', 'approved', 'emp-1',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'requested',
+      'approved',
+      'emp-1',
     );
     const after = new Date();
 
@@ -45,7 +57,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should extend DomainEvent', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', 'approved', 'emp-1',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'requested',
+      'approved',
+      'emp-1',
     );
 
     expect(event).toBeInstanceOf(DomainEvent);
@@ -53,7 +71,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should handle approved to shipped transition', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'approved', 'shipped', 'emp-2',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'approved',
+      'shipped',
+      'emp-2',
     );
 
     expect(event.previousStatus).toBe('approved');
@@ -62,7 +86,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should handle shipped to received transition', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'shipped', 'received', 'emp-3',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'shipped',
+      'received',
+      'emp-3',
     );
 
     expect(event.previousStatus).toBe('shipped');
@@ -71,7 +101,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should handle rejection transition', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', 'rejected', 'emp-1',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'requested',
+      'rejected',
+      'emp-1',
     );
 
     expect(event.previousStatus).toBe('requested');
@@ -80,7 +116,13 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should handle cancellation transition', () => {
     const event = new StockTransferStatusChangedEvent(
-      'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', 'cancelled', 'emp-1',
+      'transfer-1',
+      'outlet-source',
+      'outlet-dest',
+      'biz-1',
+      'requested',
+      'cancelled',
+      'emp-1',
     );
 
     expect(event.newStatus).toBe('cancelled');
@@ -88,12 +130,23 @@ describe('StockTransferStatusChangedEvent', () => {
 
   it('should accept all valid StockTransferStatus values', () => {
     const statuses: StockTransferStatus[] = [
-      'requested', 'approved', 'rejected', 'shipped', 'received', 'cancelled',
+      'requested',
+      'approved',
+      'rejected',
+      'shipped',
+      'received',
+      'cancelled',
     ];
 
     for (const status of statuses) {
       const event = new StockTransferStatusChangedEvent(
-        'transfer-1', 'outlet-source', 'outlet-dest', 'biz-1', 'requested', status, 'emp-1',
+        'transfer-1',
+        'outlet-source',
+        'outlet-dest',
+        'biz-1',
+        'requested',
+        status,
+        'emp-1',
       );
       expect(event.newStatus).toBe(status);
     }

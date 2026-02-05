@@ -1,8 +1,14 @@
 import { StartShiftUseCase, StartShiftInput } from './start-shift.use-case';
 import { BusinessError } from '@shared/errors/business-error';
 import { AppError } from '@shared/errors/app-error';
-import type { IShiftRepository, ShiftRecord } from '@domain/interfaces/repositories/shift.repository';
-import type { IEmployeeRepository, EmployeeRecord } from '@domain/interfaces/repositories/employee.repository';
+import type {
+  IShiftRepository,
+  ShiftRecord,
+} from '@domain/interfaces/repositories/shift.repository';
+import type {
+  IEmployeeRepository,
+  EmployeeRecord,
+} from '@domain/interfaces/repositories/employee.repository';
 
 describe('StartShiftUseCase', () => {
   let useCase: StartShiftUseCase;
@@ -144,8 +150,6 @@ describe('StartShiftUseCase', () => {
     const result = await useCase.execute(input);
 
     expect(result.shiftId).toBe('shift-1');
-    expect(mockShiftRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ openingCash: 0 }),
-    );
+    expect(mockShiftRepo.create).toHaveBeenCalledWith(expect.objectContaining({ openingCash: 0 }));
   });
 });

@@ -32,7 +32,10 @@ export class CatalogSyncDto {
   @IsUUID('4', { each: true })
   productIds!: string[];
 
-  @ApiPropertyOptional({ description: 'Optional price overrides for specific products', type: [PriceOverrideItem] })
+  @ApiPropertyOptional({
+    description: 'Optional price overrides for specific products',
+    type: [PriceOverrideItem],
+  })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

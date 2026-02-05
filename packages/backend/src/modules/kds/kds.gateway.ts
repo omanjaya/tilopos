@@ -27,7 +27,10 @@ interface KdsSocket extends Socket {
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
-@WebSocketGateway({ namespace: '/kds', cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:5173' } })
+@WebSocketGateway({
+  namespace: '/kds',
+  cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:5173' },
+})
 export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
@@ -43,7 +46,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
 
   onModuleInit() {
     // Order status changed events
-    this.eventBus.ofType(OrderStatusChangedEvent).subscribe(event => {
+    this.eventBus.ofType(OrderStatusChangedEvent).subscribe((event) => {
       this.server.to(`outlet:${event.outletId}`).emit('order:status_changed', {
         orderId: event.orderId,
         previousStatus: event.previousStatus,
@@ -60,15 +63,21 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
           readyAt: event.occurredOn.toISOString(),
         });
 
-        this.logger.log(`Order ready event emitted for order ${event.orderId} in outlet ${event.outletId}`);
+        this.logger.log(
+          `Order ready event emitted for order ${event.orderId} in outlet ${event.outletId}`,
+        );
       }
     });
 
-    this.logger.log('KDS Gateway initialized with multi-station support and order:ready notifications');
+    this.logger.log(
+      'KDS Gateway initialized with multi-station support and order:ready notifications',
+    );
   }
 
   handleConnection(client: KdsSocket) {
-    const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
+    const token =
+      client.handshake.auth?.token ||
+      client.handshake.headers?.authorization?.replace('Bearer ', '');
     if (!token) {
       this.logger.warn(`KDS client rejected - no token: ${client.id}`);
       client.disconnect();
@@ -100,7 +109,10 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
   }
 
   @SubscribeMessage('joinOutlet')
-  handleJoinOutlet(@MessageBody() data: { outletId: string }, @ConnectedSocket() client: KdsSocket) {
+  handleJoinOutlet(
+    @MessageBody() data: { outletId: string },
+    @ConnectedSocket() client: KdsSocket,
+  ) {
     if (!client.businessId) {
       return { error: 'Not authenticated' };
     }
@@ -138,7 +150,9 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
     client.station = data.station;
 
     this.trackRoom(client.id, room);
-    this.logger.debug(`Client ${client.id} joined station: ${data.station} at outlet ${data.outletId}`);
+    this.logger.debug(
+      `Client ${client.id} joined station: ${data.station} at outlet ${data.outletId}`,
+    );
 
     return { event: 'joined', data: { outletId: data.outletId, station: data.station, room } };
   }
@@ -156,7 +170,9 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
       rooms.delete(room);
     }
 
-    this.logger.debug(`Client ${client.id} left station: ${data.station} at outlet ${data.outletId}`);
+    this.logger.debug(
+      `Client ${client.id} left station: ${data.station} at outlet ${data.outletId}`,
+    );
 
     return { event: 'left', data: { outletId: data.outletId, station: data.station, room } };
   }
@@ -164,7 +180,12 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
   /**
    * Emit order item update to a specific station
    */
-  emitToStation(outletId: string, station: KitchenStation, event: string, data: Record<string, unknown>) {
+  emitToStation(
+    outletId: string,
+    station: KitchenStation,
+    event: string,
+    data: Record<string, unknown>,
+  ) {
     this.server.to(`station:${outletId}:${station}`).emit(event, data);
   }
 

@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import type { INotificationRepository } from '../../domain/interfaces/repositories/notification.repository';
+import type {
+  INotificationRepository,
+  NotificationSettingRecord,
+  NotificationLogRecord,
+} from '../../domain/interfaces/repositories/notification.repository';
 
 @Injectable()
 export class PrismaNotificationRepository implements INotificationRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findSettingsByBusinessId(businessId: string): Promise<any[]> {
+  async findSettingsByBusinessId(businessId: string): Promise<NotificationSettingRecord[]> {
     return this.prisma.notificationSetting.findMany({
       where: { businessId },
     });
@@ -20,7 +24,7 @@ export class PrismaNotificationRepository implements INotificationRepository {
     channel: string;
     isEnabled: boolean;
     threshold: unknown;
-  }): Promise<any> {
+  }): Promise<NotificationSettingRecord> {
     return this.prisma.notificationSetting.create({
       data: {
         businessId: data.businessId,
@@ -43,7 +47,7 @@ export class PrismaNotificationRepository implements INotificationRepository {
   async updateSetting(
     id: string,
     data: { isEnabled?: boolean; threshold?: unknown },
-  ): Promise<any> {
+  ): Promise<NotificationSettingRecord> {
     return this.prisma.notificationSetting.update({
       where: { id },
       data: {
@@ -58,7 +62,7 @@ export class PrismaNotificationRepository implements INotificationRepository {
   async findLogsByRecipientId(
     recipientId: string,
     limit: number,
-  ): Promise<any[]> {
+  ): Promise<NotificationLogRecord[]> {
     return this.prisma.notificationLog.findMany({
       where: { recipientId },
       orderBy: { sentAt: 'desc' },
@@ -66,7 +70,7 @@ export class PrismaNotificationRepository implements INotificationRepository {
     });
   }
 
-  async markLogAsRead(id: string): Promise<any> {
+  async markLogAsRead(id: string): Promise<NotificationLogRecord> {
     return this.prisma.notificationLog.update({
       where: { id },
       data: { status: 'read', readAt: new Date() },

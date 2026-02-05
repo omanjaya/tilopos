@@ -25,7 +25,10 @@ export class AdjustIngredientStockUseCase {
 
   async execute(params: AdjustIngredientStockParams) {
     // Check if ingredient exists
-    const stock = await this.ingredientRepository.getStockLevel(params.outletId, params.ingredientId);
+    const stock = await this.ingredientRepository.getStockLevel(
+      params.outletId,
+      params.ingredientId,
+    );
     if (!stock) {
       throw new NotFoundException('Ingredient stock not found for this outlet');
     }

@@ -36,7 +36,10 @@ export interface ITableRepository {
   findById(id: string): Promise<TableRecord | null>;
   findByOutlet(outletId: string, activeOnly?: boolean): Promise<TableRecord[]>;
   findBySection(outletId: string, section: string): Promise<TableRecord[]>;
-  findByStatus(outletId: string, status: 'available' | 'occupied' | 'reserved' | 'cleaning'): Promise<TableRecord[]>;
+  findByStatus(
+    outletId: string,
+    status: 'available' | 'occupied' | 'reserved' | 'cleaning',
+  ): Promise<TableRecord[]>;
   create(data: CreateTableData): Promise<TableRecord>;
   update(id: string, data: UpdateTableData): Promise<TableRecord>;
   delete(id: string): Promise<void>;

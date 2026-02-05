@@ -38,8 +38,7 @@ export class InventoryQueueHandler implements OnModuleInit {
   onModuleInit(): void {
     this.consumer.registerHandler(
       QUEUES.INVENTORY_STOCK,
-      (envelope: MessageEnvelope, rawMessage: AmqpMessage) =>
-        this.handle(envelope, rawMessage),
+      (envelope: MessageEnvelope, rawMessage: AmqpMessage) => this.handle(envelope, rawMessage),
     );
   }
 
@@ -61,7 +60,7 @@ export class InventoryQueueHandler implements OnModuleInit {
   private async handleStockChanged(payload: StockChangedPayload): Promise<void> {
     this.logger.log(
       `Processing stock.level_changed: product ${payload.productId} ` +
-      `at outlet ${payload.outletId} (${payload.previousQuantity} -> ${payload.newQuantity})`,
+        `at outlet ${payload.outletId} (${payload.previousQuantity} -> ${payload.newQuantity})`,
     );
 
     // Low stock alert logic is handled by the existing StockEventListener
@@ -75,7 +74,7 @@ export class InventoryQueueHandler implements OnModuleInit {
   ): Promise<void> {
     this.logger.log(
       `Processing stock.transfer_completed: transfer ${payload.transferId} ` +
-      `(${payload.sourceOutletId} -> ${payload.destinationOutletId}, ${payload.itemCount} items)`,
+        `(${payload.sourceOutletId} -> ${payload.destinationOutletId}, ${payload.itemCount} items)`,
     );
 
     // Stock level adjustments for both outlets are handled by the

@@ -2,7 +2,10 @@ import { UpdateStockUseCase, UpdateStockInput } from './update-stock.use-case';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
-import type { IInventoryRepository, StockLevelRecord } from '@domain/interfaces/repositories/inventory.repository';
+import type {
+  IInventoryRepository,
+  StockLevelRecord,
+} from '@domain/interfaces/repositories/inventory.repository';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
 
 describe('UpdateStockUseCase', () => {
@@ -82,7 +85,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 70,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseIncrementInput);
 
@@ -98,7 +113,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 40,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseDecrementInput);
 
@@ -113,7 +140,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 100,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseSetInput);
 
@@ -144,9 +183,7 @@ describe('UpdateStockUseCase', () => {
       quantity: -5,
     };
 
-    await expect(useCase.execute(negativeSetInput)).rejects.toThrow(
-      InsufficientStockException,
-    );
+    await expect(useCase.execute(negativeSetInput)).rejects.toThrow(InsufficientStockException);
   });
 
   it('should record stock movement after update', async () => {
@@ -155,7 +192,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 70,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseIncrementInput);
 
@@ -178,7 +227,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 40,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseDecrementInput);
 
@@ -195,13 +256,23 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 70,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseIncrementInput);
 
-    expect(mockEventBus.publish).toHaveBeenCalledWith(
-      expect.any(StockLevelChangedEvent),
-    );
+    expect(mockEventBus.publish).toHaveBeenCalledWith(expect.any(StockLevelChangedEvent));
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         outletId: 'outlet-1',
@@ -228,7 +299,19 @@ describe('UpdateStockUseCase', () => {
       id: 'stock-new',
       quantity: 20,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseIncrementInput);
 
@@ -253,7 +336,19 @@ describe('UpdateStockUseCase', () => {
       ...stockWithVariant,
       quantity: 70,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const inputWithVariant: UpdateStockInput = {
       ...baseIncrementInput,
@@ -262,11 +357,7 @@ describe('UpdateStockUseCase', () => {
 
     await useCase.execute(inputWithVariant);
 
-    expect(mockInventoryRepo.findStockLevel).toHaveBeenCalledWith(
-      'outlet-1',
-      'prod-1',
-      'var-1',
-    );
+    expect(mockInventoryRepo.findStockLevel).toHaveBeenCalledWith('outlet-1', 'prod-1', 'var-1');
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         variantId: 'var-1',
@@ -280,7 +371,19 @@ describe('UpdateStockUseCase', () => {
       ...existingStockLevel,
       quantity: 0,
     });
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'adjustment',
+      quantity: 0,
+      referenceId: null,
+      referenceType: null,
+      notes: null,
+      createdBy: null,
+      createdAt: new Date(),
+    });
 
     const exactDecrementInput: UpdateStockInput = {
       ...baseDecrementInput,

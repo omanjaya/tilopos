@@ -62,12 +62,19 @@ export class ProcessRefundUseCase {
     });
 
     let refundSubtotal = 0;
-    const refundItems: Array<{ productId: string | null; variantId: string | null; quantity: number; unitPrice: number }> = [];
+    const refundItems: Array<{
+      productId: string | null;
+      variantId: string | null;
+      quantity: number;
+      unitPrice: number;
+    }> = [];
 
     for (const refundItem of input.items) {
-      const txItem = transactionItems.find(ti => ti.id === refundItem.transactionItemId);
+      const txItem = transactionItems.find((ti) => ti.id === refundItem.transactionItemId);
       if (!txItem) {
-        throw new RefundNotAllowedException(`Transaction item ${refundItem.transactionItemId} not found`);
+        throw new RefundNotAllowedException(
+          `Transaction item ${refundItem.transactionItemId} not found`,
+        );
       }
 
       const unitPrice = txItem.unitPrice.toNumber();

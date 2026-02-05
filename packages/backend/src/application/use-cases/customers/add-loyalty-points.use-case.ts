@@ -46,7 +46,7 @@ export class AddLoyaltyPointsUseCase {
       orderBy: { sortOrder: 'asc' },
     });
 
-    const currentTier = tiers.find(t => t.name === customer.loyaltyTier);
+    const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
     const multiplier = currentTier ? currentTier.pointMultiplier.toNumber() : 1;
 
     const pointsEarned = Math.floor((input.transactionTotal / amountPerPoint) * multiplier);

@@ -69,9 +69,7 @@ export class OrdersService {
 
     const modifiableStatuses = ['pending', 'confirmed'];
     if (!modifiableStatuses.includes(order.status)) {
-      throw new BadRequestException(
-        `Cannot modify order in status: ${order.status}`,
-      );
+      throw new BadRequestException(`Cannot modify order in status: ${order.status}`);
     }
 
     let itemsAdded = 0;
@@ -144,11 +142,7 @@ export class OrdersService {
     };
   }
 
-  async cancel(
-    orderId: string,
-    _employeeId: string,
-    reason: string,
-  ): Promise<CancelOrderResult> {
+  async cancel(orderId: string, _employeeId: string, reason: string): Promise<CancelOrderResult> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -162,9 +156,7 @@ export class OrdersService {
 
     const cancellableStatuses = ['pending', 'confirmed', 'preparing', 'ready'];
     if (!cancellableStatuses.includes(order.status)) {
-      throw new BadRequestException(
-        `Cannot cancel order in status: ${order.status}`,
-      );
+      throw new BadRequestException(`Cannot cancel order in status: ${order.status}`);
     }
 
     const previousStatus = order.status;
@@ -223,10 +215,7 @@ export class OrdersService {
     };
   }
 
-  async setPriority(
-    orderId: string,
-    priority: OrderPriorityLevel,
-  ): Promise<SetPriorityResult> {
+  async setPriority(orderId: string, priority: OrderPriorityLevel): Promise<SetPriorityResult> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
@@ -237,9 +226,7 @@ export class OrdersService {
 
     const activeStatuses = ['pending', 'confirmed', 'preparing'];
     if (!activeStatuses.includes(order.status)) {
-      throw new BadRequestException(
-        `Cannot change priority for order in status: ${order.status}`,
-      );
+      throw new BadRequestException(`Cannot change priority for order in status: ${order.status}`);
     }
 
     const numericPriority = PRIORITY_MAP[priority];

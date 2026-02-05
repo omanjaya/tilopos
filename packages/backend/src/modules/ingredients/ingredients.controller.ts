@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -190,19 +180,13 @@ export class IngredientsController {
   @Post('import')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Import ingredients from CSV/JSON data' })
-  async importIngredients(
-    @Body() dto: IngredientImportDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async importIngredients(@Body() dto: IngredientImportDto, @CurrentUser() user: AuthUser) {
     return this.ingredientsService.importIngredients(user.businessId, dto.data, dto.format);
   }
 
   @Get('export')
   @ApiOperation({ summary: 'Export all ingredients as CSV or JSON with optional stock levels' })
-  async exportIngredients(
-    @Query() query: IngredientExportQueryDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async exportIngredients(@Query() query: IngredientExportQueryDto, @CurrentUser() user: AuthUser) {
     return this.ingredientsService.exportIngredients(
       user.businessId,
       query.format,
@@ -232,11 +216,14 @@ export class IngredientsController {
       'Returns formatted alerts with ingredient name, current level, minimum level, and deficit for ingredients below their minimum threshold.',
   })
   async getStockAlerts(@Query() query: LowStockAlertQueryDto) {
-    const lowStockItems = await this.ingredientsService.getLowStockAlerts(query.outletId, query.threshold);
+    const lowStockItems = await this.ingredientsService.getLowStockAlerts(
+      query.outletId,
+      query.threshold,
+    );
 
     return {
       totalAlerts: lowStockItems.length,
-      alerts: lowStockItems.map(item => ({
+      alerts: lowStockItems.map((item) => ({
         ingredientId: item.ingredientId,
         ingredientName: item.ingredientName,
         unit: item.unit,
@@ -244,10 +231,16 @@ export class IngredientsController {
         currentLevel: item.currentStock,
         minimumLevel: item.minStockLevel,
         deficit: item.deficit,
-        severity: item.deficit > item.minStockLevel ? 'critical' as const : item.currentStock <= 0 ? 'critical' as const : 'warning' as const,
-        message: item.currentStock <= 0
-          ? `${item.ingredientName} is OUT OF STOCK (need ${item.deficit} ${item.unit})`
-          : `${item.ingredientName} is LOW: ${item.currentStock} ${item.unit} remaining (min: ${item.minStockLevel} ${item.unit}, deficit: ${item.deficit} ${item.unit})`,
+        severity:
+          item.deficit > item.minStockLevel
+            ? ('critical' as const)
+            : item.currentStock <= 0
+              ? ('critical' as const)
+              : ('warning' as const),
+        message:
+          item.currentStock <= 0
+            ? `${item.ingredientName} is OUT OF STOCK (need ${item.deficit} ${item.unit})`
+            : `${item.ingredientName} is LOW: ${item.currentStock} ${item.unit} remaining (min: ${item.minStockLevel} ${item.unit}, deficit: ${item.deficit} ${item.unit})`,
       })),
       generatedAt: new Date().toISOString(),
     };

@@ -13,7 +13,7 @@ export class TransactionEventListener implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.eventBus.ofType(TransactionCreatedEvent).subscribe(event => {
+    this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
       void this.handleTransactionCreated(event);
     });
   }
@@ -112,7 +112,7 @@ export class TransactionEventListener implements OnModuleInit {
       orderBy: { sortOrder: 'asc' },
     });
 
-    const currentTier = tiers.find(t => t.name === customer.loyaltyTier);
+    const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
     const multiplier = currentTier ? currentTier.pointMultiplier.toNumber() : 1;
     const pointsEarned = Math.floor((event.grandTotal / amountPerPoint) * multiplier);
 

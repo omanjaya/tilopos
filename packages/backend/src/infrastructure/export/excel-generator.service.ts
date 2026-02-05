@@ -30,9 +30,16 @@ export class ExcelGeneratorService {
     sheet.getCell('A2').value = `Period: ${data.period}`;
 
     sheet.addRow([]);
-    const headerRow = sheet.addRow(['Date', 'Transactions', 'Total Sales', 'Discount', 'Tax', 'Net Sales']);
+    const headerRow = sheet.addRow([
+      'Date',
+      'Transactions',
+      'Total Sales',
+      'Discount',
+      'Tax',
+      'Net Sales',
+    ]);
     headerRow.font = { bold: true };
-    headerRow.eachCell(cell => {
+    headerRow.eachCell((cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
       cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     });
@@ -49,10 +56,19 @@ export class ExcelGeneratorService {
     }
 
     sheet.addRow([]);
-    const totalsRow = sheet.addRow(['TOTAL', data.totals.transactions, data.totals.totalSales, data.totals.discount, data.totals.tax, data.totals.netSales]);
+    const totalsRow = sheet.addRow([
+      'TOTAL',
+      data.totals.transactions,
+      data.totals.totalSales,
+      data.totals.discount,
+      data.totals.tax,
+      data.totals.netSales,
+    ]);
     totalsRow.font = { bold: true };
 
-    sheet.columns.forEach(column => { column.width = 18; });
+    sheet.columns.forEach((column) => {
+      column.width = 18;
+    });
 
     const arrayBuffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(arrayBuffer);
@@ -70,9 +86,15 @@ export class ExcelGeneratorService {
     sheet.getCell('A1').font = { size: 16, bold: true };
 
     sheet.addRow([]);
-    const headerRow = sheet.addRow(['Product', 'SKU', 'Current Stock', 'Low Stock Alert', 'Status']);
+    const headerRow = sheet.addRow([
+      'Product',
+      'SKU',
+      'Current Stock',
+      'Low Stock Alert',
+      'Status',
+    ]);
     headerRow.font = { bold: true };
-    headerRow.eachCell(cell => {
+    headerRow.eachCell((cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
       cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     });
@@ -87,7 +109,9 @@ export class ExcelGeneratorService {
       ]);
     }
 
-    sheet.columns.forEach(column => { column.width = 20; });
+    sheet.columns.forEach((column) => {
+      column.width = 20;
+    });
 
     const arrayBuffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(arrayBuffer);

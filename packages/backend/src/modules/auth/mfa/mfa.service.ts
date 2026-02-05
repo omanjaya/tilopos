@@ -1,11 +1,7 @@
 import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import type { IEmployeeRepository } from '@domain/interfaces/repositories/employee.repository';
-import {
-  generateBase32Secret,
-  generateTotpUri,
-  verifyTotp,
-} from './totp.util';
+import { generateBase32Secret, generateTotpUri, verifyTotp } from './totp.util';
 
 export interface MfaSetupResult {
   secret: string;
@@ -19,7 +15,7 @@ export class MfaService {
   constructor(
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
-  ) { }
+  ) {}
 
   async generateSecret(employeeId: string): Promise<MfaSetupResult> {
     const employee = await this.employeeRepo.findById(employeeId);
@@ -36,11 +32,7 @@ export class MfaService {
 
     await this.employeeRepo.update(employeeId, { mfaSecret: secret });
 
-    const otpauthUrl = generateTotpUri(
-      secret,
-      accountName,
-      MfaService.ISSUER,
-    );
+    const otpauthUrl = generateTotpUri(secret, accountName, MfaService.ISSUER);
 
     return { secret, otpauthUrl };
   }

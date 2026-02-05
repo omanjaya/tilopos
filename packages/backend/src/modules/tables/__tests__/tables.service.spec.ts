@@ -134,9 +134,9 @@ describe('TablesService', () => {
     it('should throw when table name already exists in outlet', async () => {
       (mockPrisma.table.findFirst as jest.Mock).mockResolvedValue(makeTable());
 
-      await expect(
-        service.create({ outletId: 'outlet-1', name: 'Table 1' }),
-      ).rejects.toThrow('Table with this name already exists in the outlet');
+      await expect(service.create({ outletId: 'outlet-1', name: 'Table 1' })).rejects.toThrow(
+        'Table with this name already exists in the outlet',
+      );
     });
 
     it('should default capacity to 4 if not provided', async () => {

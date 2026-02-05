@@ -68,7 +68,7 @@ export class MidtransGateway implements IPaymentGateway {
           headers: {
             Authorization: this.generateAuthHeader(),
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            Accept: 'application/json',
           },
           timeout: 30000,
         },
@@ -85,7 +85,11 @@ export class MidtransGateway implements IPaymentGateway {
     }
   }
 
-  async refundPayment(transactionRef: string, amount: number, reason?: string): Promise<RefundResult> {
+  async refundPayment(
+    transactionRef: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     try {
       this.logger.log(`Processing Midtrans refund: ${transactionRef} - ${amount}`);
 
@@ -99,7 +103,7 @@ export class MidtransGateway implements IPaymentGateway {
           headers: {
             Authorization: this.generateAuthHeader(),
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            Accept: 'application/json',
           },
           timeout: 30000,
         },
@@ -182,7 +186,7 @@ export class MidtransGateway implements IPaymentGateway {
         success: false,
         transactionStatus: 'pending',
         transactionId: '',
-        orderId: payload.order_id as string || '',
+        orderId: (payload.order_id as string) || '',
       };
     }
   }
@@ -267,12 +271,14 @@ export class MidtransGateway implements IPaymentGateway {
     }
   }
 
-  private extractCustomerDetails(metadata?: Record<string, unknown>): {
-    first_name: string;
-    last_name: string;
-    email: string;
-    phone: string;
-  } | Record<string, never> {
+  private extractCustomerDetails(metadata?: Record<string, unknown>):
+    | {
+        first_name: string;
+        last_name: string;
+        email: string;
+        phone: string;
+      }
+    | Record<string, never> {
     if (!metadata?.customer) {
       return {};
     }
@@ -403,7 +409,12 @@ export class MidtransGateway implements IPaymentGateway {
     return `Basic ${authString}`;
   }
 
-  private verifyWebhookSignature(orderId: string, statusCode: string, grossAmount: string, signatureKey: string): boolean {
+  private verifyWebhookSignature(
+    orderId: string,
+    statusCode: string,
+    grossAmount: string,
+    signatureKey: string,
+  ): boolean {
     const hash = createHash('sha512')
       .update(`${orderId}${statusCode}${grossAmount}${this.serverKey}`)
       .digest('hex');

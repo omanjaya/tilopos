@@ -1,6 +1,9 @@
 import { EndShiftUseCase, EndShiftInput } from './end-shift.use-case';
 import { BusinessError } from '@shared/errors/business-error';
-import type { IShiftRepository, ShiftRecord } from '@domain/interfaces/repositories/shift.repository';
+import type {
+  IShiftRepository,
+  ShiftRecord,
+} from '@domain/interfaces/repositories/shift.repository';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
 
 describe('EndShiftUseCase', () => {
@@ -74,11 +77,14 @@ describe('EndShiftUseCase', () => {
     expect(result.actualCash).toBe(750000);
     expect(result.difference).toBe(0); // 750000 - 750000 = 0
     expect(result.endedAt).toBeInstanceOf(Date);
-    expect(mockShiftRepo.close).toHaveBeenCalledWith('shift-1', expect.objectContaining({
-      closingCash: 750000,
-      expectedCash: 750000,
-      cashDifference: 0,
-    }));
+    expect(mockShiftRepo.close).toHaveBeenCalledWith(
+      'shift-1',
+      expect.objectContaining({
+        closingCash: 750000,
+        expectedCash: 750000,
+        cashDifference: 0,
+      }),
+    );
   });
 
   it('should calculate positive difference when actual cash exceeds expected', async () => {

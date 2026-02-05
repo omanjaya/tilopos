@@ -208,11 +208,9 @@ describe('SagaOrchestrator', () => {
       expect(step1.compensate).toHaveBeenCalledTimes(1);
 
       // Check that compensation failure is logged
-      const compensateSteps = result.log.steps.filter(s =>
-        s.stepName.startsWith('compensate:'),
-      );
+      const compensateSteps = result.log.steps.filter((s) => s.stepName.startsWith('compensate:'));
       expect(compensateSteps).toHaveLength(2);
-      const failedComp = compensateSteps.find(s => s.stepName === 'compensate:step-2');
+      const failedComp = compensateSteps.find((s) => s.stepName === 'compensate:step-2');
       expect(failedComp?.success).toBe(false);
       expect(failedComp?.error).toContain('compensation failed');
     });
@@ -225,9 +223,7 @@ describe('SagaOrchestrator', () => {
   describe('saga with multiple steps', () => {
     it('should handle a saga with 5 steps completing successfully', async () => {
       // Arrange
-      const steps = Array.from({ length: 5 }, (_, i) =>
-        createStep(`step-${i + 1}`),
-      );
+      const steps = Array.from({ length: 5 }, (_, i) => createStep(`step-${i + 1}`));
 
       const saga = orchestrator.createSaga('FiveStepSaga');
       for (const step of steps) {

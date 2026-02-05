@@ -6,7 +6,10 @@ import type {
   LoyaltyTierRecord,
   LoyaltyTransactionRecord,
 } from '@domain/interfaces/repositories/loyalty.repository';
-import type { ICustomerRepository, CustomerRecord } from '@domain/interfaces/repositories/customer.repository';
+import type {
+  ICustomerRepository,
+  CustomerRecord,
+} from '@domain/interfaces/repositories/customer.repository';
 
 describe('EarnLoyaltyPointsUseCase', () => {
   let useCase: EarnLoyaltyPointsUseCase;

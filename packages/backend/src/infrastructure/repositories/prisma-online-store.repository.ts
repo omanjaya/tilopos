@@ -1,12 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import type { IOnlineStoreRepository } from '../../domain/interfaces/repositories/online-store.repository';
+import type {
+  IOnlineStoreRepository,
+  OnlineStoreRecord,
+  StoreOrderRecord,
+  StoreProductRecord,
+} from '../../domain/interfaces/repositories/online-store.repository';
 
 @Injectable()
 export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findStoresByBusinessId(businessId: string): Promise<any[]> {
+  async findStoresByBusinessId(businessId: string): Promise<OnlineStoreRecord[]> {
     return this.prisma.onlineStore.findMany({
       where: { businessId },
     });
@@ -17,7 +22,7 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
     storeName: string;
     slug: string;
     description: string | null;
-  }): Promise<any> {
+  }): Promise<OnlineStoreRecord> {
     return this.prisma.onlineStore.create({
       data: {
         businessId: data.businessId,
@@ -28,20 +33,20 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
     });
   }
 
-  async findStoreBySlug(slug: string): Promise<any | null> {
+  async findStoreBySlug(slug: string): Promise<OnlineStoreRecord | null> {
     return this.prisma.onlineStore.findUnique({
       where: { slug },
     });
   }
 
-  async findActiveProductsByBusinessId(businessId: string): Promise<any[]> {
+  async findActiveProductsByBusinessId(businessId: string): Promise<StoreProductRecord[]> {
     return this.prisma.product.findMany({
       where: { businessId, isActive: true },
       include: { variants: true, category: true },
     });
   }
 
-  async findStoreOrders(storeId: string, status?: string): Promise<any[]> {
+  async findStoreOrders(storeId: string, status?: string): Promise<StoreOrderRecord[]> {
     return this.prisma.storeOrder.findMany({
       where: {
         storeId,
@@ -79,7 +84,7 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
       unitPrice: number;
       subtotal: number;
     }[];
-  }): Promise<any> {
+  }): Promise<StoreOrderRecord> {
     return this.prisma.storeOrder.create({
       data: {
         storeId: data.storeId,
@@ -106,7 +111,7 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
     });
   }
 
-  async updateOrderStatus(id: string, status: string): Promise<any> {
+  async updateOrderStatus(id: string, status: string): Promise<StoreOrderRecord> {
     return this.prisma.storeOrder.update({
       where: { id },
       data: {

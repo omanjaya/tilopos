@@ -63,10 +63,7 @@ export class AuthController {
 
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  async googleAuthCallback(
-    @Req() req: GoogleAuthRequest,
-    @Res() res: Response,
-  ) {
+  async googleAuthCallback(@Req() req: GoogleAuthRequest, @Res() res: Response) {
     const profile = req.user;
     const employee = await this.authService.validateOAuthUser(profile);
     const result = await this.authService.loginWithOAuth(employee);
@@ -74,15 +71,11 @@ export class AuthController {
     const frontendUrl = process.env['FRONTEND_URL'] ?? 'http://localhost:5173';
 
     if ('requiresMfa' in result) {
-      res.redirect(
-        `${frontendUrl}/auth/mfa?mfaToken=${encodeURIComponent(result.mfaToken)}`,
-      );
+      res.redirect(`${frontendUrl}/auth/mfa?mfaToken=${encodeURIComponent(result.mfaToken)}`);
       return;
     }
 
-    res.redirect(
-      `${frontendUrl}/auth/callback?token=${encodeURIComponent(result.accessToken)}`,
-    );
+    res.redirect(`${frontendUrl}/auth/callback?token=${encodeURIComponent(result.accessToken)}`);
   }
 
   @Post('oauth/google')
@@ -122,10 +115,7 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update user profile' })
-  async updateProfile(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: UpdateProfileDto,
-  ) {
+  async updateProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
     return this.updateProfileUseCase.execute({
       employeeId: user.employeeId,
       name: dto.name,
@@ -144,10 +134,7 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Change user PIN' })
-  async changePin(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ChangePinDto,
-  ) {
+  async changePin(@CurrentUser() user: AuthUser, @Body() dto: ChangePinDto) {
     return this.changePinUseCase.execute({
       employeeId: user.employeeId,
       currentPin: dto.currentPin,

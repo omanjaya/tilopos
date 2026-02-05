@@ -47,10 +47,7 @@ export class PromotionRulesEngine {
         isActive: true,
         validFrom: { lte: now },
         validUntil: { gte: now },
-        OR: [
-          { usageLimit: null },
-          { usedCount: { lt: this.prisma.promotion.fields.usageLimit } },
-        ],
+        OR: [{ usageLimit: null }, { usedCount: { lt: this.prisma.promotion.fields.usageLimit } }],
       },
     });
 
@@ -77,7 +74,10 @@ export class PromotionRulesEngine {
     };
   }
 
-  private evaluatePromotion(promotion: Promotion, context: PromotionRuleContext): ApplicablePromotion | null {
+  private evaluatePromotion(
+    promotion: Promotion,
+    context: PromotionRuleContext,
+  ): ApplicablePromotion | null {
     const discountValue = promotion.discountValue.toNumber();
     const minPurchase = promotion.minPurchase?.toNumber();
     const maxDiscount = promotion.maxDiscount?.toNumber();
@@ -131,7 +131,10 @@ export class PromotionRulesEngine {
     };
   }
 
-  private passesApplicableFilters(applicableTo: Record<string, unknown>, context: PromotionRuleContext): boolean {
+  private passesApplicableFilters(
+    applicableTo: Record<string, unknown>,
+    context: PromotionRuleContext,
+  ): boolean {
     if (!applicableTo || Object.keys(applicableTo).length === 0) {
       return true;
     }
@@ -181,7 +184,9 @@ export class PromotionRulesEngine {
 
     let applicableItems = context.items;
     if (productIds && productIds.length > 0) {
-      applicableItems = context.items.filter((item: TransactionItem) => productIds.includes(item.productId));
+      applicableItems = context.items.filter((item: TransactionItem) =>
+        productIds.includes(item.productId),
+      );
     }
 
     if (applicableItems.length === 0) {

@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -15,9 +26,7 @@ import { decimalToNumberRequired } from '../../infrastructure/repositories/decim
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 @Controller('settlements')
 export class SettlementsController {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   @Get()
   @ApiOperation({ summary: 'List settlements with filters' })
@@ -63,7 +72,13 @@ export class SettlementsController {
     const result = await Promise.all(
       settlements.map(async (s) => {
         const meta = (s.metadata as Record<string, unknown>) || {};
-        const breakdown = (meta.breakdown as Array<{ method: string; transactionCount: number; totalAmount: number; netAmount: number }>) || [];
+        const breakdown =
+          (meta.breakdown as Array<{
+            method: string;
+            transactionCount: number;
+            totalAmount: number;
+            netAmount: number;
+          }>) || [];
 
         const grossAmount = decimalToNumberRequired(s.grossAmount);
         const netAmount = decimalToNumberRequired(s.netAmount);
@@ -71,7 +86,11 @@ export class SettlementsController {
         // Calculate cash vs non-cash from breakdown
         let cashAmount = 0;
         let nonCashAmount = 0;
-        const paymentBreakdown: Array<{ method: string; amount: number; transactionCount: number }> = [];
+        const paymentBreakdown: Array<{
+          method: string;
+          amount: number;
+          transactionCount: number;
+        }> = [];
 
         if (breakdown.length > 0) {
           for (const b of breakdown) {
@@ -151,9 +170,7 @@ export class SettlementsController {
     const end = new Date(endDate);
 
     // Build outlet filter
-    const outletFilter = outletId
-      ? { outletId }
-      : { outlet: { businessId: user.businessId } };
+    const outletFilter = outletId ? { outletId } : { outlet: { businessId: user.businessId } };
 
     // 1. Total transactions amount (completed sales)
     const transactions = await this.prisma.transaction.findMany({
@@ -190,22 +207,23 @@ export class SettlementsController {
     const netTransactionsAmount = totalSalesAmount - totalRefundsAmount;
 
     // 2. Total payments received (by method)
-    const transactionIds = transactions.map(t => t.id);
-    const payments = transactionIds.length > 0
-      ? await this.prisma.payment.findMany({
-          where: {
-            transactionId: { in: transactionIds },
-            status: 'completed',
-          },
-          select: {
-            id: true,
-            transactionId: true,
-            paymentMethod: true,
-            amount: true,
-            referenceNumber: true,
-          },
-        })
-      : [];
+    const transactionIds = transactions.map((t) => t.id);
+    const payments =
+      transactionIds.length > 0
+        ? await this.prisma.payment.findMany({
+            where: {
+              transactionId: { in: transactionIds },
+              status: 'completed',
+            },
+            select: {
+              id: true,
+              transactionId: true,
+              paymentMethod: true,
+              amount: true,
+              referenceNumber: true,
+            },
+          })
+        : [];
 
     // Group payments by method
     const paymentsByMethod: Record<string, { count: number; total: number }> = {};
@@ -256,14 +274,16 @@ export class SettlementsController {
     }
 
     // 4. Discrepancies
-    const transactionVsPaymentDiff = Math.round((netTransactionsAmount - totalPaymentsReceived) * 100) / 100;
-    const paymentVsSettlementDiff = Math.round((totalPaymentsReceived - totalSettledGross) * 100) / 100;
+    const transactionVsPaymentDiff =
+      Math.round((netTransactionsAmount - totalPaymentsReceived) * 100) / 100;
+    const paymentVsSettlementDiff =
+      Math.round((totalPaymentsReceived - totalSettledGross) * 100) / 100;
 
     // 5. Unmatched payments - transactions with no payments
-    const transactionIdsWithPayments = new Set(payments.map(p => p.transactionId));
+    const transactionIdsWithPayments = new Set(payments.map((p) => p.transactionId));
     const unmatchedTransactions = transactions
-      .filter(t => !transactionIdsWithPayments.has(t.id) && t.transactionType !== 'refund')
-      .map(t => ({
+      .filter((t) => !transactionIdsWithPayments.has(t.id) && t.transactionType !== 'refund')
+      .map((t) => ({
         transactionId: t.id,
         receiptNumber: t.receiptNumber,
         amount: decimalToNumberRequired(t.grandTotal),
@@ -298,7 +318,8 @@ export class SettlementsController {
       discrepancies: {
         transactionVsPaymentDiff,
         paymentVsSettlementDiff,
-        hasDiscrepancy: Math.abs(transactionVsPaymentDiff) > 1 || Math.abs(paymentVsSettlementDiff) > 1,
+        hasDiscrepancy:
+          Math.abs(transactionVsPaymentDiff) > 1 || Math.abs(paymentVsSettlementDiff) > 1,
       },
       unmatchedPayments: unmatchedTransactions,
       generatedAt: new Date().toISOString(),
@@ -320,14 +341,21 @@ export class SettlementsController {
     }
 
     const meta = (s.metadata as Record<string, unknown>) || {};
-    const breakdown = (meta.breakdown as Array<{ method: string; transactionCount: number; totalAmount: number; netAmount: number }>) || [];
+    const breakdown =
+      (meta.breakdown as Array<{
+        method: string;
+        transactionCount: number;
+        totalAmount: number;
+        netAmount: number;
+      }>) || [];
 
     const grossAmount = decimalToNumberRequired(s.grossAmount);
     const netAmount = decimalToNumberRequired(s.netAmount);
 
     let cashAmount = 0;
     let nonCashAmount = 0;
-    const paymentBreakdown: Array<{ method: string; amount: number; transactionCount: number }> = [];
+    const paymentBreakdown: Array<{ method: string; amount: number; transactionCount: number }> =
+      [];
 
     if (breakdown.length > 0) {
       for (const b of breakdown) {
@@ -378,7 +406,8 @@ export class SettlementsController {
   @Post()
   @ApiOperation({ summary: 'Create a new settlement' })
   async create(
-    @Body() dto: {
+    @Body()
+    dto: {
       outletId: string;
       paymentMethod: string;
       settlementDate: string;
@@ -433,10 +462,7 @@ export class SettlementsController {
   // Also support PUT for backwards compatibility
   @Put(':id/settle')
   @ApiOperation({ summary: 'Confirm settlement (PUT)' })
-  async settlePut(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async settlePut(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     const settlement = await this.prisma.paymentSettlement.findUnique({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
 
@@ -458,10 +484,7 @@ export class SettlementsController {
   // Frontend calls POST /settlements/:id/dispute
   @Post(':id/dispute')
   @ApiOperation({ summary: 'Dispute settlement (POST)' })
-  async disputePost(
-    @Param('id') id: string,
-    @Body() dto?: { reason?: string },
-  ) {
+  async disputePost(@Param('id') id: string, @Body() dto?: { reason?: string }) {
     const settlement = await this.prisma.paymentSettlement.findUnique({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
 

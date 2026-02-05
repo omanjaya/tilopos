@@ -86,7 +86,7 @@ export class EventStoreV2 {
     });
 
     const currentVersion = latestEvent?.oldValue
-      ? (latestEvent.oldValue as Record<string, unknown>).version as number ?? 0
+      ? (((latestEvent.oldValue as Record<string, unknown>).version as number) ?? 0)
       : 0;
 
     const newVersion = currentVersion + 1;
@@ -139,13 +139,13 @@ export class EventStoreV2 {
       orderBy: { createdAt: 'asc' },
     });
 
-    return records.map(record => ({
+    return records.map((record) => ({
       id: record.id,
       aggregateId: record.entityId ?? aggregateId,
       aggregateType: record.entityType,
       eventType: record.action.replace('event:', ''),
       eventData: record.newValue as Record<string, unknown>,
-      version: (record.oldValue as Record<string, unknown>)?.version as number ?? 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) ?? 0,
       occurredOn: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
     }));
@@ -215,7 +215,7 @@ export class EventStoreV2 {
     // Get all upcasters for this event type
     const typeUpcasters = Array.from(this.upcasters.values())
       .flat()
-      .filter(u => u.eventType === event.eventType && u.fromVersion <= event.version)
+      .filter((u) => u.eventType === event.eventType && u.fromVersion <= event.version)
       .sort((a, b) => a.fromVersion - b.fromVersion);
 
     for (const upcaster of typeUpcasters) {
@@ -258,9 +258,7 @@ export class EventStoreV2 {
     this.logger.log('Starting event migration...');
 
     const events = await this.getEvents(aggregateId || '', aggregateType);
-    const toMigrate = beforeVersion
-      ? events.filter(e => e.version < beforeVersion)
-      : events;
+    const toMigrate = beforeVersion ? events.filter((e) => e.version < beforeVersion) : events;
 
     let migrated = 0;
     const errors: string[] = [];
@@ -271,7 +269,10 @@ export class EventStoreV2 {
 
         // Apply applicable migrations
         for (const migration of this.migrations) {
-          if (migration.eventTypes.includes('*') || migration.eventTypes.includes(event.eventType)) {
+          if (
+            migration.eventTypes.includes('*') ||
+            migration.eventTypes.includes(event.eventType)
+          ) {
             migratedEvent = migration.migrate(migratedEvent);
           }
         }
@@ -334,9 +335,7 @@ export class EventStoreV2 {
       metadata: record.metadata as Record<string, unknown>,
     };
 
-    this.logger.debug(
-      `Snapshot saved for ${aggregateType}:${aggregateId} at version ${version}`,
-    );
+    this.logger.debug(`Snapshot saved for ${aggregateType}:${aggregateId} at version ${version}`);
 
     return snapshot;
   }
@@ -344,10 +343,7 @@ export class EventStoreV2 {
   /**
    * Get the latest snapshot for an aggregate
    */
-  async getLatestSnapshot(
-    aggregateId: string,
-    aggregateType: string,
-  ): Promise<Snapshot | null> {
+  async getLatestSnapshot(aggregateId: string, aggregateType: string): Promise<Snapshot | null> {
     const record = await this.prisma.auditLog.findFirst({
       where: {
         entityType: `snapshot:${aggregateType}`,
@@ -365,7 +361,7 @@ export class EventStoreV2 {
       id: record.id,
       aggregateId: record.entityId || aggregateId,
       aggregateType: record.entityType.replace('snapshot:', ''),
-      version: (record.oldValue as Record<string, unknown>)?.version as number || 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) || 0,
       state: record.newValue as Record<string, unknown>,
       timestamp: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
@@ -375,10 +371,7 @@ export class EventStoreV2 {
   /**
    * Get all snapshots for an aggregate
    */
-  async getSnapshots(
-    aggregateId: string,
-    aggregateType: string,
-  ): Promise<Snapshot[]> {
+  async getSnapshots(aggregateId: string, aggregateType: string): Promise<Snapshot[]> {
     const records = await this.prisma.auditLog.findMany({
       where: {
         entityType: `snapshot:${aggregateType}`,
@@ -388,11 +381,11 @@ export class EventStoreV2 {
       orderBy: { createdAt: 'desc' },
     });
 
-    return records.map(record => ({
+    return records.map((record) => ({
       id: record.id,
       aggregateId: record.entityId || aggregateId,
       aggregateType: record.entityType.replace('snapshot:', ''),
-      version: (record.oldValue as Record<string, unknown>)?.version as number || 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) || 0,
       state: record.newValue as Record<string, unknown>,
       timestamp: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
@@ -402,11 +395,7 @@ export class EventStoreV2 {
   /**
    * Delete old snapshots, keeping only the N most recent
    */
-  async pruneSnapshots(
-    aggregateId: string,
-    aggregateType: string,
-    keepCount = 5,
-  ): Promise<number> {
+  async pruneSnapshots(aggregateId: string, aggregateType: string, keepCount = 5): Promise<number> {
     const snapshots = await this.getSnapshots(aggregateId, aggregateType);
 
     if (snapshots.length <= keepCount) {
@@ -414,7 +403,7 @@ export class EventStoreV2 {
     }
 
     const toDelete = snapshots.slice(keepCount);
-    const idsToDelete = toDelete.map(s => s.id);
+    const idsToDelete = toDelete.map((s) => s.id);
 
     await this.prisma.auditLog.deleteMany({
       where: { id: { in: idsToDelete } },
@@ -446,7 +435,7 @@ export class EventStoreV2 {
     }
 
     const events = await this.getEvents(aggregateId, aggregateType);
-    const eventsAfterSnapshot = events.filter(e => e.version > snapshot.version);
+    const eventsAfterSnapshot = events.filter((e) => e.version > snapshot.version);
 
     let state = { ...snapshot.state };
     let version = snapshot.version;
@@ -471,12 +460,9 @@ export class EventStoreV2 {
   /**
    * Get events with upcasting applied
    */
-  async getEventsUpcasted(
-    aggregateId: string,
-    aggregateType?: string,
-  ): Promise<StoredEvent[]> {
+  async getEventsUpcasted(aggregateId: string, aggregateType?: string): Promise<StoredEvent[]> {
     const events = await this.getEvents(aggregateId, aggregateType);
-    return events.map(e => this.applyUpcasters(e));
+    return events.map((e) => this.applyUpcasters(e));
   }
 
   /**
@@ -498,16 +484,11 @@ export class EventStoreV2 {
 
     const snapshot = await this.getLatestSnapshot(aggregateId, aggregateType);
     const eventsSinceSnapshotCount = events.filter(
-      e => !snapshot || e.version > snapshot.version,
+      (e) => !snapshot || e.version > snapshot.version,
     ).length;
 
     if (eventsSinceSnapshotCount >= snapshotThreshold / 2) {
-      await this.saveSnapshot(
-        aggregateId,
-        aggregateType,
-        result.state,
-        result.version,
-      );
+      await this.saveSnapshot(aggregateId, aggregateType, result.state, result.version);
       await this.pruneSnapshots(aggregateId, aggregateType);
     }
 
@@ -531,13 +512,13 @@ export class EventStoreV2 {
       orderBy: { createdAt: 'asc' },
     });
 
-    return records.map(record => ({
+    return records.map((record) => ({
       id: record.id,
       aggregateId: record.entityId ?? '',
       aggregateType: record.entityType,
       eventType: record.action.replace('event:', ''),
       eventData: record.newValue as Record<string, unknown>,
-      version: (record.oldValue as Record<string, unknown>)?.version as number ?? 0,
+      version: ((record.oldValue as Record<string, unknown>)?.version as number) ?? 0,
       occurredOn: record.createdAt,
       metadata: record.metadata as Record<string, unknown>,
     }));
@@ -573,16 +554,18 @@ export class EventStoreV2 {
         break;
       }
 
-      const upcasted = events.map(record => ({
-        id: record.id,
-        aggregateId: record.entityId || aggregateId,
-        aggregateType: record.entityType,
-        eventType: record.action.replace('event:', ''),
-        eventData: record.newValue as Record<string, unknown>,
-        version: (record.oldValue as Record<string, unknown>)?.version as number || 0,
-        occurredOn: record.createdAt,
-        metadata: record.metadata as Record<string, unknown>,
-      })).map(e => this.applyUpcasters(e));
+      const upcasted = events
+        .map((record) => ({
+          id: record.id,
+          aggregateId: record.entityId || aggregateId,
+          aggregateType: record.entityType,
+          eventType: record.action.replace('event:', ''),
+          eventData: record.newValue as Record<string, unknown>,
+          version: ((record.oldValue as Record<string, unknown>)?.version as number) || 0,
+          occurredOn: record.createdAt,
+          metadata: record.metadata as Record<string, unknown>,
+        }))
+        .map((e) => this.applyUpcasters(e));
 
       yield upcasted;
 

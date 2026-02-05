@@ -16,5 +16,4 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
   ],
   exports: [OnlineStoreSyncService, OnlineStoreService],
 })
-export class OnlineStoreModule { }
-
+export class OnlineStoreModule {}

@@ -103,11 +103,7 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-export function generateTotpUri(
-  base32Secret: string,
-  accountName: string,
-  issuer: string,
-): string {
+export function generateTotpUri(base32Secret: string, accountName: string, issuer: string): string {
   const encodedIssuer = encodeURIComponent(issuer);
   const encodedAccount = encodeURIComponent(accountName);
   const label = `${encodedIssuer}:${encodedAccount}`;

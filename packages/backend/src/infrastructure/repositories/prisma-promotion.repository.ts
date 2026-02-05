@@ -1,24 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { DiscountType } from '@prisma/client';
-import type { IPromotionRepository, CreatePromotionData } from '../../domain/interfaces/repositories/promotion.repository';
+import type {
+  IPromotionRepository,
+  CreatePromotionData,
+  PromotionRecord,
+  VoucherRecord,
+} from '../../domain/interfaces/repositories/promotion.repository';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
 export class PrismaPromotionRepository implements IPromotionRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByBusinessId(businessId: string): Promise<any[]> {
+  async findByBusinessId(businessId: string): Promise<PromotionRecord[]> {
     return this.prisma.promotion.findMany({
       where: { businessId, isActive: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findById(id: string): Promise<any | null> {
+  async findById(id: string): Promise<PromotionRecord | null> {
     return this.prisma.promotion.findUnique({ where: { id } });
   }
 
-  async save(data: CreatePromotionData): Promise<any> {
+  async save(data: CreatePromotionData): Promise<PromotionRecord> {
     return this.prisma.promotion.create({
       data: {
         businessId: data.businessId,
@@ -35,7 +40,7 @@ export class PrismaPromotionRepository implements IPromotionRepository {
     });
   }
 
-  async update(id: string, data: Record<string, unknown>): Promise<any> {
+  async update(id: string, data: Record<string, unknown>): Promise<PromotionRecord> {
     return this.prisma.promotion.update({
       where: { id },
       data: data as Record<string, never>,
@@ -49,7 +54,7 @@ export class PrismaPromotionRepository implements IPromotionRepository {
     });
   }
 
-  async findVoucherByCode(code: string): Promise<any | null> {
+  async findVoucherByCode(code: string): Promise<VoucherRecord | null> {
     return this.prisma.voucher.findUnique({ where: { code } });
   }
 }

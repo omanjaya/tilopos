@@ -1,18 +1,24 @@
 import { Injectable } from '@nestjs/common';
-import type { ISupplierRepository, CreateSupplierData, CreatePurchaseOrderData } from '../../domain/interfaces/repositories/supplier.repository';
+import type {
+  ISupplierRepository,
+  CreateSupplierData,
+  CreatePurchaseOrderData,
+  SupplierRecord,
+  PurchaseOrderRecord,
+} from '../../domain/interfaces/repositories/supplier.repository';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
 export class PrismaSupplierRepository implements ISupplierRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByBusinessId(businessId: string): Promise<any[]> {
+  async findByBusinessId(businessId: string): Promise<SupplierRecord[]> {
     return this.prisma.supplier.findMany({
       where: { businessId, isActive: true },
     });
   }
 
-  async save(data: CreateSupplierData): Promise<any> {
+  async save(data: CreateSupplierData): Promise<SupplierRecord> {
     return this.prisma.supplier.create({
       data: {
         businessId: data.businessId,
@@ -25,7 +31,7 @@ export class PrismaSupplierRepository implements ISupplierRepository {
     });
   }
 
-  async update(id: string, data: Record<string, unknown>): Promise<any> {
+  async update(id: string, data: Record<string, unknown>): Promise<SupplierRecord> {
     return this.prisma.supplier.update({
       where: { id },
       data: data as Record<string, never>,
@@ -39,7 +45,7 @@ export class PrismaSupplierRepository implements ISupplierRepository {
     });
   }
 
-  async findPurchaseOrdersByOutlet(outletId: string): Promise<any[]> {
+  async findPurchaseOrdersByOutlet(outletId: string): Promise<PurchaseOrderRecord[]> {
     return this.prisma.purchaseOrder.findMany({
       where: { outletId },
       include: { supplier: true, items: true },
@@ -47,14 +53,14 @@ export class PrismaSupplierRepository implements ISupplierRepository {
     });
   }
 
-  async findPurchaseOrderById(id: string): Promise<any | null> {
+  async findPurchaseOrderById(id: string): Promise<PurchaseOrderRecord | null> {
     return this.prisma.purchaseOrder.findUnique({
       where: { id },
       include: { supplier: true, items: true },
     });
   }
 
-  async createPurchaseOrder(data: CreatePurchaseOrderData): Promise<any> {
+  async createPurchaseOrder(data: CreatePurchaseOrderData): Promise<PurchaseOrderRecord> {
     return this.prisma.purchaseOrder.create({
       data: {
         outletId: data.outletId,
@@ -77,7 +83,7 @@ export class PrismaSupplierRepository implements ISupplierRepository {
     });
   }
 
-  async receivePurchaseOrder(id: string): Promise<any> {
+  async receivePurchaseOrder(id: string): Promise<PurchaseOrderRecord> {
     return this.prisma.purchaseOrder.update({
       where: { id },
       data: { status: 'received', receivedAt: new Date() },

@@ -23,10 +23,6 @@ export class UpdateTableStatusUseCase {
       throw new AppError(ErrorCode.TABLE_NOT_FOUND, 'Table not found');
     }
 
-    return this.tableRepo.updateStatus(
-      params.tableId,
-      params.status,
-      params.currentOrderId,
-    );
+    return this.tableRepo.updateStatus(params.tableId, params.status, params.currentOrderId);
   }
 }

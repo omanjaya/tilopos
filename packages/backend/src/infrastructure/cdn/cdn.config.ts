@@ -102,7 +102,9 @@ export function getCacheControlForPath(filePath: string): string {
  * @param paths - Array of paths to purge from CDN cache
  * @returns Promise that resolves when purge request is sent
  */
-export async function purgeCdnCache(paths: string[]): Promise<{ success: boolean; message: string }> {
+export async function purgeCdnCache(
+  paths: string[],
+): Promise<{ success: boolean; message: string }> {
   const config = getCdnConfig();
 
   if (!config.isEnabled) {

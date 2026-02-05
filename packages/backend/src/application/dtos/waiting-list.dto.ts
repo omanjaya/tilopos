@@ -1,12 +1,4 @@
-import {
-  IsString,
-  IsNumber,
-  IsOptional,
-  IsUUID,
-  Min,
-  Max,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsUUID, Min, Max, MaxLength } from 'class-validator';
 
 export class AddToWaitingListDto {
   @IsUUID()

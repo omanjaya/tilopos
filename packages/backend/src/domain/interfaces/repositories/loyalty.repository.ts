@@ -47,18 +47,21 @@ export interface ILoyaltyRepository {
   // Tier
   findTiersByBusiness(businessId: string): Promise<LoyaltyTierRecord[]>;
   findTierById(id: string): Promise<LoyaltyTierRecord | null>;
-  findEligibleTier(businessId: string, points: number, totalSpent: number): Promise<LoyaltyTierRecord | null>;
+  findEligibleTier(
+    businessId: string,
+    points: number,
+    totalSpent: number,
+  ): Promise<LoyaltyTierRecord | null>;
 
   // Transaction
   createTransaction(data: CreateLoyaltyTransactionData): Promise<LoyaltyTransactionRecord>;
-  findTransactionsByCustomer(customerId: string, limit?: number): Promise<LoyaltyTransactionRecord[]>;
+  findTransactionsByCustomer(
+    customerId: string,
+    limit?: number,
+  ): Promise<LoyaltyTransactionRecord[]>;
 
   // Customer
-  updateCustomerPoints(
-    customerId: string,
-    points: number,
-    tier: string,
-  ): Promise<void>;
+  updateCustomerPoints(customerId: string, points: number, tier: string): Promise<void>;
   findCustomerById(customerId: string): Promise<Customer | null>;
 }
 

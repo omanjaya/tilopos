@@ -19,13 +19,18 @@ export class MergeBillUseCase {
     private readonly transactionRepo: ITransactionRepository,
   ) {}
 
-  async execute(input: MergeBillInput): Promise<{ mergedTransactionId: string; grandTotal: number }> {
+  async execute(
+    input: MergeBillInput,
+  ): Promise<{ mergedTransactionId: string; grandTotal: number }> {
     const transactions = [];
     for (const id of input.transactionIds) {
       const tx = await this.transactionRepo.findById(id);
       if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
       if (tx.status !== 'completed') {
-        throw new BusinessError(ErrorCode.INVALID_TRANSACTION, `Transaction ${id} is not completed`);
+        throw new BusinessError(
+          ErrorCode.INVALID_TRANSACTION,
+          `Transaction ${id} is not completed`,
+        );
       }
       transactions.push(tx);
     }

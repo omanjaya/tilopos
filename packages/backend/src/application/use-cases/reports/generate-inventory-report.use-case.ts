@@ -14,13 +14,15 @@ export class GenerateInventoryReportUseCase {
     private readonly excelGenerator: ExcelGeneratorService,
   ) {}
 
-  async execute(input: GenerateInventoryReportInput): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+  async execute(
+    input: GenerateInventoryReportInput,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId: input.outletId },
       include: { product: true, variant: true },
     });
 
-    const rows = stockLevels.map(sl => ({
+    const rows = stockLevels.map((sl) => ({
       productName: sl.product?.name || 'Unknown',
       sku: sl.product?.sku || '',
       currentStock: sl.quantity.toNumber(),

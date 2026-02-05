@@ -38,9 +38,7 @@ export class SettlementSchedulerService {
           `Settlement scheduled for outlet ${outlet.id}: ${results.length} payment methods`,
         );
       } catch (error) {
-        this.logger.error(
-          `Failed to schedule settlement for outlet ${outlet.id}: ${error}`,
-        );
+        this.logger.error(`Failed to schedule settlement for outlet ${outlet.id}: ${error}`);
       }
     }
 

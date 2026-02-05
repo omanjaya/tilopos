@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsEnum,
-  IsUUID,
-} from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsEnum, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // ==================== App Version DTOs ====================

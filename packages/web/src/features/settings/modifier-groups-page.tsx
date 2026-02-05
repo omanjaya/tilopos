@@ -203,6 +203,7 @@ export function ModifierGroupsPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const columns: Column<ModifierGroup>[] = [

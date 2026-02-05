@@ -37,8 +37,7 @@ export class KdsQueueHandler implements OnModuleInit {
   onModuleInit(): void {
     this.consumer.registerHandler(
       QUEUES.KDS_ORDERS,
-      (envelope: MessageEnvelope, rawMessage: AmqpMessage) =>
-        this.handle(envelope, rawMessage),
+      (envelope: MessageEnvelope, rawMessage: AmqpMessage) => this.handle(envelope, rawMessage),
     );
   }
 
@@ -60,7 +59,7 @@ export class KdsQueueHandler implements OnModuleInit {
   private async handleOrderCreated(payload: OrderCreatedPayload): Promise<void> {
     this.logger.log(
       `Processing order.created for KDS: order ${payload.orderId} ` +
-      `at outlet ${payload.outletId} (table: ${payload.tableId ?? 'takeaway'}, items: ${payload.itemCount})`,
+        `at outlet ${payload.outletId} (table: ${payload.tableId ?? 'takeaway'}, items: ${payload.itemCount})`,
     );
 
     // In a microservice architecture, this would push the order to the
@@ -70,12 +69,10 @@ export class KdsQueueHandler implements OnModuleInit {
     await Promise.resolve();
   }
 
-  private async handleOrderStatusChanged(
-    payload: OrderStatusChangedPayload,
-  ): Promise<void> {
+  private async handleOrderStatusChanged(payload: OrderStatusChangedPayload): Promise<void> {
     this.logger.log(
       `Processing order.status_changed for KDS: order ${payload.orderId} ` +
-      `(${payload.previousStatus} -> ${payload.newStatus})`,
+        `(${payload.previousStatus} -> ${payload.newStatus})`,
     );
 
     // KDS display updates are handled via WebSocket in the KDS module.

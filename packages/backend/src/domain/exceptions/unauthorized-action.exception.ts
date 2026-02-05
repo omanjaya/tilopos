@@ -4,6 +4,10 @@ import { HttpStatus } from '@nestjs/common';
 
 export class UnauthorizedActionException extends AppError {
   constructor(action: string) {
-    super(ErrorCode.UNAUTHORIZED_ACTION, `Unauthorized to perform: ${action}`, HttpStatus.FORBIDDEN);
+    super(
+      ErrorCode.UNAUTHORIZED_ACTION,
+      `Unauthorized to perform: ${action}`,
+      HttpStatus.FORBIDDEN,
+    );
   }
 }

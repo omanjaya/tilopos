@@ -263,7 +263,11 @@ export class XenditGateway implements IPaymentGateway {
    * Refund a payment via Xendit
    * Supports invoice, QR code, and payment code (VA) refunds
    */
-  async refundPayment(transactionRef: string, amount: number, reason?: string): Promise<RefundResult> {
+  async refundPayment(
+    transactionRef: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     if (!this.apiKey) {
       return { success: false, refundRef: '', message: 'Xendit API key not configured' };
     }
@@ -401,7 +405,10 @@ export class XenditGateway implements IPaymentGateway {
   /**
    * Create E-Wallet payment
    */
-  private async createEwalletPayment(input: PaymentInput, ewalletType: string): Promise<PaymentResult> {
+  private async createEwalletPayment(
+    input: PaymentInput,
+    ewalletType: string,
+  ): Promise<PaymentResult> {
     const externalId = this.generateExternalId('ew', input.referenceNumber);
 
     if (!input.customer?.phone) {
@@ -490,7 +497,8 @@ export class XenditGateway implements IPaymentGateway {
       amount: input.amount,
       description: input.description || 'Payment',
       currency: 'IDR',
-      payment_methods: (input.paymentMethods as XenditPaymentMethod[]) || this.getDefaultPaymentMethods(),
+      payment_methods:
+        (input.paymentMethods as XenditPaymentMethod[]) || this.getDefaultPaymentMethods(),
       invoice_duration: input.expirySeconds || 86400, // 24 hours default
       customer: input.customer
         ? {
@@ -528,7 +536,11 @@ export class XenditGateway implements IPaymentGateway {
   // Refund Implementations
   // ---------------------------------------------------------------------------
 
-  private async refundInvoice(invoiceId: string, amount: number, reason?: string): Promise<RefundResult> {
+  private async refundInvoice(
+    invoiceId: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     const payload: XenditRefundRequest = { amount, reason };
     const response = await this.post<XenditRefundResponse>(
       `${this.baseUrl}${this.endpoints.invoice}/${invoiceId}/refunds`,
@@ -542,7 +554,11 @@ export class XenditGateway implements IPaymentGateway {
     return { success: true, refundRef: response.id, message: 'Refund processed' };
   }
 
-  private async refundQRCode(qrCodeId: string, amount: number, reason?: string): Promise<RefundResult> {
+  private async refundQRCode(
+    qrCodeId: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     const payload: XenditRefundRequest = { amount, reason };
     const response = await this.post<XenditRefundResponse>(
       `${this.baseUrl}${this.endpoints.qrcode}/${qrCodeId}/refunds`,
@@ -556,7 +572,11 @@ export class XenditGateway implements IPaymentGateway {
     return { success: true, refundRef: response.id, message: 'Refund processed' };
   }
 
-  private async refundVA(paymentCodeId: string, amount: number, reason?: string): Promise<RefundResult> {
+  private async refundVA(
+    paymentCodeId: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     const payload: XenditRefundRequest = { amount, reason };
     const response = await this.post<XenditRefundResponse>(
       `${this.baseUrl}${this.endpoints.va}/${paymentCodeId}/refunds`,
@@ -570,7 +590,11 @@ export class XenditGateway implements IPaymentGateway {
     return { success: true, refundRef: response.id, message: 'Refund processed' };
   }
 
-  private async tryRefundAllMethods(refId: string, amount: number, reason?: string): Promise<RefundResult> {
+  private async tryRefundAllMethods(
+    refId: string,
+    amount: number,
+    reason?: string,
+  ): Promise<RefundResult> {
     // Try invoice refund first
     const invoiceResult = await this.refundInvoice(refId, amount, reason).catch(() => null);
     if (invoiceResult?.success) return invoiceResult;
@@ -672,7 +696,11 @@ export class XenditGateway implements IPaymentGateway {
   /**
    * Parse webhook payload and extract payment status
    */
-  parseWebhookPayload(payload: XenditWebhookPayload): { status: string; externalId: string; amount: number } {
+  parseWebhookPayload(payload: XenditWebhookPayload): {
+    status: string;
+    externalId: string;
+    amount: number;
+  } {
     return {
       status: this.mapWebhookStatus(payload.status),
       externalId: payload.external_id,
@@ -733,7 +761,9 @@ export class XenditGateway implements IPaymentGateway {
         `Xendit ${operation} failed: ${axiosError.response?.data?.message || axiosError.message}`,
       );
     } else {
-      this.logger.error(`Xendit ${operation} failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `Xendit ${operation} failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -772,7 +802,10 @@ export class XenditGateway implements IPaymentGateway {
 
     // Virtual Accounts
     if (['bca', 'bni', 'bri', 'mandiri', 'permata'].includes(methodLower)) {
-      return { type: 'VA', bankCode: method.toLowerCase() === 'permata' ? 'PERMATA' : method.toUpperCase() };
+      return {
+        type: 'VA',
+        bankCode: method.toLowerCase() === 'permata' ? 'PERMATA' : method.toUpperCase(),
+      };
     }
 
     // E-Wallets
@@ -789,7 +822,9 @@ export class XenditGateway implements IPaymentGateway {
     return { type: 'CREDIT_CARD' };
   }
 
-  private extractPaymentType(transactionRef: string): 'invoice' | 'qrcode' | 'va' | 'ewallet' | 'unknown' {
+  private extractPaymentType(
+    transactionRef: string,
+  ): 'invoice' | 'qrcode' | 'va' | 'ewallet' | 'unknown' {
     if (transactionRef.startsWith('inv_')) return 'invoice';
     if (transactionRef.startsWith('qr_')) return 'qrcode';
     if (transactionRef.startsWith('va_')) return 'va';

@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Res, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Body,
+  UseGuards,
+  Res,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -13,7 +24,11 @@ import { GenerateSalesReportUseCase } from '../../application/use-cases/reports/
 import { GenerateInventoryReportUseCase } from '../../application/use-cases/reports/generate-inventory-report.use-case';
 import { ReportsService, type CustomReportConfig } from './reports.service';
 
-function getDateRange(dateRange?: string, startDate?: string, endDate?: string): { start: Date; end: Date } {
+function getDateRange(
+  dateRange?: string,
+  startDate?: string,
+  endDate?: string,
+): { start: Date; end: Date } {
   const now = new Date();
   const end = new Date(now);
   end.setHours(23, 59, 59, 999);
@@ -291,8 +306,12 @@ export class ReportsController {
       select: { quantity: true, product: { select: { costPrice: true } } },
     });
 
-    const totalRevenue = (sales._sum.grandTotal?.toNumber() || 0) - Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
-    const totalCost = items.reduce((sum, item) => sum + (item.product?.costPrice?.toNumber() || 0) * item.quantity.toNumber(), 0);
+    const totalRevenue =
+      (sales._sum.grandTotal?.toNumber() || 0) - Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
+    const totalCost = items.reduce(
+      (sum, item) => sum + (item.product?.costPrice?.toNumber() || 0) * item.quantity.toNumber(),
+      0,
+    );
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
@@ -311,7 +330,9 @@ export class ReportsController {
   }
 
   @Get('employees')
-  @ApiOperation({ summary: 'Employee performance report (sales, voids, refunds, avg items per transaction)' })
+  @ApiOperation({
+    summary: 'Employee performance report (sales, voids, refunds, avg items per transaction)',
+  })
   async employeeReport(
     @Query('outletId') outletId: string,
     @Query('dateRange') dateRange?: string,
@@ -357,9 +378,7 @@ export class ReportsController {
       _count: true,
     });
 
-    const voidMap = new Map(
-      voidCounts.map((v) => [v.voidedBy, v._count]),
-    );
+    const voidMap = new Map(voidCounts.map((v) => [v.voidedBy, v._count]));
 
     // Refund counts per employee
     const refundCounts = await this.prisma.transaction.groupBy({
@@ -373,9 +392,7 @@ export class ReportsController {
       _count: true,
     });
 
-    const refundMap = new Map(
-      refundCounts.map((r) => [r.employeeId, r._count]),
-    );
+    const refundMap = new Map(refundCounts.map((r) => [r.employeeId, r._count]));
 
     // Average items per transaction per employee
     const transactionsWithItems = await this.prisma.transaction.findMany({
@@ -395,7 +412,10 @@ export class ReportsController {
     const employeeItemCounts = new Map<string, { totalItems: number; transactionCount: number }>();
     for (const tx of transactionsWithItems) {
       if (!tx.employeeId) continue;
-      const existing = employeeItemCounts.get(tx.employeeId) || { totalItems: 0, transactionCount: 0 };
+      const existing = employeeItemCounts.get(tx.employeeId) || {
+        totalItems: 0,
+        transactionCount: 0,
+      };
       const txItemCount = tx.items.reduce((sum, item) => sum + item.quantity.toNumber(), 0);
       existing.totalItems += txItemCount;
       existing.transactionCount += 1;
@@ -405,9 +425,10 @@ export class ReportsController {
     const report = employeeSales.map((es) => {
       const employee = es.employeeId ? employeeMap.get(es.employeeId) : null;
       const itemData = es.employeeId ? employeeItemCounts.get(es.employeeId) : null;
-      const avgItems = itemData && itemData.transactionCount > 0
-        ? Math.round((itemData.totalItems / itemData.transactionCount) * 10) / 10
-        : 0;
+      const avgItems =
+        itemData && itemData.transactionCount > 0
+          ? Math.round((itemData.totalItems / itemData.transactionCount) * 10) / 10
+          : 0;
 
       return {
         employeeId: es.employeeId,
@@ -416,8 +437,8 @@ export class ReportsController {
         totalSales: es._sum.grandTotal?.toNumber() || 0,
         transactionCount: es._count,
         averageTransaction: es._avg.grandTotal?.toNumber() || 0,
-        voidCount: es.employeeId ? (voidMap.get(es.employeeId) || 0) : 0,
-        refundCount: es.employeeId ? (refundMap.get(es.employeeId) || 0) : 0,
+        voidCount: es.employeeId ? voidMap.get(es.employeeId) || 0 : 0,
+        refundCount: es.employeeId ? refundMap.get(es.employeeId) || 0 : 0,
         averageItemsPerTransaction: avgItems,
       };
     });
@@ -438,7 +459,9 @@ export class ReportsController {
   }
 
   @Get('kitchen')
-  @ApiOperation({ summary: 'Kitchen performance report (avg prep time, orders/hour, peak hours, SLA)' })
+  @ApiOperation({
+    summary: 'Kitchen performance report (avg prep time, orders/hour, peak hours, SLA)',
+  })
   async kitchenReport(
     @Query('outletId') outletId: string,
     @Query('dateRange') dateRange?: string,
@@ -491,19 +514,18 @@ export class ReportsController {
       }
     }
 
-    const avgPrepTime = prepTimes.length > 0
-      ? prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length
-      : 0;
+    const avgPrepTime =
+      prepTimes.length > 0 ? prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length : 0;
 
-    const slaAdherenceRate = completedOrders.length > 0
-      ? Math.round((slaCompliant / completedOrders.length) * 100 * 10) / 10
-      : 0;
+    const slaAdherenceRate =
+      completedOrders.length > 0
+        ? Math.round((slaCompliant / completedOrders.length) * 100 * 10) / 10
+        : 0;
 
     // Orders per hour calculation
     const totalHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-    const ordersPerHour = totalHours > 0
-      ? Math.round((allOrders.length / totalHours) * 10) / 10
-      : 0;
+    const ordersPerHour =
+      totalHours > 0 ? Math.round((allOrders.length / totalHours) * 10) / 10 : 0;
 
     // Peak hours analysis (group by hour of day)
     const hourCounts: Record<number, number> = {};
@@ -542,7 +564,10 @@ export class ReportsController {
       .sort((a, b) => b.totalPrepared - a.totalPrepared);
 
     // Items by station
-    const stationStats: Record<string, { itemCount: number; totalQuantity: number; prepTimes: number[] }> = {};
+    const stationStats: Record<
+      string,
+      { itemCount: number; totalQuantity: number; prepTimes: number[] }
+    > = {};
 
     for (const order of allOrders) {
       for (const item of order.items) {
@@ -564,9 +589,11 @@ export class ReportsController {
       station,
       itemCount: stats.itemCount,
       totalQuantity: stats.totalQuantity,
-      avgPrepMinutes: stats.prepTimes.length > 0
-        ? Math.round((stats.prepTimes.reduce((a, b) => a + b, 0) / stats.prepTimes.length) * 10) / 10
-        : 0,
+      avgPrepMinutes:
+        stats.prepTimes.length > 0
+          ? Math.round((stats.prepTimes.reduce((a, b) => a + b, 0) / stats.prepTimes.length) * 10) /
+            10
+          : 0,
     }));
 
     // Order status breakdown
@@ -764,10 +791,7 @@ export class ReportsController {
     });
 
     // Aggregate by payment method
-    const methodStats = new Map<
-      string,
-      { count: number; amount: number }
-    >();
+    const methodStats = new Map<string, { count: number; amount: number }>();
 
     let totalAmount = 0;
     let totalTransactions = 0;
@@ -794,9 +818,7 @@ export class ReportsController {
         method,
         count: stats.count,
         amount: Math.round(stats.amount * 100) / 100,
-        percentage: totalAmount > 0
-          ? Math.round((stats.amount / totalAmount) * 100 * 10) / 10
-          : 0,
+        percentage: totalAmount > 0 ? Math.round((stats.amount / totalAmount) * 100 * 10) / 10 : 0,
       }))
       .sort((a, b) => b.amount - a.amount);
 
@@ -814,7 +836,9 @@ export class ReportsController {
   }
 
   @Get('promotions')
-  @ApiOperation({ summary: 'Promotion effectiveness report (revenue, discount, usage, basket size)' })
+  @ApiOperation({
+    summary: 'Promotion effectiveness report (revenue, discount, usage, basket size)',
+  })
   async promotionReport(
     @CurrentUser() user: AuthUser,
     @Query('dateRange') dateRange?: string,
@@ -864,48 +888,50 @@ export class ReportsController {
     });
 
     // Separate transactions with and without discounts for basket analysis
-    const withDiscount = allTransactions.filter(
-      (tx) => tx.discountAmount.toNumber() > 0,
-    );
-    const withoutDiscount = allTransactions.filter(
-      (tx) => tx.discountAmount.toNumber() === 0,
-    );
+    const withDiscount = allTransactions.filter((tx) => tx.discountAmount.toNumber() > 0);
+    const withoutDiscount = allTransactions.filter((tx) => tx.discountAmount.toNumber() === 0);
 
-    const avgBasketWithPromo = withDiscount.length > 0
-      ? Math.round(
-          (withDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
-            withDiscount.length) * 100,
-        ) / 100
-      : 0;
+    const avgBasketWithPromo =
+      withDiscount.length > 0
+        ? Math.round(
+            (withDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
+              withDiscount.length) *
+              100,
+          ) / 100
+        : 0;
 
-    const avgBasketWithoutPromo = withoutDiscount.length > 0
-      ? Math.round(
-          (withoutDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
-            withoutDiscount.length) * 100,
-        ) / 100
-      : 0;
+    const avgBasketWithoutPromo =
+      withoutDiscount.length > 0
+        ? Math.round(
+            (withoutDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
+              withoutDiscount.length) *
+              100,
+          ) / 100
+        : 0;
 
-    const avgItemsWithPromo = withDiscount.length > 0
-      ? Math.round(
-          (withDiscount.reduce(
-            (s, tx) =>
-              s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
-            0,
-          ) /
-            withDiscount.length) * 10,
-        ) / 10
-      : 0;
+    const avgItemsWithPromo =
+      withDiscount.length > 0
+        ? Math.round(
+            (withDiscount.reduce(
+              (s, tx) => s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
+              0,
+            ) /
+              withDiscount.length) *
+              10,
+          ) / 10
+        : 0;
 
-    const avgItemsWithoutPromo = withoutDiscount.length > 0
-      ? Math.round(
-          (withoutDiscount.reduce(
-            (s, tx) =>
-              s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
-            0,
-          ) /
-            withoutDiscount.length) * 10,
-        ) / 10
-      : 0;
+    const avgItemsWithoutPromo =
+      withoutDiscount.length > 0
+        ? Math.round(
+            (withoutDiscount.reduce(
+              (s, tx) => s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
+              0,
+            ) /
+              withoutDiscount.length) *
+              10,
+          ) / 10
+        : 0;
 
     const report = promotions.map((promo) => {
       const vouchersUsed = promo.vouchers.filter((v) => v.usedAt !== null);
@@ -1012,10 +1038,7 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Build a custom report with user-defined metrics, dimensions, and filters',
   })
-  async buildCustomReport(
-    @CurrentUser() user: AuthUser,
-    @Body() config: CustomReportConfig,
-  ) {
+  async buildCustomReport(@CurrentUser() user: AuthUser, @Body() config: CustomReportConfig) {
     return this.reportsService.buildCustomReport(user.businessId, config);
   }
 
@@ -1035,11 +1058,7 @@ export class ReportsController {
     @CurrentUser() user: AuthUser,
     @Body() dto: { name: string; config: CustomReportConfig },
   ) {
-    return this.reportsService.saveReportTemplate(
-      user.businessId,
-      dto.name,
-      dto.config,
-    );
+    return this.reportsService.saveReportTemplate(user.businessId, dto.name, dto.config);
   }
 
   @Get('custom/templates')

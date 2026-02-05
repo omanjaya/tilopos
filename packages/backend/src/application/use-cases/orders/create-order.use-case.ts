@@ -42,7 +42,7 @@ export class CreateOrderUseCase {
     const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
 
     const products = await this.prisma.product.findMany({
-      where: { id: { in: input.items.map(i => i.productId) }, isActive: true },
+      where: { id: { in: input.items.map((i) => i.productId) }, isActive: true },
     });
 
     const order = await this.orderRepo.save({
@@ -61,7 +61,7 @@ export class CreateOrderUseCase {
     });
 
     for (const item of input.items) {
-      const product = products.find(p => p.id === item.productId);
+      const product = products.find((p) => p.id === item.productId);
       await this.prisma.orderItem.create({
         data: {
           orderId: order.id,
@@ -83,9 +83,7 @@ export class CreateOrderUseCase {
       });
     }
 
-    this.eventBus.publish(
-      new OrderStatusChangedEvent(order.id, input.outletId, '', 'pending'),
-    );
+    this.eventBus.publish(new OrderStatusChangedEvent(order.id, input.outletId, '', 'pending'));
 
     return {
       orderId: order.id,

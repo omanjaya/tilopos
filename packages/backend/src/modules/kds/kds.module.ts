@@ -20,8 +20,14 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
     }),
   ],
   controllers: [KdsController],
-  providers: [KdsGateway, BumpOrderUseCase, GetStationOrdersUseCase, KdsAnalyticsService, KdsService, PrismaService],
+  providers: [
+    KdsGateway,
+    BumpOrderUseCase,
+    GetStationOrdersUseCase,
+    KdsAnalyticsService,
+    KdsService,
+    PrismaService,
+  ],
   exports: [KdsGateway, KdsAnalyticsService, KdsService],
 })
-export class KdsModule { }
-
+export class KdsModule {}

@@ -86,7 +86,7 @@ export class RabbitMqService implements OnModuleDestroy {
       return;
     }
 
-    if (!await this.loadAmqpLib()) {
+    if (!(await this.loadAmqpLib())) {
       return;
     }
 
@@ -158,10 +158,7 @@ export class RabbitMqService implements OnModuleDestroy {
    * @param queue - Queue name (will be prefixed automatically)
    * @param handler - Callback invoked for each message
    */
-  async subscribe(
-    queue: string,
-    handler: (message: AmqpMessage) => Promise<void>,
-  ): Promise<void> {
+  async subscribe(queue: string, handler: (message: AmqpMessage) => Promise<void>): Promise<void> {
     if (!this.channel) {
       this.logger.warn(`Cannot subscribe to ${queue}: RabbitMQ not connected`);
       return;
@@ -254,14 +251,14 @@ export class RabbitMqService implements OnModuleDestroy {
   private async loadAmqpLib(): Promise<boolean> {
     try {
       // Dynamic import so the system works without amqplib installed
-      // @ts-ignore - amqplib is an optional dependency
-      const lib = await import('amqplib') as any;
+      // @ts-expect-error - amqplib is an optional dependency
+      const lib = (await import('amqplib')) as typeof import('amqplib');
       this.amqpLib = lib;
       return true;
     } catch {
       this.logger.warn(
         'amqplib package not installed — RabbitMQ disabled, using RxJS event bus only. ' +
-        'Install with: npm install amqplib @types/amqplib',
+          'Install with: npm install amqplib @types/amqplib',
       );
       this.connectionStatus = 'disconnected';
       return false;

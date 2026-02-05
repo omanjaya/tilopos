@@ -45,7 +45,8 @@ export class BumpOrderUseCase {
     });
 
     const allCompleted = allItems.every(
-      item => item.id === input.orderItemId || item.status === 'ready' || item.status === 'served',
+      (item) =>
+        item.id === input.orderItemId || item.status === 'ready' || item.status === 'served',
     );
 
     if (allCompleted) {

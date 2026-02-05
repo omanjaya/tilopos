@@ -12,8 +12,8 @@ import { IntegrationsController } from './integrations.controller';
 import { IntegrationsModule as InfraIntegrationsModule } from '../../infrastructure/services/integrations.module';
 
 @Module({
-    imports: [InfraIntegrationsModule],
-    controllers: [IntegrationsController],
-    exports: [],
+  imports: [InfraIntegrationsModule],
+  controllers: [IntegrationsController],
+  exports: [],
 })
-export class IntegrationsModule { }
+export class IntegrationsModule {}

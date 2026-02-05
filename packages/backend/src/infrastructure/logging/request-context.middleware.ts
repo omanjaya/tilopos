@@ -46,8 +46,7 @@ export class RequestContextMiddleware implements NestMiddleware {
   constructor(private readonly contextService: RequestContextService) {}
 
   use(req: Request, res: Response, next: NextFunction): void {
-    const traceId =
-      (req.headers['x-trace-id'] as string | undefined) ?? randomUUID();
+    const traceId = (req.headers['x-trace-id'] as string | undefined) ?? randomUUID();
 
     const context: RequestContext = {
       traceId,

@@ -1,8 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import type { IProductRepository, ProductRecord } from '../../domain/interfaces/repositories/product.repository';
+import type {
+  IProductRepository,
+  ProductRecord,
+} from '../../domain/interfaces/repositories/product.repository';
 import { PrismaService } from '../database/prisma.service';
 import { decimalToNumber, decimalToNumberRequired } from './decimal.helper';
-import type { Product as PrismaProduct, ProductVariant as PrismaProductVariant } from '@prisma/client';
+import type {
+  Product as PrismaProduct,
+  ProductVariant as PrismaProductVariant,
+} from '@prisma/client';
 
 type ProductWithVariants = PrismaProduct & {
   variants?: PrismaProductVariant[];

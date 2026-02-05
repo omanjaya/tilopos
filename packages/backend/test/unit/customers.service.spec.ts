@@ -176,9 +176,7 @@ describe('CustomersService - Birthday & Import/Export', () => {
 
     it('should skip duplicate customers by email', async () => {
       // Arrange
-      const rows = [
-        { name: 'Alice', email: 'existing@test.com' },
-      ];
+      const rows = [{ name: 'Alice', email: 'existing@test.com' }];
 
       // First call (email check) returns existing customer
       (mockPrisma.customer.findFirst as jest.Mock).mockResolvedValueOnce({
@@ -196,14 +194,14 @@ describe('CustomersService - Birthday & Import/Export', () => {
 
     it('should skip duplicate customers by phone', async () => {
       // Arrange
-      const rows = [
-        { name: 'Bob', phone: '+628999' },
-      ];
+      const rows = [{ name: 'Bob', phone: '+628999' }];
 
       // Since row.email is falsy, email check is skipped entirely.
       // Phone check returns existing customer.
-      (mockPrisma.customer.findFirst as jest.Mock)
-        .mockResolvedValueOnce({ id: 'existing', phone: '+628999' }); // phone match
+      (mockPrisma.customer.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 'existing',
+        phone: '+628999',
+      }); // phone match
 
       // Act
       const result = await service.importCustomers('biz-1', rows);
@@ -214,9 +212,7 @@ describe('CustomersService - Birthday & Import/Export', () => {
 
     it('should report error for missing name', async () => {
       // Arrange
-      const rows = [
-        { name: '', email: 'test@test.com' },
-      ];
+      const rows = [{ name: '', email: 'test@test.com' }];
 
       // Act
       const result = await service.importCustomers('biz-1', rows);
@@ -229,9 +225,7 @@ describe('CustomersService - Birthday & Import/Export', () => {
 
     it('should report error for invalid birthday format', async () => {
       // Arrange
-      const rows = [
-        { name: 'Charlie', birthday: 'not-a-date' },
-      ];
+      const rows = [{ name: 'Charlie', birthday: 'not-a-date' }];
 
       (mockPrisma.customer.findFirst as jest.Mock).mockResolvedValue(null);
 
@@ -246,9 +240,7 @@ describe('CustomersService - Birthday & Import/Export', () => {
 
     it('should default loyalty tier to regular for invalid tiers', async () => {
       // Arrange
-      const rows = [
-        { name: 'Dave', loyaltyTier: 'invalid_tier' },
-      ];
+      const rows = [{ name: 'Dave', loyaltyTier: 'invalid_tier' }];
 
       (mockPrisma.customer.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.customer.create as jest.Mock).mockResolvedValue({ id: 'new' });
@@ -408,9 +400,9 @@ Bob,bob@test.com,+628222,,regular`;
 
     it('should throw BadRequestException when JSON is not an array', () => {
       // Act & Assert
-      expect(() =>
-        service.parseJsonToCustomerRows(JSON.stringify({ name: 'Not array' })),
-      ).toThrow('JSON data must be an array');
+      expect(() => service.parseJsonToCustomerRows(JSON.stringify({ name: 'Not array' }))).toThrow(
+        'JSON data must be an array',
+      );
     });
   });
 });

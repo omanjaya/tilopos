@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../database/prisma.service';
-import type { ICustomerRepository, CustomerRecord } from '../../domain/interfaces/repositories/customer.repository';
+import type {
+  ICustomerRepository,
+  CustomerRecord,
+} from '../../domain/interfaces/repositories/customer.repository';
 
 @Injectable()
 export class PrismaCustomerRepository implements ICustomerRepository {

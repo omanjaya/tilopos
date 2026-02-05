@@ -47,15 +47,16 @@ export class PosQueueHandler implements OnModuleInit {
   onModuleInit(): void {
     this.consumer.registerHandler(
       QUEUES.POS_TRANSACTIONS,
-      (envelope: MessageEnvelope, rawMessage: AmqpMessage) =>
-        this.handle(envelope, rawMessage),
+      (envelope: MessageEnvelope, rawMessage: AmqpMessage) => this.handle(envelope, rawMessage),
     );
   }
 
   private async handle(envelope: MessageEnvelope, _rawMessage: AmqpMessage): Promise<void> {
     switch (envelope.eventType) {
       case ROUTING_KEYS.TRANSACTION_CREATED:
-        await this.handleTransactionCreated(envelope.payload as unknown as TransactionCreatedPayload);
+        await this.handleTransactionCreated(
+          envelope.payload as unknown as TransactionCreatedPayload,
+        );
         break;
       case ROUTING_KEYS.TRANSACTION_VOIDED:
         await this.handleTransactionVoided(envelope.payload as unknown as TransactionVoidedPayload);
@@ -71,7 +72,7 @@ export class PosQueueHandler implements OnModuleInit {
   private async handleTransactionCreated(payload: TransactionCreatedPayload): Promise<void> {
     this.logger.log(
       `Processing transaction.created: ${payload.transactionId} ` +
-      `(outlet: ${payload.outletId}, total: ${payload.grandTotal})`,
+        `(outlet: ${payload.outletId}, total: ${payload.grandTotal})`,
     );
 
     // Stock deduction and loyalty processing are handled by existing
@@ -84,7 +85,7 @@ export class PosQueueHandler implements OnModuleInit {
   private async handleTransactionVoided(payload: TransactionVoidedPayload): Promise<void> {
     this.logger.log(
       `Processing transaction.voided: ${payload.transactionId} ` +
-      `(outlet: ${payload.outletId}, reason: ${payload.reason})`,
+        `(outlet: ${payload.outletId}, reason: ${payload.reason})`,
     );
 
     // Reverse stock and loyalty are handled by domain-specific listeners.
@@ -95,7 +96,7 @@ export class PosQueueHandler implements OnModuleInit {
   private async handlePaymentReceived(payload: PaymentReceivedPayload): Promise<void> {
     this.logger.log(
       `Processing payment.received: ${payload.paymentId} ` +
-      `(transaction: ${payload.transactionId}, amount: ${payload.amount}, method: ${payload.method})`,
+        `(transaction: ${payload.transactionId}, amount: ${payload.amount}, method: ${payload.method})`,
     );
 
     // Settlement processing is handled by the existing BullMQ settlement queue.

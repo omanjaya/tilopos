@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RabbitMqService } from './rabbitmq.service';
-import type {
-  AmqpMessage,
-  MessageEnvelope,
-  MessageHandler,
-} from './rabbitmq.types';
+import type { AmqpMessage, MessageEnvelope, MessageHandler } from './rabbitmq.types';
 
 /**
  * Registry entry for a queue handler.
@@ -37,11 +33,7 @@ export class MessageConsumerService {
    * @param handler - Async handler that processes the deserialized message
    * @param retryLimit - Max times a message can be redelivered before going to DLX
    */
-  registerHandler(
-    queue: string,
-    handler: MessageHandler,
-    retryLimit = 3,
-  ): void {
+  registerHandler(queue: string, handler: MessageHandler, retryLimit = 3): void {
     this.handlers.push({ queue, handler, retryLimit });
     this.logger.log(`Handler registered for queue: ${queue}`);
   }
@@ -66,9 +58,8 @@ export class MessageConsumerService {
     this.consuming = true;
 
     for (const registration of this.handlers) {
-      await this.rabbitMqService.subscribe(
-        registration.queue,
-        (msg: AmqpMessage) => this.processMessage(registration, msg),
+      await this.rabbitMqService.subscribe(registration.queue, (msg: AmqpMessage) =>
+        this.processMessage(registration, msg),
       );
     }
 
@@ -97,9 +88,7 @@ export class MessageConsumerService {
       envelope = this.deserialize(rawMessage);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Failed to deserialize message from ${queue}: ${errorMessage}`,
-      );
+      this.logger.error(`Failed to deserialize message from ${queue}: ${errorMessage}`);
       // Cannot parse — send directly to DLX (don't requeue malformed messages)
       this.rabbitMqService.nack(rawMessage, false);
       return;
@@ -114,7 +103,7 @@ export class MessageConsumerService {
 
       this.logger.error(
         `Error processing "${envelope.eventType}" from ${queue} ` +
-        `(attempt ${deliveryCount}/${retryLimit}): ${errorMessage}`,
+          `(attempt ${deliveryCount}/${retryLimit}): ${errorMessage}`,
       );
 
       if (deliveryCount >= retryLimit) {

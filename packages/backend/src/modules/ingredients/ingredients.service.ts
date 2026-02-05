@@ -84,10 +84,13 @@ export class IngredientsService {
    * Expects header row: name,unit,costPerUnit,sku,minStockLevel,supplierId
    */
   parseCsvToIngredientItems(csv: string): IngredientImportItem[] {
-    const lines = csv.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lines = csv
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
     const nameIdx = headers.indexOf('name');
     const unitIdx = headers.indexOf('unit');
     const costIdx = headers.indexOf('costperunit');
@@ -95,8 +98,8 @@ export class IngredientsService {
     const minStockIdx = headers.indexOf('minstocklevel');
     const supplierIdx = headers.indexOf('supplierid');
 
-    return lines.slice(1).map(line => {
-      const cols = line.split(',').map(c => c.trim());
+    return lines.slice(1).map((line) => {
+      const cols = line.split(',').map((c) => c.trim());
       const item: IngredientImportItem = {
         name: nameIdx >= 0 ? cols[nameIdx] : '',
         unit: unitIdx >= 0 ? cols[unitIdx] : '',
@@ -143,9 +146,10 @@ export class IngredientsService {
     let items: IngredientImportItem[];
 
     if (typeof data === 'string') {
-      items = format === 'csv'
-        ? this.parseCsvToIngredientItems(data)
-        : this.parseJsonToIngredientItems(data);
+      items =
+        format === 'csv'
+          ? this.parseCsvToIngredientItems(data)
+          : this.parseJsonToIngredientItems(data);
     } else {
       items = data;
     }
@@ -246,9 +250,7 @@ export class IngredientsService {
       where: { businessId },
       include: includeStock
         ? {
-            stockLevels: outletId
-              ? { where: { outletId } }
-              : true,
+            stockLevels: outletId ? { where: { outletId } } : true,
           }
         : undefined,
       orderBy: { name: 'asc' },
@@ -263,7 +265,9 @@ export class IngredientsService {
       isActive: ing.isActive,
       createdAt: ing.createdAt,
       ...(includeStock && {
-        stockLevels: (ing as any).stockLevels?.map((sl: any) => ({
+        stockLevels: (
+          ing as { stockLevels?: { outletId: string; quantity: number; lowStockAlert: number }[] }
+        ).stockLevels?.map((sl) => ({
           outletId: sl.outletId,
           quantity: Number(sl.quantity),
           lowStockAlert: Number(sl.lowStockAlert),
@@ -283,7 +287,7 @@ export class IngredientsService {
    */
   ingredientsToCsv(items: IngredientExportItem[]): string {
     const header = 'name,sku,unit,costPerUnit,isActive,createdAt';
-    const rows = items.map(item =>
+    const rows = items.map((item) =>
       [
         item.name,
         item.sku ?? '',
@@ -496,9 +500,7 @@ export class IngredientsService {
         items: recipe.items.map((item) => {
           const timeline = ingredientCostTimeline.get(item.ingredientId) || [];
           // Find the latest cost on or before this date
-          const applicableCosts = timeline.filter(
-            (entry) => entry.date <= snapshotDate,
-          );
+          const applicableCosts = timeline.filter((entry) => entry.date <= snapshotDate);
           const latestCost =
             applicableCosts.length > 0
               ? applicableCosts[applicableCosts.length - 1].costPerUnit

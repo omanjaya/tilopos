@@ -87,10 +87,7 @@ export class PromotionsController {
 
   @Get('vouchers')
   @ApiOperation({ summary: 'List all vouchers for business' })
-  async listVouchers(
-    @Query('search') search: string | undefined,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async listVouchers(@Query('search') search: string | undefined, @CurrentUser() user: AuthUser) {
     const where: Record<string, unknown> = { businessId: user.businessId };
     if (search) {
       where.code = { contains: search.toUpperCase(), mode: 'insensitive' };
@@ -112,7 +109,10 @@ export class PromotionsController {
         discountType: promo?.discountType ?? 'fixed',
         discountValue: promo ? Number(promo.discountValue) : Number(v.initialValue) || 0,
         validFrom: promo?.validFrom?.toISOString() ?? v.createdAt.toISOString(),
-        validTo: promo?.validUntil?.toISOString() ?? v.expiresAt?.toISOString() ?? v.createdAt.toISOString(),
+        validTo:
+          promo?.validUntil?.toISOString() ??
+          v.expiresAt?.toISOString() ??
+          v.createdAt.toISOString(),
         usageLimit: 1,
         usageCount: v.usedAt ? 1 : 0,
         isActive: v.isActive,
@@ -198,10 +198,7 @@ export class PromotionsController {
 
   @Get('vouchers/export')
   @ApiOperation({ summary: 'Export vouchers as CSV' })
-  async exportVouchers(
-    @CurrentUser() user: AuthUser,
-    @Res() res: Response,
-  ) {
+  async exportVouchers(@CurrentUser() user: AuthUser, @Res() res: Response) {
     const vouchers = await this.prisma.voucher.findMany({
       where: { businessId: user.businessId },
       include: { promotion: true },
@@ -244,10 +241,7 @@ export class PromotionsController {
 
   @Post('vouchers/:voucherId/use')
   @ApiOperation({ summary: 'Mark voucher as used' })
-  async useVoucher(
-    @Param('voucherId') voucherId: string,
-    @Body() dto: { customerId: string },
-  ) {
+  async useVoucher(@Param('voucherId') voucherId: string, @Body() dto: { customerId: string }) {
     await this.validateVoucherUseCase.markVoucherAsUsed(voucherId, dto.customerId);
     return { message: 'Voucher marked as used' };
   }
@@ -255,10 +249,7 @@ export class PromotionsController {
   @Post('vouchers/batch')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Generate batch of vouchers for a promotion' })
-  async generateVoucherBatch(
-    @Body() dto: GenerateVoucherBatchDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async generateVoucherBatch(@Body() dto: GenerateVoucherBatchDto, @CurrentUser() user: AuthUser) {
     return this.generateVoucherBatchUseCase.execute({
       businessId: user.businessId,
       promotionId: dto.promotionId,

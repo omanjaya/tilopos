@@ -50,9 +50,7 @@ export class AuditService {
     types?: SuspiciousActivityType[],
     outletId?: string,
   ): Promise<SuspiciousActivityRecord[]> {
-    const typesToCheck = types && types.length > 0
-      ? types
-      : Object.values(SuspiciousActivityType);
+    const typesToCheck = types && types.length > 0 ? types : Object.values(SuspiciousActivityType);
 
     const results: SuspiciousActivityRecord[] = [];
 
@@ -77,14 +75,19 @@ export class AuditService {
           if (bucket.length >= SUSPICIOUS_THRESHOLDS.maxVoidsPerHour) {
             results.push({
               type: SuspiciousActivityType.MULTIPLE_VOIDS,
-              severity: bucket.length >= SUSPICIOUS_THRESHOLDS.maxVoidsPerHour * 2 ? 'high' : 'medium',
+              severity:
+                bucket.length >= SUSPICIOUS_THRESHOLDS.maxVoidsPerHour * 2 ? 'high' : 'medium',
               description: `Employee performed ${bucket.length} voids within 1 hour (${hourKey})`,
               employeeId: empId || null,
               outletId: bucket[0]?.outletId ?? null,
               occurredAt: bucket[0]?.createdAt ?? new Date(),
               relatedEntityType: 'transaction',
               relatedEntityId: bucket[0]?.entityId ?? null,
-              details: { count: bucket.length, hour: hourKey, threshold: SUSPICIOUS_THRESHOLDS.maxVoidsPerHour },
+              details: {
+                count: bucket.length,
+                hour: hourKey,
+                threshold: SUSPICIOUS_THRESHOLDS.maxVoidsPerHour,
+              },
             });
           }
         }
@@ -94,7 +97,10 @@ export class AuditService {
     // ---- Unusual discounts ----
     if (typesToCheck.includes(SuspiciousActivityType.UNUSUAL_DISCOUNT)) {
       const discountLogs = await this.prisma.auditLog.findMany({
-        where: { ...baseWhere, action: { in: ['apply_discount', 'discount', 'transaction_discount'] } },
+        where: {
+          ...baseWhere,
+          action: { in: ['apply_discount', 'discount', 'transaction_discount'] },
+        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -112,7 +118,10 @@ export class AuditService {
             occurredAt: log.createdAt,
             relatedEntityType: log.entityType,
             relatedEntityId: log.entityId,
-            details: { discountPercentage: discountPct, threshold: SUSPICIOUS_THRESHOLDS.unusualDiscountPct },
+            details: {
+              discountPercentage: discountPct,
+              threshold: SUSPICIOUS_THRESHOLDS.unusualDiscountPct,
+            },
           });
         }
       }
@@ -121,7 +130,10 @@ export class AuditService {
     // ---- Cash drawer no sale ----
     if (typesToCheck.includes(SuspiciousActivityType.CASH_DRAWER_NO_SALE)) {
       const drawerLogs = await this.prisma.auditLog.findMany({
-        where: { ...baseWhere, action: { in: ['open_cash_drawer', 'cash_drawer_open', 'no_sale_open'] } },
+        where: {
+          ...baseWhere,
+          action: { in: ['open_cash_drawer', 'cash_drawer_open', 'no_sale_open'] },
+        },
         orderBy: { createdAt: 'asc' },
       });
 
@@ -140,7 +152,11 @@ export class AuditService {
               occurredAt: bucket[0]?.createdAt ?? new Date(),
               relatedEntityType: 'cash_drawer',
               relatedEntityId: null,
-              details: { count: bucket.length, hour: hourKey, threshold: SUSPICIOUS_THRESHOLDS.maxCashDrawerOpensPerHour },
+              details: {
+                count: bucket.length,
+                hour: hourKey,
+                threshold: SUSPICIOUS_THRESHOLDS.maxCashDrawerOpensPerHour,
+              },
             });
           }
         }
@@ -152,14 +168,19 @@ export class AuditService {
       const allLogs = await this.prisma.auditLog.findMany({
         where: {
           ...baseWhere,
-          action: { in: ['create_transaction', 'transaction_create', 'void_transaction', 'refund'] },
+          action: {
+            in: ['create_transaction', 'transaction_create', 'void_transaction', 'refund'],
+          },
         },
         orderBy: { createdAt: 'desc' },
       });
 
       for (const log of allLogs) {
         const hour = log.createdAt.getHours();
-        if (hour < SUSPICIOUS_THRESHOLDS.businessHoursStart || hour >= SUSPICIOUS_THRESHOLDS.businessHoursEnd) {
+        if (
+          hour < SUSPICIOUS_THRESHOLDS.businessHoursStart ||
+          hour >= SUSPICIOUS_THRESHOLDS.businessHoursEnd
+        ) {
           results.push({
             type: SuspiciousActivityType.AFTER_HOURS,
             severity: 'low',
@@ -189,7 +210,8 @@ export class AuditService {
         if (refundAmount >= SUSPICIOUS_THRESHOLDS.largeRefundAmount) {
           results.push({
             type: SuspiciousActivityType.LARGE_REFUND,
-            severity: refundAmount >= SUSPICIOUS_THRESHOLDS.largeRefundAmount * 2 ? 'high' : 'medium',
+            severity:
+              refundAmount >= SUSPICIOUS_THRESHOLDS.largeRefundAmount * 2 ? 'high' : 'medium',
             description: `Refund of Rp ${refundAmount.toLocaleString('id-ID')} (threshold: Rp ${SUSPICIOUS_THRESHOLDS.largeRefundAmount.toLocaleString('id-ID')})`,
             employeeId: log.employeeId,
             outletId: log.outletId,
@@ -292,8 +314,8 @@ export class AuditService {
       ].join(',');
 
       const rows = logs.map((log) => {
-        const empName = log.employeeId ? employeeMap.get(log.employeeId) ?? '' : '';
-        const outletName = log.outletId ? outletMap.get(log.outletId) ?? '' : '';
+        const empName = log.employeeId ? (employeeMap.get(log.employeeId) ?? '') : '';
+        const outletName = log.outletId ? (outletMap.get(log.outletId) ?? '') : '';
 
         return [
           log.createdAt.toISOString(),
@@ -320,9 +342,9 @@ export class AuditService {
         entityType: log.entityType,
         entityId: log.entityId,
         employeeId: log.employeeId,
-        employeeName: log.employeeId ? employeeMap.get(log.employeeId) ?? null : null,
+        employeeName: log.employeeId ? (employeeMap.get(log.employeeId) ?? null) : null,
         outletId: log.outletId,
-        outletName: log.outletId ? outletMap.get(log.outletId) ?? null : null,
+        outletName: log.outletId ? (outletMap.get(log.outletId) ?? null) : null,
         oldValue: log.oldValue,
         newValue: log.newValue,
         ipAddress: log.ipAddress,
@@ -349,11 +371,7 @@ export class AuditService {
   /**
    * Get a high-level summary of audit logs for the business.
    */
-  async getAuditSummary(
-    businessId: string,
-    startDate: Date,
-    endDate: Date,
-  ): Promise<AuditSummary> {
+  async getAuditSummary(businessId: string, startDate: Date, endDate: Date): Promise<AuditSummary> {
     const where = {
       businessId,
       createdAt: { gte: startDate, lte: endDate },
@@ -402,9 +420,15 @@ export class AuditService {
 
     // Count suspicious activities (quick estimate based on sensitive actions)
     const suspiciousActions = [
-      'void_transaction', 'void', 'transaction_void',
-      'refund', 'refund_transaction', 'create_refund',
-      'open_cash_drawer', 'cash_drawer_open', 'no_sale_open',
+      'void_transaction',
+      'void',
+      'transaction_void',
+      'refund',
+      'refund_transaction',
+      'create_refund',
+      'open_cash_drawer',
+      'cash_drawer_open',
+      'no_sale_open',
     ];
 
     const suspiciousCount = await this.prisma.auditLog.count({
@@ -429,9 +453,7 @@ export class AuditService {
    * Detect suspicious activities with default date range (last 30 days).
    * Analyzes patterns: multiple voids, large discounts, after-hours, cash drawer abuse, large refunds.
    */
-  async detectSuspiciousActivity(
-    businessId: string,
-  ): Promise<SuspiciousActivityRecord[]> {
+  async detectSuspiciousActivity(businessId: string): Promise<SuspiciousActivityRecord[]> {
     const endDate = new Date();
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     return this.detectSuspiciousActivities(businessId, startDate, endDate);
@@ -475,9 +497,7 @@ export class AuditService {
     return map;
   }
 
-  private groupByHour<T extends { createdAt: Date }>(
-    logs: T[],
-  ): Record<string, T[]> {
+  private groupByHour<T extends { createdAt: Date }>(logs: T[]): Record<string, T[]> {
     const map: Record<string, T[]> = {};
     for (const log of logs) {
       const d = log.createdAt;

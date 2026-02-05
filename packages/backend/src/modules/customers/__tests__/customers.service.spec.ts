@@ -320,7 +320,10 @@ describe('CustomersService', () => {
     it('should return empty array for unknown segment', async () => {
       (mockPrisma.customer.findMany as jest.Mock).mockResolvedValue([]);
 
-      const result = await service.getCustomersBySegment('biz-1', 'unknown' as any);
+      const result = await service.getCustomersBySegment(
+        'biz-1',
+        'unknown' as 'all' | 'vip' | 'regular' | 'new' | 'dormant',
+      );
 
       expect(result).toEqual([]);
     });

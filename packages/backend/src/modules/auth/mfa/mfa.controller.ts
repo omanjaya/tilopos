@@ -27,10 +27,7 @@ export class MfaController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  async enable(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: EnableMfaDto,
-  ) {
+  async enable(@CurrentUser() user: AuthUser, @Body() dto: EnableMfaDto) {
     return this.mfaService.enableMfa(user.employeeId, dto.token);
   }
 
@@ -44,10 +41,7 @@ export class MfaController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  async disable(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: DisableMfaDto,
-  ) {
+  async disable(@CurrentUser() user: AuthUser, @Body() dto: DisableMfaDto) {
     return this.mfaService.disableMfa(user.employeeId, dto.token);
   }
 }

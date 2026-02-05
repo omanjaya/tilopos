@@ -81,14 +81,11 @@ export class GetStationOrdersUseCase {
           },
         },
       },
-      orderBy: [
-        { order: { priority: 'desc' } },
-        { createdAt: 'asc' },
-      ],
+      orderBy: [{ order: { priority: 'desc' } }, { createdAt: 'asc' }],
     });
 
     // Transform to result format
-    const items: StationOrderItem[] = orderItems.map(item => ({
+    const items: StationOrderItem[] = orderItems.map((item) => ({
       id: item.id,
       orderId: item.orderId,
       orderNumber: (item.order as { orderNumber: string }).orderNumber,
@@ -111,10 +108,10 @@ export class GetStationOrdersUseCase {
     // Calculate summary
     const summary = {
       total: items.length,
-      pending: items.filter(i => i.status === 'pending').length,
-      preparing: items.filter(i => i.status === 'preparing').length,
-      ready: items.filter(i => i.status === 'ready').length,
-      completed: items.filter(i => i.status === 'completed').length,
+      pending: items.filter((i) => i.status === 'pending').length,
+      preparing: items.filter((i) => i.status === 'preparing').length,
+      ready: items.filter((i) => i.status === 'ready').length,
+      completed: items.filter((i) => i.status === 'completed').length,
     };
 
     return { items, summary };
@@ -135,10 +132,18 @@ export class GetStationOrdersUseCase {
       distinct: ['station'],
     });
 
-    const stationList = stations.map(s => s.station).filter(Boolean) as string[];
+    const stationList = stations.map((s) => s.station).filter(Boolean) as string[];
 
     // Always include default stations
-    const defaultStations: KitchenStation[] = ['grill', 'fryer', 'cold', 'hot', 'drinks', 'dessert', 'general'];
+    const defaultStations: KitchenStation[] = [
+      'grill',
+      'fryer',
+      'cold',
+      'hot',
+      'drinks',
+      'dessert',
+      'general',
+    ];
 
     return [...new Set([...stationList, ...defaultStations])].sort();
   }

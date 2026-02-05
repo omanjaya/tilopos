@@ -57,10 +57,24 @@ export class StaticAssetsMiddleware implements NestMiddleware {
 
   private isStaticAsset(requestPath: string): boolean {
     const staticExtensions = [
-      '.js', '.css', '.mjs',
-      '.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.ico',
-      '.woff', '.woff2', '.ttf', '.otf', '.eot',
-      '.map', '.json',
+      '.js',
+      '.css',
+      '.mjs',
+      '.jpg',
+      '.jpeg',
+      '.png',
+      '.gif',
+      '.webp',
+      '.avif',
+      '.svg',
+      '.ico',
+      '.woff',
+      '.woff2',
+      '.ttf',
+      '.otf',
+      '.eot',
+      '.map',
+      '.json',
       '.html',
     ];
 

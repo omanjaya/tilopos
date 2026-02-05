@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import type { IOrderRepository, OrderRecord } from '../../domain/interfaces/repositories/order.repository';
+import type {
+  IOrderRepository,
+  OrderRecord,
+} from '../../domain/interfaces/repositories/order.repository';
 
 interface OrderItemInput {
   id: string;
@@ -73,20 +76,21 @@ export class PrismaOrderRepository implements IOrderRepository {
         priority: orderData.priority,
         notes: orderData.notes,
         estimatedTime: orderData.estimatedTime,
-        items: items && items.length > 0
-          ? {
-              create: items.map((item) => ({
-                id: item.id,
-                productId: item.productId,
-                variantId: item.variantId,
-                productName: item.productName,
-                quantity: item.quantity,
-                station: item.station,
-                status: item.status as Prisma.EnumOrderItemStatusFilter['equals'],
-                notes: item.notes,
-              })),
-            }
-          : undefined,
+        items:
+          items && items.length > 0
+            ? {
+                create: items.map((item) => ({
+                  id: item.id,
+                  productId: item.productId,
+                  variantId: item.variantId,
+                  productName: item.productName,
+                  quantity: item.quantity,
+                  station: item.station,
+                  status: item.status as Prisma.EnumOrderItemStatusFilter['equals'],
+                  notes: item.notes,
+                })),
+              }
+            : undefined,
       },
       include: { items: true },
     });

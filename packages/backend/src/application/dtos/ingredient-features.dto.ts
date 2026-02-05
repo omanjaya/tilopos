@@ -54,7 +54,8 @@ export class IngredientImportDto {
 
   @ApiProperty({
     type: [IngredientImportItemDto],
-    description: 'Array of ingredients to import (for JSON format). For CSV, this is the parsed data.',
+    description:
+      'Array of ingredients to import (for JSON format). For CSV, this is the parsed data.',
   })
   @IsArray()
   @ValidateNested({ each: true })

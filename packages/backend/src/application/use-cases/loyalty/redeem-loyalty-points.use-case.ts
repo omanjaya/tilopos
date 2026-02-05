@@ -49,7 +49,9 @@ export class RedeemLoyaltyPointsUseCase {
     const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
     const multiplier = currentTier ? currentTier.pointMultiplier : 1;
 
-    const discountAmount = Math.floor((params.pointsToRedeem * program.redemptionRate / 100) * multiplier);
+    const discountAmount = Math.floor(
+      ((params.pointsToRedeem * program.redemptionRate) / 100) * multiplier,
+    );
     const remainingPoints = customer.loyaltyPoints - params.pointsToRedeem;
 
     // Create transaction record
@@ -63,7 +65,11 @@ export class RedeemLoyaltyPointsUseCase {
       createdBy: params.employeeId,
     });
 
-    await this.loyaltyRepo.updateCustomerPoints(params.customerId, remainingPoints, customer.loyaltyTier);
+    await this.loyaltyRepo.updateCustomerPoints(
+      params.customerId,
+      remainingPoints,
+      customer.loyaltyTier,
+    );
 
     return {
       discountAmount,

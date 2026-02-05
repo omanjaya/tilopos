@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Inject,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -143,7 +133,8 @@ export class LoyaltyController {
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Get loyalty program analytics',
-    description: 'Returns total members by tier, points issued/redeemed, redemption rate, and top redeemers',
+    description:
+      'Returns total members by tier, points issued/redeemed, redemption rate, and top redeemers',
   })
   @ApiQuery({ name: 'startDate', required: false, description: 'Period start (ISO 8601)' })
   @ApiQuery({ name: 'endDate', required: false, description: 'Period end (ISO 8601)' })
@@ -168,7 +159,8 @@ export class LoyaltyController {
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Manually trigger tier evaluation',
-    description: 'Evaluates all customers against tier thresholds and upgrades/downgrades as needed',
+    description:
+      'Evaluates all customers against tier thresholds and upgrades/downgrades as needed',
   })
   async evaluateTiers(@CurrentUser() user: AuthUser) {
     return this.loyaltyCronService.evaluateTiersForBusiness(user.businessId);
@@ -179,7 +171,7 @@ export class LoyaltyController {
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Manually trigger tier check (alias for tiers/evaluate)',
-    description: 'Checks all customers\' total points vs tier thresholds, auto-upgrades/downgrades',
+    description: "Checks all customers' total points vs tier thresholds, auto-upgrades/downgrades",
   })
   async checkTiers(@CurrentUser() user: AuthUser) {
     return this.loyaltyCronService.evaluateTiersForBusiness(user.businessId);

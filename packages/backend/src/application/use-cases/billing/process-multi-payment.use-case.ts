@@ -66,7 +66,16 @@ export class ProcessMultiPaymentUseCase {
       const record = await this.prisma.payment.create({
         data: {
           transactionId: input.transactionId,
-          paymentMethod: payment.method as 'cash' | 'card' | 'gopay' | 'ovo' | 'dana' | 'shopeepay' | 'qris' | 'bank_transfer' | 'credit_note',
+          paymentMethod: payment.method as
+            | 'cash'
+            | 'card'
+            | 'gopay'
+            | 'ovo'
+            | 'dana'
+            | 'shopeepay'
+            | 'qris'
+            | 'bank_transfer'
+            | 'credit_note',
           amount: payment.amount,
           referenceNumber: payment.referenceNumber || null,
           status: 'completed',
@@ -81,10 +90,10 @@ export class ProcessMultiPaymentUseCase {
     }
 
     let cashChange = 0;
-    const cashPayment = input.payments.find(p => p.method === 'cash');
+    const cashPayment = input.payments.find((p) => p.method === 'cash');
     if (cashPayment) {
       const nonCashTotal = input.payments
-        .filter(p => p.method !== 'cash')
+        .filter((p) => p.method !== 'cash')
         .reduce((sum, p) => sum + p.amount, 0);
       const cashNeeded = transaction.grandTotal - nonCashTotal;
       cashChange = Math.max(0, cashPayment.amount - cashNeeded);

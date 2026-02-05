@@ -1,4 +1,16 @@
-import { Controller, Post, Get, Body, Param, Query, UseGuards, Inject, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -138,10 +150,7 @@ export class PosController {
     });
 
     return transactions.map((tx) => {
-      const paidAmount = tx.payments.reduce(
-        (sum, p) => sum + decimalToNumberRequired(p.amount),
-        0,
-      );
+      const paidAmount = tx.payments.reduce((sum, p) => sum + decimalToNumberRequired(p.amount), 0);
       const totalAmount = decimalToNumberRequired(tx.grandTotal);
 
       return {
@@ -206,7 +215,11 @@ export class PosController {
 
   @Post('transactions/:id/payments')
   @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async multiPayment(@Param('id') id: string, @Body() dto: { payments: PaymentDto[] }, @CurrentUser() user: AuthUser) {
+  async multiPayment(
+    @Param('id') id: string,
+    @Body() dto: { payments: PaymentDto[] },
+    @CurrentUser() user: AuthUser,
+  ) {
     // Verify transaction belongs to user's business
     const tx = await this.transactionRepo.findById(id);
     if (!tx) throw new NotFoundException('Transaction not found');

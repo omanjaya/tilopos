@@ -31,7 +31,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
     this.logger.warn(
       'Google OAuth strategy is using a placeholder implementation. ' +
-      'Install passport-google-oauth20 for full server-side OAuth flow.',
+        'Install passport-google-oauth20 for full server-side OAuth flow.',
     );
   }
 

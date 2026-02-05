@@ -1,7 +1,11 @@
 export interface ITransactionRepository {
   findById(id: string): Promise<TransactionRecord | null>;
   findByReceiptNumber(receiptNumber: string): Promise<TransactionRecord | null>;
-  findByOutletAndDateRange(outletId: string, startDate: Date, endDate: Date): Promise<TransactionRecord[]>;
+  findByOutletAndDateRange(
+    outletId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<TransactionRecord[]>;
   save(transaction: TransactionRecord): Promise<TransactionRecord>;
   update(id: string, data: Partial<TransactionRecord>): Promise<TransactionRecord>;
   findItemsByTransactionId(transactionId: string): Promise<TransactionItemRecord[]>;

@@ -37,9 +37,6 @@ import { MergeBillUseCase } from '../../application/use-cases/tables/merge-bill.
     SplitBillUseCase,
     MergeBillUseCase,
   ],
-  exports: [
-    UpdateTableStatusUseCase,
-    TablesService,
-  ],
+  exports: [UpdateTableStatusUseCase, TablesService],
 })
 export class TablesModule {}

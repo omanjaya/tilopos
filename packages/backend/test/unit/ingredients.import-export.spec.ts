@@ -195,9 +195,7 @@ Sugar,kg,18000`;
   describe('validation errors', () => {
     it('should report errors for items missing name', async () => {
       // Arrange
-      const items = [
-        { name: '', unit: 'kg', costPerUnit: 5000 },
-      ];
+      const items = [{ name: '', unit: 'kg', costPerUnit: 5000 }];
 
       // Act
       const result = await service.importIngredients('biz-1', items, 'json');
@@ -210,9 +208,7 @@ Sugar,kg,18000`;
 
     it('should report errors for items missing unit', async () => {
       // Arrange
-      const items = [
-        { name: 'Sugar', unit: '' },
-      ];
+      const items = [{ name: 'Sugar', unit: '' }];
 
       // Act
       const result = await service.importIngredients('biz-1', items, 'json');
@@ -301,7 +297,7 @@ Sugar,kg,18000`;
 
       // Assert
       expect(Array.isArray(result)).toBe(true);
-      const jsonResult = result as any[];
+      const jsonResult = result as { name: string; costPerUnit: number }[];
       expect(jsonResult).toHaveLength(1);
       expect(jsonResult[0].name).toBe('Sugar');
       expect(jsonResult[0].costPerUnit).toBe(15000);
@@ -401,9 +397,7 @@ Sugar,kg,18000`;
       (mockPrisma.recipe.findUnique as jest.Mock).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(
-        service.getRecipeCostHistory('non-existent'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getRecipeCostHistory('non-existent')).rejects.toThrow(NotFoundException);
     });
 
     it('should include historical snapshots from purchase movements', async () => {
@@ -531,9 +525,7 @@ Flour,kg,12000,ING-002`;
   describe('parseJsonToIngredientItems', () => {
     it('should parse valid JSON array', () => {
       // Arrange
-      const json = JSON.stringify([
-        { name: 'Sugar', unit: 'kg', costPerUnit: 15000 },
-      ]);
+      const json = JSON.stringify([{ name: 'Sugar', unit: 'kg', costPerUnit: 15000 }]);
 
       // Act
       const result = service.parseJsonToIngredientItems(json);

@@ -19,7 +19,7 @@ export class MessagePublisherService {
   constructor(
     private readonly rabbitMqService: RabbitMqService,
     private readonly eventBus: EventBusService,
-  ) { }
+  ) {}
 
   /**
    * Publishes a domain event to RabbitMQ. If RabbitMQ is not connected,
@@ -45,21 +45,16 @@ export class MessagePublisherService {
       const buffer = Buffer.from(JSON.stringify(envelope));
       const routingKey = event.eventName;
 
-      const published = await this.rabbitMqService.publish(
-        EXCHANGES.EVENTS,
-        routingKey,
-        buffer,
-        {
-          correlationId: envelope.metadata.correlationId,
-          timestamp: Date.now(),
-          type: event.eventName,
-          headers: {
-            'x-event-type': event.eventName,
-            'x-correlation-id': envelope.metadata.correlationId,
-            'x-source': envelope.metadata.source,
-          },
+      const published = await this.rabbitMqService.publish(EXCHANGES.EVENTS, routingKey, buffer, {
+        correlationId: envelope.metadata.correlationId,
+        timestamp: Date.now(),
+        type: event.eventName,
+        headers: {
+          'x-event-type': event.eventName,
+          'x-correlation-id': envelope.metadata.correlationId,
+          'x-source': envelope.metadata.source,
         },
-      );
+      });
 
       if (published) {
         this.logger.debug(
@@ -90,9 +85,7 @@ export class MessagePublisherService {
     correlationId?: string,
   ): Promise<boolean> {
     if (!this.rabbitMqService.isConnected()) {
-      this.logger.warn(
-        `RabbitMQ not connected — cannot publish to ${exchange}/${routingKey}`,
-      );
+      this.logger.warn(`RabbitMQ not connected — cannot publish to ${exchange}/${routingKey}`);
       return false;
     }
 

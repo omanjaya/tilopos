@@ -5,9 +5,25 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 // Interfaces
 // ============================================================================
 
-export type ReportMetric = 'sales' | 'items' | 'payments' | 'customers' | 'orders' | 'refunds' | 'discounts' | 'tax';
+export type ReportMetric =
+  | 'sales'
+  | 'items'
+  | 'payments'
+  | 'customers'
+  | 'orders'
+  | 'refunds'
+  | 'discounts'
+  | 'tax';
 
-export type ReportDimension = 'date' | 'product' | 'category' | 'employee' | 'outlet' | 'payment_method' | 'order_type' | 'hour';
+export type ReportDimension =
+  | 'date'
+  | 'product'
+  | 'category'
+  | 'employee'
+  | 'outlet'
+  | 'payment_method'
+  | 'order_type'
+  | 'hour';
 
 export interface CustomReportConfig {
   metrics: ReportMetric[];
@@ -94,9 +110,7 @@ export class ReportsService {
 
     // Build where clause
     const transactionWhere: Record<string, unknown> = {
-      outletId: config.filters?.outletId
-        ? config.filters.outletId
-        : { in: outletIds },
+      outletId: config.filters?.outletId ? config.filters.outletId : { in: outletIds },
       createdAt: { gte: startDate, lte: endDate },
       transactionType: 'sale',
       status: 'completed',
@@ -113,7 +127,12 @@ export class ReportsService {
         items: {
           include: {
             product: {
-              select: { id: true, name: true, categoryId: true, category: { select: { name: true } } },
+              select: {
+                id: true,
+                name: true,
+                categoryId: true,
+                category: { select: { name: true } },
+              },
             },
           },
         },
@@ -259,23 +278,43 @@ export class ReportsService {
   getAvailableMetrics(): AvailableMetricsResult {
     return {
       metrics: [
-        { key: 'sales', label: 'Total Sales', description: 'Sum of grand total from completed transactions' },
+        {
+          key: 'sales',
+          label: 'Total Sales',
+          description: 'Sum of grand total from completed transactions',
+        },
         { key: 'items', label: 'Items Sold', description: 'Total quantity of items sold' },
         { key: 'payments', label: 'Payment Count', description: 'Number of payments processed' },
         { key: 'customers', label: 'Unique Customers', description: 'Count of unique customers' },
         { key: 'orders', label: 'Order Count', description: 'Number of transactions/orders' },
         { key: 'refunds', label: 'Refunds', description: 'Total refund amount' },
-        { key: 'discounts', label: 'Discounts Given', description: 'Total discount amount applied' },
+        {
+          key: 'discounts',
+          label: 'Discounts Given',
+          description: 'Total discount amount applied',
+        },
         { key: 'tax', label: 'Tax Collected', description: 'Total tax amount collected' },
       ],
       dimensions: [
         { key: 'date', label: 'Date', description: 'Group by calendar date (YYYY-MM-DD)' },
         { key: 'product', label: 'Product', description: 'Group by product name' },
         { key: 'category', label: 'Category', description: 'Group by product category' },
-        { key: 'employee', label: 'Employee', description: 'Group by employee who processed the transaction' },
+        {
+          key: 'employee',
+          label: 'Employee',
+          description: 'Group by employee who processed the transaction',
+        },
         { key: 'outlet', label: 'Outlet', description: 'Group by outlet/branch' },
-        { key: 'payment_method', label: 'Payment Method', description: 'Group by payment method (cash, card, QRIS, etc.)' },
-        { key: 'order_type', label: 'Order Type', description: 'Group by order type (dine-in, takeaway, delivery)' },
+        {
+          key: 'payment_method',
+          label: 'Payment Method',
+          description: 'Group by payment method (cash, card, QRIS, etc.)',
+        },
+        {
+          key: 'order_type',
+          label: 'Order Type',
+          description: 'Group by order type (dine-in, takeaway, delivery)',
+        },
         { key: 'hour', label: 'Hour of Day', description: 'Group by hour of the day (0-23)' },
       ],
     };
@@ -321,9 +360,7 @@ export class ReportsService {
         templates.push(template);
       }
     }
-    return templates.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return templates.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   // ========================================================================
@@ -336,7 +373,14 @@ export class ReportsService {
       orderType: string;
       employee: { id: string; name: string } | null;
       outlet: { id: string; name: string };
-      items?: { product: { id: string; name: string; categoryId: string | null; category: { name: string } | null } | null }[];
+      items?: {
+        product: {
+          id: string;
+          name: string;
+          categoryId: string | null;
+          category: { name: string } | null;
+        } | null;
+      }[];
       payments?: { paymentMethod: string }[];
     },
     dimensions: ReportDimension[],
@@ -381,7 +425,14 @@ export class ReportsService {
       orderType: string;
       employee: { id: string; name: string } | null;
       outlet: { id: string; name: string };
-      items?: { product: { id: string; name: string; categoryId: string | null; category: { name: string } | null } | null }[];
+      items?: {
+        product: {
+          id: string;
+          name: string;
+          categoryId: string | null;
+          category: { name: string } | null;
+        } | null;
+      }[];
       payments?: { paymentMethod: string }[];
     },
     dimensions: ReportDimension[],

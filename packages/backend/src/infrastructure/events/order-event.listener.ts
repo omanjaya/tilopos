@@ -13,7 +13,7 @@ export class OrderEventListener implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.eventBus.ofType(OrderStatusChangedEvent).subscribe(event => {
+    this.eventBus.ofType(OrderStatusChangedEvent).subscribe((event) => {
       void this.handleOrderStatusChanged(event);
     });
   }

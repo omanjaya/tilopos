@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
@@ -29,8 +40,29 @@ export class OrdersController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new order' })
-  async createOrder(@Body() dto: { outletId: string; orderType: 'dine_in' | 'takeaway' | 'delivery'; tableId?: string; customerId?: string; items: { productId: string; variantId?: string; quantity: number; station?: string; notes?: string }[]; priority?: number; notes?: string }, @CurrentUser() user: AuthUser) {
-    return this.createOrderUseCase.execute({ ...dto, outletId: dto.outletId || user.outletId || '' });
+  async createOrder(
+    @Body()
+    dto: {
+      outletId: string;
+      orderType: 'dine_in' | 'takeaway' | 'delivery';
+      tableId?: string;
+      customerId?: string;
+      items: {
+        productId: string;
+        variantId?: string;
+        quantity: number;
+        station?: string;
+        notes?: string;
+      }[];
+      priority?: number;
+      notes?: string;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.createOrderUseCase.execute({
+      ...dto,
+      outletId: dto.outletId || user.outletId || '',
+    });
   }
 
   @Get()
@@ -47,16 +79,31 @@ export class OrdersController {
 
   @Put(':id/status')
   @ApiOperation({ summary: 'Update order status' })
-  async updateStatus(@Param('id') id: string, @Body() dto: { status: 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled' }, @CurrentUser() user: AuthUser) {
-    return this.updateOrderStatusUseCase.execute({ orderId: id, status: dto.status, employeeId: user.employeeId });
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: { status: 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled' },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.updateOrderStatusUseCase.execute({
+      orderId: id,
+      status: dto.status,
+      employeeId: user.employeeId,
+    });
   }
 
   @Put(':id/items')
   @ApiOperation({ summary: 'Modify order items (add/remove/update quantity)' })
   async modifyOrderItems(
     @Param('id') id: string,
-    @Body() dto: {
-      addItems?: Array<{ productId: string; variantId?: string; quantity: number; station?: string; notes?: string }>;
+    @Body()
+    dto: {
+      addItems?: Array<{
+        productId: string;
+        variantId?: string;
+        quantity: number;
+        station?: string;
+        notes?: string;
+      }>;
       removeItemIds?: string[];
       updateItems?: Array<{ itemId: string; quantity?: number; notes?: string }>;
     },
@@ -79,8 +126,15 @@ export class OrdersController {
   @ApiOperation({ summary: 'Modify order (add/remove/update items)' })
   async modifyOrder(
     @Param('id') id: string,
-    @Body() dto: {
-      addItems?: Array<{ productId: string; variantId?: string; quantity: number; station?: string; notes?: string }>;
+    @Body()
+    dto: {
+      addItems?: Array<{
+        productId: string;
+        variantId?: string;
+        quantity: number;
+        station?: string;
+        notes?: string;
+      }>;
       removeItemIds?: string[];
       updateItems?: Array<{ itemId: string; quantity?: number; notes?: string }>;
       notes?: string;
@@ -101,10 +155,7 @@ export class OrdersController {
 
   @Put(':id/priority')
   @ApiOperation({ summary: 'Set order priority (normal, urgent, vip)' })
-  async setPriority(
-    @Param('id') id: string,
-    @Body() dto: { priority: OrderPriorityLevel },
-  ) {
+  async setPriority(@Param('id') id: string, @Body() dto: { priority: OrderPriorityLevel }) {
     return this.ordersService.setPriority(id, dto.priority);
   }
 

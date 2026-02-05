@@ -24,11 +24,7 @@ export interface AmqpChannel {
     queue: string,
     options?: Record<string, unknown>,
   ): Promise<{ queue: string; messageCount: number; consumerCount: number }>;
-  bindQueue(
-    queue: string,
-    exchange: string,
-    routingKey: string,
-  ): Promise<Record<string, unknown>>;
+  bindQueue(queue: string, exchange: string, routingKey: string): Promise<Record<string, unknown>>;
   publish(
     exchange: string,
     routingKey: string,
@@ -87,10 +83,7 @@ export interface MessageMetadata {
 }
 
 /** Handler function signature for consuming messages */
-export type MessageHandler = (
-  envelope: MessageEnvelope,
-  rawMessage: AmqpMessage,
-) => Promise<void>;
+export type MessageHandler = (envelope: MessageEnvelope, rawMessage: AmqpMessage) => Promise<void>;
 
 /** Connection status for health checks */
 export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'error';

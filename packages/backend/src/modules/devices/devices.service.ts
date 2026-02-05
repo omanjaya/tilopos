@@ -40,9 +40,7 @@ export class DevicesService {
   private readonly appVersions = new Map<string, AppVersionRecord>();
   private versionCounter = 0;
 
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // ==================== Version Management ====================
 
@@ -52,14 +50,10 @@ export class DevicesService {
   async listVersions(platform?: string): Promise<AppVersionRecord[]> {
     const versions = Array.from(this.appVersions.values());
 
-    const filtered = platform
-      ? versions.filter((v) => v.platform === platform)
-      : versions;
+    const filtered = platform ? versions.filter((v) => v.platform === platform) : versions;
 
     // Sort by publish date descending (newest first)
-    return filtered.sort(
-      (a, b) => b.publishedAt.getTime() - a.publishedAt.getTime(),
-    );
+    return filtered.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
   }
 
   /**
@@ -138,16 +132,15 @@ export class DevicesService {
     const platform = device.platform;
 
     // Find the latest version for this device's platform
-    const latestVersion = platform
-      ? this.getLatestVersionForPlatform(platform)
-      : null;
+    const latestVersion = platform ? this.getLatestVersionForPlatform(platform) : null;
 
     let updateAvailable = false;
     let forceUpdate = false;
 
     if (latestVersion && currentVersion) {
       updateAvailable = this.isNewerVersion(latestVersion.version, currentVersion);
-      forceUpdate = latestVersion.forceUpdate || this.isBelowMinRequired(currentVersion, latestVersion);
+      forceUpdate =
+        latestVersion.forceUpdate || this.isBelowMinRequired(currentVersion, latestVersion);
     } else if (latestVersion && !currentVersion) {
       // Device has no version reported, update is available
       updateAvailable = true;
@@ -170,7 +163,10 @@ export class DevicesService {
    * Acknowledge that a device has installed an update.
    * Updates the device's appVersion field.
    */
-  async acknowledgeUpdate(deviceId: string, version: string): Promise<{ success: boolean; deviceId: string; version: string }> {
+  async acknowledgeUpdate(
+    deviceId: string,
+    version: string,
+  ): Promise<{ success: boolean; deviceId: string; version: string }> {
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
     });
@@ -209,7 +205,7 @@ export class DevicesService {
     // Find all active devices of the specified platform
     const devices = await this.prisma.device.findMany({
       where: {
-        platform: platform as any,
+        platform: platform as 'android' | 'ios' | 'web' | 'desktop',
         isActive: true,
       },
       include: {
@@ -235,7 +231,9 @@ export class DevicesService {
         notificationType: 'system_error' as const, // Using system_error as closest available type
         channel: 'push' as const,
         title: `Update Available: v${versionRecord.version}`,
-        body: versionRecord.releaseNotes || `A new version (${versionRecord.version}) is available for your ${platform} device.`,
+        body:
+          versionRecord.releaseNotes ||
+          `A new version (${versionRecord.version}) is available for your ${platform} device.`,
         metadata: {
           type: 'app_update',
           version: versionRecord.version,

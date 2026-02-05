@@ -30,11 +30,7 @@ export interface AutoTransferResult {
 export class StockTransfersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDiscrepancies(
-    businessId: string,
-    from: Date,
-    to: Date,
-  ): Promise<TransferDiscrepancy[]> {
+  async getDiscrepancies(businessId: string, from: Date, to: Date): Promise<TransferDiscrepancy[]> {
     const transfers = await this.prisma.stockTransfer.findMany({
       where: {
         businessId,
@@ -56,10 +52,7 @@ export class StockTransfersService {
 
       for (const item of transfer.items) {
         const sent = Number(item.quantitySent);
-        const received =
-          item.quantityReceived !== null
-            ? Number(item.quantityReceived)
-            : 0;
+        const received = item.quantityReceived !== null ? Number(item.quantityReceived) : 0;
 
         if (sent !== received) {
           discrepantItems.push({
@@ -72,10 +65,7 @@ export class StockTransfersService {
       }
 
       if (discrepantItems.length > 0) {
-        const totalSent = transfer.items.reduce(
-          (sum, item) => sum + Number(item.quantitySent),
-          0,
-        );
+        const totalSent = transfer.items.reduce((sum, item) => sum + Number(item.quantitySent), 0);
 
         const totalDifference = discrepantItems.reduce(
           (sum, item) => sum + Math.abs(item.difference),
@@ -83,9 +73,7 @@ export class StockTransfersService {
         );
 
         const percentDiscrepancy =
-          totalSent > 0
-            ? Math.round((totalDifference / totalSent) * 100 * 10) / 10
-            : 0;
+          totalSent > 0 ? Math.round((totalDifference / totalSent) * 100 * 10) / 10 : 0;
 
         discrepancies.push({
           transferId: transfer.id,
@@ -148,13 +136,9 @@ export class StockTransfersService {
       if (availableToTransfer <= 0) continue;
 
       const currentStock =
-        typeof item.current_stock === 'number'
-          ? item.current_stock
-          : Number(item.current_stock);
+        typeof item.current_stock === 'number' ? item.current_stock : Number(item.current_stock);
       const minimumStock =
-        typeof item.minimum_stock === 'number'
-          ? item.minimum_stock
-          : Number(item.minimum_stock);
+        typeof item.minimum_stock === 'number' ? item.minimum_stock : Number(item.minimum_stock);
 
       const needed = minimumStock * 2 - currentStock;
       const quantityToTransfer = Math.min(needed, availableToTransfer);

@@ -22,7 +22,23 @@ export class NotificationsController {
   }
 
   @Post('settings')
-  async createSetting(@Body() dto: { outletId?: string; notificationType: 'low_stock' | 'large_transaction' | 'refund' | 'online_order' | 'shift_reminder' | 'system_error'; channel: 'push' | 'email' | 'sms' | 'whatsapp'; isEnabled: boolean; threshold?: Record<string, unknown> }, @CurrentUser() user: AuthUser) {
+  async createSetting(
+    @Body()
+    dto: {
+      outletId?: string;
+      notificationType:
+        | 'low_stock'
+        | 'large_transaction'
+        | 'refund'
+        | 'online_order'
+        | 'shift_reminder'
+        | 'system_error';
+      channel: 'push' | 'email' | 'sms' | 'whatsapp';
+      isEnabled: boolean;
+      threshold?: Record<string, unknown>;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.notificationRepo.createSetting({
       businessId: user.businessId,
       outletId: dto.outletId || null,
@@ -35,8 +51,14 @@ export class NotificationsController {
   }
 
   @Put('settings/:id')
-  async updateSetting(@Param('id') id: string, @Body() dto: { isEnabled?: boolean; threshold?: Record<string, unknown> }) {
-    return this.notificationRepo.updateSetting(id, { isEnabled: dto.isEnabled, threshold: dto.threshold });
+  async updateSetting(
+    @Param('id') id: string,
+    @Body() dto: { isEnabled?: boolean; threshold?: Record<string, unknown> },
+  ) {
+    return this.notificationRepo.updateSetting(id, {
+      isEnabled: dto.isEnabled,
+      threshold: dto.threshold,
+    });
   }
 
   @Get('logs')

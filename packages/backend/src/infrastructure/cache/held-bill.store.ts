@@ -27,7 +27,7 @@ export class HeldBillStore {
     await this.redis.set(key, data, CACHE_DEFAULTS.HELD_BILL_TTL);
 
     const listKey = buildCacheKey(CACHE_KEYS.HELD_BILL, data.outletId, 'list');
-    const list = await this.redis.get<string[]>(listKey) || [];
+    const list = (await this.redis.get<string[]>(listKey)) || [];
     if (!list.includes(data.id)) {
       list.push(data.id);
       await this.redis.set(listKey, list, CACHE_DEFAULTS.HELD_BILL_TTL);
@@ -40,8 +40,8 @@ export class HeldBillStore {
     if (data) {
       await this.redis.del(key);
       const listKey = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, 'list');
-      const list = await this.redis.get<string[]>(listKey) || [];
-      const filtered = list.filter(id => id !== billId);
+      const list = (await this.redis.get<string[]>(listKey)) || [];
+      const filtered = list.filter((id) => id !== billId);
       await this.redis.set(listKey, filtered, CACHE_DEFAULTS.HELD_BILL_TTL);
     }
     return data;
@@ -49,7 +49,7 @@ export class HeldBillStore {
 
   async list(outletId: string): Promise<HeldBillData[]> {
     const listKey = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, 'list');
-    const ids = await this.redis.get<string[]>(listKey) || [];
+    const ids = (await this.redis.get<string[]>(listKey)) || [];
     const bills: HeldBillData[] = [];
     for (const id of ids) {
       const key = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, id);

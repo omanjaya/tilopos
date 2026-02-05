@@ -95,7 +95,10 @@ export class PrismaIngredientRepository implements IIngredientRepository {
 
   // ==================== Stock Level ====================
 
-  async getStockLevel(outletId: string, ingredientId: string): Promise<IngredientStockLevelRecord | null> {
+  async getStockLevel(
+    outletId: string,
+    ingredientId: string,
+  ): Promise<IngredientStockLevelRecord | null> {
     const stock = await this.prisma.ingredientStockLevel.findUnique({
       where: {
         outletId_ingredientId: {
@@ -119,7 +122,9 @@ export class PrismaIngredientRepository implements IIngredientRepository {
     };
   }
 
-  async getStockLevelsByOutlet(outletId: string): Promise<Array<IngredientStockLevelRecord & { ingredient?: PartialIngredient }>> {
+  async getStockLevelsByOutlet(
+    outletId: string,
+  ): Promise<Array<IngredientStockLevelRecord & { ingredient?: PartialIngredient }>> {
     const stocks = await this.prisma.ingredientStockLevel.findMany({
       where: { outletId },
       include: { ingredient: true },
@@ -136,7 +141,9 @@ export class PrismaIngredientRepository implements IIngredientRepository {
     }));
   }
 
-  async getLowStock(outletId: string): Promise<Array<IngredientStockLevelRecord & { ingredient: PartialIngredient }>> {
+  async getLowStock(
+    outletId: string,
+  ): Promise<Array<IngredientStockLevelRecord & { ingredient: PartialIngredient }>> {
     const stocks = await this.prisma.ingredientStockLevel.findMany({
       where: { outletId },
       include: { ingredient: true },
@@ -156,7 +163,11 @@ export class PrismaIngredientRepository implements IIngredientRepository {
       }));
   }
 
-  async updateStockLevel(outletId: string, ingredientId: string, quantity: number): Promise<IngredientStockLevelRecord> {
+  async updateStockLevel(
+    outletId: string,
+    ingredientId: string,
+    quantity: number,
+  ): Promise<IngredientStockLevelRecord> {
     const updated = await this.prisma.ingredientStockLevel.upsert({
       where: {
         outletId_ingredientId: {

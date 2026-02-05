@@ -59,9 +59,7 @@ describe('SuppliersService', () => {
               createdAt: new Date('2026-01-05'),
               orderedAt,
               receivedAt,
-              items: [
-                { quantityOrdered: 100, quantityReceived: 100 },
-              ],
+              items: [{ quantityOrdered: 100, quantityReceived: 100 }],
             },
             {
               id: 'po-2',
@@ -70,9 +68,7 @@ describe('SuppliersService', () => {
               createdAt: new Date('2026-01-15'),
               orderedAt: new Date('2026-01-12'),
               receivedAt: new Date('2026-01-15'),
-              items: [
-                { quantityOrdered: 50, quantityReceived: 45 },
-              ],
+              items: [{ quantityOrdered: 50, quantityReceived: 45 }],
             },
           ],
         },
@@ -279,11 +275,7 @@ describe('SuppliersService', () => {
       (mockPrisma.purchaseOrder.update as jest.Mock).mockResolvedValue(updatedPO);
 
       // Act
-      const result = await service.rejectPurchaseOrder(
-        'po-1',
-        'mgr-1',
-        'Budget exceeded',
-      );
+      const result = await service.rejectPurchaseOrder('po-1', 'mgr-1', 'Budget exceeded');
 
       // Assert
       expect(result.id).toBe('po-1');

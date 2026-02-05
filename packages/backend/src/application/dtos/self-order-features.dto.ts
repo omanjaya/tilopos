@@ -66,7 +66,8 @@ export class MenuTranslationDto {
   productId!: string;
 
   @ApiProperty({
-    description: 'Translations keyed by language code (e.g., {"id": {"name": "..."}, "en": {"name": "..."}})',
+    description:
+      'Translations keyed by language code (e.g., {"id": {"name": "..."}, "en": {"name": "..."}})',
     type: 'object',
     additionalProperties: { type: 'object' },
   })

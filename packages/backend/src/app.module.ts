@@ -87,4 +87,4 @@ import { WaitingListModule } from './modules/waiting-list/waiting-list.module';
     },
   ],
 })
-export class AppModule { }
+export class AppModule {}

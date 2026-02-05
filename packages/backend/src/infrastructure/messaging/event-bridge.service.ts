@@ -57,7 +57,7 @@ export class EventBridgeService implements OnModuleInit {
     private readonly rabbitMqService: RabbitMqService,
     private readonly publisher: MessagePublisherService,
     private readonly consumer: MessageConsumerService,
-  ) { }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     if (!this.rabbitMqService.isConfigured()) {
@@ -131,8 +131,7 @@ export class EventBridgeService implements OnModuleInit {
       const bridgeQueue = `${queue}.bridge`;
       this.consumer.registerHandler(
         bridgeQueue,
-        (envelope: MessageEnvelope, _rawMessage: AmqpMessage) =>
-          this.reEmitToRxjs(envelope),
+        (envelope: MessageEnvelope, _rawMessage: AmqpMessage) => this.reEmitToRxjs(envelope),
       );
     }
 
@@ -140,10 +139,7 @@ export class EventBridgeService implements OnModuleInit {
   }
 
   private async reEmitToRxjs(envelope: MessageEnvelope): Promise<void> {
-    const event = new ReconstructedDomainEvent(
-      envelope.eventType,
-      envelope.payload,
-    );
+    const event = new ReconstructedDomainEvent(envelope.eventType, envelope.payload);
 
     // Mark this event as originating from RabbitMQ
     this.fromRabbitMq.add(event);
@@ -152,7 +148,7 @@ export class EventBridgeService implements OnModuleInit {
 
     this.logger.debug(
       `Bridge: re-emitted "${envelope.eventType}" from RabbitMQ to local bus ` +
-      `[${envelope.metadata.correlationId}]`,
+        `[${envelope.metadata.correlationId}]`,
     );
   }
 

@@ -98,7 +98,7 @@ export class LoyaltyCronService {
         const result = await this.evaluateTiersForBusiness(program.businessId);
         this.logger.log(
           `Tier evaluation for business ${program.businessId}: ` +
-          `${result.upgraded} upgraded, ${result.downgraded} downgraded, ${result.unchanged} unchanged`,
+            `${result.upgraded} upgraded, ${result.downgraded} downgraded, ${result.unchanged} unchanged`,
         );
       }
     } catch (error) {
@@ -172,7 +172,8 @@ export class LoyaltyCronService {
       const previousTierIndex = tiers.findIndex((t) => t.name === previousTier);
       const newTierIndex = tiers.findIndex((t) => t.name === newTierName);
 
-      const isUpgrade = newTierIndex > previousTierIndex || (previousTierIndex === -1 && newTierIndex >= 0);
+      const isUpgrade =
+        newTierIndex > previousTierIndex || (previousTierIndex === -1 && newTierIndex >= 0);
 
       if (isUpgrade) {
         result.upgraded++;
@@ -181,11 +182,7 @@ export class LoyaltyCronService {
       }
 
       // Update customer tier
-      await this.loyaltyRepo.updateCustomerPoints(
-        customer.id,
-        customer.loyaltyPoints,
-        newTierName,
-      );
+      await this.loyaltyRepo.updateCustomerPoints(customer.id, customer.loyaltyPoints, newTierName);
 
       // Create audit-style loyalty transaction for the tier change
       await this.loyaltyRepo.createTransaction({
@@ -228,7 +225,7 @@ export class LoyaltyCronService {
         const result = await this.expirePointsForBusiness(program.businessId);
         this.logger.log(
           `Points expiry for business ${program.businessId}: ` +
-          `${result.expired} transactions, ${result.totalPointsExpired} total points expired`,
+            `${result.expired} transactions, ${result.totalPointsExpired} total points expired`,
         );
       }
     } catch (error) {
@@ -269,7 +266,10 @@ export class LoyaltyCronService {
     result.processed = expiredTransactions.length;
 
     // Group by customer to batch-update
-    const customerExpiries = new Map<string, { total: number; currentPoints: number; txDetails: PointsExpiryDetail[] }>();
+    const customerExpiries = new Map<
+      string,
+      { total: number; currentPoints: number; txDetails: PointsExpiryDetail[] }
+    >();
 
     for (const tx of expiredTransactions) {
       const custId = tx.customerId;
@@ -398,8 +398,10 @@ export class LoyaltyCronService {
     }
 
     const netPointsOutstanding = pointsIssued - pointsRedeemed - pointsExpired + pointsAdjusted;
-    const redemptionRate = pointsIssued > 0 ? Math.round((pointsRedeemed / pointsIssued) * 10000) / 100 : 0;
-    const averagePointsPerMember = totalMembers > 0 ? Math.round(netPointsOutstanding / totalMembers) : 0;
+    const redemptionRate =
+      pointsIssued > 0 ? Math.round((pointsRedeemed / pointsIssued) * 10000) / 100 : 0;
+    const averagePointsPerMember =
+      totalMembers > 0 ? Math.round(netPointsOutstanding / totalMembers) : 0;
 
     // Top redeemers
     const topRedeemersRaw = await this.prisma.loyaltyTransaction.groupBy({

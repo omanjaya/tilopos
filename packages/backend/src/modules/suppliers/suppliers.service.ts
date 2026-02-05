@@ -77,10 +77,7 @@ export class SuppliersService {
     return suppliers.map((supplier) => {
       const orders = supplier.purchaseOrders;
       const totalOrders = orders.length;
-      const totalAmount = orders.reduce(
-        (sum, po) => sum + Number(po.totalAmount),
-        0,
-      );
+      const totalAmount = orders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
 
       const receivedOrders = orders.filter(
         (po) => po.status === 'received' && po.orderedAt && po.receivedAt,
@@ -99,15 +96,12 @@ export class SuppliersService {
       const fullyReceivedOrders = orders.filter((po) => {
         if (po.status !== 'received') return false;
         return po.items.every(
-          (item) =>
-            Number(item.quantityReceived) >= Number(item.quantityOrdered),
+          (item) => Number(item.quantityReceived) >= Number(item.quantityOrdered),
         );
       });
 
       const fulfillmentRate =
-        totalOrders > 0
-          ? (fullyReceivedOrders.length / totalOrders) * 100
-          : 0;
+        totalOrders > 0 ? (fullyReceivedOrders.length / totalOrders) * 100 : 0;
 
       const qualityIssues = orders.reduce((count, po) => {
         const hasDiscrepancy = po.items.some(
@@ -121,8 +115,7 @@ export class SuppliersService {
       const sortedOrders = [...orders].sort(
         (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
       );
-      const lastOrderDate =
-        sortedOrders.length > 0 ? sortedOrders[0].createdAt : null;
+      const lastOrderDate = sortedOrders.length > 0 ? sortedOrders[0].createdAt : null;
 
       return {
         supplierId: supplier.id,
@@ -159,10 +152,7 @@ export class SuppliersService {
 
     const orders = supplier.purchaseOrders;
     const totalOrders = orders.length;
-    const totalAmount = orders.reduce(
-      (sum, po) => sum + Number(po.totalAmount),
-      0,
-    );
+    const totalAmount = orders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
 
     const receivedOrders = orders.filter(
       (po) => po.status === 'received' && po.orderedAt && po.receivedAt,
@@ -181,15 +171,11 @@ export class SuppliersService {
     const fullyReceivedOrders = orders.filter((po) => {
       if (po.status !== 'received') return false;
       return po.items.every(
-        (item) =>
-          Number(item.quantityReceived) >= Number(item.quantityOrdered),
+        (item) => Number(item.quantityReceived) >= Number(item.quantityOrdered),
       );
     });
 
-    const fulfillmentRate =
-      totalOrders > 0
-        ? (fullyReceivedOrders.length / totalOrders) * 100
-        : 0;
+    const fulfillmentRate = totalOrders > 0 ? (fullyReceivedOrders.length / totalOrders) * 100 : 0;
 
     const qualityIssues = orders.reduce((count, po) => {
       const hasDiscrepancy = po.items.some(
@@ -200,11 +186,8 @@ export class SuppliersService {
       return hasDiscrepancy ? count + 1 : count;
     }, 0);
 
-    const sortedOrders = [...orders].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
-    const lastOrderDate =
-      sortedOrders.length > 0 ? sortedOrders[0].createdAt : null;
+    const sortedOrders = [...orders].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const lastOrderDate = sortedOrders.length > 0 ? sortedOrders[0].createdAt : null;
 
     const orderHistory: SupplierOrderHistoryEntry[] = orders.map((po) => ({
       poId: po.id,
@@ -252,19 +235,13 @@ export class SuppliersService {
 
     for (const item of lowStockItems) {
       const currentStock =
-        typeof item.current_stock === 'number'
-          ? item.current_stock
-          : Number(item.current_stock);
+        typeof item.current_stock === 'number' ? item.current_stock : Number(item.current_stock);
       const minimumStock =
-        typeof item.minimum_stock === 'number'
-          ? item.minimum_stock
-          : Number(item.minimum_stock);
+        typeof item.minimum_stock === 'number' ? item.minimum_stock : Number(item.minimum_stock);
 
       const suggestedQuantity = Math.max(minimumStock * 2 - currentStock, 1);
 
-      const preferredSupplier = await this.findPreferredSupplier(
-        item.product_id,
-      );
+      const preferredSupplier = await this.findPreferredSupplier(item.product_id);
 
       suggestions.push({
         productId: item.product_id,
@@ -279,20 +256,14 @@ export class SuppliersService {
     return suggestions;
   }
 
-  async autoReorder(
-    outletId: string,
-    createdBy: string,
-  ): Promise<AutoReorderResult> {
+  async autoReorder(outletId: string, createdBy: string): Promise<AutoReorderResult> {
     const suggestions = await this.getReorderSuggestions(outletId);
 
     if (suggestions.length === 0) {
       return { purchaseOrders: [] };
     }
 
-    const grouped = new Map<
-      string,
-      { supplierId: string; items: typeof suggestions }
-    >();
+    const grouped = new Map<string, { supplierId: string; items: typeof suggestions }>();
 
     const unassigned: typeof suggestions = [];
 
@@ -371,9 +342,8 @@ export class SuppliersService {
     if (unassigned.length > 0) {
       const defaultSupplier = await this.prisma.supplier.findFirst({
         where: {
-          businessId: (
-            await this.prisma.outlet.findUnique({ where: { id: outletId } })
-          )?.businessId,
+          businessId: (await this.prisma.outlet.findUnique({ where: { id: outletId } }))
+            ?.businessId,
           isActive: true,
         },
         orderBy: { createdAt: 'asc' },
@@ -426,10 +396,7 @@ export class SuppliersService {
     return { purchaseOrders: createdPOs };
   }
 
-  async findPurchaseOrdersByBusiness(
-    businessId: string,
-    status?: string,
-  ) {
+  async findPurchaseOrdersByBusiness(businessId: string, status?: string) {
     const where: Record<string, unknown> = {
       outlet: { businessId },
     };
@@ -497,9 +464,7 @@ export class SuppliersService {
     };
   }
 
-  async getPendingPurchaseOrders(
-    businessId: string,
-  ): Promise<PendingPOEntry[]> {
+  async getPendingPurchaseOrders(businessId: string): Promise<PendingPOEntry[]> {
     const pos = await this.prisma.purchaseOrder.findMany({
       where: {
         status: 'draft',
@@ -565,8 +530,7 @@ export class SuppliersService {
       if (entry) {
         trend.push({
           month: key,
-          averageLeadTimeDays:
-            Math.round((entry.totalDays / entry.count) * 10) / 10,
+          averageLeadTimeDays: Math.round((entry.totalDays / entry.count) * 10) / 10,
           orderCount: entry.count,
         });
       }
@@ -575,9 +539,7 @@ export class SuppliersService {
     return trend;
   }
 
-  private async findPreferredSupplier(
-    productId: string,
-  ): Promise<string | null> {
+  private async findPreferredSupplier(productId: string): Promise<string | null> {
     const recentPO = await this.prisma.purchaseOrderItem.findFirst({
       where: {
         productId,

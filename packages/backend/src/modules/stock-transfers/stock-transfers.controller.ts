@@ -85,10 +85,7 @@ export class StockTransfersController {
 
   @Put(':id/approve')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async approve(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.prisma.stockTransfer.update({
       where: { id },
       data: {
@@ -110,10 +107,7 @@ export class StockTransfersController {
 
   @Put(':id/receive')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async receive(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async receive(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.prisma.stockTransfer.update({
       where: { id },
       data: {
@@ -125,14 +119,9 @@ export class StockTransfersController {
   }
 
   @Get('discrepancies')
-  async getDiscrepancies(
-    @Query() query: DiscrepancyQueryDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getDiscrepancies(@Query() query: DiscrepancyQueryDto, @CurrentUser() user: AuthUser) {
     if (!query.from || !query.to) {
-      throw new BadRequestException(
-        'from and to query parameters are required',
-      );
+      throw new BadRequestException('from and to query parameters are required');
     }
 
     return this.stockTransfersService.getDiscrepancies(
@@ -144,17 +133,13 @@ export class StockTransfersController {
 
   @Post('auto-request')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async autoRequest(
-    @Body() dto: AutoTransferRequestDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const result =
-      await this.stockTransfersService.autoCreateTransferRequest(
-        user.businessId,
-        dto.destinationOutletId,
-        dto.sourceOutletId,
-        user.employeeId,
-      );
+  async autoRequest(@Body() dto: AutoTransferRequestDto, @CurrentUser() user: AuthUser) {
+    const result = await this.stockTransfersService.autoCreateTransferRequest(
+      user.businessId,
+      dto.destinationOutletId,
+      dto.sourceOutletId,
+      user.employeeId,
+    );
 
     if (!result) {
       return {

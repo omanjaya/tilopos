@@ -1,4 +1,7 @@
-import { DeductIngredientsOnSaleUseCase, DeductIngredientsInput } from './deduct-ingredients-on-sale.use-case';
+import {
+  DeductIngredientsOnSaleUseCase,
+  DeductIngredientsInput,
+} from './deduct-ingredients-on-sale.use-case';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
 
 // Helper to create a Decimal-like object matching Prisma's Decimal behavior
@@ -28,17 +31,13 @@ describe('DeductIngredientsOnSaleUseCase', () => {
       },
     };
 
-    useCase = new DeductIngredientsOnSaleUseCase(
-      mockPrisma as unknown as PrismaService,
-    );
+    useCase = new DeductIngredientsOnSaleUseCase(mockPrisma as unknown as PrismaService);
   });
 
   const baseInput: DeductIngredientsInput = {
     outletId: 'outlet-1',
     transactionId: 'txn-1',
-    items: [
-      { productId: 'prod-1', quantity: 2 },
-    ],
+    items: [{ productId: 'prod-1', quantity: 2 }],
   };
 
   it('should deduct correct quantities based on recipe', async () => {
@@ -349,9 +348,7 @@ describe('DeductIngredientsOnSaleUseCase', () => {
       lowStockAlert: decimal(1),
     };
 
-    mockPrisma.recipe.findFirst
-      .mockResolvedValueOnce(recipe1)
-      .mockResolvedValueOnce(recipe2);
+    mockPrisma.recipe.findFirst.mockResolvedValueOnce(recipe1).mockResolvedValueOnce(recipe2);
     mockPrisma.ingredientStockLevel.findFirst
       .mockResolvedValueOnce(riceStock)
       .mockResolvedValueOnce(noodleStock);

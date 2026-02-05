@@ -108,9 +108,7 @@ export class Saga<TContext extends Record<string, unknown> = Record<string, unkn
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-        this.logger.error(
-          `Step ${step.name} failed in saga ${this.sagaName}: ${errorMessage}`,
-        );
+        this.logger.error(`Step ${step.name} failed in saga ${this.sagaName}: ${errorMessage}`);
 
         this._log.steps.push({
           stepName: step.name,
@@ -153,9 +151,7 @@ export class Saga<TContext extends Record<string, unknown> = Record<string, unkn
     for (let i = completedSteps.length - 1; i >= 0; i--) {
       const step = completedSteps[i];
       try {
-        this.logger.debug(
-          `Compensating step: ${step.name} for saga ${this.sagaName}`,
-        );
+        this.logger.debug(`Compensating step: ${step.name} for saga ${this.sagaName}`);
         currentContext = await step.compensate(currentContext);
 
         this._log.steps.push({
@@ -164,9 +160,7 @@ export class Saga<TContext extends Record<string, unknown> = Record<string, unkn
         });
       } catch (compensateError) {
         const msg = compensateError instanceof Error ? compensateError.message : 'Unknown error';
-        this.logger.error(
-          `Compensation failed for step ${step.name}: ${msg}`,
-        );
+        this.logger.error(`Compensation failed for step ${step.name}: ${msg}`);
 
         this._log.steps.push({
           stepName: `compensate:${step.name}`,
@@ -222,9 +216,7 @@ export class SagaOrchestrator {
     if (result.log.status === SagaStatus.COMPLETED) {
       this.logger.log(`Saga ${saga.sagaName} completed successfully`);
     } else {
-      this.logger.warn(
-        `Saga ${saga.sagaName} failed: ${result.log.error}`,
-      );
+      this.logger.warn(`Saga ${saga.sagaName} failed: ${result.log.error}`);
     }
 
     return result;
@@ -241,6 +233,6 @@ export class SagaOrchestrator {
    * Get a specific saga log by ID.
    */
   getSagaLog(sagaId: string): SagaLog | undefined {
-    return this.sagaLogs.find(log => log.sagaId === sagaId);
+    return this.sagaLogs.find((log) => log.sagaId === sagaId);
   }
 }

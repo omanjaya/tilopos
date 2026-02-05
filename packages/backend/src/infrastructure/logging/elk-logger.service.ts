@@ -60,14 +60,11 @@ export class ElkLoggerService implements NestLoggerService {
           winston.format.printf(({ timestamp, level, message, context, ...meta }) => {
             const ctx = context ? `[${String(context)}]` : '';
             const traceId = meta['traceId'] ? `[${String(meta['traceId'])}]` : '';
-            const metaKeys = Object.keys(meta).filter(
-              (k) => !['traceId', 'splat'].includes(k),
-            );
-            const metaStr = metaKeys.length > 0
-              ? ` ${JSON.stringify(
-                Object.fromEntries(metaKeys.map((k) => [k, meta[k]])),
-              )}`
-              : '';
+            const metaKeys = Object.keys(meta).filter((k) => !['traceId', 'splat'].includes(k));
+            const metaStr =
+              metaKeys.length > 0
+                ? ` ${JSON.stringify(Object.fromEntries(metaKeys.map((k) => [k, meta[k]])))}`
+                : '';
             return `${String(timestamp)} ${level} ${traceId}${ctx} ${String(message)}${metaStr}`;
           }),
         ),

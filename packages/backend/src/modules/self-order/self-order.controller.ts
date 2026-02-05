@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, NotFoundException, Put, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  NotFoundException,
+  Put,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { CreateSelfOrderSessionUseCase } from '../../application/use-cases/self-order/create-session.use-case';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
@@ -58,7 +68,11 @@ export class SelfOrderController {
 
   @Get('menu')
   @ApiOperation({ summary: 'Get menu for outlet' })
-  @ApiQuery({ name: 'lang', required: false, description: 'Language code (id, en). Defaults to id.' })
+  @ApiQuery({
+    name: 'lang',
+    required: false,
+    description: 'Language code (id, en). Defaults to id.',
+  })
   async getMenu(@Query('outletId') outletId: string, @Query('lang') lang?: string) {
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
@@ -126,7 +140,14 @@ export class SelfOrderController {
   @ApiOperation({ summary: 'Add item to session' })
   async addItem(
     @Param('code') code: string,
-    @Body() dto: { productId: string; variantId?: string; quantity: number; modifiers?: unknown[]; notes?: string },
+    @Body()
+    dto: {
+      productId: string;
+      variantId?: string;
+      quantity: number;
+      modifiers?: unknown[];
+      notes?: string;
+    },
   ) {
     const session = await this.prisma.selfOrderSession.findUnique({
       where: { sessionCode: code },
@@ -228,12 +249,7 @@ export class SelfOrderController {
 
     // Emit event so KDS picks up the new order
     this.eventBus.publish(
-      new OrderStatusChangedEvent(
-        order.id,
-        session.outletId,
-        'none',
-        'pending',
-      ),
+      new OrderStatusChangedEvent(order.id, session.outletId, 'none', 'pending'),
     );
 
     return {
@@ -254,7 +270,8 @@ export class SelfOrderController {
   @ApiOperation({ summary: 'Create payment for session' })
   async createPayment(
     @Param('code') code: string,
-    @Body() dto: {
+    @Body()
+    dto: {
       paymentMethod: 'qris' | 'gopay' | 'ovo' | 'dana' | 'shopeepay';
       amount: number;
       customerEmail?: string;
@@ -287,13 +304,15 @@ export class SelfOrderController {
   @Get('menu/:outletId')
   @ApiOperation({
     summary: 'Get menu for self-order with language support',
-    description: 'Returns menu items with translations for the specified language. Falls back to default product name/description if no translation exists.',
+    description:
+      'Returns menu items with translations for the specified language. Falls back to default product name/description if no translation exists.',
   })
-  @ApiQuery({ name: 'lang', required: false, description: 'Language code (id, en). Defaults to id.' })
-  async getMenuWithLanguage(
-    @Param('outletId') outletId: string,
-    @Query('lang') lang?: string,
-  ) {
+  @ApiQuery({
+    name: 'lang',
+    required: false,
+    description: 'Language code (id, en). Defaults to id.',
+  })
+  async getMenuWithLanguage(@Param('outletId') outletId: string, @Query('lang') lang?: string) {
     const language = lang || 'id';
 
     const outlet = await this.prisma.outlet.findUnique({
@@ -322,26 +341,29 @@ export class SelfOrderController {
     });
 
     // Group by category for better UX
-    const categoryMap = new Map<string, {
-      id: string;
-      name: string;
-      sortOrder: number;
-      products: Array<{
+    const categoryMap = new Map<
+      string,
+      {
         id: string;
         name: string;
-        description?: string;
-        price: number;
-        imageUrl?: string;
-        isAvailable: boolean;
-        variants?: Array<{ id: string; name: string; price: number }>;
-        modifierGroups?: Array<{
+        sortOrder: number;
+        products: Array<{
           id: string;
           name: string;
-          isRequired: boolean;
-          modifiers: Array<{ id: string; name: string; price: number }>;
+          description?: string;
+          price: number;
+          imageUrl?: string;
+          isAvailable: boolean;
+          variants?: Array<{ id: string; name: string; price: number }>;
+          modifierGroups?: Array<{
+            id: string;
+            name: string;
+            isRequired: boolean;
+            modifiers: Array<{ id: string; name: string; price: number }>;
+          }>;
         }>;
-      }>;
-    }>();
+      }
+    >();
 
     for (const product of products) {
       const categoryId = product.categoryId || 'uncategorized';
@@ -384,9 +406,7 @@ export class SelfOrderController {
         price: Number(v.price),
       }));
 
-      const price = variants.length > 0
-        ? Math.min(...variants.map((v) => v.price))
-        : basePrice;
+      const price = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : basePrice;
 
       const category = categoryMap.get(categoryId)!;
       category.products.push({
@@ -397,25 +417,24 @@ export class SelfOrderController {
         imageUrl: product.imageUrl || undefined,
         isAvailable: true,
         variants: variants.length > 0 ? variants : undefined,
-        modifierGroups: product.productModifierGroups.length > 0
-          ? product.productModifierGroups.map((pmg) => ({
-              id: pmg.modifierGroup.id,
-              name: pmg.modifierGroup.name,
-              isRequired: pmg.modifierGroup.isRequired,
-              modifiers: pmg.modifierGroup.modifiers.map((m) => ({
-                id: m.id,
-                name: m.name,
-                price: Number(m.price),
-              })),
-            }))
-          : undefined,
+        modifierGroups:
+          product.productModifierGroups.length > 0
+            ? product.productModifierGroups.map((pmg) => ({
+                id: pmg.modifierGroup.id,
+                name: pmg.modifierGroup.name,
+                isRequired: pmg.modifierGroup.isRequired,
+                modifiers: pmg.modifierGroup.modifiers.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  price: Number(m.price),
+                })),
+              }))
+            : undefined,
       });
     }
 
     // Sort categories and return
-    const categories = Array.from(categoryMap.values()).sort(
-      (a, b) => a.sortOrder - b.sortOrder,
-    );
+    const categories = Array.from(categoryMap.values()).sort((a, b) => a.sortOrder - b.sortOrder);
 
     return {
       outletName: outlet.name,
@@ -429,7 +448,8 @@ export class SelfOrderController {
   @Post('menu/translations')
   @ApiOperation({
     summary: 'Set menu item translations',
-    description: 'Store translations for product names and descriptions. Translations are embedded in the product description as a JSON structure.',
+    description:
+      'Store translations for product names and descriptions. Translations are embedded in the product description as a JSON structure.',
   })
   async setMenuTranslations(@Body() dto: MenuTranslationBatchDto) {
     const results: Array<{ productId: string; success: boolean; error?: string }> = [];
@@ -458,7 +478,7 @@ export class SelfOrderController {
         }
 
         existingData.translations = {
-          ...(existingData.translations as Record<string, unknown> || {}),
+          ...((existingData.translations as Record<string, unknown>) || {}),
           ...item.translations,
         };
 
@@ -481,10 +501,7 @@ export class SelfOrderController {
 
   @Put('sessions/:code/extend')
   @ApiOperation({ summary: 'Extend session expiry time' })
-  async extendSession(
-    @Param('code') code: string,
-    @Body() dto: { minutes?: number },
-  ) {
+  async extendSession(@Param('code') code: string, @Body() dto: { minutes?: number }) {
     return this.scheduler.extendSession(code, dto.minutes);
   }
 
@@ -492,10 +509,7 @@ export class SelfOrderController {
 
   @Post('sessions/:code/pay/qris')
   @ApiOperation({ summary: 'Initiate QRIS payment for session' })
-  async initiateQrisPayment(
-    @Param('code') code: string,
-    @Body() dto: { amount: number },
-  ) {
+  async initiateQrisPayment(@Param('code') code: string, @Body() dto: { amount: number }) {
     if (!dto.amount || dto.amount <= 0) {
       throw new BadRequestException('Amount must be greater than 0');
     }
@@ -507,7 +521,12 @@ export class SelfOrderController {
   @Post('payment-callback')
   @ApiOperation({ summary: 'Payment callback webhook (alternative path)' })
   async paymentCallbackAlt(
-    @Body() dto: { sessionCode: string; paymentId: string; status: 'success' | 'failed' | 'pending' },
+    @Body()
+    dto: {
+      sessionCode: string;
+      paymentId: string;
+      status: 'success' | 'failed' | 'pending';
+    },
   ) {
     await this.paymentService.handlePaymentCallback(dto.paymentId, dto.status);
     return { received: true };
@@ -518,7 +537,8 @@ export class SelfOrderController {
   @Get('i18n/:locale')
   @ApiOperation({
     summary: 'Get UI translations for a locale',
-    description: 'Returns translation strings for the self-order UI. Supported locales: id (Indonesian), en (English).',
+    description:
+      'Returns translation strings for the self-order UI. Supported locales: id (Indonesian), en (English).',
   })
   @ApiParam({ name: 'locale', description: 'Language code (id or en)', example: 'id' })
   async getTranslationsEndpoint(@Param('locale') locale: string) {
@@ -552,4 +572,3 @@ export class SelfOrderController {
     return `ORD-${today.getFullYear().toString().slice(-2)}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}-${String(count + 1).padStart(3, '0')}`;
   }
 }
-

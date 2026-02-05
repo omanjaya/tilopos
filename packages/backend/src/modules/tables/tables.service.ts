@@ -166,11 +166,7 @@ export class TablesService {
     });
   }
 
-  async updateStatus(
-    id: string,
-    status: TableStatus,
-    currentOrderId?: string,
-  ): Promise<TableDto> {
+  async updateStatus(id: string, status: TableStatus, currentOrderId?: string): Promise<TableDto> {
     const existing = await this.prisma.table.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Table ${id} not found`);
@@ -196,9 +192,7 @@ export class TablesService {
       orderBy: { section: 'asc' },
     });
 
-    return tables
-      .map((t) => t.section)
-      .filter((s): s is string => s !== null);
+    return tables.map((t) => t.section).filter((s): s is string => s !== null);
   }
 
   // ==================== Reservations ====================
@@ -251,9 +245,7 @@ export class TablesService {
         customerPhone: data.customerPhone,
         partySize: data.partySize,
         queuedAt: data.reservedAt,
-        notes: data.notes
-          ? `[RESERVATION] ${data.notes}`
-          : '[RESERVATION]',
+        notes: data.notes ? `[RESERVATION] ${data.notes}` : '[RESERVATION]',
         status: 'waiting',
       },
     });
@@ -290,9 +282,7 @@ export class TablesService {
     }
 
     if (reservation.status !== 'waiting' && reservation.status !== 'notified') {
-      throw new BadRequestException(
-        `Cannot cancel reservation in status: ${reservation.status}`,
-      );
+      throw new BadRequestException(`Cannot cancel reservation in status: ${reservation.status}`);
     }
 
     const updated = await this.prisma.waitingList.update({
@@ -326,9 +316,7 @@ export class TablesService {
     }
 
     if (reservation.status !== 'waiting' && reservation.status !== 'notified') {
-      throw new BadRequestException(
-        `Cannot check in reservation in status: ${reservation.status}`,
-      );
+      throw new BadRequestException(`Cannot check in reservation in status: ${reservation.status}`);
     }
 
     const updated = await this.prisma.waitingList.update({
@@ -381,10 +369,7 @@ export class TablesService {
       where: {
         outletId,
         status: { in: ['waiting', 'notified'] },
-        OR: [
-          { notes: { not: { startsWith: '[RESERVATION]' } } },
-          { notes: null },
-        ],
+        OR: [{ notes: { not: { startsWith: '[RESERVATION]' } } }, { notes: null }],
       },
       orderBy: { queuedAt: 'asc' },
     });
@@ -402,9 +387,7 @@ export class TablesService {
     }
 
     if (entry.status !== 'waiting') {
-      throw new BadRequestException(
-        `Cannot notify entry in status: ${entry.status}`,
-      );
+      throw new BadRequestException(`Cannot notify entry in status: ${entry.status}`);
     }
 
     const updated = await this.prisma.waitingList.update({
@@ -418,10 +401,7 @@ export class TablesService {
     return this.toWaitingListDto(updated);
   }
 
-  async seatFromWaitingList(
-    waitingId: string,
-    tableId: string,
-  ): Promise<WaitingListDto> {
+  async seatFromWaitingList(waitingId: string, tableId: string): Promise<WaitingListDto> {
     const entry = await this.prisma.waitingList.findUnique({
       where: { id: waitingId },
     });
@@ -431,9 +411,7 @@ export class TablesService {
     }
 
     if (entry.status !== 'waiting' && entry.status !== 'notified') {
-      throw new BadRequestException(
-        `Cannot seat entry in status: ${entry.status}`,
-      );
+      throw new BadRequestException(`Cannot seat entry in status: ${entry.status}`);
     }
 
     const table = await this.prisma.table.findUnique({

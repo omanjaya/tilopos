@@ -3,14 +3,7 @@ import { DomainEvent } from '../domain-event';
 
 describe('PaymentReceivedEvent', () => {
   it('should create event with correct payload', () => {
-    const event = new PaymentReceivedEvent(
-      'pay-1',
-      'txn-1',
-      'outlet-1',
-      'biz-1',
-      55500,
-      'cash',
-    );
+    const event = new PaymentReceivedEvent('pay-1', 'txn-1', 'outlet-1', 'biz-1', 55500, 'cash');
 
     expect(event.paymentId).toBe('pay-1');
     expect(event.transactionId).toBe('txn-1');
@@ -43,9 +36,30 @@ describe('PaymentReceivedEvent', () => {
   });
 
   it('should handle different payment methods', () => {
-    const cashEvent = new PaymentReceivedEvent('pay-1', 'txn-1', 'outlet-1', 'biz-1', 55500, 'cash');
-    const debitEvent = new PaymentReceivedEvent('pay-2', 'txn-1', 'outlet-1', 'biz-1', 55500, 'debit_card');
-    const qrisEvent = new PaymentReceivedEvent('pay-3', 'txn-1', 'outlet-1', 'biz-1', 55500, 'qris');
+    const cashEvent = new PaymentReceivedEvent(
+      'pay-1',
+      'txn-1',
+      'outlet-1',
+      'biz-1',
+      55500,
+      'cash',
+    );
+    const debitEvent = new PaymentReceivedEvent(
+      'pay-2',
+      'txn-1',
+      'outlet-1',
+      'biz-1',
+      55500,
+      'debit_card',
+    );
+    const qrisEvent = new PaymentReceivedEvent(
+      'pay-3',
+      'txn-1',
+      'outlet-1',
+      'biz-1',
+      55500,
+      'qris',
+    );
 
     expect(cashEvent.paymentMethod).toBe('cash');
     expect(debitEvent.paymentMethod).toBe('debit_card');

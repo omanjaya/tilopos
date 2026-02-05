@@ -49,4 +49,4 @@ import { PaymentGatewayService, EDCGateway, CashGateway } from './payment-gatewa
     HandleXenditWebhookUseCase,
   ],
 })
-export class PaymentsModule { }
+export class PaymentsModule {}

@@ -104,7 +104,10 @@ export class PrismaLoyaltyRepository implements ILoyaltyRepository {
     return this.toTransactionRecord(created);
   }
 
-  async findTransactionsByCustomer(customerId: string, limit = 50): Promise<LoyaltyTransactionRecord[]> {
+  async findTransactionsByCustomer(
+    customerId: string,
+    limit = 50,
+  ): Promise<LoyaltyTransactionRecord[]> {
     const transactions = await this.prisma.loyaltyTransaction.findMany({
       where: { customerId },
       orderBy: { createdAt: 'desc' },

@@ -1,7 +1,10 @@
 import { CreateOrderUseCase, CreateOrderInput } from './create-order.use-case';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { OrderStatusChangedEvent } from '@domain/events/order-status-changed.event';
-import type { IOrderRepository, OrderRecord } from '@domain/interfaces/repositories/order.repository';
+import type {
+  IOrderRepository,
+  OrderRecord,
+} from '@domain/interfaces/repositories/order.repository';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
 
 describe('CreateOrderUseCase', () => {
@@ -34,17 +37,13 @@ describe('CreateOrderUseCase', () => {
   const baseDineInInput: CreateOrderInput = {
     outletId: 'outlet-1',
     orderType: 'dine_in',
-    items: [
-      { productId: 'prod-1', quantity: 2 },
-    ],
+    items: [{ productId: 'prod-1', quantity: 2 }],
   };
 
   const baseTakeawayInput: CreateOrderInput = {
     outletId: 'outlet-1',
     orderType: 'takeaway',
-    items: [
-      { productId: 'prod-1', quantity: 1 },
-    ],
+    items: [{ productId: 'prod-1', quantity: 1 }],
   };
 
   beforeEach(() => {
@@ -240,9 +239,7 @@ describe('CreateOrderUseCase', () => {
 
     await useCase.execute(baseDineInInput);
 
-    expect(mockEventBus.publish).toHaveBeenCalledWith(
-      expect.any(OrderStatusChangedEvent),
-    );
+    expect(mockEventBus.publish).toHaveBeenCalledWith(expect.any(OrderStatusChangedEvent));
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         orderId: 'order-1',

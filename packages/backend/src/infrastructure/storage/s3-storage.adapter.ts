@@ -43,11 +43,7 @@ export class S3StorageAdapter implements StorageAdapter {
     return filename;
   }
 
-  async uploadStream(
-    key: string,
-    body: Buffer | Readable,
-    contentType: string,
-  ): Promise<string> {
+  async uploadStream(key: string, body: Buffer | Readable, contentType: string): Promise<string> {
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,

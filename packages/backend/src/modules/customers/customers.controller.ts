@@ -92,10 +92,7 @@ export class CustomersController {
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Get customers in a specific segment' })
-  async getCustomersBySegment(
-    @Param('segment') segment: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getCustomersBySegment(@Param('segment') segment: string, @CurrentUser() user: AuthUser) {
     const validSegments = ['new', 'returning', 'vip', 'at-risk', 'inactive'];
     if (!validSegments.includes(segment)) {
       throw new BadRequestException(
@@ -119,20 +116,14 @@ export class CustomersController {
     @Res() res: Response,
   ) {
     if (query.format === 'csv') {
-      const csv = await this.customersService.exportCustomersCsv(
-        user.businessId,
-        query.segment,
-      );
+      const csv = await this.customersService.exportCustomersCsv(user.businessId, query.segment);
       res.set({
         'Content-Type': 'text/csv',
         'Content-Disposition': `attachment; filename="customers-${new Date().toISOString().split('T')[0]}.csv"`,
       });
       res.send(csv);
     } else {
-      const json = await this.customersService.exportCustomersJson(
-        user.businessId,
-        query.segment,
-      );
+      const json = await this.customersService.exportCustomersJson(user.businessId, query.segment);
       res.set({
         'Content-Type': 'application/json',
         'Content-Disposition': `attachment; filename="customers-${new Date().toISOString().split('T')[0]}.json"`,
@@ -145,10 +136,7 @@ export class CustomersController {
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Batch import customers from CSV or JSON' })
-  async importCustomers(
-    @Body() dto: CustomerImportDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async importCustomers(@Body() dto: CustomerImportDto, @CurrentUser() user: AuthUser) {
     let rows;
 
     if (dto.format === 'csv') {
@@ -174,10 +162,7 @@ export class CustomersController {
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Get customers with upcoming birthdays' })
-  async getUpcomingBirthdays(
-    @Query() query: BirthdayQueryDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getUpcomingBirthdays(@Query() query: BirthdayQueryDto, @CurrentUser() user: AuthUser) {
     const daysAhead = query.daysAhead ? parseInt(query.daysAhead, 10) : 7;
     return this.customersService.getUpcomingBirthdays(user.businessId, daysAhead);
   }
@@ -186,14 +171,8 @@ export class CustomersController {
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Send birthday notifications to selected customers' })
-  async sendBirthdayNotifications(
-    @Body() dto: BirthdayNotifyDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.customersService.sendBirthdayNotifications(
-      user.businessId,
-      dto.customerIds,
-    );
+  async sendBirthdayNotifications(@Body() dto: BirthdayNotifyDto, @CurrentUser() user: AuthUser) {
+    return this.customersService.sendBirthdayNotifications(user.businessId, dto.customerIds);
   }
 
   @Get(':id')
@@ -272,10 +251,7 @@ export class CustomersController {
 
   @Get(':id/loyalty/history')
   @ApiOperation({ summary: 'Get customer loyalty transaction history' })
-  async getLoyaltyHistory(
-    @Param('id') id: string,
-    @Query('limit') limit?: string,
-  ) {
+  async getLoyaltyHistory(@Param('id') id: string, @Query('limit') limit?: string) {
     return this.getLoyaltyHistoryUseCase.execute({
       customerId: id,
       limit: limit ? parseInt(limit, 10) : undefined,

@@ -118,9 +118,9 @@ describe('EmployeesService', () => {
       (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(
-        service.getEmployeeShiftReport('nonexistent', from, to),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getEmployeeShiftReport('nonexistent', from, to)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -246,9 +246,7 @@ describe('EmployeesService', () => {
       const employee = { id: 'emp-2', role: 'manager' };
       (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
 
-      const transactions = [
-        { id: 'tx-1', grandTotal: makeDecimal(500000) },
-      ];
+      const transactions = [{ id: 'tx-1', grandTotal: makeDecimal(500000) }];
       (mockPrisma.transaction.findMany as jest.Mock).mockResolvedValue(transactions);
 
       // Act
@@ -297,9 +295,9 @@ describe('EmployeesService', () => {
       (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(
-        service.getEmployeeCommissions('nonexistent', from, to),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getEmployeeCommissions('nonexistent', from, to)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -365,9 +363,7 @@ describe('EmployeesService', () => {
       (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(service.clockIn('nonexistent', 'outlet-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.clockIn('nonexistent', 'outlet-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -414,9 +410,7 @@ describe('EmployeesService', () => {
 
       // Act & Assert
       await expect(service.clockOut('emp-1')).rejects.toThrow(BusinessError);
-      await expect(service.clockOut('emp-1')).rejects.toThrow(
-        'Employee is not clocked in',
-      );
+      await expect(service.clockOut('emp-1')).rejects.toThrow('Employee is not clocked in');
     });
   });
 });

@@ -1,6 +1,9 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { MfaService } from '../mfa/mfa.service';
-import type { IEmployeeRepository, EmployeeRecord } from '@domain/interfaces/repositories/employee.repository';
+import type {
+  IEmployeeRepository,
+  EmployeeRecord,
+} from '@domain/interfaces/repositories/employee.repository';
 import * as totpUtil from '../mfa/totp.util';
 
 describe('MfaService', () => {
@@ -87,9 +90,7 @@ describe('MfaService', () => {
     it('should throw UnauthorizedException if employee not found', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(null);
 
-      await expect(service.generateSecret('emp-999')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.generateSecret('emp-999')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw BadRequestException if MFA is already enabled', async () => {
@@ -99,9 +100,7 @@ describe('MfaService', () => {
         mfaSecret: 'EXISTING_SECRET',
       });
 
-      await expect(service.generateSecret('emp-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.generateSecret('emp-1')).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -140,17 +139,13 @@ describe('MfaService', () => {
     it('should throw UnauthorizedException if employee not found', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(null);
 
-      await expect(service.verifyToken('emp-999', '123456')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.verifyToken('emp-999', '123456')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw BadRequestException if MFA secret not configured', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(baseEmployee);
 
-      await expect(service.verifyToken('emp-1', '123456')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.verifyToken('emp-1', '123456')).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -188,9 +183,7 @@ describe('MfaService', () => {
 
       mockEmployeeRepo.findById.mockResolvedValue(employee);
 
-      await expect(service.enableMfa('emp-1', '000000')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.enableMfa('emp-1', '000000')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw BadRequestException if MFA is already enabled', async () => {
@@ -200,9 +193,7 @@ describe('MfaService', () => {
         mfaSecret: 'EXISTING_SECRET',
       });
 
-      await expect(service.enableMfa('emp-1', '123456')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.enableMfa('emp-1', '123456')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if secret not generated', async () => {
@@ -212,9 +203,7 @@ describe('MfaService', () => {
         mfaEnabled: false,
       });
 
-      await expect(service.enableMfa('emp-1', '123456')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.enableMfa('emp-1', '123456')).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -254,25 +243,19 @@ describe('MfaService', () => {
 
       mockEmployeeRepo.findById.mockResolvedValue(employee);
 
-      await expect(service.disableMfa('emp-1', '000000')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.disableMfa('emp-1', '000000')).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw BadRequestException if MFA is not enabled', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(baseEmployee);
 
-      await expect(service.disableMfa('emp-1', '123456')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.disableMfa('emp-1', '123456')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw UnauthorizedException if employee not found', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(null);
 
-      await expect(service.disableMfa('emp-999', '123456')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(service.disableMfa('emp-999', '123456')).rejects.toThrow(UnauthorizedException);
     });
   });
 });

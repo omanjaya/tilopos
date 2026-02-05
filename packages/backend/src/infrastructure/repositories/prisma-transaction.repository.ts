@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { ITransactionRepository, TransactionRecord, TransactionItemRecord, PaymentRecord } from '../../domain/interfaces/repositories/transaction.repository';
+import type {
+  ITransactionRepository,
+  TransactionRecord,
+  TransactionItemRecord,
+  PaymentRecord,
+} from '../../domain/interfaces/repositories/transaction.repository';
 import { PrismaService } from '../database/prisma.service';
 import { decimalToNumberRequired } from './decimal.helper';
 import type {

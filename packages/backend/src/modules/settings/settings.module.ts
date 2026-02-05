@@ -5,8 +5,6 @@ import { PrismaSettingsRepository } from '../../infrastructure/repositories/pris
 
 @Module({
   controllers: [SettingsController],
-  providers: [
-    { provide: REPOSITORY_TOKENS.SETTINGS, useClass: PrismaSettingsRepository },
-  ],
+  providers: [{ provide: REPOSITORY_TOKENS.SETTINGS, useClass: PrismaSettingsRepository }],
 })
 export class SettingsModule {}

@@ -53,7 +53,9 @@ export class NotificationDispatcherService implements INotificationService {
           break;
         }
         case 'sms':
-          this.logger.log(`[SMS] To: ${notification.recipientId} | ${notification.title}: ${notification.body}`);
+          this.logger.log(
+            `[SMS] To: ${notification.recipientId} | ${notification.title}: ${notification.body}`,
+          );
           break;
       }
 
@@ -63,11 +65,18 @@ export class NotificationDispatcherService implements INotificationService {
             businessId: notification.metadata.businessId as string,
             outletId: (notification.metadata.outletId as string) || null,
             recipientId: notification.recipientId || null,
-            notificationType: (notification.metadata.notificationType as 'low_stock' | 'large_transaction' | 'refund' | 'online_order' | 'shift_reminder' | 'system_error') || 'system_error',
+            notificationType:
+              (notification.metadata.notificationType as
+                | 'low_stock'
+                | 'large_transaction'
+                | 'refund'
+                | 'online_order'
+                | 'shift_reminder'
+                | 'system_error') || 'system_error',
             channel: notification.channel,
             title: notification.title,
             body: notification.body,
-            metadata: (notification.metadata || {}) as any,
+            metadata: (notification.metadata || {}) as Record<string, unknown>,
           },
         });
       }
@@ -77,6 +86,6 @@ export class NotificationDispatcherService implements INotificationService {
   }
 
   async sendBulk(notifications: NotificationPayload[]): Promise<void> {
-    await Promise.allSettled(notifications.map(n => this.send(n)));
+    await Promise.allSettled(notifications.map((n) => this.send(n)));
   }
 }

@@ -32,10 +32,7 @@ export class SentryService implements OnModuleInit {
     });
   }
 
-  captureMessage(
-    message: string,
-    level: 'info' | 'warning' | 'error' = 'info',
-  ): void {
+  captureMessage(message: string, level: 'info' | 'warning' | 'error' = 'info'): void {
     if (!this.initialized) return;
     // In production: Sentry.captureMessage(message, level);
     this.logger.log(`[Sentry ${level}] ${message}`);

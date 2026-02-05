@@ -39,4 +39,6 @@ export class CreateTableUseCase {
   }
 }
 
-type TableRecord = ReturnType<typeof import('../../../infrastructure/repositories/prisma-table.repository')['PrismaTableRepository']['prototype']['toRecord']>;
+type TableRecord = ReturnType<
+  (typeof import('../../../infrastructure/repositories/prisma-table.repository'))['PrismaTableRepository']['prototype']['toRecord']
+>;

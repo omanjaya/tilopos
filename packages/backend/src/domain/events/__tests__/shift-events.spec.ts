@@ -4,13 +4,7 @@ import { DomainEvent } from '../domain-event';
 
 describe('ShiftStartedEvent', () => {
   it('should create event with correct payload', () => {
-    const event = new ShiftStartedEvent(
-      'shift-1',
-      'emp-1',
-      'John Doe',
-      'outlet-1',
-      'biz-1',
-    );
+    const event = new ShiftStartedEvent('shift-1', 'emp-1', 'John Doe', 'outlet-1', 'biz-1');
 
     expect(event.shiftId).toBe('shift-1');
     expect(event.employeeId).toBe('emp-1');

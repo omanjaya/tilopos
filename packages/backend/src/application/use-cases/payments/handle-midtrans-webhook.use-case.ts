@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import { Transaction, Payment } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { AppError } from '../../../shared/errors/app-error';
 import { ErrorCode } from '../../../shared/constants/error-codes';
@@ -57,7 +58,10 @@ export class HandleMidtransWebhookUseCase {
 
     if (!payment) {
       this.logger.warn(`Payment not found for order ${params.orderId}`);
-      throw new AppError(ErrorCode.TRANSACTION_NOT_FOUND, `Payment not found for order ${params.orderId}`);
+      throw new AppError(
+        ErrorCode.TRANSACTION_NOT_FOUND,
+        `Payment not found for order ${params.orderId}`,
+      );
     }
 
     // Idempotency check: if payment already has this status, return early
@@ -132,8 +136,8 @@ export class HandleMidtransWebhookUseCase {
   }
 
   private async handleFraudRejection(
-    transaction: any,
-    payment: any,
+    transaction: Transaction,
+    payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
     const status = params.fraudStatus === 'challenge' ? 'pending_review' : 'failed';
@@ -154,8 +158,8 @@ export class HandleMidtransWebhookUseCase {
   }
 
   private async handlePaymentSuccess(
-    transaction: any,
-    payment: any,
+    transaction: Transaction,
+    payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
     // Update transaction status to completed
@@ -174,8 +178,8 @@ export class HandleMidtransWebhookUseCase {
   }
 
   private async handlePaymentFailed(
-    transaction: any,
-    payment: any,
+    transaction: Transaction,
+    payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
     // Update transaction status to voided (closest to failed for transactions)
@@ -194,8 +198,8 @@ export class HandleMidtransWebhookUseCase {
   }
 
   private async handlePaymentRefund(
-    transaction: any,
-    payment: any,
+    transaction: Transaction,
+    payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
     // Update transaction to refunded

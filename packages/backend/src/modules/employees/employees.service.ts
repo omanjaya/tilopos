@@ -179,19 +179,12 @@ export class EmployeesService {
 
     const shiftDetails: ShiftDetail[] = shifts.map((shift) => {
       const endTime = shift.endedAt;
-      const durationMs = endTime
-        ? endTime.getTime() - shift.startedAt.getTime()
-        : 0;
+      const durationMs = endTime ? endTime.getTime() - shift.startedAt.getTime() : 0;
       const durationHours = durationMs / (1000 * 60 * 60);
 
-      const shiftSales = shift.transactions.reduce(
-        (sum, t) => sum + t.grandTotal.toNumber(),
-        0,
-      );
+      const shiftSales = shift.transactions.reduce((sum, t) => sum + t.grandTotal.toNumber(), 0);
       const shiftTransactions = shift.transactions.length;
-      const shiftCashDiff = shift.cashDifference
-        ? shift.cashDifference.toNumber()
-        : null;
+      const shiftCashDiff = shift.cashDifference ? shift.cashDifference.toNumber() : null;
 
       totalHoursWorked += durationHours;
       totalSales += shiftSales;
@@ -213,9 +206,7 @@ export class EmployeesService {
 
     const totalShifts = shifts.length;
     const averageShiftDuration =
-      totalShifts > 0
-        ? Math.round((totalHoursWorked / totalShifts) * 100) / 100
-        : 0;
+      totalShifts > 0 ? Math.round((totalHoursWorked / totalShifts) * 100) / 100 : 0;
 
     return {
       employeeId: employee.id,
@@ -264,14 +255,10 @@ export class EmployeesService {
 
       for (const shift of shifts) {
         if (shift.endedAt) {
-          const durationMs =
-            shift.endedAt.getTime() - shift.startedAt.getTime();
+          const durationMs = shift.endedAt.getTime() - shift.startedAt.getTime();
           totalHoursWorked += durationMs / (1000 * 60 * 60);
         }
-        totalSales += shift.transactions.reduce(
-          (sum, t) => sum + t.grandTotal.toNumber(),
-          0,
-        );
+        totalSales += shift.transactions.reduce((sum, t) => sum + t.grandTotal.toNumber(), 0);
         totalTransactions += shift.transactions.length;
         if (shift.cashDifference) {
           cashVariance += shift.cashDifference.toNumber();
@@ -339,19 +326,8 @@ export class EmployeesService {
     };
   }
 
-  async getWeeklySchedule(
-    outletId: string,
-    weekStart: Date,
-  ): Promise<WeeklyScheduleGrid> {
-    const dayNames = [
-      'Sunday',
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-    ];
+  async getWeeklySchedule(outletId: string, weekStart: Date): Promise<WeeklyScheduleGrid> {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
@@ -418,10 +394,7 @@ export class EmployeesService {
     });
 
     if (!existing) {
-      throw new BusinessError(
-        ErrorCode.SCHEDULE_NOT_FOUND,
-        'Schedule entry not found',
-      );
+      throw new BusinessError(ErrorCode.SCHEDULE_NOT_FOUND, 'Schedule entry not found');
     }
 
     const updateData: Record<string, unknown> = {};
@@ -458,10 +431,7 @@ export class EmployeesService {
     });
 
     if (!existing) {
-      throw new BusinessError(
-        ErrorCode.SCHEDULE_NOT_FOUND,
-        'Schedule entry not found',
-      );
+      throw new BusinessError(ErrorCode.SCHEDULE_NOT_FOUND, 'Schedule entry not found');
     }
 
     await this.prisma.employeeSchedule.delete({
@@ -489,8 +459,7 @@ export class EmployeesService {
       throw new NotFoundException('Employee not found');
     }
 
-    const commissionRate =
-      COMMISSION_RATES[employee.role] ?? DEFAULT_COMMISSION_RATE;
+    const commissionRate = COMMISSION_RATES[employee.role] ?? DEFAULT_COMMISSION_RATE;
 
     const transactions = await this.prisma.transaction.findMany({
       where: {
@@ -504,21 +473,18 @@ export class EmployeesService {
     });
 
     let totalSales = 0;
-    const transactionCommissions: TransactionCommission[] = transactions.map(
-      (t) => {
-        const amount = t.grandTotal.toNumber();
-        totalSales += amount;
-        const commission = Math.round(amount * commissionRate * 100) / 100;
-        return {
-          transactionId: t.id,
-          amount,
-          commission,
-        };
-      },
-    );
+    const transactionCommissions: TransactionCommission[] = transactions.map((t) => {
+      const amount = t.grandTotal.toNumber();
+      totalSales += amount;
+      const commission = Math.round(amount * commissionRate * 100) / 100;
+      return {
+        transactionId: t.id,
+        amount,
+        commission,
+      };
+    });
 
-    const commissionAmount =
-      Math.round(totalSales * commissionRate * 100) / 100;
+    const commissionAmount = Math.round(totalSales * commissionRate * 100) / 100;
 
     return {
       employeeId,
@@ -546,8 +512,7 @@ export class EmployeesService {
     const summaries: EmployeeCommissionSummary[] = [];
 
     for (const employee of employees) {
-      const commissionRate =
-        COMMISSION_RATES[employee.role] ?? DEFAULT_COMMISSION_RATE;
+      const commissionRate = COMMISSION_RATES[employee.role] ?? DEFAULT_COMMISSION_RATE;
 
       const result = await this.prisma.transaction.aggregate({
         where: {
@@ -562,8 +527,7 @@ export class EmployeesService {
 
       const totalSales = result._sum.grandTotal?.toNumber() ?? 0;
       const transactionCount = result._count.id;
-      const commissionAmount =
-        Math.round(totalSales * commissionRate * 100) / 100;
+      const commissionAmount = Math.round(totalSales * commissionRate * 100) / 100;
 
       summaries.push({
         employeeId: employee.id,
@@ -582,10 +546,7 @@ export class EmployeesService {
   // 4. Attendance Tracking
   // ==========================================================================
 
-  async clockIn(
-    employeeId: string,
-    outletId: string,
-  ): Promise<AttendanceClockInResult> {
+  async clockIn(employeeId: string, outletId: string): Promise<AttendanceClockInResult> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
     });
@@ -598,20 +559,16 @@ export class EmployeesService {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const existingAttendance =
-      await this.prisma.employeeAttendance.findFirst({
-        where: {
-          employeeId,
-          clockOutTime: null,
-          clockInTime: { gte: todayStart },
-        },
-      });
+    const existingAttendance = await this.prisma.employeeAttendance.findFirst({
+      where: {
+        employeeId,
+        clockOutTime: null,
+        clockInTime: { gte: todayStart },
+      },
+    });
 
     if (existingAttendance) {
-      throw new BusinessError(
-        ErrorCode.ALREADY_CLOCKED_IN,
-        'Employee is already clocked in',
-      );
+      throw new BusinessError(ErrorCode.ALREADY_CLOCKED_IN, 'Employee is already clocked in');
     }
 
     const clockInTime = new Date();
@@ -631,9 +588,7 @@ export class EmployeesService {
     };
   }
 
-  async clockOut(
-    employeeId: string,
-  ): Promise<AttendanceClockOutResult> {
+  async clockOut(employeeId: string): Promise<AttendanceClockOutResult> {
     const attendance = await this.prisma.employeeAttendance.findFirst({
       where: {
         employeeId,
@@ -643,17 +598,12 @@ export class EmployeesService {
     });
 
     if (!attendance) {
-      throw new BusinessError(
-        ErrorCode.NOT_CLOCKED_IN,
-        'Employee is not clocked in',
-      );
+      throw new BusinessError(ErrorCode.NOT_CLOCKED_IN, 'Employee is not clocked in');
     }
 
     const clockOutTime = new Date();
-    const durationMs =
-      clockOutTime.getTime() - attendance.clockInTime.getTime();
-    const hoursWorked =
-      Math.round((durationMs / (1000 * 60 * 60)) * 100) / 100;
+    const durationMs = clockOutTime.getTime() - attendance.clockInTime.getTime();
+    const hoursWorked = Math.round((durationMs / (1000 * 60 * 60)) * 100) / 100;
 
     const updated = await this.prisma.employeeAttendance.update({
       where: { id: attendance.id },
@@ -703,9 +653,7 @@ export class EmployeesService {
     });
 
     // Calculate total working days in the range
-    const totalDays = Math.ceil(
-      (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    const totalDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24));
 
     const summaries: EmployeeAttendanceSummary[] = [];
 

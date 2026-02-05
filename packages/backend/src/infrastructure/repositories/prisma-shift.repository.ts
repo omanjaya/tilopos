@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../database/prisma.service';
-import type { IShiftRepository, ShiftRecord, CreateShiftData, CloseShiftData } from '../../domain/interfaces/repositories/shift.repository';
+import type {
+  IShiftRepository,
+  ShiftRecord,
+  CreateShiftData,
+  CloseShiftData,
+} from '../../domain/interfaces/repositories/shift.repository';
 
 @Injectable()
 export class PrismaShiftRepository implements IShiftRepository {
@@ -109,7 +114,8 @@ export class PrismaShiftRepository implements IShiftRepository {
       expectedCash: shift.expectedCash !== null ? shift.expectedCash.toNumber() : null,
       cashDifference: shift.cashDifference !== null ? shift.cashDifference.toNumber() : null,
       cashIn: shift.cashIn !== undefined && shift.cashIn !== null ? shift.cashIn.toNumber() : null,
-      cashOut: shift.cashOut !== undefined && shift.cashOut !== null ? shift.cashOut.toNumber() : null,
+      cashOut:
+        shift.cashOut !== undefined && shift.cashOut !== null ? shift.cashOut.toNumber() : null,
       notes: shift.notes,
       status: shift.status,
       createdAt: shift.createdAt,

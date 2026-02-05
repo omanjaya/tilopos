@@ -1,6 +1,12 @@
 import { CheckLowStockUseCase, CheckLowStockInput } from './check-low-stock.use-case';
-import type { IInventoryRepository, StockLevelRecord } from '@domain/interfaces/repositories/inventory.repository';
-import type { IProductRepository, ProductRecord } from '@domain/interfaces/repositories/product.repository';
+import type {
+  IInventoryRepository,
+  StockLevelRecord,
+} from '@domain/interfaces/repositories/inventory.repository';
+import type {
+  IProductRepository,
+  ProductRecord,
+} from '@domain/interfaces/repositories/product.repository';
 
 describe('CheckLowStockUseCase', () => {
   let useCase: CheckLowStockUseCase;
@@ -219,14 +225,20 @@ describe('CheckLowStockUseCase', () => {
 
     mockInventoryRepo.findLowStockItems.mockResolvedValue(stockRecords);
     mockProductRepo.findById
-      .mockResolvedValueOnce(makeProduct({ id: 'prod-active', name: 'Nasi Goreng', isActive: true }))
-      .mockResolvedValueOnce(makeProduct({ id: 'prod-inactive', name: 'Old Item', isActive: false }))
-      .mockResolvedValueOnce(makeProduct({ id: 'prod-active-2', name: 'Es Jeruk', isActive: true }));
+      .mockResolvedValueOnce(
+        makeProduct({ id: 'prod-active', name: 'Nasi Goreng', isActive: true }),
+      )
+      .mockResolvedValueOnce(
+        makeProduct({ id: 'prod-inactive', name: 'Old Item', isActive: false }),
+      )
+      .mockResolvedValueOnce(
+        makeProduct({ id: 'prod-active-2', name: 'Es Jeruk', isActive: true }),
+      );
 
     const result = await useCase.execute(baseInput);
 
     expect(result.lowStockItems).toHaveLength(2);
     expect(result.totalLowStockCount).toBe(2);
-    expect(result.lowStockItems.map(i => i.productName)).toEqual(['Nasi Goreng', 'Es Jeruk']);
+    expect(result.lowStockItems.map((i) => i.productName)).toEqual(['Nasi Goreng', 'Es Jeruk']);
   });
 });

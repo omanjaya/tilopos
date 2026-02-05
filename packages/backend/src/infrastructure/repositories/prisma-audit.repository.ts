@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import type { IAuditLogRepository, AuditLogRecord } from '../../domain/interfaces/repositories/audit.repository';
+import type {
+  IAuditLogRepository,
+  AuditLogRecord,
+} from '../../domain/interfaces/repositories/audit.repository';
 
 @Injectable()
 export class PrismaAuditRepository implements IAuditLogRepository {
@@ -17,11 +20,11 @@ export class PrismaAuditRepository implements IAuditLogRepository {
         action: data.action,
         entityType: data.entityType,
         entityId: data.entityId,
-        oldValue: data.oldValue as Prisma.InputJsonValue ?? Prisma.JsonNull,
-        newValue: data.newValue as Prisma.InputJsonValue ?? Prisma.JsonNull,
+        oldValue: (data.oldValue as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+        newValue: (data.newValue as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         ipAddress: data.ipAddress,
         deviceId: data.deviceId,
-        metadata: data.metadata as Prisma.InputJsonValue ?? Prisma.JsonNull,
+        metadata: (data.metadata as Prisma.InputJsonValue) ?? Prisma.JsonNull,
       },
     });
 

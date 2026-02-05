@@ -3,8 +3,14 @@ import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
 import { RefundNotAllowedException } from '@domain/exceptions/refund-not-allowed.exception';
-import type { ITransactionRepository, TransactionRecord } from '@domain/interfaces/repositories/transaction.repository';
-import type { IInventoryRepository, StockLevelRecord } from '@domain/interfaces/repositories/inventory.repository';
+import type {
+  ITransactionRepository,
+  TransactionRecord,
+} from '@domain/interfaces/repositories/transaction.repository';
+import type {
+  IInventoryRepository,
+  StockLevelRecord,
+} from '@domain/interfaces/repositories/inventory.repository';
 import type { IAuditLogRepository } from '@domain/interfaces/repositories/audit.repository';
 
 describe('ProcessRefundUseCase', () => {
@@ -132,9 +138,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseRefundInput);
 
@@ -161,9 +213,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     const partialRefundInput: ProcessRefundInput = {
       ...baseRefundInput,
@@ -228,9 +326,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseRefundInput);
 
@@ -272,9 +416,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     const result = await useCase.execute(baseRefundInput);
 
@@ -293,9 +483,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseRefundInput);
 
@@ -319,9 +555,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseRefundInput);
 
@@ -346,9 +628,55 @@ describe('ProcessRefundUseCase', () => {
     }));
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({} as any);
-    mockTransactionRepo.update.mockResolvedValue({} as any);
-    mockAuditRepo.create.mockResolvedValue({} as any);
+    mockInventoryRepo.createStockMovement.mockResolvedValue({
+      id: 'movement-1',
+      outletId: 'outlet-1',
+      productId: 'prod-1',
+      variantId: null,
+      movementType: 'refund',
+      quantity: 2,
+      referenceId: 'txn-refund',
+      referenceType: 'transaction',
+      notes: null,
+      createdBy: 'emp-1',
+      createdAt: new Date(),
+    });
+    mockTransactionRepo.update.mockResolvedValue({
+      id: 'txn-original',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      customerId: null,
+      shiftId: 'shift-1',
+      receiptNumber: 'TRX-001',
+      transactionType: 'sale',
+      orderType: 'dine_in',
+      tableId: null,
+      subtotal: 50000,
+      discountAmount: 0,
+      taxAmount: 5500,
+      serviceCharge: 0,
+      grandTotal: 55500,
+      notes: null,
+      status: 'refunded',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAuditRepo.create.mockResolvedValue({
+      id: 'audit-1',
+      businessId: 'biz-1',
+      outletId: 'outlet-1',
+      employeeId: 'emp-1',
+      action: 'refund',
+      entityType: 'transaction',
+      entityId: 'txn-original',
+      oldValue: null,
+      newValue: null,
+      ipAddress: null,
+      deviceId: null,
+      metadata: null,
+      createdAt: new Date(),
+    });
 
     await useCase.execute(baseRefundInput);
 

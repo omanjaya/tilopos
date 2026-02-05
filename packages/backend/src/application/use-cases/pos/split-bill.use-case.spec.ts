@@ -1,8 +1,4 @@
-import {
-  SplitBillUseCase,
-  SplitByItemsInput,
-  SplitEvenlyInput,
-} from './split-bill.use-case';
+import { SplitBillUseCase, SplitByItemsInput, SplitEvenlyInput } from './split-bill.use-case';
 import { BusinessError } from '@shared/errors/business-error';
 import type {
   ITransactionRepository,
@@ -152,13 +148,13 @@ describe('SplitBillUseCase', () => {
       splitType: 'by_items',
       transactionId: 'txn-1',
       employeeId: 'emp-1',
-      splits: [
-        { itemIds: ['item-1'], paymentMethod: 'cash', paymentAmount: 100000 },
-      ],
+      splits: [{ itemIds: ['item-1'], paymentMethod: 'cash', paymentAmount: 100000 }],
     };
 
     await expect(useCase.execute(input)).rejects.toThrow(BusinessError);
-    await expect(useCase.execute(input)).rejects.toThrow('Only completed transactions can be split');
+    await expect(useCase.execute(input)).rejects.toThrow(
+      'Only completed transactions can be split',
+    );
   });
 
   it('should throw BusinessError when item ID does not exist in transaction', async () => {
@@ -293,9 +289,7 @@ describe('SplitBillUseCase', () => {
       transactionId: 'txn-1',
       employeeId: 'emp-1',
       numberOfSplits: 1,
-      payments: [
-        { paymentMethod: 'cash', paymentAmount: 200000 },
-      ],
+      payments: [{ paymentMethod: 'cash', paymentAmount: 200000 }],
     };
 
     await expect(useCase.execute(input)).rejects.toThrow(BusinessError);

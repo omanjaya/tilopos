@@ -20,7 +20,8 @@ export class ImageProcessorService {
         `Image too large: ${metadata.width}x${metadata.height}. Max 4096x4096 pixels.`,
       );
     }
-    if ((metadata.size || 0) > 20 * 1024 * 1024) { // 20MB max
+    if ((metadata.size || 0) > 20 * 1024 * 1024) {
+      // 20MB max
       throw new BadRequestException('Image file too large. Max 20MB.');
     }
 

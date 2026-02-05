@@ -3,12 +3,7 @@ import { DomainEvent } from '../domain-event';
 
 describe('OrderStatusChangedEvent', () => {
   it('should create event with correct payload', () => {
-    const event = new OrderStatusChangedEvent(
-      'order-1',
-      'outlet-1',
-      'pending',
-      'preparing',
-    );
+    const event = new OrderStatusChangedEvent('order-1', 'outlet-1', 'pending', 'preparing');
 
     expect(event.orderId).toBe('order-1');
     expect(event.outletId).toBe('outlet-1');

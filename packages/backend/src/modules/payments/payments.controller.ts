@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Headers, Logger, BadRequestException, RawBodyRequest, Req } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Headers,
+  Logger,
+  BadRequestException,
+  RawBodyRequest,
+  Req,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
 import { Request } from 'express';
 import { HandleMidtransWebhookUseCase } from '../../application/use-cases/payments/handle-midtrans-webhook.use-case';
@@ -14,7 +23,7 @@ export class PaymentsWebhookController {
   constructor(
     private readonly handleMidtransWebhook: HandleMidtransWebhookUseCase,
     private readonly handleXenditWebhook: HandleXenditWebhookUseCase,
-  ) { }
+  ) {}
 
   // ===========================================================================
   // Midtrans Webhook

@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 // ============================================================================
@@ -221,10 +227,7 @@ export class OnlineStoreService {
 
     for (const product of products) {
       // Check total stock across all outlets
-      const totalStock = product.stockLevels.reduce(
-        (sum, sl) => sum + Number(sl.quantity),
-        0,
-      );
+      const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
 
       if (!product.trackStock || totalStock > 0) {
         catalogEntries.push({
@@ -317,10 +320,7 @@ export class OnlineStoreService {
     });
 
     const totalOrders = orders.length;
-    const totalRevenue = orders.reduce(
-      (sum, o) => sum + Number(o.grandTotal),
-      0,
-    );
+    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.grandTotal), 0);
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     // Count orders by status
@@ -358,9 +358,7 @@ export class OnlineStoreService {
     // Recent orders (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentOrders = orders.filter(
-      (o) => o.createdAt >= sevenDaysAgo,
-    ).length;
+    const recentOrders = orders.filter((o) => o.createdAt >= sevenDaysAgo).length;
 
     return {
       totalOrders,
@@ -414,9 +412,7 @@ export class OnlineStoreService {
       if (product.hasVariants && product.variants.length > 0) {
         // Report per variant
         for (const variant of product.variants) {
-          const stockLevel = product.stockLevels.find(
-            (sl) => sl.variantId === variant.id,
-          );
+          const stockLevel = product.stockLevels.find((sl) => sl.variantId === variant.id);
           const qty = stockLevel ? Number(stockLevel.quantity) : 0;
           const alert = stockLevel?.lowStockAlert ?? 10;
 
@@ -444,8 +440,7 @@ export class OnlineStoreService {
         const totalQty = product.stockLevels
           .filter((sl) => sl.variantId === null)
           .reduce((sum, sl) => sum + Number(sl.quantity), 0);
-        const alert = product.stockLevels.find((sl) => sl.variantId === null)
-          ?.lowStockAlert ?? 10;
+        const alert = product.stockLevels.find((sl) => sl.variantId === null)?.lowStockAlert ?? 10;
 
         let status: 'in_stock' | 'low_stock' | 'out_of_stock';
         if (!product.trackStock) {
@@ -607,11 +602,12 @@ export class OnlineStoreService {
 
     // Flat rate mode
     if (shippingMode === 'flat_rate') {
-      const flatRate = typeof settings['flatRateAmount'] === 'number'
-        ? settings['flatRateAmount']
-        : typeof settings['deliveryFee'] === 'number'
-          ? settings['deliveryFee']
-          : 15000;
+      const flatRate =
+        typeof settings['flatRateAmount'] === 'number'
+          ? settings['flatRateAmount']
+          : typeof settings['deliveryFee'] === 'number'
+            ? settings['deliveryFee']
+            : 15000;
 
       return {
         shippingMode: 'flat_rate',
@@ -627,18 +623,20 @@ export class OnlineStoreService {
     // In production, this would use a geocoding/distance API
     const distanceKm = this.estimateDistance(destination, weight);
 
-    const zone = this.defaultDeliveryZones.find(
-      (z) => distanceKm >= z.minDistanceKm && distanceKm < z.maxDistanceKm,
-    ) ?? this.defaultDeliveryZones[this.defaultDeliveryZones.length - 1];
+    const zone =
+      this.defaultDeliveryZones.find(
+        (z) => distanceKm >= z.minDistanceKm && distanceKm < z.maxDistanceKm,
+      ) ?? this.defaultDeliveryZones[this.defaultDeliveryZones.length - 1];
 
     return {
       shippingMode: 'distance',
       cost: zone.cost,
       estimatedDays: zone.estimatedDays,
       distanceKm,
-      description: zone.cost === 0
-        ? 'Gratis ongkir (jarak < 5km)'
-        : `Ongkir ${zone.name}: Rp ${zone.cost.toLocaleString('id-ID')} (${zone.minDistanceKm}-${zone.maxDistanceKm === Infinity ? '20+' : zone.maxDistanceKm}km)`,
+      description:
+        zone.cost === 0
+          ? 'Gratis ongkir (jarak < 5km)'
+          : `Ongkir ${zone.name}: Rp ${zone.cost.toLocaleString('id-ID')} (${zone.minDistanceKm}-${zone.maxDistanceKm === Infinity ? '20+' : zone.maxDistanceKm}km)`,
     };
   }
 
@@ -651,7 +649,7 @@ export class OnlineStoreService {
     const normalized = destination.trim().toLowerCase();
     let hash = 0;
     for (let i = 0; i < normalized.length; i++) {
-      hash = ((hash << 5) - hash) + normalized.charCodeAt(i);
+      hash = (hash << 5) - hash + normalized.charCodeAt(i);
       hash = hash & hash; // Convert to 32-bit integer
     }
     // Map to a reasonable distance range (1-30km)
@@ -683,23 +681,36 @@ export class OnlineStoreService {
         storeId,
         shippingMode,
         zones: [
-          { name: 'Semua Area', minDistanceKm: 0, maxDistanceKm: Infinity, cost: 0, estimatedDays: 1 },
+          {
+            name: 'Semua Area',
+            minDistanceKm: 0,
+            maxDistanceKm: Infinity,
+            cost: 0,
+            estimatedDays: 1,
+          },
         ],
       };
     }
 
     if (shippingMode === 'flat_rate') {
-      const flatRate = typeof settings['flatRateAmount'] === 'number'
-        ? settings['flatRateAmount']
-        : typeof settings['deliveryFee'] === 'number'
-          ? settings['deliveryFee']
-          : 15000;
+      const flatRate =
+        typeof settings['flatRateAmount'] === 'number'
+          ? settings['flatRateAmount']
+          : typeof settings['deliveryFee'] === 'number'
+            ? settings['deliveryFee']
+            : 15000;
 
       return {
         storeId,
         shippingMode,
         zones: [
-          { name: 'Flat Rate', minDistanceKm: 0, maxDistanceKm: Infinity, cost: flatRate, estimatedDays: 1 },
+          {
+            name: 'Flat Rate',
+            minDistanceKm: 0,
+            maxDistanceKm: Infinity,
+            cost: flatRate,
+            estimatedDays: 1,
+          },
         ],
       };
     }
@@ -759,7 +770,10 @@ export class OnlineStoreService {
     });
 
     // Build category list with product counts
-    const categoryMap = new Map<string, { id: string; name: string; imageUrl: string | null; productCount: number }>();
+    const categoryMap = new Map<
+      string,
+      { id: string; name: string; imageUrl: string | null; productCount: number }
+    >();
     for (const product of products) {
       const catId = product.categoryId || 'uncategorized';
       const catName = product.category?.name || 'Uncategorized';
@@ -776,10 +790,7 @@ export class OnlineStoreService {
 
     // Build product list
     const productList = products.map((product) => {
-      const totalStock = product.stockLevels.reduce(
-        (sum, sl) => sum + Number(sl.quantity),
-        0,
-      );
+      const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
       const inStock = !product.trackStock || totalStock > 0;
 
       return {
@@ -852,10 +863,7 @@ export class OnlineStoreService {
       throw new NotFoundException('Product not found');
     }
 
-    const totalStock = product.stockLevels.reduce(
-      (sum, sl) => sum + Number(sl.quantity),
-      0,
-    );
+    const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
 
     return {
       id: product.id,
@@ -959,15 +967,12 @@ export class OnlineStoreService {
 
       // Check stock if product tracks stock
       if (product.trackStock) {
-        const relevantStock = product.stockLevels.filter(
-          (sl) => sl.variantId === variantId,
-        );
-        const totalStock = relevantStock.reduce(
-          (sum, sl) => sum + Number(sl.quantity),
-          0,
-        );
+        const relevantStock = product.stockLevels.filter((sl) => sl.variantId === variantId);
+        const totalStock = relevantStock.reduce((sum, sl) => sum + Number(sl.quantity), 0);
         if (totalStock < item.quantity) {
-          throw new ConflictException(`Insufficient stock for ${product.name}. Available: ${totalStock}, Requested: ${item.quantity}`);
+          throw new ConflictException(
+            `Insufficient stock for ${product.name}. Available: ${totalStock}, Requested: ${item.quantity}`,
+          );
         }
       }
 

@@ -35,17 +35,29 @@ export class InventoryService {
       }
 
       if (row.basePrice === undefined || row.basePrice === null || isNaN(row.basePrice)) {
-        errors.push({ row: rowNum, field: 'basePrice', message: 'Base price is required and must be a number' });
+        errors.push({
+          row: rowNum,
+          field: 'basePrice',
+          message: 'Base price is required and must be a number',
+        });
         continue;
       }
 
       if (row.basePrice < 0) {
-        errors.push({ row: rowNum, field: 'basePrice', message: 'Base price must be non-negative' });
+        errors.push({
+          row: rowNum,
+          field: 'basePrice',
+          message: 'Base price must be non-negative',
+        });
         continue;
       }
 
       if (row.costPrice !== undefined && row.costPrice !== null && row.costPrice < 0) {
-        errors.push({ row: rowNum, field: 'costPrice', message: 'Cost price must be non-negative' });
+        errors.push({
+          row: rowNum,
+          field: 'costPrice',
+          message: 'Cost price must be non-negative',
+        });
         continue;
       }
 
@@ -59,11 +71,13 @@ export class InventoryService {
           continue;
         }
 
-        const duplicateInBatch = validRows.find(
-          (vr) => vr.row.sku && vr.row.sku === row.sku,
-        );
+        const duplicateInBatch = validRows.find((vr) => vr.row.sku && vr.row.sku === row.sku);
         if (duplicateInBatch) {
-          errors.push({ row: rowNum, field: 'sku', message: `Duplicate SKU "${row.sku}" in import data` });
+          errors.push({
+            row: rowNum,
+            field: 'sku',
+            message: `Duplicate SKU "${row.sku}" in import data`,
+          });
           continue;
         }
       }
@@ -229,9 +243,7 @@ export class InventoryService {
         _sum: { quantity: true },
       });
 
-      const expectedQuantity = movements._sum.quantity
-        ? Number(movements._sum.quantity)
-        : 0;
+      const expectedQuantity = movements._sum.quantity ? Number(movements._sum.quantity) : 0;
       const actualQuantity = Number(sl.quantity);
       const discrepancy = actualQuantity - expectedQuantity;
 
@@ -328,15 +340,17 @@ export class InventoryService {
   private async fetchProductsForExport(
     businessId: string,
     categoryId?: string,
-  ): Promise<Array<{
-    name: string;
-    sku: string | null;
-    categoryName: string | null;
-    basePrice: number;
-    costPrice: number | null;
-    description: string | null;
-    isActive: boolean;
-  }>> {
+  ): Promise<
+    Array<{
+      name: string;
+      sku: string | null;
+      categoryName: string | null;
+      basePrice: number;
+      costPrice: number | null;
+      description: string | null;
+      isActive: boolean;
+    }>
+  > {
     const where: Record<string, unknown> = { businessId };
     if (categoryId) {
       where['categoryId'] = categoryId;

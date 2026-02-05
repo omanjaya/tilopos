@@ -3,12 +3,7 @@ import { DomainEvent } from '../domain-event';
 
 describe('TransactionCreatedEvent', () => {
   it('should create event with correct payload', () => {
-    const event = new TransactionCreatedEvent(
-      'txn-1',
-      'outlet-1',
-      55500,
-      'cust-1',
-    );
+    const event = new TransactionCreatedEvent('txn-1', 'outlet-1', 55500, 'cust-1');
 
     expect(event.transactionId).toBe('txn-1');
     expect(event.outletId).toBe('outlet-1');

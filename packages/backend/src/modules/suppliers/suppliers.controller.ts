@@ -71,10 +71,7 @@ export class SuppliersController {
 
   @Put(':id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async update(
-    @Param('id') id: string,
-    @Body() dto: Record<string, unknown>,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
     return this.supplierRepo.update(id, dto);
   }
 
@@ -128,10 +125,7 @@ export class SuppliersController {
 
   @Post('auto-reorder')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async autoReorder(
-    @Body() dto: AutoReorderDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async autoReorder(@Body() dto: AutoReorderDto, @CurrentUser() user: AuthUser) {
     return this.suppliersService.autoReorder(dto.outletId, user.employeeId);
   }
 
@@ -175,10 +169,7 @@ export class SuppliersController {
     @CurrentUser() user: AuthUser,
   ) {
     const poNumber = `PO-${Date.now().toString(36).toUpperCase()}`;
-    const totalAmount = dto.items.reduce(
-      (sum, i) => sum + i.quantityOrdered * i.unitCost,
-      0,
-    );
+    const totalAmount = dto.items.reduce((sum, i) => sum + i.quantityOrdered * i.unitCost, 0);
     return this.supplierRepo.createPurchaseOrder({
       outletId: dto.outletId,
       supplierId: dto.supplierId,
@@ -206,28 +197,14 @@ export class SuppliersController {
 
   @Put('purchase-orders/:id/approve')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async approvePO(
-    @Param('id') id: string,
-    @Body() dto: ApprovePurchaseOrderDto,
-  ) {
-    return this.suppliersService.approvePurchaseOrder(
-      id,
-      dto.approvedBy,
-      dto.notes,
-    );
+  async approvePO(@Param('id') id: string, @Body() dto: ApprovePurchaseOrderDto) {
+    return this.suppliersService.approvePurchaseOrder(id, dto.approvedBy, dto.notes);
   }
 
   @Put('purchase-orders/:id/reject')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async rejectPO(
-    @Param('id') id: string,
-    @Body() dto: RejectPurchaseOrderDto,
-  ) {
-    return this.suppliersService.rejectPurchaseOrder(
-      id,
-      dto.rejectedBy,
-      dto.reason,
-    );
+  async rejectPO(@Param('id') id: string, @Body() dto: RejectPurchaseOrderDto) {
+    return this.suppliersService.rejectPurchaseOrder(id, dto.rejectedBy, dto.reason);
   }
 
   @Put('purchase-orders/:id/receive')

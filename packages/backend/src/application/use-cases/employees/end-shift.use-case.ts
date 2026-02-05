@@ -38,7 +38,10 @@ export class EndShiftUseCase {
     }
 
     if (shift.employeeId !== input.employeeId) {
-      throw new BusinessError(ErrorCode.UNAUTHORIZED_ACTION, 'This shift does not belong to the employee');
+      throw new BusinessError(
+        ErrorCode.UNAUTHORIZED_ACTION,
+        'This shift does not belong to the employee',
+      );
     }
 
     const cashPayments = await this.prisma.payment.aggregate({

@@ -18,7 +18,9 @@ export class GenerateSalesReportUseCase {
     private readonly excelGenerator: ExcelGeneratorService,
   ) {}
 
-  async execute(input: GenerateSalesReportInput): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+  async execute(
+    input: GenerateSalesReportInput,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const start = new Date(input.startDate);
     const end = new Date(input.endDate);
 
@@ -34,7 +36,7 @@ export class GenerateSalesReportUseCase {
       _count: true,
     });
 
-    const rows = transactions.map(t => ({
+    const rows = transactions.map((t) => ({
       date: t.createdAt.toISOString().split('T')[0],
       transactions: t._count,
       totalSales: t._sum.grandTotal?.toNumber() || 0,
@@ -57,10 +59,18 @@ export class GenerateSalesReportUseCase {
     if (input.format === 'pdf') {
       const docDef = this.pdfGenerator.buildSalesReport({ title, period, rows, totals });
       const buffer = await this.pdfGenerator.generate(docDef);
-      return { buffer, contentType: 'application/pdf', filename: `sales-report-${input.startDate}.pdf` };
+      return {
+        buffer,
+        contentType: 'application/pdf',
+        filename: `sales-report-${input.startDate}.pdf`,
+      };
     }
 
     const buffer = await this.excelGenerator.generateSalesReport({ title, period, rows, totals });
-    return { buffer, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `sales-report-${input.startDate}.xlsx` };
+    return {
+      buffer,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename: `sales-report-${input.startDate}.xlsx`,
+    };
   }
 }

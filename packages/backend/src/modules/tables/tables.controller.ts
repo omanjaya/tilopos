@@ -71,7 +71,8 @@ export class TablesController {
   @Post()
   @ApiOperation({ summary: 'Create a new table' })
   async create(
-    @Body() dto: {
+    @Body()
+    dto: {
       outletId: string;
       name: string;
       capacity?: number;
@@ -87,7 +88,8 @@ export class TablesController {
   @ApiOperation({ summary: 'Update table' })
   async update(
     @Param('id') id: string,
-    @Body() dto: {
+    @Body()
+    dto: {
       name?: string;
       capacity?: number;
       section?: string;
@@ -111,7 +113,8 @@ export class TablesController {
   @ApiOperation({ summary: 'Update table status' })
   async updateStatus(
     @Param('id') id: string,
-    @Body() dto: {
+    @Body()
+    dto: {
       status: 'available' | 'occupied' | 'reserved' | 'cleaning';
       currentOrderId?: string;
     },
@@ -123,16 +126,19 @@ export class TablesController {
 
   @Post('split-bill')
   @ApiOperation({ summary: 'Split bill into multiple transactions' })
-  async splitBill(@Body() dto: {
-    transactionId: string;
-    splitType: 'equal' | 'by_item' | 'by_amount';
-    splits: {
-      customerName?: string;
-      itemIds?: string[];
-      amount?: number;
-      paymentMethod: string;
-    }[];
-  }) {
+  async splitBill(
+    @Body()
+    dto: {
+      transactionId: string;
+      splitType: 'equal' | 'by_item' | 'by_amount';
+      splits: {
+        customerName?: string;
+        itemIds?: string[];
+        amount?: number;
+        paymentMethod: string;
+      }[];
+    },
+  ) {
     return this.splitBillUseCase.execute(dto);
   }
 
@@ -153,14 +159,17 @@ export class TablesController {
 
   @Post('reservations')
   @ApiOperation({ summary: 'Create a table reservation' })
-  async createReservation(@Body() dto: {
-    tableId: string;
-    customerName: string;
-    customerPhone: string;
-    partySize: number;
-    reservedAt: string;
-    notes?: string;
-  }) {
+  async createReservation(
+    @Body()
+    dto: {
+      tableId: string;
+      customerName: string;
+      customerPhone: string;
+      partySize: number;
+      reservedAt: string;
+      notes?: string;
+    },
+  ) {
     return this.tablesService.createReservation({
       tableId: dto.tableId,
       customerName: dto.customerName,
@@ -173,10 +182,7 @@ export class TablesController {
 
   @Get('reservations')
   @ApiOperation({ summary: 'List reservations for an outlet on a given date' })
-  async getReservations(
-    @Query('outletId') outletId: string,
-    @Query('date') date: string,
-  ) {
+  async getReservations(@Query('outletId') outletId: string, @Query('date') date: string) {
     return this.tablesService.getReservations(outletId, new Date(date));
   }
 
@@ -202,13 +208,16 @@ export class TablesController {
 
   @Post('waiting-list')
   @ApiOperation({ summary: 'Add customer to waiting list' })
-  async addToWaitingList(@Body() dto: {
-    outletId: string;
-    customerName: string;
-    partySize: number;
-    phone?: string;
-    preferredSection?: string;
-  }) {
+  async addToWaitingList(
+    @Body()
+    dto: {
+      outletId: string;
+      customerName: string;
+      partySize: number;
+      phone?: string;
+      preferredSection?: string;
+    },
+  ) {
     return this.tablesService.addToWaitingList({
       outletId: dto.outletId,
       customerName: dto.customerName,
@@ -226,10 +235,7 @@ export class TablesController {
 
   @Put('waiting-list/:id/seat')
   @ApiOperation({ summary: 'Seat a customer from waiting list at a table' })
-  async seatFromWaitingList(
-    @Param('id') id: string,
-    @Body() dto: { tableId: string },
-  ) {
+  async seatFromWaitingList(@Param('id') id: string, @Body() dto: { tableId: string }) {
     return this.tablesService.seatFromWaitingList(id, dto.tableId);
   }
 }

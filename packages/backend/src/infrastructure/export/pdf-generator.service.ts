@@ -5,7 +5,7 @@ import type { TDocumentDefinitions, Content } from 'pdfmake/interfaces';
 
 @Injectable()
 export class PdfGeneratorService {
-  private readonly printer: any;
+  private readonly printer: typeof PdfPrinter;
 
   constructor() {
     // Use standard PDF fonts instead of custom fonts
@@ -30,9 +30,21 @@ export class PdfGeneratorService {
     });
   }
 
-  buildSalesReport(data: { title: string; period: string; rows: Array<Record<string, unknown>>; totals: Record<string, number> }): TDocumentDefinitions {
+  buildSalesReport(data: {
+    title: string;
+    period: string;
+    rows: Array<Record<string, unknown>>;
+    totals: Record<string, number>;
+  }): TDocumentDefinitions {
     const tableBody: Content[][] = [
-      [{ text: 'Date', bold: true }, { text: 'Transactions', bold: true }, { text: 'Total Sales', bold: true }, { text: 'Discount', bold: true }, { text: 'Tax', bold: true }, { text: 'Net Sales', bold: true }],
+      [
+        { text: 'Date', bold: true },
+        { text: 'Transactions', bold: true },
+        { text: 'Total Sales', bold: true },
+        { text: 'Discount', bold: true },
+        { text: 'Tax', bold: true },
+        { text: 'Net Sales', bold: true },
+      ],
     ];
 
     for (const row of data.rows) {
@@ -53,7 +65,11 @@ export class PdfGeneratorService {
         { text: `Period: ${data.period}`, style: 'subheader' },
         { text: '\n' },
         {
-          table: { headerRows: 1, widths: ['*', 'auto', 'auto', 'auto', 'auto', 'auto'], body: tableBody },
+          table: {
+            headerRows: 1,
+            widths: ['*', 'auto', 'auto', 'auto', 'auto', 'auto'],
+            body: tableBody,
+          },
         },
         { text: '\n' },
         { text: `Total Transactions: ${data.totals.transactions || 0}` },
@@ -61,7 +77,11 @@ export class PdfGeneratorService {
         { text: `Net Sales: ${data.totals.netSales || 0}` },
       ],
       styles: {
-        header: { fontSize: 18, bold: true, margin: [0, 0, 0, 10] as [number, number, number, number] },
+        header: {
+          fontSize: 18,
+          bold: true,
+          margin: [0, 0, 0, 10] as [number, number, number, number],
+        },
         subheader: { fontSize: 12, color: 'grey' },
       },
     };
