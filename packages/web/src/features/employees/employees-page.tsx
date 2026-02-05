@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { employeesApi } from '@/api/endpoints/employees.api';
@@ -110,11 +110,27 @@ export function EmployeesPage() {
     },
   ];
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/app/employees/new');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [navigate]);
+
   return (
     <div>
       <PageHeader title="Karyawan" description="Kelola daftar karyawan Anda">
         <HelpSidebar page="employees" />
-        <Button onClick={() => navigate('/app/employees/new')}>
+        <Button onClick={() => navigate('/app/employees/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Karyawan
         </Button>
       </PageHeader>

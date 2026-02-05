@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customersApi } from '@/api/endpoints/customers.api';
@@ -95,11 +95,27 @@ export function CustomersPage() {
     },
   ];
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigate('/app/customers/new');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [navigate]);
+
   return (
     <div>
       <PageHeader title="Pelanggan" description="Kelola data pelanggan Anda">
         <HelpSidebar page="customers" />
-        <Button onClick={() => navigate('/app/customers/new')}>
+        <Button onClick={() => navigate('/app/customers/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
         </Button>
       </PageHeader>

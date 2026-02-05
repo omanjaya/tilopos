@@ -219,7 +219,12 @@ export function EmployeeFormPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/app/employees')}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending}>
+          <Button
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending}
+            aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Adding employee...') : undefined}
+          >
             {isPending && <Loader2 className="animate-spin" />}
             {isEdit ? 'Simpan Perubahan' : 'Tambah Karyawan'}
           </Button>

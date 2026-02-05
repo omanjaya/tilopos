@@ -195,7 +195,12 @@ export function CustomerFormPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/app/customers')}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending}>
+          <Button
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending}
+            aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Adding customer...') : undefined}
+          >
             {isPending && <Loader2 className="animate-spin" />}
             {isEdit ? 'Simpan Perubahan' : 'Tambah Pelanggan'}
           </Button>
