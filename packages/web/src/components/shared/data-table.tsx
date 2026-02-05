@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from './empty-state';
 import { Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface Column<T> {
   key: string;
@@ -44,11 +45,70 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const data = Array.isArray(rawData) ? rawData : [];
   const [searchQuery, setSearchQuery] = useState('');
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const handleSearch = (value: string) => {
     setSearchQuery(value);
     onSearch?.(value);
   };
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if table is in view and has data
+      if (isLoading || data.length === 0) return;
+
+      // Ignore if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setFocusedRowIndex((prev) => {
+            if (prev === null) return 0;
+            return Math.min(prev + 1, data.length - 1);
+          });
+          break;
+
+        case 'ArrowUp':
+          e.preventDefault();
+          setFocusedRowIndex((prev) => {
+            if (prev === null || prev === 0) return 0;
+            return prev - 1;
+          });
+          break;
+
+        case 'Enter':
+          e.preventDefault();
+          if (focusedRowIndex !== null) {
+            // Find the first focusable element in the focused row
+            const row = tableRef.current?.querySelector(
+              `tbody tr:nth-child(${focusedRowIndex + 1})`
+            );
+            const focusable = row?.querySelector<HTMLElement>(
+              'button, a, [tabindex]:not([tabindex="-1"])'
+            );
+            focusable?.focus();
+          }
+          break;
+
+        case 'Escape':
+          e.preventDefault();
+          setFocusedRowIndex(null);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [data.length, focusedRowIndex, isLoading]);
+
+  // Reset focus when data changes
+  useEffect(() => {
+    setFocusedRowIndex(null);
+  }, [data]);
 
   return (
     <div className="space-y-4">
@@ -68,7 +128,7 @@ export function DataTable<T>({
       </div>
 
       <div className="rounded-md border">
-        <Table>
+        <Table ref={tableRef}>
           <TableHeader>
             <TableRow>
               {columns.map((col) => (
@@ -99,7 +159,14 @@ export function DataTable<T>({
               </TableRow>
             ) : (
               data.map((row, i) => (
-                <TableRow key={i}>
+                <TableRow
+                  key={i}
+                  className={cn(
+                    'transition-colors',
+                    focusedRowIndex === i && 'ring-2 ring-primary ring-inset bg-accent/50'
+                  )}
+                  tabIndex={focusedRowIndex === i ? 0 : -1}
+                >
                   {columns.map((col) => (
                     <TableCell key={col.key}>{col.cell(row)}</TableCell>
                   ))}
