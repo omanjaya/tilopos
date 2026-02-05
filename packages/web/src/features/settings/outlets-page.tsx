@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -152,6 +152,22 @@ export function OutletsPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        openCreate();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
   const columns: Column<Outlet>[] = [
     {
       key: 'name',
@@ -226,7 +242,7 @@ export function OutletsPage() {
   return (
     <div>
       <PageHeader title="Kelola Outlet" description="Daftar outlet bisnis Anda">
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Outlet
         </Button>
       </PageHeader>
@@ -325,7 +341,12 @@ export function OutletsPage() {
               <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
                 Batal
               </Button>
-              <Button type="submit" disabled={isSaving}>
+              <Button
+                type="submit"
+                disabled={isSaving}
+                aria-busy={isSaving}
+                aria-label={isSaving ? (editTarget ? 'Saving outlet...' : 'Adding outlet...') : undefined}
+              >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {editTarget ? 'Simpan' : 'Tambah'}
               </Button>
