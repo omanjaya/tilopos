@@ -35,10 +35,47 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
+        // Manual chunks for better code splitting
+        manualChunks: (id) => {
+          // Recharts library (used in reports/charts)
+          if (id.includes('node_modules/recharts')) {
+            return 'recharts';
+          }
+          // html2canvas (used for PDF/image export)
+          if (id.includes('node_modules/html2canvas')) {
+            return 'html2canvas';
+          }
+          // jsPDF (used for PDF export)
+          if (id.includes('node_modules/jspdf')) {
+            return 'jspdf';
+          }
+          // React Query
+          if (id.includes('node_modules/@tanstack/react-query')) {
+            return 'react-query';
+          }
+          // Date libraries
+          if (id.includes('node_modules/date-fns')) {
+            return 'date-fns';
+          }
+          // Radix UI components (large UI library)
+          if (id.includes('node_modules/@radix-ui')) {
+            return 'radix-ui';
+          }
+          // Lucide icons
+          if (id.includes('node_modules/lucide-react')) {
+            return 'lucide-icons';
+          }
+          // All other node_modules go to vendor chunk
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+        },
       },
     },
     // Generate source maps for production debugging
     sourcemap: true,
+    // Increase chunk size warning limit (we have manual chunks now)
+    chunkSizeWarningLimit: 600,
   },
   server: {
     port: 5173,
