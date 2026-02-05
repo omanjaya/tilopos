@@ -254,7 +254,12 @@ export function PromotionFormPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/app/promotions')}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending}>
+          <Button
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending}
+            aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Creating promotion...') : undefined}
+          >
             {isPending && <Loader2 className="animate-spin" />}
             {isEdit ? 'Simpan Perubahan' : 'Buat Promosi'}
           </Button>

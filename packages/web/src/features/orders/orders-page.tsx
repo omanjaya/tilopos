@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ordersApi } from '@/api/endpoints/orders.api';
@@ -206,6 +206,31 @@ export function OrdersPage() {
       },
     },
   ];
+
+  // Keyboard shortcuts for tab navigation
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      // Number keys 1-5 for tab switching
+      const tabMap: Record<string, OrderStatus | 'all'> = {
+        '1': 'all',
+        '2': 'pending',
+        '3': 'preparing',
+        '4': 'ready',
+        '5': 'served',
+      };
+
+      if (tabMap[e.key]) {
+        e.preventDefault();
+        setStatusFilter(tabMap[e.key]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
 
   return (
     <div>
