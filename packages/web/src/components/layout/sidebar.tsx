@@ -52,6 +52,7 @@ const navSections: NavSection[] = [
       { to: '/app/transactions', label: 'Transaksi', icon: Receipt },
       { to: '/app/orders', label: 'Pesanan', icon: UtensilsCrossed },
       { to: '/app/tables', label: 'Meja', icon: CalendarDays },
+      { to: '/app/waiting-list', label: 'Daftar Tunggu', icon: ListPlus },
       { to: '/app/shifts', label: 'Shift', icon: Clock },
       { to: '/app/settlements', label: 'Penyelesaian', icon: Banknote },
     ],

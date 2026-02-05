@@ -104,6 +104,10 @@ const OrderDetailPage = lazy(() => import('@/features/orders/order-detail-page')
 const TablesPage = lazy(() => import('@/features/tables/tables-page').then(m => ({ default: m.TablesPage })));
 const TablesPageMobile = lazy(() => import('@/features/tables/tables-page.mobile').then(m => ({ default: m.TablesPage })));
 
+// Waiting List
+const WaitingListPage = lazy(() => import('@/features/waiting-list/waiting-list-page').then(m => ({ default: m.WaitingListPage })));
+const WaitingListPageMobile = lazy(() => import('@/features/waiting-list/waiting-list-page.mobile').then(m => ({ default: m.WaitingListPage })));
+
 // Shifts
 const ShiftsPage = lazy(() => import('@/features/shifts/shifts-page').then(m => ({ default: m.ShiftsPage })));
 
@@ -364,6 +368,14 @@ export const router = createBrowserRouter([
         element: (
           <LazyRoute>
             <DeviceRoute desktop={TablesPage} mobile={TablesPageMobile} />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'waiting-list',
+        element: (
+          <LazyRoute>
+            <DeviceRoute desktop={WaitingListPage} mobile={WaitingListPageMobile} />
           </LazyRoute>
         ),
       },
