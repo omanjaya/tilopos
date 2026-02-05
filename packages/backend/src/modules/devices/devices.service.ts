@@ -205,7 +205,7 @@ export class DevicesService {
     // Find all active devices of the specified platform
     const devices = await this.prisma.device.findMany({
       where: {
-        platform: platform as 'android' | 'ios' | 'web' | 'desktop',
+        platform: platform as any, // Type assertion needed for dynamic platform value
         isActive: true,
       },
       include: {

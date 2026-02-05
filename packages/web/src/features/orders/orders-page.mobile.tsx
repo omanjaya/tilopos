@@ -140,7 +140,7 @@ export function OrdersPage() {
   });
 
   // Filter by search
-  const filteredOrders = (orders?.data || []).filter((order) => {
+  const filteredOrders = (orders || []).filter((order) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (
@@ -339,8 +339,8 @@ export function OrdersPage() {
         }
         title={`Konfirmasi ${confirmAction?.action.label}`}
         description={`Apakah Anda yakin ingin ${confirmAction?.action.label.toLowerCase()} pesanan #${confirmAction?.order.orderNumber}?`}
-        confirmText={confirmAction?.action.label || 'Konfirmasi'}
-        loading={updateStatusMutation.isPending}
+        confirmLabel={confirmAction?.action.label || 'Konfirmasi'}
+        isLoading={updateStatusMutation.isPending}
       />
     </div>
   );

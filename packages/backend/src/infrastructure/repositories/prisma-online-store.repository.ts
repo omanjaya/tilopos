@@ -40,14 +40,19 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
   }
 
   async findActiveProductsByBusinessId(businessId: string): Promise<StoreProductRecord[]> {
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
       include: { variants: true, category: true },
     });
+
+    return products.map((p) => ({
+      ...p,
+      basePrice: p.basePrice.toNumber(),
+    }));
   }
 
   async findStoreOrders(storeId: string, status?: string): Promise<StoreOrderRecord[]> {
-    return this.prisma.storeOrder.findMany({
+    const orders = await this.prisma.storeOrder.findMany({
       where: {
         storeId,
         ...(status && {
@@ -63,6 +68,19 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
+
+    return orders.map((order) => ({
+      ...order,
+      shippingCost: order.shippingCost.toNumber(),
+      subtotal: order.subtotal.toNumber(),
+      discountAmount: order.discountAmount.toNumber(),
+      grandTotal: order.grandTotal.toNumber(),
+      items: order.items.map((item) => ({
+        ...item,
+        unitPrice: item.unitPrice.toNumber(),
+        subtotal: item.subtotal.toNumber(),
+      })),
+    }));
   }
 
   async createStoreOrder(data: {
@@ -85,7 +103,7 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
       subtotal: number;
     }[];
   }): Promise<StoreOrderRecord> {
-    return this.prisma.storeOrder.create({
+    const order = await this.prisma.storeOrder.create({
       data: {
         storeId: data.storeId,
         outletId: data.outletId,
@@ -109,10 +127,18 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
         },
       },
     });
+
+    return {
+      ...order,
+      shippingCost: order.shippingCost.toNumber(),
+      subtotal: order.subtotal.toNumber(),
+      discountAmount: order.discountAmount.toNumber(),
+      grandTotal: order.grandTotal.toNumber(),
+    };
   }
 
   async updateOrderStatus(id: string, status: string): Promise<StoreOrderRecord> {
-    return this.prisma.storeOrder.update({
+    const order = await this.prisma.storeOrder.update({
       where: { id },
       data: {
         orderStatus: status as
@@ -124,5 +150,13 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
           | 'cancelled',
       },
     });
+
+    return {
+      ...order,
+      shippingCost: order.shippingCost.toNumber(),
+      subtotal: order.subtotal.toNumber(),
+      discountAmount: order.discountAmount.toNumber(),
+      grandTotal: order.grandTotal.toNumber(),
+    };
   }
 }

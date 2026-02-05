@@ -13,18 +13,36 @@ export class PrismaPromotionRepository implements IPromotionRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByBusinessId(businessId: string): Promise<PromotionRecord[]> {
-    return this.prisma.promotion.findMany({
+    const promotions = await this.prisma.promotion.findMany({
       where: { businessId, isActive: true },
       orderBy: { createdAt: 'desc' },
     });
+
+    return promotions.map((p) => ({
+      ...p,
+      discountValue: p.discountValue.toNumber(),
+      minPurchase: p.minPurchase ? p.minPurchase.toNumber() : null,
+      maxDiscount: p.maxDiscount ? p.maxDiscount.toNumber() : null,
+    }));
   }
 
   async findById(id: string): Promise<PromotionRecord | null> {
-    return this.prisma.promotion.findUnique({ where: { id } });
+    const promotion = await this.prisma.promotion.findUnique({ where: { id } });
+
+    if (!promotion) {
+      return null;
+    }
+
+    return {
+      ...promotion,
+      discountValue: promotion.discountValue.toNumber(),
+      minPurchase: promotion.minPurchase ? promotion.minPurchase.toNumber() : null,
+      maxDiscount: promotion.maxDiscount ? promotion.maxDiscount.toNumber() : null,
+    };
   }
 
   async save(data: CreatePromotionData): Promise<PromotionRecord> {
-    return this.prisma.promotion.create({
+    const promotion = await this.prisma.promotion.create({
       data: {
         businessId: data.businessId,
         name: data.name,
@@ -38,13 +56,27 @@ export class PrismaPromotionRepository implements IPromotionRepository {
         usageLimit: data.usageLimit,
       },
     });
+
+    return {
+      ...promotion,
+      discountValue: promotion.discountValue.toNumber(),
+      minPurchase: promotion.minPurchase ? promotion.minPurchase.toNumber() : null,
+      maxDiscount: promotion.maxDiscount ? promotion.maxDiscount.toNumber() : null,
+    };
   }
 
   async update(id: string, data: Record<string, unknown>): Promise<PromotionRecord> {
-    return this.prisma.promotion.update({
+    const promotion = await this.prisma.promotion.update({
       where: { id },
       data: data as Record<string, never>,
     });
+
+    return {
+      ...promotion,
+      discountValue: promotion.discountValue.toNumber(),
+      minPurchase: promotion.minPurchase ? promotion.minPurchase.toNumber() : null,
+      maxDiscount: promotion.maxDiscount ? promotion.maxDiscount.toNumber() : null,
+    };
   }
 
   async deactivate(id: string): Promise<void> {
@@ -55,6 +87,16 @@ export class PrismaPromotionRepository implements IPromotionRepository {
   }
 
   async findVoucherByCode(code: string): Promise<VoucherRecord | null> {
-    return this.prisma.voucher.findUnique({ where: { code } });
+    const voucher = await this.prisma.voucher.findUnique({ where: { code } });
+
+    if (!voucher) {
+      return null;
+    }
+
+    return {
+      ...voucher,
+      initialValue: voucher.initialValue ? voucher.initialValue.toNumber() : null,
+      remainingValue: voucher.remainingValue ? voucher.remainingValue.toNumber() : null,
+    };
   }
 }

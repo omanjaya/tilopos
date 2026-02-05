@@ -222,9 +222,10 @@ export function OrdersPage() {
         '5': 'served',
       };
 
-      if (tabMap[e.key]) {
+      const newFilter = tabMap[e.key];
+      if (newFilter) {
         e.preventDefault();
-        setStatusFilter(tabMap[e.key]);
+        setStatusFilter(newFilter);
       }
     };
 

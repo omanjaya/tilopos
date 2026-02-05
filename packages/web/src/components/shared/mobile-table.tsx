@@ -107,7 +107,7 @@ export function MobileTable<T>({
     if (!onRefresh || refreshing) return;
     const container = containerRef.current;
     if (container && container.scrollTop === 0) {
-      startY.current = e.touches[0].clientY;
+      startY.current = e.touches[0]?.clientY || 0;
       setIsPulling(true);
     }
   };
@@ -115,7 +115,7 @@ export function MobileTable<T>({
   // Handle touch move
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!isPulling || !onRefresh || refreshing) return;
-    const currentY = e.touches[0].clientY;
+    const currentY = e.touches[0]?.clientY || 0;
     const distance = currentY - startY.current;
 
     if (distance > 0 && distance < PULL_THRESHOLD * 2) {

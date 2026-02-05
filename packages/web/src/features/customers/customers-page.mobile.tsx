@@ -74,7 +74,7 @@ export function CustomersPage() {
     },
   });
 
-  const customers = customersData?.data || [];
+  const customers = customersData || [];
 
   return (
     <div className="flex flex-col h-screen bg-muted/30">
@@ -262,8 +262,8 @@ export function CustomersPage() {
         onConfirm={() => deleteTarget && deactivateMutation.mutate(deleteTarget.id)}
         title="Nonaktifkan Pelanggan"
         description={`Apakah Anda yakin ingin menonaktifkan "${deleteTarget?.name}"? Pelanggan masih dapat diaktifkan kembali nanti.`}
-        confirmText="Nonaktifkan"
-        loading={deactivateMutation.isPending}
+        confirmLabel="Nonaktifkan"
+        isLoading={deactivateMutation.isPending}
       />
     </div>
   );
@@ -273,12 +273,7 @@ export function CustomersPage() {
  * CustomerCard Component
  * Individual customer card
  */
-interface CustomerCardProps {
-  customer: Customer;
-  onClick: () => void;
-}
-
-function CustomerCard({ customer, onClick }: CustomerCardProps) {
+function CustomerCard({ customer, onClick }: { customer: Customer; onClick: () => void }) {
   // Generate initials for avatar
   const initials = customer.name
     .split(' ')

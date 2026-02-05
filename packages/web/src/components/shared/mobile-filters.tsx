@@ -256,7 +256,7 @@ export function MobileFilters({
                   <Checkbox
                     id={filter.id}
                     checked={Boolean(tempValues[filter.id])}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean) =>
                       handleFilterChange(filter.id, Boolean(checked))
                     }
                   />
@@ -280,7 +280,7 @@ export function MobileFilters({
                         <Checkbox
                           id={`${filter.id}-${option.value}`}
                           checked={isChecked}
-                          onCheckedChange={(checked) => {
+                          onCheckedChange={(checked: boolean) => {
                             const newValues = checked
                               ? [...currentValues, option.value]
                               : currentValues.filter((v) => v !== option.value);

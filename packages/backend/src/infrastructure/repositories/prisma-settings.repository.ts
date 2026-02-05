@@ -39,7 +39,13 @@ export class PrismaSettingsRepository implements ISettingsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findBusiness(businessId: string): Promise<BusinessRecord> {
-    return this.prisma.business.findUnique({ where: { id: businessId } });
+    const business = await this.prisma.business.findUnique({ where: { id: businessId } });
+
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    return business;
   }
 
   async updateBusiness(businessId: string, data: UpdateBusinessData): Promise<BusinessRecord> {
@@ -56,15 +62,31 @@ export class PrismaSettingsRepository implements ISettingsRepository {
   }
 
   async findOutlets(businessId: string): Promise<OutletRecord[]> {
-    return this.prisma.outlet.findMany({ where: { businessId } });
+    const outlets = await this.prisma.outlet.findMany({ where: { businessId } });
+
+    return outlets.map((o) => ({
+      ...o,
+      taxRate: o.taxRate.toNumber(),
+      serviceCharge: o.serviceCharge.toNumber(),
+    }));
   }
 
   async findOutletById(id: string): Promise<OutletRecord | null> {
-    return this.prisma.outlet.findUnique({ where: { id } });
+    const outlet = await this.prisma.outlet.findUnique({ where: { id } });
+
+    if (!outlet) {
+      return null;
+    }
+
+    return {
+      ...outlet,
+      taxRate: outlet.taxRate.toNumber(),
+      serviceCharge: outlet.serviceCharge.toNumber(),
+    };
   }
 
   async createOutlet(data: CreateOutletData): Promise<OutletRecord> {
-    return this.prisma.outlet.create({
+    const outlet = await this.prisma.outlet.create({
       data: {
         businessId: data.businessId,
         name: data.name,
@@ -75,24 +97,42 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         serviceCharge: data.serviceCharge ?? 0,
       },
     });
+
+    return {
+      ...outlet,
+      taxRate: outlet.taxRate.toNumber(),
+      serviceCharge: outlet.serviceCharge.toNumber(),
+    };
   }
 
   async updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord> {
-    return this.prisma.outlet.update({
+    const outlet = await this.prisma.outlet.update({
       where: { id },
       data: data as Record<string, never>,
     });
+
+    return {
+      ...outlet,
+      taxRate: outlet.taxRate.toNumber(),
+      serviceCharge: outlet.serviceCharge.toNumber(),
+    };
   }
 
   async findModifierGroups(businessId: string): Promise<ModifierGroupRecord[]> {
-    return this.prisma.modifierGroup.findMany({
+    const groups = await this.prisma.modifierGroup.findMany({
       where: { businessId, isActive: true },
       include: { modifiers: true },
     });
+
+    // ModifierGroup doesn't have updatedAt in Prisma schema, so we add it from createdAt
+    return groups.map((g) => ({
+      ...g,
+      updatedAt: g.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    }));
   }
 
   async createModifierGroup(data: CreateModifierGroupData): Promise<ModifierGroupRecord> {
-    return this.prisma.modifierGroup.create({
+    const group = await this.prisma.modifierGroup.create({
       data: {
         businessId: data.businessId,
         name: data.name,
@@ -103,19 +143,29 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         modifiers: { create: data.modifiers },
       },
     });
+
+    return {
+      ...group,
+      updatedAt: group.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    };
   }
 
   async updateModifierGroup(
     id: string,
     data: UpdateModifierGroupData,
   ): Promise<ModifierGroupRecord> {
-    return this.prisma.modifierGroup.update({
+    const group = await this.prisma.modifierGroup.update({
       where: { id },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
+
+    return {
+      ...group,
+      updatedAt: group.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    };
   }
 
   async deleteModifierGroup(id: string): Promise<void> {
@@ -126,11 +176,21 @@ export class PrismaSettingsRepository implements ISettingsRepository {
   }
 
   async findLoyaltyProgram(businessId: string): Promise<LoyaltyProgramRecord | null> {
-    return this.prisma.loyaltyProgram.findFirst({ where: { businessId } });
+    const program = await this.prisma.loyaltyProgram.findFirst({ where: { businessId } });
+
+    if (!program) {
+      return null;
+    }
+
+    return {
+      ...program,
+      amountPerPoint: program.amountPerPoint.toNumber(),
+      redemptionRate: program.redemptionRate.toNumber(),
+    };
   }
 
   async createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<LoyaltyProgramRecord> {
-    return this.prisma.loyaltyProgram.create({
+    const program = await this.prisma.loyaltyProgram.create({
       data: {
         businessId: data.businessId,
         name: data.name,
@@ -139,13 +199,26 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         pointExpiryDays: data.pointExpiryDays || null,
       },
     });
+
+    return {
+      ...program,
+      amountPerPoint: program.amountPerPoint.toNumber(),
+      redemptionRate: program.redemptionRate.toNumber(),
+    };
   }
 
   async findLoyaltyTiers(businessId: string): Promise<LoyaltyTierRecord[]> {
-    return this.prisma.loyaltyTier.findMany({
+    const tiers = await this.prisma.loyaltyTier.findMany({
       where: { businessId },
       orderBy: { sortOrder: 'asc' },
     });
+
+    return tiers.map((t) => ({
+      ...t,
+      minSpent: t.minSpent.toNumber(),
+      pointMultiplier: t.pointMultiplier.toNumber(),
+      updatedAt: t.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    }));
   }
 
   async deleteOutlet(id: string): Promise<void> {
@@ -159,7 +232,7 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     businessId: string,
     data: UpdateLoyaltyProgramData,
   ): Promise<LoyaltyProgramRecord> {
-    return this.prisma.loyaltyProgram.updateMany({
+    await this.prisma.loyaltyProgram.updateMany({
       where: { businessId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
@@ -169,10 +242,22 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
+
+    // Fetch the updated record to return with converted Decimal fields
+    const program = await this.prisma.loyaltyProgram.findFirst({ where: { businessId } });
+    if (!program) {
+      throw new NotFoundException('Loyalty program not found');
+    }
+
+    return {
+      ...program,
+      amountPerPoint: program.amountPerPoint.toNumber(),
+      redemptionRate: program.redemptionRate.toNumber(),
+    };
   }
 
   async createLoyaltyTier(data: CreateLoyaltyTierData): Promise<LoyaltyTierRecord> {
-    return this.prisma.loyaltyTier.create({
+    const tier = await this.prisma.loyaltyTier.create({
       data: {
         businessId: data.businessId,
         name: data.name,
@@ -183,10 +268,17 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         sortOrder: data.sortOrder ?? 0,
       },
     });
+
+    return {
+      ...tier,
+      minSpent: tier.minSpent.toNumber(),
+      pointMultiplier: tier.pointMultiplier.toNumber(),
+      updatedAt: tier.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    };
   }
 
   async updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord> {
-    return this.prisma.loyaltyTier.update({
+    const tier = await this.prisma.loyaltyTier.update({
       where: { id },
       data: {
         ...(data.name !== undefined && { name: data.name }),
@@ -198,6 +290,13 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
+
+    return {
+      ...tier,
+      minSpent: tier.minSpent.toNumber(),
+      pointMultiplier: tier.pointMultiplier.toNumber(),
+      updatedAt: tier.createdAt, // Use createdAt as updatedAt since schema doesn't have it
+    };
   }
 
   async deleteLoyaltyTier(id: string): Promise<void> {
@@ -245,14 +344,25 @@ export class PrismaSettingsRepository implements ISettingsRepository {
       ...(data.taxName !== undefined && { taxName: data.taxName }),
       ...(data.taxNumber !== undefined && { taxNumber: data.taxNumber }),
     };
-    return this.prisma.outlet.update({
+    const updated = await this.prisma.outlet.update({
       where: { id: outletId },
       data: {
         ...(data.taxRate !== undefined && { taxRate: data.taxRate }),
         ...(data.serviceCharge !== undefined && { serviceCharge: data.serviceCharge }),
         settings: updatedSettings as never,
       },
+      select: { taxRate: true, serviceCharge: true, settings: true },
     });
+
+    const settings = (updated.settings as Record<string, unknown>) || {};
+    return {
+      outletId,
+      taxRate: Number(updated.taxRate),
+      serviceCharge: Number(updated.serviceCharge),
+      taxInclusive: Boolean(settings.taxInclusive),
+      taxName: (settings.taxName as string) || 'PPN',
+      taxNumber: settings.taxNumber as string | undefined,
+    };
   }
 
   // Receipt Template - stored in outlet settings JSON
@@ -308,14 +418,29 @@ export class PrismaSettingsRepository implements ISettingsRepository {
       ...(data.paperSize !== undefined && { paperSize: data.paperSize }),
       ...(data.fontSize !== undefined && { fontSize: data.fontSize }),
     };
-    return this.prisma.outlet.update({
+    const updated = await this.prisma.outlet.update({
       where: { id: outletId },
       data: {
         ...(data.header !== undefined && { receiptHeader: data.header }),
         ...(data.footer !== undefined && { receiptFooter: data.footer }),
         settings: updatedSettings as never,
       },
+      select: { receiptHeader: true, receiptFooter: true, settings: true },
     });
+
+    const settings = (updated.settings as Record<string, unknown>) || {};
+    return {
+      outletId,
+      header: updated.receiptHeader || '',
+      footer: updated.receiptFooter || '',
+      showLogo: Boolean(settings.showLogo ?? true),
+      logoUrl: settings.logoUrl as string | undefined,
+      showQRCode: Boolean(settings.showQRCode),
+      showTaxDetails: Boolean(settings.showTaxDetails ?? true),
+      showServiceCharge: Boolean(settings.showServiceCharge ?? true),
+      paperSize: (settings.paperSize as '58mm' | '80mm') || '80mm',
+      fontSize: (settings.fontSize as 'small' | 'medium' | 'large') || 'medium',
+    };
   }
 
   // Operating Hours - stored in outlet settings JSON

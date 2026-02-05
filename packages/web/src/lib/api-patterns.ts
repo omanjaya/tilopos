@@ -30,12 +30,18 @@ import type { AxiosRequestConfig } from 'axios';
  */
 
 /**
- * API Response wrapper
+ * API Response wrapper (legacy - backend returns data directly)
+ * @deprecated Backend returns T directly, not wrapped in { data: T }
  */
 export interface ApiResponse<T> {
   data: T;
   message?: string;
 }
+
+/**
+ * Simple API response - backend returns data directly
+ */
+export type ApiData<T> = T;
 
 /**
  * List response with pagination
@@ -55,13 +61,13 @@ export interface PaginatedResponse<T> {
  */
 export interface StandardApiClient<T, TCreate = Partial<T>, TUpdate = Partial<T>> {
   /** List all items with optional filters */
-  list: (params?: Record<string, unknown>, config?: AxiosRequestConfig) => Promise<ApiResponse<T[]>>;
+  list: (params?: Record<string, unknown>, config?: AxiosRequestConfig) => Promise<T[]>;
   /** Get single item by ID */
-  get: (id: string, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
+  get: (id: string, config?: AxiosRequestConfig) => Promise<T>;
   /** Create new item */
-  create: (data: TCreate, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
+  create: (data: TCreate, config?: AxiosRequestConfig) => Promise<T>;
   /** Update existing item */
-  update: (id: string, data: TUpdate, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
+  update: (id: string, data: TUpdate, config?: AxiosRequestConfig) => Promise<T>;
   /** Delete item */
   delete: (id: string, config?: AxiosRequestConfig) => Promise<void>;
 }
@@ -69,13 +75,20 @@ export interface StandardApiClient<T, TCreate = Partial<T>, TUpdate = Partial<T>
 /**
  * Paginated API client interface
  */
-export interface PaginatedApiClient<T, TCreate = Partial<T>, TUpdate = Partial<T>>
-  extends Omit<StandardApiClient<T, TCreate, TUpdate>, 'list'> {
+export interface PaginatedApiClient<T, TCreate = Partial<T>, TUpdate = Partial<T>> {
   /** List items with pagination */
   list: (
     params?: Record<string, unknown>,
     config?: AxiosRequestConfig
   ) => Promise<PaginatedResponse<T>>;
+  /** Get single item by ID */
+  get: (id: string, config?: AxiosRequestConfig) => Promise<T>;
+  /** Create new item */
+  create: (data: TCreate, config?: AxiosRequestConfig) => Promise<T>;
+  /** Update existing item */
+  update: (id: string, data: TUpdate, config?: AxiosRequestConfig) => Promise<T>;
+  /** Delete item */
+  delete: (id: string, config?: AxiosRequestConfig) => Promise<void>;
 }
 
 /**
@@ -111,19 +124,19 @@ export function createStandardApiClient<T, TCreate = Partial<T>, TUpdate = Parti
 ): StandardApiClient<T, TCreate, TUpdate> {
   return {
     list: (params?, config?) =>
-      apiClient.get<ApiResponse<T[]>>(basePath, { params, ...config }),
+      apiClient.get<T[]>(basePath, { params, ...config }).then((res) => res.data),
 
     get: (id, config?) =>
-      apiClient.get<ApiResponse<T>>(`${basePath}/${id}`, config),
+      apiClient.get<T>(`${basePath}/${id}`, config).then((res) => res.data),
 
     create: (data, config?) =>
-      apiClient.post<ApiResponse<T>>(basePath, data, config),
+      apiClient.post<T>(basePath, data, config).then((res) => res.data),
 
     update: (id, data, config?) =>
-      apiClient.put<ApiResponse<T>>(`${basePath}/${id}`, data, config),
+      apiClient.put<T>(`${basePath}/${id}`, data, config).then((res) => res.data),
 
     delete: (id, config?) =>
-      apiClient.delete<void>(`${basePath}/${id}`, config),
+      apiClient.delete<void>(`${basePath}/${id}`, config).then((res) => res.data),
   };
 }
 
@@ -150,19 +163,19 @@ export function createPaginatedApiClient<T, TCreate = Partial<T>, TUpdate = Part
 ): PaginatedApiClient<T, TCreate, TUpdate> {
   return {
     list: (params?, config?) =>
-      apiClient.get<PaginatedResponse<T>>(basePath, { params, ...config }),
+      apiClient.get<PaginatedResponse<T>>(basePath, { params, ...config }).then((res) => res.data),
 
     get: (id, config?) =>
-      apiClient.get<ApiResponse<T>>(`${basePath}/${id}`, config),
+      apiClient.get<T>(`${basePath}/${id}`, config).then((res) => res.data),
 
     create: (data, config?) =>
-      apiClient.post<ApiResponse<T>>(basePath, data, config),
+      apiClient.post<T>(basePath, data, config).then((res) => res.data),
 
     update: (id, data, config?) =>
-      apiClient.put<ApiResponse<T>>(`${basePath}/${id}`, data, config),
+      apiClient.put<T>(`${basePath}/${id}`, data, config).then((res) => res.data),
 
     delete: (id, config?) =>
-      apiClient.delete<void>(`${basePath}/${id}`, config),
+      apiClient.delete<void>(`${basePath}/${id}`, config).then((res) => res.data),
   };
 }
 
@@ -237,15 +250,15 @@ export interface NestedApiClient<T, TCreate = Partial<T>, TUpdate = Partial<T>> 
     parentId: string,
     params?: Record<string, unknown>,
     config?: AxiosRequestConfig
-  ) => Promise<ApiResponse<T[]>>;
-  get: (parentId: string, id: string, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
-  create: (parentId: string, data: TCreate, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
+  ) => Promise<T[]>;
+  get: (parentId: string, id: string, config?: AxiosRequestConfig) => Promise<T>;
+  create: (parentId: string, data: TCreate, config?: AxiosRequestConfig) => Promise<T>;
   update: (
     parentId: string,
     id: string,
     data: TUpdate,
     config?: AxiosRequestConfig
-  ) => Promise<ApiResponse<T>>;
+  ) => Promise<T>;
   delete: (parentId: string, id: string, config?: AxiosRequestConfig) => Promise<void>;
 }
 
@@ -255,22 +268,32 @@ export function createNestedApiClient<T, TCreate = Partial<T>, TUpdate = Partial
 ): NestedApiClient<T, TCreate, TUpdate> {
   return {
     list: (parentId, params?, config?) =>
-      apiClient.get<ApiResponse<T[]>>(`${parentPath}/${parentId}/${childPath}`, {
-        params,
-        ...config,
-      }),
+      apiClient
+        .get<T[]>(`${parentPath}/${parentId}/${childPath}`, {
+          params,
+          ...config,
+        })
+        .then((res) => res.data),
 
     get: (parentId, id, config?) =>
-      apiClient.get<ApiResponse<T>>(`${parentPath}/${parentId}/${childPath}/${id}`, config),
+      apiClient
+        .get<T>(`${parentPath}/${parentId}/${childPath}/${id}`, config)
+        .then((res) => res.data),
 
     create: (parentId, data, config?) =>
-      apiClient.post<ApiResponse<T>>(`${parentPath}/${parentId}/${childPath}`, data, config),
+      apiClient
+        .post<T>(`${parentPath}/${parentId}/${childPath}`, data, config)
+        .then((res) => res.data),
 
     update: (parentId, id, data, config?) =>
-      apiClient.put<ApiResponse<T>>(`${parentPath}/${parentId}/${childPath}/${id}`, data, config),
+      apiClient
+        .put<T>(`${parentPath}/${parentId}/${childPath}/${id}`, data, config)
+        .then((res) => res.data),
 
     delete: (parentId, id, config?) =>
-      apiClient.delete<void>(`${parentPath}/${parentId}/${childPath}/${id}`, config),
+      apiClient
+        .delete<void>(`${parentPath}/${parentId}/${childPath}/${id}`, config)
+        .then((res) => res.data),
   };
 }
 
@@ -292,17 +315,17 @@ export function createNestedApiClient<T, TCreate = Partial<T>, TUpdate = Partial
  * ```
  */
 export interface ReadOnlyApiClient<T> {
-  list: (params?: Record<string, unknown>, config?: AxiosRequestConfig) => Promise<ApiResponse<T[]>>;
-  get: (id: string, config?: AxiosRequestConfig) => Promise<ApiResponse<T>>;
+  list: (params?: Record<string, unknown>, config?: AxiosRequestConfig) => Promise<T[]>;
+  get: (id: string, config?: AxiosRequestConfig) => Promise<T>;
 }
 
 export function createReadOnlyApiClient<T>(basePath: string): ReadOnlyApiClient<T> {
   return {
     list: (params?, config?) =>
-      apiClient.get<ApiResponse<T[]>>(basePath, { params, ...config }),
+      apiClient.get<T[]>(basePath, { params, ...config }).then((res) => res.data),
 
     get: (id, config?) =>
-      apiClient.get<ApiResponse<T>>(`${basePath}/${id}`, config),
+      apiClient.get<T>(`${basePath}/${id}`, config).then((res) => res.data),
   };
 }
 
@@ -337,7 +360,7 @@ export function createReadOnlyApiClient<T>(basePath: string): ReadOnlyApiClient<
 export function createActionApiClient<
   TActions extends Record<string, (...args: unknown[]) => unknown>
 >(
-  basePath: string,
+  _basePath: string,
   actions: TActions
 ): TActions {
   return actions;

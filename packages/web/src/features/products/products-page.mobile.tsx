@@ -91,7 +91,7 @@ export function ProductsPage() {
     },
   });
 
-  const products = productsData?.data || [];
+  const products = productsData || [];
   const activeFiltersCount = categoryFilter !== 'all' ? 1 : 0;
 
   return (
@@ -156,7 +156,7 @@ export function ProductsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Semua Kategori</SelectItem>
-                      {categories?.data.map((cat) => (
+                      {categories?.map((cat) => (
                         <SelectItem key={cat.id} value={cat.id}>
                           {cat.name}
                         </SelectItem>
@@ -252,8 +252,8 @@ export function ProductsPage() {
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         title="Hapus Produk"
         description={`Apakah Anda yakin ingin menghapus "${deleteTarget?.name}"? Tindakan ini tidak dapat dibatalkan.`}
-        confirmText="Hapus"
-        loading={deleteMutation.isPending}
+        confirmLabel="Hapus"
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { INotificationService, NotificationPayload } from '@domain/interfaces/services';
+import type { Prisma } from '@prisma/client';
 import { EmailService } from './email/email.service';
 import { WhatsAppService } from './whatsapp/whatsapp.service';
 import { PushService } from './push/push.service';
@@ -76,7 +77,7 @@ export class NotificationDispatcherService implements INotificationService {
             channel: notification.channel,
             title: notification.title,
             body: notification.body,
-            metadata: (notification.metadata || {}) as Record<string, unknown>,
+            metadata: (notification.metadata || {}) as Prisma.InputJsonValue,
           },
         });
       }

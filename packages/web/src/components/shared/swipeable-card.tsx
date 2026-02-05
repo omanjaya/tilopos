@@ -79,7 +79,7 @@ export function SwipeableCard({
   // Handle touch start
   const handleTouchStart = (e: React.TouchEvent) => {
     if (!enabled || actions.length === 0) return;
-    startX.current = e.touches[0].clientX;
+    startX.current = e.touches[0]?.clientX || 0;
     currentX.current = offset;
     setIsDragging(true);
   };
@@ -88,7 +88,7 @@ export function SwipeableCard({
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!isDragging || !enabled) return;
 
-    const touchX = e.touches[0].clientX;
+    const touchX = e.touches[0]?.clientX || 0;
     const diff = touchX - startX.current;
     const newOffset = currentX.current + diff;
 
