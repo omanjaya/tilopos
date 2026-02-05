@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 // CDN base URL: when VITE_CDN_URL is set, all asset references in the built
 // HTML/CSS/JS will be prefixed with this URL. Falls back to '/' for local dev.
@@ -11,7 +12,16 @@ export default defineConfig({
   // When a CDN URL is configured, use it as the base for all asset paths.
   // This ensures built files reference the CDN origin instead of the app server.
   base: cdnUrl || '/',
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Bundle analysis - generates stats.html after build
+    process.env.ANALYZE === 'true' && visualizer({
+      filename: './dist/stats.html',
+      open: false,
+      gzipSize: true,
+      brotliSize: true,
+    }),
+  ].filter(Boolean),
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
