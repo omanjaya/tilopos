@@ -82,6 +82,22 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Loading Animations                                                 */
+/* ------------------------------------------------------------------ */
+
+@layer utilities {
+  /* Shimmer animation for skeleton loading states */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+}
+
 /* Touch device specific: larger touch targets, momentum scrolling */
 @media (pointer: coarse) {
   /* Ensure all interactive elements meet the 44px minimum touch target */
