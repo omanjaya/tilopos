@@ -322,7 +322,7 @@ describe('CustomersService', () => {
 
       const result = await service.getCustomersBySegment(
         'biz-1',
-        'unknown' as 'all' | 'vip' | 'regular' | 'new' | 'dormant',
+        'unknown' as 'new' | 'returning' | 'vip' | 'at-risk' | 'inactive',
       );
 
       expect(result).toEqual([]);
