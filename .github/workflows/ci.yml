@@ -60,7 +60,7 @@ jobs:
       - run: npm run db:generate
       - run: npx prisma migrate deploy --schema=packages/backend/prisma/schema.prisma
       - run: npm test -- --passWithNoTests
-      - run: npm run test:e2e --workspace=@moka/backend -- --passWithNoTests
+      - run: npm run test:e2e --workspace=@tilo/backend -- --passWithNoTests
 
   build:
     runs-on: ubuntu-latest
