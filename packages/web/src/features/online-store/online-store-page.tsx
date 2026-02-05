@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/shared/page-header';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -163,10 +163,27 @@ export function OnlineStorePage() {
     });
   }
 
+  // Keyboard shortcut: N to open create dialog
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        openDialog();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div>
       <PageHeader title="Toko Online" description="Kelola toko online Anda">
-        <Button onClick={openDialog} className="gap-2">
+        <Button onClick={openDialog} className="gap-2" aria-keyshortcuts="N">
           <Plus className="h-4 w-4" />
           Buat Toko
         </Button>
@@ -266,6 +283,8 @@ export function OnlineStorePage() {
             <Button
               onClick={handleSubmit}
               disabled={!storeName.trim() || !storeSlug.trim() || createMutation.isPending}
+              aria-busy={createMutation.isPending}
+              aria-label={createMutation.isPending ? 'Membuat toko...' : undefined}
             >
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Buat Toko

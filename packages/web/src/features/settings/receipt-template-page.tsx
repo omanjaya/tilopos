@@ -185,7 +185,12 @@ export function ReceiptTemplatePage() {
             </Card>
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={updateMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={updateMutation.isPending}
+                aria-busy={updateMutation.isPending}
+                aria-label={updateMutation.isPending ? 'Menyimpan...' : undefined}
+              >
                 {updateMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

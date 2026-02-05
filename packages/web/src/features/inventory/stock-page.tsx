@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -120,6 +120,23 @@ export function StockPage() {
     });
   }
 
+  // Keyboard shortcut: N to open adjustment dialog
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        openAdjustDialog();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const columns: Column<StockLevel>[] = [
     {
       key: 'product',
@@ -165,7 +182,7 @@ export function StockPage() {
   return (
     <div>
       <PageHeader title="Stok Barang" description="Monitor stok per outlet">
-        <Button onClick={() => openAdjustDialog()}>
+        <Button onClick={() => openAdjustDialog()} aria-keyshortcuts="N">
           <SlidersHorizontal className="mr-2 h-4 w-4" /> Adjustment Stok
         </Button>
       </PageHeader>
@@ -280,6 +297,8 @@ export function StockPage() {
             <Button
               onClick={handleAdjustSubmit}
               disabled={!adjustProduct || !adjustQuantity || !adjustReason || adjustMutation.isPending}
+              aria-busy={adjustMutation.isPending}
+              aria-label={adjustMutation.isPending ? 'Menyimpan adjustment...' : undefined}
             >
               {adjustMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Simpan

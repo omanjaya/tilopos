@@ -299,6 +299,8 @@ export function SettlementsPage() {
               <Button
                 onClick={() => detailTarget && settleMutation.mutate(detailTarget.id)}
                 disabled={settleMutation.isPending}
+                aria-busy={settleMutation.isPending}
+                aria-label={settleMutation.isPending ? 'Mengkonfirmasi penyelesaian...' : undefined}
               >
                 {settleMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Banknote className="mr-2 h-4 w-4" />

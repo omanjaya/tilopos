@@ -345,6 +345,8 @@ export function ShiftsPage() {
                 });
               }}
               disabled={startShiftMutation.isPending}
+              aria-busy={startShiftMutation.isPending}
+              aria-label={startShiftMutation.isPending ? 'Memulai shift...' : undefined}
             >
               {startShiftMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Mulai Shift
@@ -400,6 +402,8 @@ export function ShiftsPage() {
                 });
               }}
               disabled={endShiftMutation.isPending}
+              aria-busy={endShiftMutation.isPending}
+              aria-label={endShiftMutation.isPending ? 'Menutup shift...' : undefined}
             >
               {endShiftMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Tutup Shift
@@ -456,6 +460,8 @@ export function ShiftsPage() {
                 });
               }}
               disabled={cashInMutation.isPending || !cashInAmount || Number(cashInAmount) <= 0}
+              aria-busy={cashInMutation.isPending}
+              aria-label={cashInMutation.isPending ? 'Menyimpan cash in...' : undefined}
             >
               {cashInMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Simpan
@@ -512,6 +518,8 @@ export function ShiftsPage() {
                 });
               }}
               disabled={cashOutMutation.isPending || !cashOutAmount || Number(cashOutAmount) <= 0}
+              aria-busy={cashOutMutation.isPending}
+              aria-label={cashOutMutation.isPending ? 'Menyimpan cash out...' : undefined}
             >
               {cashOutMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Simpan

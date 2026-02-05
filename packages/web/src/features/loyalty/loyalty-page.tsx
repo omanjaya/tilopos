@@ -215,7 +215,12 @@ export function LoyaltyPage() {
                     </p>
                   </div>
                   <div className="flex justify-end pt-2">
-                    <Button onClick={handleSaveProgram} disabled={createProgram.isPending}>
+                    <Button
+                      onClick={handleSaveProgram}
+                      disabled={createProgram.isPending}
+                      aria-busy={createProgram.isPending}
+                      aria-label={createProgram.isPending ? 'Menyimpan program...' : undefined}
+                    >
                       {createProgram.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (

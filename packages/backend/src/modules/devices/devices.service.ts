@@ -205,6 +205,7 @@ export class DevicesService {
     // Find all active devices of the specified platform
     const devices = await this.prisma.device.findMany({
       where: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         platform: platform as any, // Type assertion needed for dynamic platform value
         isActive: true,
       },
