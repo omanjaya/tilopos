@@ -35,10 +35,10 @@
   },
   "lint-staged": {
     "packages/backend/**/*.ts": [
-      "eslint --fix"
+      "cd packages/backend && eslint --fix"
     ],
     "packages/web/**/*.{ts,tsx}": [
-      "eslint --fix"
+      "cd packages/web && eslint --fix"
     ]
   }
 }
