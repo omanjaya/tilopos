@@ -40,5 +40,11 @@
     "packages/web/**/*.{ts,tsx}": [
       "cd packages/web && eslint --fix"
     ]
+  },
+  "overrides": {
+    "inflight": "^1.0.7",
+    "lodash": "^4.17.21",
+    "glob": "^10.3.10",
+    "rimraf": "^5.0.5"
   }
 }
