@@ -10,6 +10,9 @@ import { OnboardingWizard } from '@/features/onboarding/onboarding-wizard';
 import { useOnboarding } from '@/features/onboarding/onboarding-provider';
 import { useCompleteOnboarding } from '@/features/onboarding/use-onboarding';
 import { CommandPalette, useCommandPalette } from '@/components/shared/command-palette';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AppLayout() {
@@ -62,17 +65,36 @@ export function AppLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
-        <Header />
-        <main className="px-12 py-8">
-          <Outlet />
-        </main>
+    <TooltipProvider>
+      <div className="min-h-screen bg-background">
+        <Sidebar />
+        <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
+          <Header />
+          <main className="px-12 py-8">
+            <Outlet />
+          </main>
+        </div>
+
+        {/* Floating Help Button - Re-open Onboarding */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={openOnboarding}
+              size="icon"
+              className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
+            >
+              <HelpCircle className="h-5 w-5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            <p>Buka Panduan Onboarding</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <GlobalShortcutsDialog />
+        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+        <OnboardingWizard onComplete={handleOnboardingComplete} />
       </div>
-      <GlobalShortcutsDialog />
-      <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
-      <OnboardingWizard onComplete={handleOnboardingComplete} />
-    </div>
+    </TooltipProvider>
   );
 }

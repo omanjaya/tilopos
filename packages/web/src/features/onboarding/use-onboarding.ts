@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/endpoints/auth.api';
+import { useAuthStore } from '@/stores/auth.store';
 
 export function useOnboardingStatus() {
   return useQuery({
@@ -10,12 +11,23 @@ export function useOnboardingStatus() {
 }
 
 export function useCompleteOnboarding() {
-  // This will be implemented when the API endpoint is ready
-  const completeOnboarding = async () => {
-    // TODO: Call API to mark onboarding as complete
-    // await authApi.completeOnboarding();
-    localStorage.setItem('tilo-onboarding-completed', 'true');
-  };
+  const queryClient = useQueryClient();
+  const updateUser = useAuthStore((s) => s.updateUser);
 
-  return { completeOnboarding };
+  const mutation = useMutation({
+    mutationFn: () => authApi.completeOnboarding(),
+    onSuccess: async () => {
+      // Invalidate and refetch user data to get updated onboardingCompleted status
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+
+      // Update user in auth store
+      const updatedUser = await authApi.getMe();
+      updateUser(updatedUser);
+    },
+  });
+
+  return {
+    completeOnboarding: mutation.mutateAsync,
+    isLoading: mutation.isPending,
+  };
 }

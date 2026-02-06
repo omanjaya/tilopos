@@ -184,4 +184,39 @@ export class AuthService {
       outletId: employee.outletId,
     };
   }
+
+  /**
+   * Get employee profile with full details
+   */
+  async getEmployeeProfile(employeeId: string) {
+    const employee = await this.employeeRepo.findById(employeeId);
+    if (!employee) {
+      throw new UnauthorizedException('Employee not found');
+    }
+
+    return {
+      id: employee.id,
+      businessId: employee.businessId,
+      outletId: employee.outletId,
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone,
+      role: employee.role,
+      profilePhotoUrl: employee.profilePhotoUrl,
+      onboardingCompleted: employee.onboardingCompleted ?? false,
+      isActive: employee.isActive,
+      mfaEnabled: employee.mfaEnabled,
+    };
+  }
+
+  /**
+   * Mark user's onboarding as completed
+   */
+  async completeOnboarding(employeeId: string) {
+    await this.employeeRepo.update(employeeId, {
+      onboardingCompleted: true,
+    });
+
+    return { success: true, message: 'Onboarding completed successfully' };
+  }
 }

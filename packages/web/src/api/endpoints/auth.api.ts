@@ -25,4 +25,7 @@ export const authApi = {
 
   getActivityLog: (params: { page?: number; limit?: number } = {}) =>
     apiClient.get<ActivityLogResponse>('/auth/activity', { params }).then((r) => r.data),
+
+  completeOnboarding: () =>
+    apiClient.post<{ success: boolean; message: string }>('/auth/complete-onboarding').then((r) => r.data),
 };

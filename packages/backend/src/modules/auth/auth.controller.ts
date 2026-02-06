@@ -96,14 +96,20 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
   async getMe(@CurrentUser() user: AuthUser) {
-    // This would need to be implemented - fetch full user details from employee repository
-    // For now, returning the user from JWT token
-    return {
-      id: user.employeeId,
-      businessId: user.businessId,
-      outletId: user.outletId,
-      role: user.role,
-    };
+    return this.authService.getEmployeeProfile(user.employeeId);
+  }
+
+  /**
+   * Mark onboarding as completed
+   * POST /api/v1/auth/complete-onboarding
+   */
+  @Post('complete-onboarding')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark user onboarding as completed' })
+  async completeOnboarding(@CurrentUser() user: AuthUser) {
+    return this.authService.completeOnboarding(user.employeeId);
   }
 
   /**
