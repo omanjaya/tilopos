@@ -20,11 +20,8 @@ import { EmployeeRole } from '../../shared/constants/roles';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { IOnlineStoreRepository } from '../../domain/interfaces/repositories/online-store.repository';
 import { OnlineStoreSyncService } from './online-store-sync.service';
-import {
-  OnlineStoreService,
-  type StoreSettingsInput,
-  type StorefrontOrderInput,
-} from './online-store.service';
+import { OnlineStoreService } from './online-store.service';
+import type { StoreSettingsInput, StorefrontOrderInput } from './interfaces';
 import {
   CatalogSyncDto,
   ShippingCalculateDto,
