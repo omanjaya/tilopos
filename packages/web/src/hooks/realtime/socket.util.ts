@@ -11,7 +11,7 @@ import { io, type Socket } from 'socket.io-client';
 // Configuration
 // -------------------------------------------------------------------
 
-const SOCKET_URL = import.meta.env.VITE_WS_URL || '';
+const SOCKET_URL = import.meta.env.VITE_WS_URL || window.location.origin;
 const SOCKET_NAMESPACE = '/notifications';
 
 // -------------------------------------------------------------------

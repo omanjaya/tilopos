@@ -27,22 +27,25 @@ export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
 
+  // Check if user has access to reports (not cashier/kitchen)
+  const hasReportsAccess = user?.role && ['owner', 'manager', 'supervisor'].includes(user.role);
+
   const { data: salesReport, isLoading: salesLoading } = useQuery({
     queryKey: ['reports', 'sales', outletId, dateRange],
     queryFn: () => reportsApi.sales({ outletId, dateRange }),
-    enabled: !!outletId,
+    enabled: !!outletId && hasReportsAccess,
   });
 
   const { data: financialReport, isLoading: financialLoading } = useQuery({
     queryKey: ['reports', 'financial', outletId, dateRange],
     queryFn: () => reportsApi.financial({ outletId, dateRange }),
-    enabled: !!outletId,
+    enabled: !!outletId && hasReportsAccess,
   });
 
   const { data: customerReport, isLoading: customerLoading } = useQuery({
     queryKey: ['reports', 'customers', outletId, dateRange],
     queryFn: () => reportsApi.customers({ outletId, dateRange }),
-    enabled: !!outletId,
+    enabled: !!outletId && hasReportsAccess,
   });
 
   const isLoading = salesLoading || financialLoading || customerLoading;

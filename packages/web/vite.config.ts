@@ -2,7 +2,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { visualizer } from 'rollup-plugin-visualizer';
+// import { visualizer } from 'rollup-plugin-visualizer';
 
 // CDN base URL: when VITE_CDN_URL is set, all asset references in the built
 // HTML/CSS/JS will be prefixed with this URL. Falls back to '/' for local dev.
@@ -15,12 +15,12 @@ export default defineConfig({
   plugins: [
     react(),
     // Bundle analysis - generates stats.html after build
-    process.env.ANALYZE === 'true' && visualizer({
-      filename: './dist/stats.html',
-      open: false,
-      gzipSize: true,
-      brotliSize: true,
-    }),
+    // process.env.ANALYZE === 'true' && visualizer({
+    //   filename: './dist/stats.html',
+    //   open: false,
+    //   gzipSize: true,
+    //   brotliSize: true,
+    // }),
   ].filter(Boolean),
   resolve: {
     alias: {
@@ -91,6 +91,11 @@ export default defineConfig({
       '/api': {
         target: process.env.API_URL || 'http://localhost:3001',
         changeOrigin: true,
+      },
+      '/socket.io': {
+        target: process.env.API_URL || 'http://localhost:3001',
+        changeOrigin: true,
+        ws: true,
       },
     },
   },

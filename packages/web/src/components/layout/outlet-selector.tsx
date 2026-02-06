@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   Select,
   SelectContent,
@@ -12,10 +13,15 @@ import {
 export function OutletSelector() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const setSelectedOutletId = useUIStore((s) => s.setSelectedOutletId);
+  const user = useAuthStore((s) => s.user);
+
+  // Only owner/manager can switch outlets
+  const canSwitchOutlets = user?.role && ['owner', 'manager', 'supervisor'].includes(user.role);
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],
     queryFn: settingsApi.getOutlets,
+    enabled: canSwitchOutlets,
   });
 
   if (!outlets || outlets.length <= 1) return null;

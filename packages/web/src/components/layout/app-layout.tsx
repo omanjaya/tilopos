@@ -24,10 +24,9 @@ export function AppLayout() {
 
   // Check if user needs onboarding
   useEffect(() => {
-    const onboardingCompleted = localStorage.getItem('tilo-onboarding-completed');
     const shouldShowOnboarding =
       user &&
-      !onboardingCompleted &&
+      !user.onboardingCompleted &&
       user.role !== 'cashier' &&
       user.role !== 'kitchen';
 
@@ -43,14 +42,15 @@ export function AppLayout() {
   const handleOnboardingComplete = async () => {
     await apiCompleteOnboarding();
     completeOnboarding();
+    // Update user state will be handled by API response
   };
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <div className={cn('transition-all duration-300', collapsed ? 'ml-16' : 'ml-60')}>
+      <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
         <Header />
-        <main className="p-6">
+        <main className="px-12 py-8">
           <Outlet />
         </main>
       </div>

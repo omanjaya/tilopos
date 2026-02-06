@@ -33,12 +33,14 @@ interface OnboardingProviderProps {
   children: ReactNode;
   initialCompleted?: boolean;
   onCompletedChange?: (completed: boolean) => void;
+  onSkipped?: () => void;
 }
 
 export function OnboardingProvider({
   children,
   initialCompleted = false,
   onCompletedChange,
+  onSkipped,
 }: OnboardingProviderProps) {
   const [state, setState] = useState<OnboardingState>({
     isOpen: !initialCompleted,
@@ -81,8 +83,11 @@ export function OnboardingProvider({
       ...prev,
       isOpen: false,
       skipped: true,
+      completed: true, // Mark as completed when skipped
     }));
-  }, []);
+    onSkipped?.();
+    onCompletedChange?.(true);
+  }, [onSkipped, onCompletedChange]);
 
   const completeOnboarding = useCallback(() => {
     setState((prev) => ({
