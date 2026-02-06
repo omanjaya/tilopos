@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
@@ -13,7 +13,6 @@ import { getDateRange } from '../utils/date-range.util';
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class KitchenReportsController {
-  private readonly logger = new Logger(KitchenReportsController.name);
 
   constructor(private readonly prisma: PrismaService) {}
 

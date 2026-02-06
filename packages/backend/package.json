@@ -20,7 +20,7 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
     "db:push": "prisma db push",
-    "db:seed": "ts-node src/infrastructure/database/seeders/seed.ts",
+    "db:seed": "ts-node src/infrastructure/database/seeders/index.ts",
     "db:studio": "prisma studio",
     "clean": "rimraf dist"
   },
@@ -93,7 +93,7 @@
     "typescript": "^5.5.0"
   },
   "prisma": {
-    "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeders/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeders/index.ts"
   },
   "jest": {
     "moduleFileExtensions": [

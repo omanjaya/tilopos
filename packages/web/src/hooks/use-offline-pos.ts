@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { syncEngine } from '@/services/sync-engine.service';
+import { syncEngine } from '@/services/sync';
 
 // ---------------------------------------------------------------------------
 // Types

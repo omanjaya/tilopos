@@ -22,7 +22,6 @@ import { getDateRange } from '../utils/date-range.util';
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class PaymentReportsController {
-  private readonly logger = new Logger(PaymentReportsController.name);
   private readonly CACHE_TTL = 300; // 5 minutes
 
   constructor(

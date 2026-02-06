@@ -12,3 +12,6 @@ export { DiscountModal } from './discount-modal';
 export { ShortcutHelpModal } from './shortcut-help-modal';
 export { ShortcutsDialog } from './shortcuts-dialog';
 export { OrderReadyToast } from './order-ready-toast';
+export { PosHeader } from './pos-header';
+export { OfflineBanner } from './offline-banner';
+export { MobileCartBar } from './mobile-cart-bar';

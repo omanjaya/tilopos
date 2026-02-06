@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { syncEngine } from '@/services/sync-engine.service';
+import { syncEngine } from '@/services/sync';
 
 export type SyncStatus = 'synced' | 'syncing' | 'pending' | 'offline' | 'error';
 
