@@ -49,3 +49,12 @@ logs/
 tmp/
 temp/
 .temp/
+
+# secrets & credentials
+**/secrets.yaml
+!**/secrets.yaml.example
+*.pem
+*.key
+!*.key.example
+*.crt
+!*.crt.example

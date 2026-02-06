@@ -145,9 +145,11 @@ npm audit
 
 #### 3. **Secrets Management**
 - Never commit secrets to git
-- Use `.env` files (not tracked)
+- Use `.env` files (not tracked in `.gitignore`)
+- For Kubernetes: Use `secrets.yaml.example` as template, never commit actual `secrets.yaml`
 - Use environment variables in production
 - Rotate secrets regularly
+- For production: Use proper secret managers (Sealed Secrets, External Secrets Operator, Vault)
 
 #### 4. **Input Validation**
 - Validate all user input
