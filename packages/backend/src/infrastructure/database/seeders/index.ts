@@ -123,21 +123,21 @@ async function main() {
       shiftId: '', // Will be created in seedOrders
       tables,
       productIds: {
-        nasiGoreng: products.nasiGoreng,
-        nasiAyam: products.nasiAyam,
-        ayamBakarReg: products.ayamBakarReg,
-        ayamBakarJumbo: products.ayamBakarJumbo,
-        mieGoreng: products.mieGoreng,
-        mieAyam: products.mieAyam,
-        kentangGoreng: products.kentangGoreng,
-        kentangLarge: products.kentangLarge,
-        dimsum: products.dimsum,
+        espresso: products.espresso,
+        americano: products.americano,
+        latte: products.latte,
         cappuccino: products.cappuccino,
-        cappIce: products.cappIce,
-        kopiSusu: products.kopiSusu,
-        esJeruk: products.esJeruk,
-        tehTarik: products.tehTarik,
-        airMineral: products.airMineral,
+        icedLatte: products.icedLatte,
+        icedAmericano: products.icedAmericano,
+        matchaLatte: products.matchaLatte,
+        hotChocolate: products.hotChocolate,
+        croissant: products.croissant,
+        chocoCroissant: products.chocoCroissant,
+        blueberryMuffin: products.blueberryMuffin,
+        breakfastSandwich: products.breakfastSandwich,
+        avocadoToast: products.avocadoToast,
+        bagelCreamCheese: products.bagelCreamCheese,
+        clubSandwich: products.clubSandwich,
       },
     });
 
@@ -147,8 +147,8 @@ async function main() {
       outletPusatId: outletPusat.id,
       tableId: tables['T6'].id,
       productIds: {
-        mieGoreng: products.mieGoreng,
-        kopiSusu: products.kopiSusu,
+        latte: products.latte,
+        croissant: products.croissant,
       },
     });
 
@@ -168,8 +168,8 @@ async function main() {
       },
       shiftId: openShift.id,
       productIds: {
-        nasiGoreng: products.nasiGoreng,
-        dimsum: products.dimsum,
+        latte: products.latte,
+        croissant: products.croissant,
       },
     });
 
@@ -181,13 +181,13 @@ async function main() {
     console.log('┌──────────────┬─────────────────────────────────┬──────┐');
     console.log('│ Role         │ Email                           │ PIN  │');
     console.log('├──────────────┼─────────────────────────────────┼──────┤');
-    console.log('│ Owner        │ budi@warungnusantara.id          │ 1234 │');
-    console.log('│ Manager      │ siti@warungnusantara.id          │ 1234 │');
-    console.log('│ Supervisor   │ agus@warungnusantara.id          │ 1234 │');
-    console.log('│ Cashier      │ dewi@warungnusantara.id          │ 1234 │');
-    console.log('│ Cashier (K)  │ rina@warungnusantara.id          │ 1234 │');
-    console.log('│ Kitchen      │ joko@warungnusantara.id          │ 1234 │');
-    console.log('│ Inventory    │ hendra@warungnusantara.id        │ 1234 │');
+    console.log('│ Owner        │ budi@brewbites.id               │ 1234 │');
+    console.log('│ Manager      │ siti@brewbites.id               │ 1234 │');
+    console.log('│ Supervisor   │ agus@brewbites.id               │ 1234 │');
+    console.log('│ Cashier      │ dewi@brewbites.id               │ 1234 │');
+    console.log('│ Cashier (M)  │ rina@brewbites.id               │ 1234 │');
+    console.log('│ Kitchen      │ joko@brewbites.id               │ 1234 │');
+    console.log('│ Inventory    │ hendra@brewbites.id             │ 1234 │');
     console.log('└──────────────┴─────────────────────────────────┴──────┘\n');
     console.log('API: http://localhost:3001/api/v1');
     console.log('Swagger: http://localhost:3001/api/docs');
@@ -196,7 +196,7 @@ async function main() {
     console.log(`Outlet Kemang ID: ${outletCabang.id}`);
     console.log(`Open Shift ID: ${openShift.id}`);
     console.log(`Self-Order Code: ${selfOrderSession.sessionCode}`);
-    console.log(`Online Store Slug: warung-nusantara`);
+    console.log(`Online Store Slug: brew-and-bites`);
     console.log('');
   } catch (error) {
     console.error('\n❌ SEED FAILED:', error);
