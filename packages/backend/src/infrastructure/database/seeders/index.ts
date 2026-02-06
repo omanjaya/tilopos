@@ -126,7 +126,6 @@ async function main() {
         espresso: products.espresso,
         americano: products.americano,
         latte: products.latte,
-        latteLarge: products.latte, // Use same product for variant
         cappuccino: products.cappuccino,
         mocha: products.mocha,
         icedLatte: products.icedLatte,

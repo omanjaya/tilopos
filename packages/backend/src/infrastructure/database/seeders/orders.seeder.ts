@@ -15,7 +15,6 @@ interface SeedOrdersParams {
     espresso: { id: string };
     americano: { id: string };
     latte: { id: string };
-    latteLarge: { id: string };
     cappuccino: { id: string };
     mocha: { id: string };
     icedLatte: { id: string };
@@ -174,12 +173,10 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
         create: [
           {
             productId: params.productIds.latte.id,
-            variantId: params.productIds.latteLarge.id,
-            productName: 'Latte',
-            variantName: 'Large',
+            productName: 'Caffe Latte',
             quantity: 3,
-            unitPrice: 52000,
-            subtotal: 156000,
+            unitPrice: 45000,
+            subtotal: 135000,
           },
           {
             productId: params.productIds.cappuccino.id,
