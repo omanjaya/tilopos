@@ -6,7 +6,6 @@ import {
   Res,
   BadRequestException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -61,7 +60,6 @@ export class SalesReportsController {
     const cacheKey = `report:sales:${outletId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
-      this.logger.debug(`Cache hit for sales report: ${cacheKey}`);
       return cached;
     }
 
@@ -119,7 +117,6 @@ export class SalesReportsController {
 
     // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
-    this.logger.debug(`Cached sales report: ${cacheKey}`);
 
     return result;
   }

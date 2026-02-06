@@ -1,8 +1,10 @@
 import { CustomersService } from '../../src/modules/customers/customers.service';
+import { CustomerSegmentsService } from '../../src/modules/customers/customer-segments.service';
 import { PrismaService } from '../../src/infrastructure/database/prisma.service';
 
 describe('CustomersService - Birthday & Import/Export', () => {
   let service: CustomersService;
+  let segmentsService: CustomerSegmentsService;
   let mockPrisma: jest.Mocked<PrismaService>;
 
   const makeDecimal = (value: number) => ({
@@ -25,7 +27,8 @@ describe('CustomersService - Birthday & Import/Export', () => {
       },
     } as unknown as jest.Mocked<PrismaService>;
 
-    service = new CustomersService(mockPrisma);
+    segmentsService = new CustomerSegmentsService(mockPrisma);
+    service = new CustomersService(mockPrisma, segmentsService);
   });
 
   // ==========================================================================

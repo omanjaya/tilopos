@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MidtransGateway } from './midtrans-gateway';
-import { XenditGateway } from './xendit-gateway';
+import { XenditGateway } from './xendit/xendit-gateway';
 import { PaymentGatewayFactory } from './payment-gateway.factory';
 import { MockPaymentGateway } from '../mock-payment-gateway';
 import { SERVICE_TOKENS } from '../service.tokens';

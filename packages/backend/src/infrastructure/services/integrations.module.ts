@@ -15,7 +15,7 @@ import {
   GrabFoodGateway,
   ShopeeFoodGateway,
   MarketplaceService,
-} from './marketplace.service';
+} from './marketplace';
 
 @Module({
   imports: [ConfigModule],

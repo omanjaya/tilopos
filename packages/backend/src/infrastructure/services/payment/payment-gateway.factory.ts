@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MidtransGateway } from './midtrans-gateway';
-import { XenditGateway } from './xendit-gateway';
+import { XenditGateway } from './xendit/xendit-gateway';
 import { MockPaymentGateway } from '../mock-payment-gateway';
 import type { IPaymentGateway } from '@domain/interfaces/services';
 

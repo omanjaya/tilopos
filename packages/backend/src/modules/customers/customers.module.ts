@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
+import { CustomerSegmentsService } from './customer-segments.service';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaCustomerRepository } from '../../infrastructure/repositories/prisma-customer.repository';
 import { PrismaLoyaltyRepository } from '../../infrastructure/repositories/prisma-loyalty.repository';
@@ -19,6 +20,7 @@ import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/ge
   providers: [
     // Services
     CustomersService,
+    CustomerSegmentsService,
 
     // Repositories
     { provide: REPOSITORY_TOKENS.CUSTOMER, useClass: PrismaCustomerRepository },
@@ -31,6 +33,11 @@ import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/ge
     GetLoyaltyBalanceUseCase,
     GetLoyaltyHistoryUseCase,
   ],
-  exports: [EarnLoyaltyPointsUseCase, RedeemLoyaltyPointsUseCase, CustomersService],
+  exports: [
+    CustomersService,
+    CustomerSegmentsService,
+    EarnLoyaltyPointsUseCase,
+    RedeemLoyaltyPointsUseCase,
+  ],
 })
 export class CustomersModule {}

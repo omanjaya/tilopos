@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { PaymentsWebhookController } from './payments.controller';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { MidtransGateway } from '../../infrastructure/services/payment/midtrans-gateway';
-import { XenditGateway } from '../../infrastructure/services/payment/xendit-gateway';
+import { XenditGateway } from '../../infrastructure/services/payment/xendit/xendit-gateway';
 import { MockPaymentGateway } from '../../infrastructure/services/mock-payment-gateway';
 import { PaymentGatewayFactory } from '../../infrastructure/services/payment/payment-gateway.factory';
 import { HandleMidtransWebhookUseCase } from '../../application/use-cases/payments/handle-midtrans-webhook.use-case';

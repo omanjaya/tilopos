@@ -1,12 +1,14 @@
 import { CustomersService } from '../customers.service';
+import { CustomerSegmentsService } from '../customer-segments.service';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 
 describe('CustomersService', () => {
   let service: CustomersService;
+  let segmentsService: CustomerSegmentsService;
   let mockPrisma: jest.Mocked<PrismaService>;
 
   const now = new Date();
-  const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const daysAgo = (days: number): Date => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
   const makeDecimal = (value: number) => ({
     toNumber: () => value,
@@ -37,7 +39,8 @@ describe('CustomersService', () => {
       },
     } as unknown as jest.Mocked<PrismaService>;
 
-    service = new CustomersService(mockPrisma);
+    segmentsService = new CustomerSegmentsService(mockPrisma);
+    service = new CustomersService(mockPrisma, segmentsService);
   });
 
   describe('getSegmentsSummary', () => {
@@ -97,19 +100,25 @@ describe('CustomersService', () => {
       });
       expect(result.totalCustomers).toBe(4);
 
-      const newSegment = result.segments.find((s) => s.segment === 'new');
+      const newSegment = result.segments.find((s: { segment: string }) => s.segment === 'new');
       expect(newSegment).toBeDefined();
       expect(newSegment!.count).toBe(1);
 
-      const returningSegment = result.segments.find((s) => s.segment === 'returning');
+      const returningSegment = result.segments.find(
+        (s: { segment: string }) => s.segment === 'returning',
+      );
       expect(returningSegment).toBeDefined();
       expect(returningSegment!.count).toBe(1);
 
-      const atRiskSegment = result.segments.find((s) => s.segment === 'at-risk');
+      const atRiskSegment = result.segments.find(
+        (s: { segment: string }) => s.segment === 'at-risk',
+      );
       expect(atRiskSegment).toBeDefined();
       expect(atRiskSegment!.count).toBe(1);
 
-      const inactiveSegment = result.segments.find((s) => s.segment === 'inactive');
+      const inactiveSegment = result.segments.find(
+        (s: { segment: string }) => s.segment === 'inactive',
+      );
       expect(inactiveSegment).toBeDefined();
       expect(inactiveSegment!.count).toBe(1);
     });
@@ -120,7 +129,7 @@ describe('CustomersService', () => {
       const result = await service.getSegmentsSummary('biz-1');
 
       expect(result.segments).toHaveLength(5);
-      const segmentNames = result.segments.map((s) => s.segment);
+      const segmentNames = result.segments.map((s: { segment: string }) => s.segment);
       expect(segmentNames).toEqual(['new', 'returning', 'vip', 'at-risk', 'inactive']);
     });
 
@@ -130,7 +139,7 @@ describe('CustomersService', () => {
       const result = await service.getSegmentsSummary('biz-1');
 
       expect(result.totalCustomers).toBe(0);
-      result.segments.forEach((segment) => {
+      result.segments.forEach((segment: { count: number }) => {
         expect(segment.count).toBe(0);
       });
     });
@@ -140,11 +149,11 @@ describe('CustomersService', () => {
 
       const result = await service.getSegmentsSummary('biz-1');
 
-      const newSegment = result.segments.find((s) => s.segment === 'new');
+      const newSegment = result.segments.find((s: { segment: string }) => s.segment === 'new');
       expect(newSegment!.label).toBe('New Customers');
       expect(newSegment!.description).toBe('Created in the last 30 days');
 
-      const vipSegment = result.segments.find((s) => s.segment === 'vip');
+      const vipSegment = result.segments.find((s: { segment: string }) => s.segment === 'vip');
       expect(vipSegment!.label).toBe('VIP Customers');
       expect(vipSegment!.description).toBe('Top 10% by total spend');
     });
@@ -164,7 +173,7 @@ describe('CustomersService', () => {
 
       const result = await service.getSegmentsSummary('biz-1');
 
-      const vipSegment = result.segments.find((s) => s.segment === 'vip');
+      const vipSegment = result.segments.find((s: { segment: string }) => s.segment === 'vip');
       expect(vipSegment!.count).toBeGreaterThanOrEqual(1);
     });
 

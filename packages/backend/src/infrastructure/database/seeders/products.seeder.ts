@@ -19,7 +19,12 @@ export async function seedProducts(prisma: PrismaClient, params: SeedProductsPar
     },
   });
   const catMie = await prisma.category.create({
-    data: { businessId: params.businessId, name: 'Mie & Pasta', parentId: catMakanan.id, sortOrder: 2 },
+    data: {
+      businessId: params.businessId,
+      name: 'Mie & Pasta',
+      parentId: catMakanan.id,
+      sortOrder: 2,
+    },
   });
   const catSnack = await prisma.category.create({
     data: {
@@ -36,7 +41,12 @@ export async function seedProducts(prisma: PrismaClient, params: SeedProductsPar
     data: { businessId: params.businessId, name: 'Kopi', parentId: catMinuman.id, sortOrder: 1 },
   });
   const catNonKopi = await prisma.category.create({
-    data: { businessId: params.businessId, name: 'Non-Kopi', parentId: catMinuman.id, sortOrder: 2 },
+    data: {
+      businessId: params.businessId,
+      name: 'Non-Kopi',
+      parentId: catMinuman.id,
+      sortOrder: 2,
+    },
   });
   const catDessert = await prisma.category.create({
     data: { businessId: params.businessId, name: 'Dessert', sortOrder: 3 },
@@ -157,10 +167,22 @@ export async function seedProducts(prisma: PrismaClient, params: SeedProductsPar
   });
 
   const ayamBakarReg = await prisma.productVariant.create({
-    data: { productId: nasiAyam.id, sku: 'FOOD-002-R', name: 'Regular', price: 40000, costPrice: 18000 },
+    data: {
+      productId: nasiAyam.id,
+      sku: 'FOOD-002-R',
+      name: 'Regular',
+      price: 40000,
+      costPrice: 18000,
+    },
   });
   const ayamBakarJumbo = await prisma.productVariant.create({
-    data: { productId: nasiAyam.id, sku: 'FOOD-002-J', name: 'Jumbo', price: 55000, costPrice: 25000 },
+    data: {
+      productId: nasiAyam.id,
+      sku: 'FOOD-002-J',
+      name: 'Jumbo',
+      price: 55000,
+      costPrice: 25000,
+    },
   });
 
   await prisma.productModifierGroup.createMany({
@@ -210,10 +232,22 @@ export async function seedProducts(prisma: PrismaClient, params: SeedProductsPar
     },
   });
   const kentangReg = await prisma.productVariant.create({
-    data: { productId: kentangGoreng.id, sku: 'FOOD-005-R', name: 'Regular', price: 20000, costPrice: 8000 },
+    data: {
+      productId: kentangGoreng.id,
+      sku: 'FOOD-005-R',
+      name: 'Regular',
+      price: 20000,
+      costPrice: 8000,
+    },
   });
   const kentangLarge = await prisma.productVariant.create({
-    data: { productId: kentangGoreng.id, sku: 'FOOD-005-L', name: 'Large', price: 30000, costPrice: 12000 },
+    data: {
+      productId: kentangGoreng.id,
+      sku: 'FOOD-005-L',
+      name: 'Large',
+      price: 30000,
+      costPrice: 12000,
+    },
   });
 
   const dimsum = await prisma.product.create({

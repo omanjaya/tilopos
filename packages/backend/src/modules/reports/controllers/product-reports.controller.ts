@@ -5,7 +5,6 @@ import {
   UseGuards,
   BadRequestException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
@@ -56,7 +55,6 @@ export class ProductReportsController {
     const cacheKey = `report:products:${outletId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
-      this.logger.debug(`Cache hit for products report: ${cacheKey}`);
       return cached;
     }
 
@@ -139,7 +137,6 @@ export class ProductReportsController {
 
     // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
-    this.logger.debug(`Cached products report: ${cacheKey}`);
 
     return result;
   }

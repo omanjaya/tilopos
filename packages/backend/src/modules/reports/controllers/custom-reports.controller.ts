@@ -14,7 +14,6 @@ import { ReportsService, type CustomReportConfig } from '../reports.service';
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class CustomReportsController {
-
   constructor(private readonly reportsService: ReportsService) {}
 
   @Post('custom')

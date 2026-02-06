@@ -12,6 +12,14 @@ import { RedeemLoyaltyPointsUseCase } from '../../application/use-cases/loyalty/
 import { GetLoyaltyBalanceUseCase } from '../../application/use-cases/loyalty/get-loyalty-balance.use-case';
 import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/get-loyalty-history.use-case';
 
+// Refactored services
+import { LoyaltyService } from './loyalty.service';
+import { LoyaltyRepository } from './repositories/loyalty.repository';
+import { PointsManagementService } from './services/points-management.service';
+import { TierManagementService } from './services/tier-management.service';
+import { ExpiryService } from './services/expiry.service';
+import { AnalyticsService } from './services/analytics.service';
+
 @Module({
   controllers: [LoyaltyController],
   providers: [
@@ -21,8 +29,16 @@ import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/ge
     // Repositories
     { provide: REPOSITORY_TOKENS.LOYALTY, useClass: PrismaLoyaltyRepository },
     { provide: REPOSITORY_TOKENS.CUSTOMER, useClass: PrismaCustomerRepository },
+    LoyaltyRepository,
 
-    // Services
+    // Refactored services
+    LoyaltyService,
+    PointsManagementService,
+    TierManagementService,
+    ExpiryService,
+    AnalyticsService,
+
+    // Legacy cron service
     LoyaltyCronService,
 
     // Use Cases
@@ -37,6 +53,11 @@ import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/ge
     GetLoyaltyBalanceUseCase,
     GetLoyaltyHistoryUseCase,
     LoyaltyCronService,
+    LoyaltyService,
+    PointsManagementService,
+    TierManagementService,
+    ExpiryService,
+    AnalyticsService,
   ],
 })
 export class LoyaltyModule {}

@@ -14,7 +14,6 @@ import { GenerateInventoryReportUseCase } from '../../../application/use-cases/r
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class InventoryReportsController {
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly generateInventoryReport: GenerateInventoryReportUseCase,

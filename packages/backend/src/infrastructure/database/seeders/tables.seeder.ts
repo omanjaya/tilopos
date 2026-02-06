@@ -24,7 +24,12 @@ export async function seedTables(prisma: PrismaClient, params: SeedTablesParams)
   const tables: Record<string, { id: string }> = {};
   for (const t of tableNames) {
     const table = await prisma.table.create({
-      data: { outletId: params.outletPusatId, name: t.name, section: t.section, capacity: t.capacity },
+      data: {
+        outletId: params.outletPusatId,
+        name: t.name,
+        section: t.section,
+        capacity: t.capacity,
+      },
     });
     tables[t.name] = table;
   }

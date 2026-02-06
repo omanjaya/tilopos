@@ -1,10 +1,35 @@
 import { Module } from '@nestjs/common';
 import { SettingsController } from './settings.controller';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import { PrismaSettingsRepository } from '../../infrastructure/repositories/prisma-settings.repository';
+import {
+  SettingsRepository,
+  BusinessSettingsRepository,
+  OutletSettingsRepository,
+  ModifierGroupRepository,
+  LoyaltySettingsRepository,
+  TaxConfigurationRepository,
+  ReceiptTemplateRepository,
+  OperatingHoursRepository,
+  PaymentMethodRepository,
+} from '../../infrastructure/repositories/settings';
 
 @Module({
   controllers: [SettingsController],
-  providers: [{ provide: REPOSITORY_TOKENS.SETTINGS, useClass: PrismaSettingsRepository }],
+  providers: [
+    // Specialized repositories
+    BusinessSettingsRepository,
+    OutletSettingsRepository,
+    ModifierGroupRepository,
+    LoyaltySettingsRepository,
+    TaxConfigurationRepository,
+    ReceiptTemplateRepository,
+    OperatingHoursRepository,
+    PaymentMethodRepository,
+    // Main facade repository
+    {
+      provide: REPOSITORY_TOKENS.SETTINGS,
+      useClass: SettingsRepository,
+    },
+  ],
 })
 export class SettingsModule {}

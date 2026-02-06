@@ -11,7 +11,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
-import { XenditGateway } from '../../infrastructure/services/payment/xendit-gateway';
+import { XenditGateway } from '../../infrastructure/services/payment/xendit/xendit-gateway';
 import { MidtransGateway } from '../../infrastructure/services/payment/midtrans-gateway';
 import { PaymentGatewayFactory } from '../../infrastructure/services/payment/payment-gateway.factory';
 import type { PaymentInput } from '../../domain/interfaces/services/payment-gateway';

@@ -8,6 +8,18 @@ import { CancelOrderUseCase } from '../../application/use-cases/orders/cancel-or
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaOrderRepository } from '../../infrastructure/repositories/prisma-order.repository';
 
+// Self-Order & Online Store Services (Refactored)
+import { SelfOrderService, OnlineStoreService } from './self-order.service';
+import {
+  SelfOrderSessionService,
+  SelfOrderMenuService,
+  SelfOrderCartService,
+  SelfOrderSubmissionService,
+  OnlineStoreConfigService,
+  OnlineStoreCatalogService,
+  OnlineStoreOrderService,
+} from './services';
+
 @Module({
   controllers: [OrdersController],
   providers: [
@@ -17,6 +29,28 @@ import { PrismaOrderRepository } from '../../infrastructure/repositories/prisma-
     ModifyOrderUseCase,
     CancelOrderUseCase,
     { provide: REPOSITORY_TOKENS.ORDER, useClass: PrismaOrderRepository },
+    // Self-Order Services
+    SelfOrderService,
+    SelfOrderSessionService,
+    SelfOrderMenuService,
+    SelfOrderCartService,
+    SelfOrderSubmissionService,
+    // Online Store Services
+    OnlineStoreService,
+    OnlineStoreConfigService,
+    OnlineStoreCatalogService,
+    OnlineStoreOrderService,
+  ],
+  exports: [
+    SelfOrderService,
+    OnlineStoreService,
+    SelfOrderSessionService,
+    SelfOrderMenuService,
+    SelfOrderCartService,
+    SelfOrderSubmissionService,
+    OnlineStoreConfigService,
+    OnlineStoreCatalogService,
+    OnlineStoreOrderService,
   ],
 })
 export class OrdersModule {}
