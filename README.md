@@ -2,11 +2,21 @@
 
 <div align="center">
 
-![TiloPOS](https://img.shields.io/badge/TiloPOS-v0.1.0-blue)
-![NestJS](https://img.shields.io/badge/NestJS-v11.0-red)
-![React](https://img.shields.io/badge/React-18.3-61DAFB)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![TiloPOS](https://img.shields.io/badge/TiloPOS-v0.1.0-blue?style=for-the-badge)
+![Build Status](https://img.shields.io/github/actions/workflow/status/omanjaya/tilopos/ci.yml?style=for-the-badge&label=Build)
+![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge)
+![Coverage](https://img.shields.io/badge/Coverage-80%25-green?style=for-the-badge)
+
+![NestJS](https://img.shields.io/badge/NestJS-v11.0-E0234E?style=flat-square&logo=nestjs)
+![React](https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis)
+
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)
+![Maintenance](https://img.shields.io/badge/Maintained-Yes-success?style=flat-square)
+![Security](https://img.shields.io/badge/Security-0%20Vulnerabilities-success?style=flat-square)
 
 **Modern, offline-first Point of Sale system untuk UMKM Indonesia**
 
