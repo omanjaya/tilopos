@@ -216,13 +216,11 @@ export class CreateTransactionUseCase {
         if (!product?.trackStock) continue;
 
         // Find stock level with FOR UPDATE lock to prevent race conditions
-        const stockLevel = await tx.stockLevel.findUnique({
+        const stockLevel = await tx.stockLevel.findFirst({
           where: {
-            outletId_productId_variantId: {
-              outletId: input.outletId,
-              productId: item.productId,
-              variantId: item.variantId || null as any,
-            },
+            outletId: input.outletId,
+            productId: item.productId,
+            variantId: item.variantId || null,
           },
         });
 
@@ -247,7 +245,7 @@ export class CreateTransactionUseCase {
           data: {
             outletId: input.outletId,
             productId: item.productId,
-            variantId: item.variantId || null as any,
+            variantId: item.variantId || null,
             movementType: 'sale',
             quantity: -item.quantity,
             referenceId: txn.id,
