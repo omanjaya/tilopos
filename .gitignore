@@ -35,3 +35,17 @@ prisma/migrations/**/migration_lock.toml
 
 # turbo
 .turbo/
+
+# claude & agent files
+.agent/
+.claude/
+*.output
+
+# logs
+logs/
+*.log
+
+# temp files
+tmp/
+temp/
+.temp/
