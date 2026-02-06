@@ -30,14 +30,8 @@ export default defineConfig({
   build: {
     // Target modern browsers for smaller bundle
     target: 'es2020',
-    // Enable minification
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true, // Remove console.log in production
-        drop_debugger: true,
-      },
-    },
+    // Enable minification with esbuild (faster than terser, built-in)
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         // Content hash in filenames for long-term caching / cache busting.
