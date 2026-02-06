@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
@@ -13,7 +13,9 @@ import { CommandPalette, useCommandPalette } from '@/components/shared/command-p
 import { cn } from '@/lib/utils';
 
 export function AppLayout() {
+  const location = useLocation();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
   const user = useAuthStore((s) => s.user);
   const { openOnboarding, completeOnboarding } = useOnboarding();
   const { completeOnboarding: apiCompleteOnboarding } = useCompleteOnboarding();
@@ -21,6 +23,20 @@ export function AppLayout() {
 
   // Enable global keyboard shortcuts across the app
   useGlobalShortcuts();
+
+  // Auto-collapse sidebar on POS and KDS pages for maximum screen space
+  useEffect(() => {
+    const autoCollapsePaths = ['/pos', '/kds'];
+    const shouldAutoCollapse = autoCollapsePaths.some(path => location.pathname.startsWith(path));
+
+    if (shouldAutoCollapse && !collapsed) {
+      // Only auto-collapse if user hasn't manually set preference
+      const hasManualPreference = localStorage.getItem('sidebarCollapsed') !== null;
+      if (!hasManualPreference) {
+        setSidebarCollapsed(true);
+      }
+    }
+  }, [location.pathname, collapsed, setSidebarCollapsed]);
 
   // Check if user needs onboarding
   useEffect(() => {

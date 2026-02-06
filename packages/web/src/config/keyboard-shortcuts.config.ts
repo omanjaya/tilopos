@@ -1,4 +1,4 @@
-import { Home, ShoppingCart, Package, Wrench, FileText, Settings, HelpCircle, Command } from 'lucide-react';
+import { Home, ShoppingCart, Package, Wrench, FileText, Settings, HelpCircle, Command, PanelLeftClose } from 'lucide-react';
 
 export interface ShortcutItem {
   keys: string[];
@@ -17,6 +17,11 @@ export const globalShortcuts: ShortcutItem[] = [
     keys: ['⌘', '/'],
     description: 'Show all shortcuts',
     icon: HelpCircle,
+  },
+  {
+    keys: ['⌘', 'B'],
+    description: 'Toggle sidebar',
+    icon: PanelLeftClose,
   },
   {
     keys: ['⌘', 'D'],

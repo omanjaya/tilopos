@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type NavItem = {
   to: string;
@@ -118,7 +119,7 @@ function PremiumNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean
       end={item.to === '/app' || exactMatchPaths.has(item.to)}
       className={({ isActive }) =>
         cn(
-          'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
+          'group flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-all duration-200',
           isActive
             ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/25'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -130,17 +131,17 @@ function PremiumNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean
         <>
           <div
             className={cn(
-              'flex h-8 w-8 items-center justify-center rounded-lg transition-all',
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all',
               isActive
                 ? 'bg-white/20'
                 : 'bg-transparent group-hover:bg-primary/10',
-              collapsed && 'h-9 w-9'
+              collapsed && 'h-8 w-8'
             )}
           >
             <item.icon
               className={cn(
                 'transition-all',
-                isActive ? 'h-[18px] w-[18px]' : 'h-[18px] w-[18px] group-hover:scale-110'
+                isActive ? 'h-4 w-4' : 'h-4 w-4 group-hover:scale-110'
               )}
             />
           </div>
@@ -156,50 +157,61 @@ export function Sidebar() {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 top-0 z-40 flex h-screen flex-col border-r bg-card transition-all duration-300',
-        collapsed ? 'w-[72px]' : 'w-64',
-      )}
-    >
-      {/* Header */}
-      <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'justify-between')}>
-        {!collapsed && (
-          <div className="flex items-center gap-2">
+    <TooltipProvider>
+      <aside
+        className={cn(
+          'fixed left-0 top-0 z-40 flex h-screen flex-col border-r bg-card transition-all duration-300',
+          collapsed ? 'w-[72px]' : 'w-64',
+        )}
+      >
+        {/* Header */}
+        <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'justify-between')}>
+          {!collapsed && (
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-400 shadow-lg shadow-primary/25">
+                <span className="text-lg font-bold text-white">T</span>
+              </div>
+              <span className="text-lg font-bold bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
+                TILO
+              </span>
+            </div>
+          )}
+          {collapsed && (
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-400 shadow-lg shadow-primary/25">
               <span className="text-lg font-bold text-white">T</span>
             </div>
-            <span className="text-lg font-bold bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
-              TILO
-            </span>
-          </div>
-        )}
-        {collapsed && (
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-400 shadow-lg shadow-primary/25">
-            <span className="text-lg font-bold text-white">T</span>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          className={cn('h-8 w-8 rounded-lg', collapsed && 'absolute -right-3 top-5 h-6 w-6 border bg-card shadow-sm')}
-        >
-          <ChevronLeft className={cn('h-4 w-4 transition-transform duration-300', collapsed && 'rotate-180')} />
-        </Button>
-      </div>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className={cn('h-8 w-8 rounded-lg', collapsed && 'absolute -right-3 top-5 h-6 w-6 border bg-card shadow-sm')}
+              >
+                <ChevronLeft className={cn('h-4 w-4 transition-transform duration-300', collapsed && 'rotate-180')} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p className="text-xs">
+                {collapsed ? 'Expand' : 'Collapse'} Sidebar
+                <kbd className="ml-2 rounded bg-muted px-1 font-mono text-[10px]">⌘B</kbd>
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto p-3">
+      <nav className="flex-1 overflow-y-auto p-2.5">
         {navSections.map((section, idx) => (
-          <div key={idx} className={cn(idx > 0 && 'mt-6')}>
+          <div key={idx} className={cn(idx > 0 && 'mt-4')}>
             {section.title && !collapsed && (
-              <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <div className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
                 {section.title}
               </div>
             )}
-            {collapsed && idx > 0 && <div className="mx-2 mb-3 border-t" />}
-            <div className="space-y-1">
+            {collapsed && idx > 0 && <div className="mx-2 mb-2 border-t" />}
+            <div className="space-y-0.5">
               {section.items.map((item) => (
                 <PremiumNavItem key={item.to} item={item} collapsed={collapsed} />
               ))}
@@ -208,17 +220,18 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
-      {!collapsed && (
-        <div className="border-t p-4">
-          <div className="rounded-xl bg-gradient-to-r from-primary/5 to-blue-500/5 p-3">
-            <p className="text-xs font-medium text-primary">Pro Tip 💡</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Tekan <kbd className="rounded bg-muted px-1 font-mono text-[10px]">⌘K</kbd> untuk quick search
-            </p>
+        {/* Footer */}
+        {!collapsed && (
+          <div className="border-t p-3">
+            <div className="rounded-lg bg-gradient-to-r from-primary/5 to-blue-500/5 p-2.5">
+              <p className="text-[10px] font-medium text-primary">💡 Quick Search</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Tekan <kbd className="rounded bg-muted px-1 font-mono text-[9px]">⌘K</kbd>
+              </p>
+            </div>
           </div>
-        </div>
-      )}
-    </aside>
+        )}
+      </aside>
+    </TooltipProvider>
   );
 }

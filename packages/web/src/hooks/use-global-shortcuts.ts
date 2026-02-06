@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKeyboardShortcuts, type KeyboardShortcut } from './use-keyboard-shortcuts';
 import { getModKey } from '@/config/keyboard-shortcuts.config';
+import { useUIStore } from '@/stores/ui.store';
 
 interface OpenCommandPaletteEvent extends CustomEvent {
   detail: { open: boolean };
@@ -33,8 +34,15 @@ interface UseGlobalShortcutsOptions {
 export function useGlobalShortcuts({ enabled = true }: UseGlobalShortcutsOptions = {}): void {
   const navigate = useNavigate();
   const modKey = getModKey();
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   const shortcuts: KeyboardShortcut[] = [
+    // Toggle sidebar
+    {
+      key: 'b',
+      modifiers: { meta: modKey === '⌘', ctrl: modKey === 'Ctrl' },
+      handler: () => toggleSidebar(),
+    },
     // Command palette - dispatch event for command palette to handle
     {
       key: 'k',

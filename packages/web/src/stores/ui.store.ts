@@ -16,12 +16,22 @@ if (savedTheme === 'dark') {
   document.documentElement.classList.add('dark');
 }
 
+// Load sidebar collapsed state from localStorage
+const savedSidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+
 export const useUIStore = create<UIState>((set) => ({
-  sidebarCollapsed: false,
+  sidebarCollapsed: savedSidebarCollapsed,
   theme: savedTheme,
   selectedOutletId: localStorage.getItem('selectedOutletId'),
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+  toggleSidebar: () => set((s) => {
+    const newCollapsed = !s.sidebarCollapsed;
+    localStorage.setItem('sidebarCollapsed', String(newCollapsed));
+    return { sidebarCollapsed: newCollapsed };
+  }),
+  setSidebarCollapsed: (collapsed) => {
+    localStorage.setItem('sidebarCollapsed', String(collapsed));
+    set({ sidebarCollapsed: collapsed });
+  },
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');

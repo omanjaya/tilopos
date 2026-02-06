@@ -86,21 +86,6 @@ export function ShortcutsDialog({
                     {showGlobal && (
                         <TabsContent value="global" className="mt-4">
                             <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-                                {/* Navigation Shortcuts */}
-                                <section>
-                                    <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                                        <Home className="h-4 w-4" />
-                                        Navigation
-                                    </h3>
-                                    <div className="grid grid-cols-1 gap-0.5">
-                                        {globalShortcutsWithModKey.slice(2).map((shortcut) => (
-                                            <ShortcutRow key={shortcut.description} {...shortcut} />
-                                        ))}
-                                    </div>
-                                </section>
-
-                                <Separator />
-
                                 {/* Quick Actions Shortcuts */}
                                 <section>
                                     <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
@@ -108,7 +93,22 @@ export function ShortcutsDialog({
                                         Quick Actions
                                     </h3>
                                     <div className="grid grid-cols-1 gap-0.5">
-                                        {globalShortcutsWithModKey.slice(0, 2).map((shortcut) => (
+                                        {globalShortcutsWithModKey.slice(0, 3).map((shortcut) => (
+                                            <ShortcutRow key={shortcut.description} {...shortcut} />
+                                        ))}
+                                    </div>
+                                </section>
+
+                                <Separator />
+
+                                {/* Navigation Shortcuts */}
+                                <section>
+                                    <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                                        <Home className="h-4 w-4" />
+                                        Navigation
+                                    </h3>
+                                    <div className="grid grid-cols-1 gap-0.5">
+                                        {globalShortcutsWithModKey.slice(3).map((shortcut) => (
                                             <ShortcutRow key={shortcut.description} {...shortcut} />
                                         ))}
                                     </div>
