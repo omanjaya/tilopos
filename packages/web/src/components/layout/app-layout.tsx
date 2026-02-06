@@ -43,6 +43,10 @@ export function AppLayout() {
 
   // Check if user needs onboarding
   useEffect(() => {
+    // Allow disabling auto-show via localStorage for development
+    const disableAutoShow = localStorage.getItem('tilo-disable-onboarding-autoshow') === 'true';
+    if (disableAutoShow) return;
+
     const shouldShowOnboarding =
       user &&
       !user.onboardingCompleted &&

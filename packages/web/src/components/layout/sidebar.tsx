@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui.store';
 import {
@@ -6,7 +7,7 @@ import {
   Receipt, BarChart3, Warehouse, ArrowLeftRight, Truck, ClipboardList,
   UtensilsCrossed, MonitorPlay, Clock, CalendarDays, Tag, Heart,
   FlaskConical, Globe, QrCode, ScrollText, Settings, Building2, Monitor, Bell,
-  Banknote, Ticket, Filter, Calculator, Printer, ListPlus,
+  Banknote, Ticket, Filter, Calculator, Printer, ListPlus, ChevronDown,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -156,6 +157,36 @@ export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
+  // Load expanded sections from localStorage or default to all expanded
+  const [expandedSections, setExpandedSections] = useState<Set<number>>(() => {
+    const saved = localStorage.getItem('sidebarExpandedSections');
+    if (saved) {
+      try {
+        return new Set(JSON.parse(saved));
+      } catch {
+        return new Set(navSections.map((_, idx) => idx));
+      }
+    }
+    return new Set(navSections.map((_, idx) => idx));
+  });
+
+  // Persist expanded sections to localStorage
+  useEffect(() => {
+    localStorage.setItem('sidebarExpandedSections', JSON.stringify(Array.from(expandedSections)));
+  }, [expandedSections]);
+
+  const toggleSection = (idx: number) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  };
+
   return (
     <TooltipProvider>
       <aside
@@ -203,21 +234,45 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2.5">
-        {navSections.map((section, idx) => (
-          <div key={idx} className={cn(idx > 0 && 'mt-4')}>
-            {section.title && !collapsed && (
-              <div className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                {section.title}
+        {navSections.map((section, idx) => {
+          const isExpanded = expandedSections.has(idx);
+          const hasTitle = !!section.title;
+
+          return (
+            <div key={idx} className={cn(idx > 0 && 'mt-4')}>
+              {hasTitle && !collapsed && (
+                <button
+                  onClick={() => toggleSection(idx)}
+                  className="mb-1.5 flex w-full items-center justify-between px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                >
+                  <span>{section.title}</span>
+                  <ChevronDown
+                    className={cn(
+                      'h-3 w-3 transition-transform duration-200',
+                      isExpanded && 'rotate-180'
+                    )}
+                  />
+                </button>
+              )}
+              {collapsed && idx > 0 && <div className="mx-2 mb-2 border-t" />}
+
+              {/* Collapsible section content */}
+              <div
+                className={cn(
+                  'space-y-0.5 overflow-hidden transition-all duration-200',
+                  !collapsed && hasTitle && !isExpanded && 'max-h-0 opacity-0',
+                  (!collapsed && hasTitle && isExpanded) || !hasTitle || collapsed
+                    ? 'max-h-[1000px] opacity-100'
+                    : ''
+                )}
+              >
+                {section.items.map((item) => (
+                  <PremiumNavItem key={item.to} item={item} collapsed={collapsed} />
+                ))}
               </div>
-            )}
-            {collapsed && idx > 0 && <div className="mx-2 mb-2 border-t" />}
-            <div className="space-y-0.5">
-              {section.items.map((item) => (
-                <PremiumNavItem key={item.to} item={item} collapsed={collapsed} />
-              ))}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
         {/* Footer */}
