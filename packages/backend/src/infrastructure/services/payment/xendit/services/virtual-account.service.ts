@@ -123,6 +123,7 @@ export class XenditVirtualAccountService extends XenditBaseService {
    * Check if bank code is supported
    */
   private isSupportedBank(bankCode: string): boolean {
-    return this.supportedBanks.includes(bankCode.toUpperCase() as any);
+    const upperCode = bankCode.toUpperCase();
+    return this.supportedBanks.some((bank) => bank === upperCode);
   }
 }

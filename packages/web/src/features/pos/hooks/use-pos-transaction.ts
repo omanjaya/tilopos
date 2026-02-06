@@ -8,8 +8,9 @@ import type { Transaction, ReceiptData } from '@/types/pos.types';
 interface UsePosTransactionProps {
     outletId: string;
     isOffline: boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     queueTransaction: (request: any) => Promise<string>;
-    onSuccess?: (transaction: Transaction, receipt: ReceiptData | null) => void;
+    onSuccess?: (transaction: Transaction | null, receipt: ReceiptData | null) => void;
 }
 
 /**
@@ -91,7 +92,7 @@ export function usePosTransaction({
                 });
                 clearCart();
                 clearPayments();
-                onSuccess?.(null as any, null);
+                onSuccess?.(null, null);
             });
         } else {
             createTransaction.mutate(request);

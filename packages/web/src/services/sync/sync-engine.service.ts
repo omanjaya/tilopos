@@ -14,6 +14,7 @@ import {
   SyncEvent,
   SyncQueueStatus,
   SyncMetadata,
+  SyncQueueItem,
 } from './types/sync.types';
 import { DEFAULT_SYNC_CONFIG, SYNC_EVENTS, VALID_STORE_NAMES } from './constants/sync.constants';
 import { SyncQueueService } from './sync-queue.service';
@@ -220,7 +221,7 @@ class SyncEngine {
   /**
    * Handle sync conflict
    */
-  private async handleConflict(item: any, serverData: unknown): Promise<void> {
+  private async handleConflict(item: SyncQueueItem, serverData: unknown): Promise<void> {
     const resolution = await this.conflictResolver.resolveConflict(item, serverData);
 
     if (resolution.resolved) {
@@ -234,7 +235,7 @@ class SyncEngine {
   /**
    * Handle sync error
    */
-  private async handleSyncError(item: any, error: unknown): Promise<void> {
+  private async handleSyncError(item: SyncQueueItem, error: unknown): Promise<void> {
     const err = error instanceof Error ? error : new Error(String(error));
 
     if (this.retryManager.isRetryableError(err)) {
@@ -352,6 +353,7 @@ class SyncEngine {
       version: Date.now(),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await this.db.put(entityType, cached as any);
     await this.queueOperation(entityType, id, operation, data);
 

@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Prisma } from '@prisma/client';
 import type {
   CustomerImportRow,
   CustomerImportResult,
@@ -16,6 +17,27 @@ import type {
 } from './customers.types';
 import { VALID_LOYALTY_TIERS } from './customers.types';
 import { CustomerSegmentsService } from './customer-segments.service';
+
+// Type for transaction with included relations
+type TransactionWithRelations = Prisma.TransactionGetPayload<{
+  include: {
+    items: {
+      select: {
+        productName: true;
+        variantName: true;
+        quantity: true;
+        unitPrice: true;
+        subtotal: true;
+      };
+    };
+    payments: {
+      select: {
+        paymentMethod: true;
+        amount: true;
+      };
+    };
+  };
+}>;
 
 /**
  * Service responsible for customer management operations
@@ -122,7 +144,7 @@ export class CustomersService {
    * Map Prisma transaction to purchase history DTO
    * @private
    */
-  private mapTransactionToHistory(tx: any): PurchaseHistoryTransaction {
+  private mapTransactionToHistory(tx: TransactionWithRelations): PurchaseHistoryTransaction {
     return {
       id: tx.id,
       receiptNumber: tx.receiptNumber,
@@ -134,7 +156,7 @@ export class CustomersService {
       status: tx.status,
       createdAt: tx.createdAt,
       items: tx.items.map(
-        (item: any): PurchaseHistoryItem => ({
+        (item): PurchaseHistoryItem => ({
           productName: item.productName,
           variantName: item.variantName,
           quantity: item.quantity.toNumber(),
@@ -143,7 +165,7 @@ export class CustomersService {
         }),
       ),
       payments: tx.payments.map(
-        (p: any): PurchaseHistoryPayment => ({
+        (p): PurchaseHistoryPayment => ({
           method: p.paymentMethod,
           amount: p.amount.toNumber(),
         }),
@@ -578,7 +600,7 @@ export class CustomersService {
     dateOfBirth: Date | null,
   ): Promise<void> {
     const tier =
-      row.loyaltyTier && VALID_LOYALTY_TIERS.includes(row.loyaltyTier as any)
+      row.loyaltyTier && VALID_LOYALTY_TIERS.some((t) => t === row.loyaltyTier)
         ? row.loyaltyTier
         : 'regular';
 

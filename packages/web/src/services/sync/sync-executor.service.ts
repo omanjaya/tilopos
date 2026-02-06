@@ -149,8 +149,9 @@ export class SyncExecutorService {
       version: Date.now(),
     };
 
-    // Type-safe put operation
-    await (this.db as any).put(entityType, cached);
+    // Put operation with type assertion for dynamic entity type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.db.put(entityType as any, cached as any);
   }
 
   /**
@@ -164,7 +165,7 @@ export class SyncExecutorService {
 
     for (const item of items) {
       const itemWithId = item as { id: string };
-      const cached = {
+      const cached: CachedEntity<unknown> = {
         id: itemWithId.id,
         data: item,
         syncedAt: Date.now(),
@@ -172,8 +173,9 @@ export class SyncExecutorService {
         isDeleted: false,
         version: Date.now(),
       };
-      // Type-safe put operation
-      await (tx.store as any).put(cached);
+      // Put operation with type assertion for dynamic entity type
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await tx.store.put(cached as any);
     }
 
     await tx.done;

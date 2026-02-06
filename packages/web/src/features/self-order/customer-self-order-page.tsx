@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import type { SelfOrderMenuItem } from '@/types/self-order.types';
 import {
   CartDrawer,
   LoadingState,
@@ -88,7 +89,7 @@ export function CustomerSelfOrderPage() {
   };
 
   // Handle product detail modal add to cart
-  const handleAddToCartFromDetail = (product: any) => {
+  const handleAddToCartFromDetail = (product: SelfOrderMenuItem) => {
     addToCart(product);
     closeProductDetail();
   };

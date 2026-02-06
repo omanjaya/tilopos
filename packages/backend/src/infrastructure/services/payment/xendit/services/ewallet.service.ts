@@ -96,7 +96,8 @@ export class XenditEwalletService extends XenditBaseService {
    * Check if e-wallet type is supported
    */
   private isSupportedWallet(ewalletType: string): boolean {
-    return this.supportedWallets.includes(ewalletType.toUpperCase() as any);
+    const upperType = ewalletType.toUpperCase();
+    return this.supportedWallets.some((wallet) => wallet === upperType);
   }
 
   /**

@@ -95,6 +95,7 @@ export class XenditRetailService extends XenditBaseService {
    * Check if retail outlet is supported
    */
   private isSupportedOutlet(outlet: string): boolean {
-    return this.supportedOutlets.includes(outlet.toUpperCase() as any);
+    const upperOutlet = outlet.toUpperCase();
+    return this.supportedOutlets.some((o) => o === upperOutlet);
   }
 }

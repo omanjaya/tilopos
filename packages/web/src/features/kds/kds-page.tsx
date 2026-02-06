@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
@@ -40,12 +40,6 @@ export function KDSPage() {
   // Filtering and sorting
   const { activeFilter, setActiveFilter, activeOrders, completedOrders, filterCounts, filteredOrders } =
     useKdsFilters(orders);
-
-  // Handle bump item
-  const handleBumpItem = useCallback(bumpItem, [bumpItem]);
-
-  // Handle notify cashier
-  const handleNotifyCashier = useCallback(notifyCashier, [notifyCashier]);
 
   // Build stats orders for the KDSStatsBar
   const statsOrders = useMemo(
@@ -112,9 +106,9 @@ export function KDSPage() {
             {activeOrders.length > 0 && (
               <OrderGrid
                 orders={activeOrders}
-                onBumpItem={handleBumpItem}
+                onBumpItem={bumpItem}
                 bumpingItemId={bumpingItemId}
-                onNotifyCashier={handleNotifyCashier}
+                onNotifyCashier={notifyCashier}
                 notifyingOrderId={notifyingOrderId}
               />
             )}
@@ -123,9 +117,9 @@ export function KDSPage() {
             {completedOrders.length > 0 && (
               <OrderGrid
                 orders={completedOrders}
-                onBumpItem={handleBumpItem}
+                onBumpItem={bumpItem}
                 bumpingItemId={bumpingItemId}
-                onNotifyCashier={handleNotifyCashier}
+                onNotifyCashier={notifyCashier}
                 notifyingOrderId={notifyingOrderId}
                 title="Selesai"
               />
