@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from './event-bus.service';
 import { TransactionCreatedEvent } from '../../domain/events/transaction-created.event';
+import { TransactionVoidedEvent } from '../../domain/events/transaction-voided.event';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
@@ -15,6 +16,10 @@ export class TransactionEventListener implements OnModuleInit {
   onModuleInit() {
     this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
       void this.handleTransactionCreated(event);
+    });
+
+    this.eventBus.ofType(TransactionVoidedEvent).subscribe((event) => {
+      void this.handleTransactionVoided(event);
     });
   }
 
@@ -174,5 +179,159 @@ export class TransactionEventListener implements OnModuleInit {
         },
       },
     });
+  }
+
+  /**
+   * Handler for TransactionVoidedEvent
+   * Reverses side effects of the original transaction:
+   * - Restores ingredient stock (reverses deduction)
+   * - Reverses loyalty points earned
+   */
+  private async handleTransactionVoided(event: TransactionVoidedEvent): Promise<void> {
+    const results = await Promise.allSettled([
+      this.restoreIngredients(event),
+      this.reverseLoyaltyPoints(event),
+    ]);
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        this.logger.error(
+          `Event handler failed for voided transaction ${event.transactionId}:`,
+          result.reason,
+        );
+      }
+    }
+  }
+
+  /**
+   * Restores ingredient stock that was deducted when transaction was created
+   */
+  private async restoreIngredients(event: TransactionVoidedEvent): Promise<void> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: event.transactionId },
+      include: { items: true },
+    });
+
+    if (!transaction || transaction.transactionType !== 'sale') return;
+
+    for (const item of transaction.items) {
+      if (!item.productId) continue;
+
+      const recipe = await this.prisma.recipe.findFirst({
+        where: { productId: item.productId, variantId: item.variantId ?? undefined },
+        include: { items: { include: { ingredient: true } } },
+      });
+
+      if (!recipe) continue;
+
+      for (const recipeItem of recipe.items) {
+        const qtyUsed = recipeItem.quantity.toNumber() * Number(item.quantity);
+
+        const stockLevel = await this.prisma.ingredientStockLevel.findFirst({
+          where: { outletId: event.outletId, ingredientId: recipeItem.ingredientId },
+        });
+
+        if (!stockLevel) continue;
+
+        // Restore the ingredient stock
+        await this.prisma.ingredientStockLevel.update({
+          where: { id: stockLevel.id },
+          data: { quantity: { increment: qtyUsed } },
+        });
+
+        // Create movement record for audit trail
+        await this.prisma.ingredientStockMovement.create({
+          data: {
+            outletId: event.outletId,
+            ingredientId: recipeItem.ingredientId,
+            movementType: 'adjustment',
+            quantity: qtyUsed,
+            referenceId: event.transactionId,
+            referenceType: 'void',
+            notes: `Restored from voided transaction: ${event.reason}`,
+          },
+        });
+
+        this.logger.log(
+          `Restored ${qtyUsed} ${recipeItem.ingredient.name} from voided transaction ${event.transactionId}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Reverses loyalty points earned from the voided transaction
+   */
+  private async reverseLoyaltyPoints(event: TransactionVoidedEvent): Promise<void> {
+    // Find the original loyalty transaction
+    const loyaltyTransaction = await this.prisma.loyaltyTransaction.findFirst({
+      where: {
+        transactionId: event.transactionId,
+        type: 'earned',
+      },
+    });
+
+    if (!loyaltyTransaction) {
+      this.logger.debug(`No loyalty transaction found for ${event.transactionId}, skipping reversal`);
+      return;
+    }
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: loyaltyTransaction.customerId },
+    });
+
+    if (!customer || !customer.isActive) {
+      this.logger.warn(`Customer ${loyaltyTransaction.customerId} not found or inactive, skipping loyalty reversal`);
+      return;
+    }
+
+    const pointsToDeduct = loyaltyTransaction.points;
+
+    // Atomically deduct loyalty points
+    const updatedCustomer = await this.prisma.customer.update({
+      where: { id: loyaltyTransaction.customerId },
+      data: {
+        loyaltyPoints: { decrement: pointsToDeduct },
+        totalSpent: { decrement: event.grandTotal },
+        visitCount: { decrement: 1 },
+      },
+    });
+
+    // Create reversal loyalty transaction
+    await this.prisma.loyaltyTransaction.create({
+      data: {
+        customerId: loyaltyTransaction.customerId,
+        transactionId: event.transactionId,
+        type: 'redeemed', // Using 'redeemed' type for point deduction
+        points: -pointsToDeduct,
+        balanceAfter: updatedCustomer.loyaltyPoints,
+        description: `Reversed from voided transaction: ${event.reason}`,
+      },
+    });
+
+    this.logger.log(
+      `Reversed ${pointsToDeduct} loyalty points from customer ${loyaltyTransaction.customerId} (voided transaction ${event.transactionId})`,
+    );
+
+    // Check if tier downgrade is needed
+    const tiers = await this.prisma.loyaltyTier.findMany({
+      where: { businessId: customer.businessId, isActive: true },
+      orderBy: { minPoints: 'desc' },
+    });
+
+    for (const tier of tiers) {
+      if (updatedCustomer.loyaltyPoints >= tier.minPoints) {
+        if (tier.name !== updatedCustomer.loyaltyTier) {
+          await this.prisma.customer.update({
+            where: { id: loyaltyTransaction.customerId },
+            data: { loyaltyTier: tier.name },
+          });
+          this.logger.log(
+            `Customer ${loyaltyTransaction.customerId} downgraded to tier: ${tier.name}`,
+          );
+        }
+        break;
+      }
+    }
   }
 }

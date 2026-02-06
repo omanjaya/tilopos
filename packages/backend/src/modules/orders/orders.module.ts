@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { TransactionToOrderHandler } from './transaction-to-order.handler';
 import { CreateOrderUseCase } from '../../application/use-cases/orders/create-order.use-case';
 import { UpdateOrderStatusUseCase } from '../../application/use-cases/orders/update-order-status.use-case';
 import { ModifyOrderUseCase } from '../../application/use-cases/orders/modify-order.use-case';
@@ -24,6 +25,7 @@ import {
   controllers: [OrdersController],
   providers: [
     OrdersService,
+    TransactionToOrderHandler,
     CreateOrderUseCase,
     UpdateOrderStatusUseCase,
     ModifyOrderUseCase,

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
@@ -9,7 +10,6 @@ import { ErrorCode } from '@shared/constants/error-codes';
 import type { IShiftRepository } from '@domain/interfaces/repositories/shift.repository';
 import type { IProductRepository } from '@domain/interfaces/repositories/product.repository';
 import type { IInventoryRepository } from '@domain/interfaces/repositories/inventory.repository';
-import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
 
 export interface TransactionItemInput {
   productId: string;
@@ -62,9 +62,8 @@ export class CreateTransactionUseCase {
     private readonly productRepo: IProductRepository,
     @Inject(REPOSITORY_TOKENS.INVENTORY)
     private readonly inventoryRepo: IInventoryRepository,
-    @Inject(REPOSITORY_TOKENS.TRANSACTION)
-    private readonly transactionRepo: ITransactionRepository,
     private readonly eventBus: EventBusService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: CreateTransactionInput): Promise<CreateTransactionOutput> {
@@ -149,55 +148,119 @@ export class CreateTransactionUseCase {
     const change = totalPayments - grandTotal;
 
     const receiptNumber = `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const transactionId = crypto.randomUUID();
 
-    const transactionRecord = await this.transactionRepo.save({
-      id: '',
-      outletId: input.outletId,
-      employeeId: input.employeeId,
-      customerId: input.customerId || null,
-      shiftId: input.shiftId,
-      receiptNumber,
-      transactionType: 'sale',
-      orderType: input.orderType,
-      tableId: input.tableId || null,
-      subtotal,
-      discountAmount,
-      taxAmount,
-      serviceCharge,
-      grandTotal,
-      notes: input.notes || null,
-      status: 'completed',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    for (const item of itemDetails) {
-      const stockLevel = await this.inventoryRepo.findStockLevel(
-        input.outletId,
-        item.productId,
-        item.variantId,
-      );
-      if (stockLevel) {
-        const newQty = stockLevel.quantity - item.quantity;
-        if (newQty < 0) {
-          throw new InsufficientStockException(item.productId, stockLevel.quantity, item.quantity);
-        }
-        await this.inventoryRepo.updateStockLevel(stockLevel.id, newQty);
-        await this.inventoryRepo.createStockMovement({
-          id: '',
+    // ATOMIC TRANSACTION: Create transaction + deduct stock + create movements
+    // This ensures all-or-nothing execution - prevents race conditions
+    const transactionRecord = await this.prisma.$transaction(async (tx) => {
+      // 1. Create transaction record
+      const txn = await tx.transaction.create({
+        data: {
+          id: transactionId,
           outletId: input.outletId,
-          productId: item.productId,
-          variantId: item.variantId,
-          movementType: 'sale',
-          quantity: -item.quantity,
-          referenceId: transactionRecord.id,
-          referenceType: 'transaction',
-          notes: null,
-          createdBy: input.employeeId,
+          employeeId: input.employeeId,
+          customerId: input.customerId || null,
+          shiftId: input.shiftId,
+          receiptNumber,
+          transactionType: 'sale',
+          orderType: input.orderType,
+          tableId: input.tableId || null,
+          subtotal,
+          discountAmount,
+          taxAmount,
+          serviceCharge,
+          grandTotal,
+          notes: input.notes || null,
+          status: 'completed',
           createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 2. Create transaction items
+      for (const item of itemDetails) {
+        await tx.transactionItem.create({
+          data: {
+            transactionId: txn.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: item.productName,
+            variantName: item.variantName,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            discountAmount: 0,
+            subtotal: item.subtotal,
+            notes: item.notes,
+          },
         });
       }
-    }
+
+      // 3. Create payments
+      for (const payment of input.payments) {
+        await tx.payment.create({
+          data: {
+            transactionId: txn.id,
+            paymentMethod: payment.method as any, // Type assertion for enum
+            amount: payment.amount,
+            referenceNumber: payment.referenceNumber || null,
+          },
+        });
+      }
+
+      // 4. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
+      for (const item of itemDetails) {
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+        });
+
+        if (!product?.trackStock) continue;
+
+        // Find stock level with FOR UPDATE lock to prevent race conditions
+        const stockLevel = await tx.stockLevel.findUnique({
+          where: {
+            outletId_productId_variantId: {
+              outletId: input.outletId,
+              productId: item.productId,
+              variantId: item.variantId || null as any,
+            },
+          },
+        });
+
+        if (!stockLevel) {
+          throw new InsufficientStockException(item.productId, 0, item.quantity);
+        }
+
+        const currentQty = Number(stockLevel.quantity);
+        const newQty = currentQty - item.quantity;
+        if (newQty < 0) {
+          throw new InsufficientStockException(item.productId, currentQty, item.quantity);
+        }
+
+        // Update stock level atomically
+        await tx.stockLevel.update({
+          where: { id: stockLevel.id },
+          data: { quantity: newQty },
+        });
+
+        // Create stock movement audit trail
+        await tx.stockMovement.create({
+          data: {
+            outletId: input.outletId,
+            productId: item.productId,
+            variantId: item.variantId || null as any,
+            movementType: 'sale',
+            quantity: -item.quantity,
+            referenceId: txn.id,
+            referenceType: 'transaction',
+            notes: `Sale: ${item.productName}`,
+            createdBy: input.employeeId,
+            createdAt: new Date(),
+          },
+        });
+      }
+
+      return txn;
+    });
 
     this.eventBus.publish(
       new TransactionCreatedEvent(

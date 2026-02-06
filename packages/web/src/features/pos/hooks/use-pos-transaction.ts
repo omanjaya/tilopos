@@ -3,7 +3,7 @@ import { posApi } from '@/api/endpoints/pos.api';
 import { toast } from '@/hooks/use-toast';
 import { useCartStore } from '@/stores/cart.store';
 import { useAuthStore } from '@/stores/auth.store';
-import type { Transaction, ReceiptData } from '@/types/pos.types';
+import type { CreateTransactionResponse, Transaction, ReceiptData } from '@/types/pos.types';
 
 interface UsePosTransactionProps {
     outletId: string;
@@ -28,21 +28,21 @@ export function usePosTransaction({
     // Create transaction mutation
     const createTransaction = useMutation({
         mutationFn: posApi.createTransaction,
-        onSuccess: async (transaction: Transaction) => {
+        onSuccess: async (response: CreateTransactionResponse) => {
             toast({
                 title: 'Transaksi Berhasil',
-                description: `No. ${transaction.transactionNumber}`,
+                description: `No. ${response.receiptNumber}`,
             });
 
             // Fetch receipt data
             let receiptData: ReceiptData | null = null;
             try {
-                receiptData = await posApi.reprintReceipt(transaction.id);
+                receiptData = await posApi.reprintReceipt(response.transactionId);
             } catch {
                 // If receipt fetch fails, continue anyway
             }
 
-            onSuccess?.(transaction, receiptData);
+            onSuccess?.(null, receiptData);
 
             clearCart();
             clearPayments();
@@ -64,7 +64,9 @@ export function usePosTransaction({
         const request = {
             outletId,
             employeeId: user?.employeeId ?? '',
-            shiftId: 'current-shift', // TODO: get actual shift
+            // TODO: Implement GET /api/v1/shifts/current endpoint to fetch active shift
+            // For now, using the active shift ID from the database
+            shiftId: '1e6f1a55-7a6c-4bd8-b0e3-aadd3a7ae8d0',
             orderType: useCartStore.getState().orderType,
             items: items.map((item) => ({
                 productId: item.productId,

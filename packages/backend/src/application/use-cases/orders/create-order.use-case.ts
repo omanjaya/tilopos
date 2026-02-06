@@ -46,7 +46,7 @@ export class CreateOrderUseCase {
     });
 
     const order = await this.orderRepo.save({
-      id: '',
+      id: crypto.randomUUID(),
       outletId: input.outletId,
       orderNumber,
       orderType: input.orderType,

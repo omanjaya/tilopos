@@ -147,6 +147,14 @@ export interface Payment {
     createdAt: string;
 }
 
+export interface CreateTransactionResponse {
+    transactionId: string;
+    receiptNumber: string;
+    grandTotal: number;
+    change: number;
+    loyaltyPointsEarned: number;
+}
+
 export interface ReceiptData {
     transaction: Transaction;
     business: {
