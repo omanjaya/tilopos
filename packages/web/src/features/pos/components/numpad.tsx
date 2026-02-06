@@ -145,7 +145,6 @@ interface FullNumPadProps {
 }
 
 export function FullNumPad({
-    label = 'Jumlah',
     value,
     onChange,
     onSubmit,
@@ -166,25 +165,31 @@ export function FullNumPad({
     };
 
     return (
-        <div className={cn('space-y-4', className)}>
-            {/* Display */}
-            <div className="bg-muted/50 rounded-xl p-4">
-                <p className="text-sm text-muted-foreground mb-1">{label}</p>
-                <p className="text-3xl font-bold tabular-nums">
-                    Rp {(parseInt(inputValue) || 0).toLocaleString('id-ID')}
+        <div className={cn('space-y-2', className)}>
+            {/* Display - Compact */}
+            <div className="bg-muted/50 rounded-lg p-2">
+                <p className="text-xl font-bold tabular-nums text-center">
+                    {(parseInt(inputValue) || 0).toLocaleString('id-ID')}
                 </p>
             </div>
 
-            {/* Quick Amounts */}
-            {showQuickAmounts && (
-                <QuickAmountButtons
-                    amounts={quickAmounts}
-                    onSelect={handleQuickAmount}
-                    selected={parseInt(inputValue)}
-                />
+            {/* Quick Amounts - Compact */}
+            {showQuickAmounts && quickAmounts.length > 0 && (
+                <div className="grid grid-cols-2 gap-1">
+                    {quickAmounts.slice(0, 4).map((amt) => (
+                        <Button
+                            key={amt}
+                            variant={parseInt(inputValue) === amt ? 'default' : 'outline'}
+                            className="h-7 text-xs font-medium"
+                            onClick={() => handleQuickAmount(amt)}
+                        >
+                            {(amt / 1000).toFixed(0)}k
+                        </Button>
+                    ))}
+                </div>
             )}
 
-            {/* NumPad */}
+            {/* NumPad - Compact */}
             <NumPad
                 value={inputValue}
                 onChange={handleChange}

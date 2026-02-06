@@ -24,6 +24,12 @@ export function KdsOrderCard({
   isNotifying,
 }: KdsOrderCardProps) {
   const items = order.items ?? [];
+
+  // Guard: Skip rendering if no items
+  if (items.length === 0) {
+    return null;
+  }
+
   const allDone = items.every((item) => item.status === 'ready' || item.status === 'served');
 
   const completedCount = items.filter((i) => i.status === 'ready' || i.status === 'served').length;

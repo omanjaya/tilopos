@@ -55,10 +55,35 @@ export class PrismaOrderRepository implements IOrderRepository {
           notIn: ['completed', 'cancelled'],
         },
       },
+      include: {
+        items: true, // Include order items for KDS display
+        table: true, // Include table info for display
+      },
       orderBy: { createdAt: 'desc' },
     });
 
-    return orders.map((order) => this.mapToBaseRecord(order));
+    // Map to records with items for KDS
+    return orders.map((order) => {
+      const elapsedMs = Date.now() - new Date(order.createdAt).getTime();
+      const elapsedMinutes = Math.floor(elapsedMs / 60000);
+
+      return {
+        ...this.mapToBaseRecord(order),
+        items: order.items?.map((item) => ({
+          id: item.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.productName,
+          quantity: item.quantity,
+          station: item.station,
+          status: item.status,
+          notes: item.notes,
+          modifiers: [], // OrderItems don't have modifiers in current schema
+        })),
+        tableName: order.table?.name || null,
+        elapsedMinutes,
+      };
+    }) as OrderRecord[];
   }
 
   async save(order: OrderRecordWithItems): Promise<OrderRecord> {

@@ -1,7 +1,7 @@
 export { ProductGrid } from './product-grid';
 export { CartPanel } from './cart-panel';
 export { NumPad, FullNumPad, QuickAmountButtons } from './numpad';
-export { PaymentPanel } from './payment-panel';
+export { PaymentPanel } from './payment-panel-new';
 export { ReceiptPreview, ThermalReceipt } from './receipt-preview';
 export { HeldBillsPanel } from './held-bills-panel';
 export { OrderTypeSelector, OrderTypeButtons } from './order-type-selector';

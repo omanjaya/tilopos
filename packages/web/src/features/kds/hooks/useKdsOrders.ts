@@ -24,30 +24,28 @@ export function useKdsOrders(outletId: string) {
     mutationFn: kdsApi.bumpItem,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kds-orders'] });
-      toast({ title: 'Item selesai' });
+      toast({ title: 'Item selesai', duration: 2000 });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
       toast({
         variant: 'destructive',
         title: 'Gagal bump item',
         description: error.response?.data?.message || 'Terjadi kesalahan',
+        duration: 5000,
       });
     },
   });
 
   const notifyMutation = useMutation({
-    mutationFn: (orderId: string) => kdsApi.notifyCashier(orderId, outletId),
+    mutationFn: (orderId: string) => kdsApi.notifyCashier(orderId),
     onSuccess: (_, orderId) => {
-      kdsApi.updateOrderStatus(orderId, 'ready').catch(() => {
-        // non-critical
-      });
-
       const order = orders.find((o) => o.id === orderId);
       const orderNum = order?.orderNumber ?? orderId;
 
       toast({
         title: `Order #${orderNum} siap disajikan`,
         description: 'Kasir telah diberitahu.',
+        duration: 3000,
       });
       queryClient.invalidateQueries({ queryKey: ['kds-orders'] });
     },
@@ -56,6 +54,7 @@ export function useKdsOrders(outletId: string) {
         variant: 'destructive',
         title: 'Gagal memberitahu kasir',
         description: error.response?.data?.message || 'Terjadi kesalahan',
+        duration: 5000,
       });
     },
   });

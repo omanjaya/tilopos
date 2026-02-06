@@ -333,7 +333,21 @@ export const useCartStore = create<CartState>()(
                 items: state.items,
                 orderType: state.orderType,
                 heldBills: state.heldBills,
+                customerId: state.customerId,
+                customerName: state.customerName,
+                tableId: state.tableId,
+                tableName: state.tableName,
+                notes: state.notes,
+                discountAmount: state.discountAmount,
+                discountPercent: state.discountPercent,
+                payments: state.payments,
             }),
+            onRehydrateStorage: () => (state) => {
+                // Recalculate totals after hydration
+                if (state) {
+                    state.recalculate();
+                }
+            },
         },
     ),
 );

@@ -47,18 +47,19 @@ export function useKdsFilters(orders: KDSOrder[]) {
 
   const activeOrders = useMemo(
     () =>
-      filteredOrders.filter(
-        (o) => !(o.items ?? []).every((i) => i.status === 'ready' || i.status === 'served'),
-      ),
+      filteredOrders.filter((o) => {
+        const items = o.items ?? [];
+        return items.length > 0 && !items.every((i) => i.status === 'ready' || i.status === 'served');
+      }),
     [filteredOrders],
   );
 
   const completedOrders = useMemo(
     () =>
-      filteredOrders.filter((o) =>
-        (o.items ?? []).length > 0 &&
-        (o.items ?? []).every((i) => i.status === 'ready' || i.status === 'served'),
-      ),
+      filteredOrders.filter((o) => {
+        const items = o.items ?? [];
+        return items.length > 0 && items.every((i) => i.status === 'ready' || i.status === 'served');
+      }),
     [filteredOrders],
   );
 

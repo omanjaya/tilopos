@@ -28,7 +28,7 @@ export function OrderItemRow({ item, onBump, isBumping }: OrderItemRowProps) {
             {item.productName}
           </span>
         </div>
-        {item.modifiers.length > 0 && (
+        {item.modifiers && item.modifiers.length > 0 && (
           <p className="mt-0.5 text-sm text-zinc-400">{item.modifiers.join(', ')}</p>
         )}
         {item.notes && <p className="mt-0.5 text-sm italic text-zinc-500">{item.notes}</p>}

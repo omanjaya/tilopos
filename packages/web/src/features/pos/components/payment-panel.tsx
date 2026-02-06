@@ -242,12 +242,12 @@ export function PaymentPanel({ onComplete, onCancel }: PaymentPanelProps) {
                                 value={amount}
                                 onChange={setAmount}
                                 showQuickAmounts={selectedMethod?.id === 'cash'}
-                                quickAmounts={[
+                                quickAmounts={Array.from(new Set([
                                     Math.ceil(remaining / 10000) * 10000,
                                     Math.ceil(remaining / 50000) * 50000,
                                     Math.ceil(remaining / 100000) * 100000,
                                     200000,
-                                ]}
+                                ])).sort((a, b) => a - b)}
                             />
 
                             <Button

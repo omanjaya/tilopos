@@ -121,7 +121,16 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
     },
   });
 
-  const ingredients = [ingFlour, ingButter, ingChocolate, ingEggs, ingBread, ingCoffee, ingMilk, ingAvocado];
+  const ingredients = [
+    ingFlour,
+    ingButter,
+    ingChocolate,
+    ingEggs,
+    ingBread,
+    ingCoffee,
+    ingMilk,
+    ingAvocado,
+  ];
 
   // Ingredient stock levels
   for (const outlet of [params.outletPusatId, params.outletCabangId]) {

@@ -1,6 +1,5 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import ExcelJS from 'exceljs';
 import { formatCurrency, formatDate } from './format';
 
 /**
@@ -59,6 +58,9 @@ export async function exportToExcel(
   filename: string,
   summary?: { label: string; value: string | number }[]
 ) {
+  // Dynamic import ExcelJS (lazy load for better performance)
+  const ExcelJS = (await import('exceljs')).default;
+
   // Create workbook and worksheet
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Laporan');

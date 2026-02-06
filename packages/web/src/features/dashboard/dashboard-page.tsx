@@ -99,32 +99,36 @@ export function DashboardPage() {
             <CardTitle className="text-base md:text-lg">Penjualan</CardTitle>
           </CardHeader>
           <CardContent className="p-4 md:p-6">
-            <ResponsiveContainer width="100%" height={250} className="md:h-[300px]">
-              <BarChart data={salesReport?.salesByDate ?? []}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis
-                  dataKey="date"
-                  className="text-[10px] md:text-xs"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickMargin={8}
-                />
-                <YAxis
-                  className="text-[10px] md:text-xs"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickFormatter={(v: number) => formatCurrency(v)}
-                  width={60}
-                />
-                <Tooltip
-                  formatter={(value: number) => [formatCurrency(value), 'Penjualan']}
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px',
-                  }}
-                />
-                <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="h-[250px] w-full md:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={salesReport?.salesByDate ?? []} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    tickMargin={10}
+                    stroke="hsl(var(--border))"
+                  />
+                  <YAxis
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    tickFormatter={(v: number) => formatCurrency(v)}
+                    width={70}
+                    tickMargin={5}
+                    stroke="hsl(var(--border))"
+                  />
+                  <Tooltip
+                    formatter={(value: number) => [formatCurrency(value), 'Penjualan']}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                    cursor={{ fill: 'hsl(var(--muted)/0.1)' }}
+                  />
+                  <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
       )}
