@@ -126,17 +126,17 @@ async function main() {
         espresso: products.espresso,
         americano: products.americano,
         latte: products.latte,
+        latteLarge: products.latte, // Use same product for variant
         cappuccino: products.cappuccino,
+        mocha: products.mocha,
         icedLatte: products.icedLatte,
         icedAmericano: products.icedAmericano,
-        matchaLatte: products.matchaLatte,
-        hotChocolate: products.hotChocolate,
+        coldBrew: products.coldBrew,
         croissant: products.croissant,
         chocoCroissant: products.chocoCroissant,
         blueberryMuffin: products.blueberryMuffin,
         breakfastSandwich: products.breakfastSandwich,
         avocadoToast: products.avocadoToast,
-        bagelCreamCheese: products.bagelCreamCheese,
         clubSandwich: products.clubSandwich,
       },
     });
@@ -168,8 +168,8 @@ async function main() {
       },
       shiftId: openShift.id,
       productIds: {
-        latte: products.latte,
         croissant: products.croissant,
+        blueberryMuffin: products.blueberryMuffin,
       },
     });
 
