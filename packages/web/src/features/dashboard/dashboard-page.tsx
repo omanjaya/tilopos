@@ -62,7 +62,7 @@ export function DashboardPage() {
         </Tabs>
       </PageHeader>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 md:gap-4">
         {isLoading ? (
           <MetricCardsSkeleton count={4} />
         ) : (
@@ -96,14 +96,24 @@ export function DashboardPage() {
       ) : (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Penjualan</CardTitle>
+            <CardTitle className="text-base md:text-lg">Penjualan</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+          <CardContent className="p-4 md:p-6">
+            <ResponsiveContainer width="100%" height={250} className="md:h-[300px]">
               <BarChart data={salesReport?.salesByDate ?? []}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="date" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(v: number) => formatCurrency(v)} />
+                <XAxis
+                  dataKey="date"
+                  className="text-[10px] md:text-xs"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  tickMargin={8}
+                />
+                <YAxis
+                  className="text-[10px] md:text-xs"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  tickFormatter={(v: number) => formatCurrency(v)}
+                  width={60}
+                />
                 <Tooltip
                   formatter={(value: number) => [formatCurrency(value), 'Penjualan']}
                   contentStyle={{
@@ -120,7 +130,7 @@ export function DashboardPage() {
       )}
 
       {financialReport && (
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 md:mt-6 md:grid-cols-3 md:gap-4">
           <MetricCard
             title="Pendapatan"
             value={formatCurrency(financialReport.totalRevenue)}
@@ -135,6 +145,7 @@ export function DashboardPage() {
             title="Margin"
             value={`${(financialReport.grossMargin ?? 0).toFixed(1)}%`}
             icon={TrendingUp}
+            className="sm:col-span-2 md:col-span-1"
           />
         </div>
       )}

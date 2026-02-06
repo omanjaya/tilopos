@@ -31,13 +31,13 @@ export function MetricCard({
 
   return (
     <Card className={cn('group cursor-default', className)}>
-      <CardContent className="flex items-center gap-4 p-6">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-all duration-200 group-hover:bg-primary/20 group-hover:scale-110">
-          <Icon className="h-6 w-6 text-primary transition-transform duration-200 group-hover:scale-110" />
+      <CardContent className="flex items-center gap-3 p-4 md:gap-4 md:p-6">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-all duration-200 group-hover:bg-primary/20 group-hover:scale-110 md:h-12 md:w-12">
+          <Icon className="h-5 w-5 text-primary transition-transform duration-200 group-hover:scale-110 md:h-6 md:w-6" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold">{value}</p>
+          <p className="text-xs text-muted-foreground md:text-sm">{title}</p>
+          <p className="text-lg font-bold md:text-2xl">{value}</p>
           {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
           {showTrend && (
             <div className="mt-2">
