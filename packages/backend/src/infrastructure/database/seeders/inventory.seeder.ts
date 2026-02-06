@@ -6,25 +6,15 @@ interface SeedInventoryParams {
   outletPusatId: string;
   outletCabangId: string;
   productIds: {
-    nasiGoreng: { id: string };
-    nasiAyam: { id: string };
-    ayamBakarReg: { id: string };
-    ayamBakarJumbo: { id: string };
-    mieGoreng: { id: string };
-    mieAyam: { id: string };
-    kentangGoreng: { id: string };
-    kentangReg: { id: string };
-    kentangLarge: { id: string };
-    dimsum: { id: string };
-    espresso: { id: string };
-    cappuccino: { id: string };
-    kopiSusu: { id: string };
-    airMineral: { id: string };
-    pisangGoreng: { id: string };
-    esKrim: { id: string };
-    esKrimVanilla: { id: string };
-    esKrimCoklat: { id: string };
-    esKrimMatcha: { id: string };
+    croissant: { id: string };
+    chocoCroissant: { id: string };
+    blueberryMuffin: { id: string };
+    bananaBread: { id: string };
+    cookies: { id: string };
+    breakfastSandwich: { id: string };
+    avocadoToast: { id: string };
+    bagelCreamCheese: { id: string };
+    clubSandwich: { id: string };
   };
   inventoryStaffId: string;
 }
@@ -32,142 +22,106 @@ interface SeedInventoryParams {
 export async function seedInventory(prisma: PrismaClient, params: SeedInventoryParams) {
   console.log('Creating stock levels...');
   const stockableProducts = [
-    { product: params.productIds.nasiGoreng, qty: 100 },
-    {
-      product: params.productIds.nasiAyam,
-      qty: 80,
-      variants: [
-        { v: params.productIds.ayamBakarReg, qty: 50 },
-        { v: params.productIds.ayamBakarJumbo, qty: 30 },
-      ],
-    },
-    { product: params.productIds.mieGoreng, qty: 100 },
-    { product: params.productIds.mieAyam, qty: 80 },
-    {
-      product: params.productIds.kentangGoreng,
-      qty: 0,
-      variants: [
-        { v: params.productIds.kentangReg, qty: 60 },
-        { v: params.productIds.kentangLarge, qty: 40 },
-      ],
-    },
-    { product: params.productIds.dimsum, qty: 50 },
-    { product: params.productIds.airMineral, qty: 200 },
-    { product: params.productIds.pisangGoreng, qty: 40 },
-    {
-      product: params.productIds.esKrim,
-      qty: 0,
-      variants: [
-        { v: params.productIds.esKrimVanilla, qty: 30 },
-        { v: params.productIds.esKrimCoklat, qty: 25 },
-        { v: params.productIds.esKrimMatcha, qty: 20 },
-      ],
-    },
+    { product: params.productIds.croissant, qty: 50 },
+    { product: params.productIds.chocoCroissant, qty: 45 },
+    { product: params.productIds.blueberryMuffin, qty: 40 },
+    { product: params.productIds.bananaBread, qty: 30 },
+    { product: params.productIds.cookies, qty: 60 },
+    { product: params.productIds.breakfastSandwich, qty: 25 },
+    { product: params.productIds.avocadoToast, qty: 20 },
+    { product: params.productIds.bagelCreamCheese, qty: 35 },
+    { product: params.productIds.clubSandwich, qty: 20 },
   ];
 
   for (const outlet of [params.outletPusatId, params.outletCabangId]) {
     for (const sp of stockableProducts) {
-      if (sp.variants) {
-        for (const sv of sp.variants) {
-          await prisma.stockLevel.create({
-            data: {
-              outletId: outlet,
-              productId: sp.product.id,
-              variantId: sv.v.id,
-              quantity: sv.qty,
-              lowStockAlert: 10,
-            },
-          });
-        }
-      } else {
-        await prisma.stockLevel.create({
-          data: {
-            outletId: outlet,
-            productId: sp.product.id,
-            quantity: sp.qty,
-            lowStockAlert: 10,
-          },
-        });
-      }
+      await prisma.stockLevel.create({
+        data: {
+          outletId: outlet,
+          productId: sp.product.id,
+          quantity: sp.qty,
+          lowStockAlert: 10,
+        },
+      });
     }
   }
   console.log(`  Created stock levels for both outlets`);
 
   console.log('Creating ingredients & recipes...');
-  const ingBeras = await prisma.ingredient.create({
+  const ingFlour = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Beras Putih',
+      name: 'All-Purpose Flour',
       sku: 'ING-001',
       unit: 'kg',
-      costPerUnit: 15000,
+      costPerUnit: 12000,
     },
   });
-  const ingAyam = await prisma.ingredient.create({
+  const ingButter = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Daging Ayam',
+      name: 'Unsalted Butter',
       sku: 'ING-002',
       unit: 'kg',
-      costPerUnit: 40000,
+      costPerUnit: 80000,
     },
   });
-  const ingMie = await prisma.ingredient.create({
+  const ingChocolate = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Mie Telur',
+      name: 'Dark Chocolate',
       sku: 'ING-003',
       unit: 'kg',
-      costPerUnit: 20000,
+      costPerUnit: 120000,
     },
   });
-  const ingMinyak = await prisma.ingredient.create({
+  const ingEggs = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Minyak Goreng',
+      name: 'Fresh Eggs',
       sku: 'ING-004',
-      unit: 'liter',
-      costPerUnit: 18000,
+      unit: 'dozen',
+      costPerUnit: 30000,
     },
   });
-  const ingTelur = await prisma.ingredient.create({
+  const ingBread = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Telur Ayam',
+      name: 'Artisan Bread',
       sku: 'ING-005',
-      unit: 'butir',
-      costPerUnit: 2500,
+      unit: 'loaf',
+      costPerUnit: 25000,
     },
   });
-  const ingKopi = await prisma.ingredient.create({
+  const ingCoffee = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Biji Kopi Arabica',
+      name: 'Arabica Coffee Beans',
       sku: 'ING-006',
       unit: 'kg',
       costPerUnit: 200000,
     },
   });
-  const ingSusu = await prisma.ingredient.create({
+  const ingMilk = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Susu Segar',
+      name: 'Fresh Milk',
       sku: 'ING-007',
       unit: 'liter',
       costPerUnit: 25000,
     },
   });
-  const ingGula = await prisma.ingredient.create({
+  const ingAvocado = await prisma.ingredient.create({
     data: {
       businessId: params.businessId,
-      name: 'Gula Aren',
+      name: 'Fresh Avocado',
       sku: 'ING-008',
       unit: 'kg',
-      costPerUnit: 50000,
+      costPerUnit: 60000,
     },
   });
 
-  const ingredients = [ingBeras, ingAyam, ingMie, ingMinyak, ingTelur, ingKopi, ingSusu, ingGula];
+  const ingredients = [ingFlour, ingButter, ingChocolate, ingEggs, ingBread, ingCoffee, ingMilk, ingAvocado];
 
   // Ingredient stock levels
   for (const outlet of [params.outletPusatId, params.outletCabangId]) {
@@ -181,13 +135,13 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
   // Recipes
   await prisma.recipe.create({
     data: {
-      productId: params.productIds.nasiGoreng.id,
-      notes: 'Resep nasi goreng spesial',
+      productId: params.productIds.croissant.id,
+      notes: 'Classic French croissant',
       items: {
         create: [
-          { ingredientId: ingBeras.id, quantity: 0.2, unit: 'kg' },
-          { ingredientId: ingTelur.id, quantity: 1, unit: 'butir' },
-          { ingredientId: ingMinyak.id, quantity: 0.03, unit: 'liter' },
+          { ingredientId: ingFlour.id, quantity: 0.08, unit: 'kg' },
+          { ingredientId: ingButter.id, quantity: 0.04, unit: 'kg' },
+          { ingredientId: ingEggs.id, quantity: 0.08, unit: 'dozen' },
         ],
       },
     },
@@ -195,13 +149,14 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
 
   await prisma.recipe.create({
     data: {
-      productId: params.productIds.nasiAyam.id,
-      notes: 'Resep nasi ayam bakar',
+      productId: params.productIds.chocoCroissant.id,
+      notes: 'Chocolate-filled croissant',
       items: {
         create: [
-          { ingredientId: ingBeras.id, quantity: 0.2, unit: 'kg' },
-          { ingredientId: ingAyam.id, quantity: 0.15, unit: 'kg' },
-          { ingredientId: ingMinyak.id, quantity: 0.02, unit: 'liter' },
+          { ingredientId: ingFlour.id, quantity: 0.08, unit: 'kg' },
+          { ingredientId: ingButter.id, quantity: 0.04, unit: 'kg' },
+          { ingredientId: ingChocolate.id, quantity: 0.03, unit: 'kg' },
+          { ingredientId: ingEggs.id, quantity: 0.08, unit: 'dozen' },
         ],
       },
     },
@@ -209,12 +164,12 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
 
   await prisma.recipe.create({
     data: {
-      productId: params.productIds.mieGoreng.id,
+      productId: params.productIds.avocadoToast.id,
       items: {
         create: [
-          { ingredientId: ingMie.id, quantity: 0.15, unit: 'kg' },
-          { ingredientId: ingTelur.id, quantity: 1, unit: 'butir' },
-          { ingredientId: ingMinyak.id, quantity: 0.02, unit: 'liter' },
+          { ingredientId: ingBread.id, quantity: 0.1, unit: 'loaf' },
+          { ingredientId: ingAvocado.id, quantity: 0.15, unit: 'kg' },
+          { ingredientId: ingEggs.id, quantity: 0.08, unit: 'dozen' },
         ],
       },
     },
@@ -222,18 +177,11 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
 
   await prisma.recipe.create({
     data: {
-      productId: params.productIds.espresso.id,
-      items: { create: [{ ingredientId: ingKopi.id, quantity: 0.018, unit: 'kg' }] },
-    },
-  });
-
-  await prisma.recipe.create({
-    data: {
-      productId: params.productIds.cappuccino.id,
+      productId: params.productIds.breakfastSandwich.id,
       items: {
         create: [
-          { ingredientId: ingKopi.id, quantity: 0.018, unit: 'kg' },
-          { ingredientId: ingSusu.id, quantity: 0.15, unit: 'liter' },
+          { ingredientId: ingBread.id, quantity: 0.15, unit: 'loaf' },
+          { ingredientId: ingEggs.id, quantity: 0.17, unit: 'dozen' },
         ],
       },
     },
@@ -241,49 +189,48 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
 
   await prisma.recipe.create({
     data: {
-      productId: params.productIds.kopiSusu.id,
+      productId: params.productIds.clubSandwich.id,
       items: {
         create: [
-          { ingredientId: ingKopi.id, quantity: 0.018, unit: 'kg' },
-          { ingredientId: ingSusu.id, quantity: 0.1, unit: 'liter' },
-          { ingredientId: ingGula.id, quantity: 0.02, unit: 'kg' },
+          { ingredientId: ingBread.id, quantity: 0.2, unit: 'loaf' },
+          { ingredientId: ingEggs.id, quantity: 0.08, unit: 'dozen' },
         ],
       },
     },
   });
-  console.log(`  Created ${ingredients.length} ingredients, 6 recipes`);
+  console.log(`  Created ${ingredients.length} ingredients, 5 recipes`);
 
   console.log('Creating suppliers...');
-  const supplierBeras = await prisma.supplier.create({
+  const supplierBakery = await prisma.supplier.create({
     data: {
       businessId: params.businessId,
-      name: 'UD Tani Makmur',
-      contactPerson: 'Pak Slamet',
+      name: 'Premium Bakery Supplies',
+      contactPerson: 'Sarah Chen',
       phone: '081111222333',
-      email: 'tanimakmur@gmail.com',
-      address: 'Jl. Pasar Induk, Bogor',
+      email: 'info@premiumbakery.id',
+      address: 'Jl. Industri Raya No. 45, Jakarta',
     },
   });
 
   await prisma.supplier.create({
     data: {
       businessId: params.businessId,
-      name: 'CV Unggas Jaya',
-      contactPerson: 'Bu Yanti',
+      name: 'Fresh Produce Indonesia',
+      contactPerson: 'Andi Kusuma',
       phone: '081444555666',
-      email: 'unggas.jaya@gmail.com',
-      address: 'Jl. Raya Tangerang, Banten',
+      email: 'orders@freshproduce.id',
+      address: 'Jl. Pasar Modern, Tangerang',
     },
   });
 
   await prisma.supplier.create({
     data: {
       businessId: params.businessId,
-      name: 'PT Kopi Nusantara',
-      contactPerson: 'Mas Dimas',
+      name: 'Coffee Importers Ltd',
+      contactPerson: 'Michael Tan',
       phone: '081777888999',
-      email: 'info@kopinusantara.id',
-      address: 'Jl. Gayo, Aceh',
+      email: 'sales@coffeeimport.id',
+      address: 'Jl. Gayo Highland, Aceh',
     },
   });
 
@@ -291,22 +238,30 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
   await prisma.purchaseOrder.create({
     data: {
       outletId: params.outletPusatId,
-      supplierId: supplierBeras.id,
+      supplierId: supplierBakery.id,
       poNumber: 'PO-2026-001',
       status: 'received',
-      totalAmount: 750000,
+      totalAmount: 960000,
       createdBy: params.inventoryStaffId,
       orderedAt: new Date('2026-01-20'),
       receivedAt: new Date('2026-01-22'),
       items: {
         create: [
           {
-            ingredientId: ingBeras.id,
-            itemName: 'Beras Putih',
+            ingredientId: ingFlour.id,
+            itemName: 'All-Purpose Flour',
             quantityOrdered: 50,
             quantityReceived: 50,
-            unitCost: 15000,
-            subtotal: 750000,
+            unitCost: 12000,
+            subtotal: 600000,
+          },
+          {
+            ingredientId: ingButter.id,
+            itemName: 'Unsalted Butter',
+            quantityOrdered: 5,
+            quantityReceived: 5,
+            unitCost: 80000,
+            subtotal: 400000,
           },
         ],
       },
@@ -314,5 +269,5 @@ export async function seedInventory(prisma: PrismaClient, params: SeedInventoryP
   });
   console.log(`  Created 3 suppliers, 1 purchase order`);
 
-  return { ingredients, suppliers: [supplierBeras] };
+  return { ingredients, suppliers: [supplierBakery] };
 }

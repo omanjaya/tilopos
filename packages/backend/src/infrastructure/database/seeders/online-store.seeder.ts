@@ -6,8 +6,8 @@ interface SeedOnlineStoreParams {
   outletPusatId: string;
   tableId: string;
   productIds: {
-    mieGoreng: { id: string };
-    kopiSusu: { id: string };
+    latte: { id: string };
+    croissant: { id: string };
   };
 }
 
@@ -16,13 +16,13 @@ export async function seedOnlineStore(prisma: PrismaClient, params: SeedOnlineSt
   await prisma.onlineStore.create({
     data: {
       businessId: params.businessId,
-      storeName: 'Warung Nusantara Online',
-      slug: 'warung-nusantara',
-      description: 'Pesan makanan & minuman Warung Nusantara secara online',
-      themeSettings: { primaryColor: '#D4A574', secondaryColor: '#2C1810', fontFamily: 'Inter' },
+      storeName: 'TiloCafe Online',
+      slug: 'tilocafe',
+      description: 'Order premium coffee & pastries from TiloCafe for delivery or pickup',
+      themeSettings: { primaryColor: '#8B4513', secondaryColor: '#2C1810', fontFamily: 'Inter' },
       shippingMethods: [
-        { name: 'Ambil di Toko', cost: 0 },
-        { name: 'Kurir Toko', cost: 15000 },
+        { name: 'Pickup at Store', cost: 0 },
+        { name: 'Delivery', cost: 20000 },
       ],
       paymentMethods: ['qris', 'bank_transfer', 'cash'],
     },
@@ -34,14 +34,14 @@ export async function seedOnlineStore(prisma: PrismaClient, params: SeedOnlineSt
     data: {
       outletId: params.outletPusatId,
       tableId: params.tableId,
-      sessionCode: 'WN-T6-ABC123',
+      sessionCode: 'TC-T6-ABC123',
       status: 'active',
       customerName: 'Guest',
       expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
       items: {
         create: [
-          { productId: params.productIds.mieGoreng.id, quantity: 1 },
-          { productId: params.productIds.kopiSusu.id, quantity: 2 },
+          { productId: params.productIds.latte.id, quantity: 1 },
+          { productId: params.productIds.croissant.id, quantity: 2 },
         ],
       },
     },

@@ -12,21 +12,21 @@ interface SeedOrdersParams {
   shiftId: string;
   tables: Record<string, { id: string }>;
   productIds: {
-    nasiGoreng: { id: string };
-    nasiAyam: { id: string };
-    ayamBakarReg: { id: string };
-    ayamBakarJumbo: { id: string };
-    mieGoreng: { id: string };
-    mieAyam: { id: string };
-    kentangGoreng: { id: string };
-    kentangLarge: { id: string };
-    dimsum: { id: string };
+    espresso: { id: string };
+    americano: { id: string };
+    latte: { id: string };
+    latteLarge: { id: string };
     cappuccino: { id: string };
-    cappIce: { id: string };
-    kopiSusu: { id: string };
-    esJeruk: { id: string };
-    tehTarik: { id: string };
-    airMineral: { id: string };
+    mocha: { id: string };
+    icedLatte: { id: string };
+    icedAmericano: { id: string };
+    coldBrew: { id: string };
+    croissant: { id: string };
+    chocoCroissant: { id: string };
+    blueberryMuffin: { id: string };
+    breakfastSandwich: { id: string };
+    avocadoToast: { id: string };
+    clubSandwich: { id: string };
   };
 }
 
@@ -60,7 +60,7 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
 
   console.log('Creating sample transactions...');
 
-  // Transaction 1: Nasi Goreng + Es Jeruk (cash)
+  // Transaction 1: Latte + Croissant (cash)
   const tx1 = await prisma.transaction.create({
     data: {
       outletId: params.outletPusatId,
@@ -71,36 +71,36 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       transactionType: 'sale',
       orderType: 'dine_in',
       tableId: params.tables['T2'].id,
-      subtotal: 50000,
-      taxAmount: 5500,
-      serviceCharge: 2500,
-      grandTotal: 58000,
+      subtotal: 70000,
+      taxAmount: 7700,
+      serviceCharge: 3500,
+      grandTotal: 81200,
       status: 'completed',
       items: {
         create: [
           {
-            productId: params.productIds.nasiGoreng.id,
-            productName: 'Nasi Goreng Spesial',
+            productId: params.productIds.latte.id,
+            productName: 'Latte',
             quantity: 1,
-            unitPrice: 35000,
-            subtotal: 35000,
+            unitPrice: 45000,
+            subtotal: 45000,
           },
           {
-            productId: params.productIds.esJeruk.id,
-            productName: 'Es Jeruk Segar',
+            productId: params.productIds.croissant.id,
+            productName: 'Butter Croissant',
             quantity: 1,
-            unitPrice: 15000,
-            subtotal: 15000,
+            unitPrice: 25000,
+            subtotal: 25000,
           },
         ],
       },
       payments: {
-        create: [{ paymentMethod: 'cash', amount: 58000, status: 'completed' }],
+        create: [{ paymentMethod: 'cash', amount: 81200, status: 'completed' }],
       },
     },
   });
 
-  // Transaction 2: Nasi Ayam Jumbo + Cappuccino Iced + Dimsum (QRIS)
+  // Transaction 2: Iced Latte + Avocado Toast + Blueberry Muffin (QRIS)
   const tx2 = await prisma.transaction.create({
     data: {
       outletId: params.outletPusatId,
@@ -111,34 +111,30 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       transactionType: 'sale',
       orderType: 'dine_in',
       tableId: params.tables['T3'].id,
-      subtotal: 112000,
-      taxAmount: 12320,
-      serviceCharge: 5600,
-      grandTotal: 129920,
+      subtotal: 125000,
+      taxAmount: 13750,
+      serviceCharge: 6250,
+      grandTotal: 145000,
       status: 'completed',
       items: {
         create: [
           {
-            productId: params.productIds.nasiAyam.id,
-            variantId: params.productIds.ayamBakarJumbo.id,
-            productName: 'Nasi Ayam Bakar',
-            variantName: 'Jumbo',
+            productId: params.productIds.icedLatte.id,
+            productName: 'Iced Latte',
             quantity: 1,
-            unitPrice: 55000,
-            subtotal: 55000,
+            unitPrice: 48000,
+            subtotal: 48000,
           },
           {
-            productId: params.productIds.cappuccino.id,
-            variantId: params.productIds.cappIce.id,
-            productName: 'Cappuccino',
-            variantName: 'Iced',
+            productId: params.productIds.avocadoToast.id,
+            productName: 'Avocado Toast',
             quantity: 1,
-            unitPrice: 32000,
-            subtotal: 32000,
+            unitPrice: 52000,
+            subtotal: 52000,
           },
           {
-            productId: params.productIds.dimsum.id,
-            productName: 'Dimsum Ayam (5 pcs)',
+            productId: params.productIds.blueberryMuffin.id,
+            productName: 'Blueberry Muffin',
             quantity: 1,
             unitPrice: 25000,
             subtotal: 25000,
@@ -149,7 +145,7 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
         create: [
           {
             paymentMethod: 'qris',
-            amount: 129920,
+            amount: 145000,
             referenceNumber: 'QRIS-20260130-001',
             status: 'completed',
           },
@@ -169,59 +165,51 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       transactionType: 'sale',
       orderType: 'dine_in',
       tableId: params.tables['VIP1'].id,
-      subtotal: 318000,
-      taxAmount: 34980,
-      serviceCharge: 15900,
-      grandTotal: 368880,
+      subtotal: 380000,
+      taxAmount: 41800,
+      serviceCharge: 19000,
+      grandTotal: 440800,
       status: 'completed',
       items: {
         create: [
           {
-            productId: params.productIds.nasiGoreng.id,
-            productName: 'Nasi Goreng Spesial',
+            productId: params.productIds.latte.id,
+            variantId: params.productIds.latteLarge.id,
+            productName: 'Latte',
+            variantName: 'Large',
             quantity: 3,
-            unitPrice: 35000,
-            subtotal: 105000,
+            unitPrice: 52000,
+            subtotal: 156000,
           },
           {
-            productId: params.productIds.nasiAyam.id,
-            variantId: params.productIds.ayamBakarJumbo.id,
-            productName: 'Nasi Ayam Bakar',
-            variantName: 'Jumbo',
+            productId: params.productIds.cappuccino.id,
+            productName: 'Cappuccino',
             quantity: 2,
-            unitPrice: 55000,
-            subtotal: 110000,
+            unitPrice: 42000,
+            subtotal: 84000,
           },
           {
-            productId: params.productIds.mieGoreng.id,
-            productName: 'Mie Goreng Jawa',
-            quantity: 1,
-            unitPrice: 30000,
-            subtotal: 30000,
+            productId: params.productIds.breakfastSandwich.id,
+            productName: 'Breakfast Sandwich',
+            quantity: 2,
+            unitPrice: 45000,
+            subtotal: 90000,
           },
           {
-            productId: params.productIds.kopiSusu.id,
-            productName: 'Kopi Susu Gula Aren',
-            quantity: 3,
+            productId: params.productIds.croissant.id,
+            productName: 'Butter Croissant',
+            quantity: 2,
             unitPrice: 25000,
-            subtotal: 75000,
-          },
-          {
-            productId: params.productIds.airMineral.id,
-            productName: 'Air Mineral',
-            quantity: 3,
-            unitPrice: 8000,
-            subtotal: 24000,
-            notes: 'Dingin',
+            subtotal: 50000,
           },
         ],
       },
       payments: {
         create: [
-          { paymentMethod: 'cash', amount: 200000, status: 'completed' },
+          { paymentMethod: 'cash', amount: 250000, status: 'completed' },
           {
             paymentMethod: 'card',
-            amount: 168880,
+            amount: 190800,
             referenceNumber: 'CC-20260130-001',
             status: 'completed',
           },
@@ -238,24 +226,29 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       receiptNumber: 'TXN-20260130-004',
       transactionType: 'sale',
       orderType: 'takeaway',
-      subtotal: 68000,
-      taxAmount: 7480,
-      grandTotal: 75480,
+      subtotal: 105000,
+      taxAmount: 11550,
+      grandTotal: 116550,
       status: 'completed',
       items: {
         create: [
           {
-            productId: params.productIds.nasiAyam.id,
-            variantId: params.productIds.ayamBakarReg.id,
-            productName: 'Nasi Ayam Bakar',
-            variantName: 'Regular',
+            productId: params.productIds.icedAmericano.id,
+            productName: 'Iced Americano',
             quantity: 1,
-            unitPrice: 40000,
-            subtotal: 40000,
+            unitPrice: 38000,
+            subtotal: 38000,
           },
           {
-            productId: params.productIds.mieAyam.id,
-            productName: 'Mie Ayam Bakso',
+            productId: params.productIds.clubSandwich.id,
+            productName: 'Club Sandwich',
+            quantity: 1,
+            unitPrice: 55000,
+            subtotal: 55000,
+          },
+          {
+            productId: params.productIds.chocoCroissant.id,
+            productName: 'Chocolate Croissant',
             quantity: 1,
             unitPrice: 28000,
             subtotal: 28000,
@@ -266,7 +259,7 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
         create: [
           {
             paymentMethod: 'gopay',
-            amount: 75480,
+            amount: 116550,
             referenceNumber: 'GOPAY-20260130-001',
             status: 'completed',
           },
@@ -289,22 +282,22 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       items: {
         create: [
           {
-            productId: params.productIds.nasiGoreng.id,
-            productName: 'Nasi Goreng Spesial',
+            productId: params.productIds.avocadoToast.id,
+            productName: 'Avocado Toast',
             quantity: 2,
-            station: 'wok',
+            station: 'kitchen',
             status: 'preparing',
           },
           {
-            productId: params.productIds.mieGoreng.id,
-            productName: 'Mie Goreng Jawa',
+            productId: params.productIds.breakfastSandwich.id,
+            productName: 'Breakfast Sandwich',
             quantity: 1,
-            station: 'wok',
+            station: 'kitchen',
             status: 'pending',
           },
           {
-            productId: params.productIds.esJeruk.id,
-            productName: 'Es Jeruk Segar',
+            productId: params.productIds.icedLatte.id,
+            productName: 'Iced Latte',
             quantity: 2,
             station: 'bar',
             status: 'ready',
@@ -321,23 +314,21 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       orderType: 'takeaway',
       status: 'pending',
       priority: 1,
-      notes: 'Buru-buru, customer nunggu di depan',
+      notes: 'Customer waiting outside',
       items: {
         create: [
           {
-            productId: params.productIds.nasiAyam.id,
-            variantId: params.productIds.ayamBakarReg.id,
-            productName: 'Nasi Ayam Bakar (Regular)',
+            productId: params.productIds.cappuccino.id,
+            productName: 'Cappuccino',
             quantity: 3,
-            station: 'grill',
+            station: 'bar',
             status: 'pending',
           },
           {
-            productId: params.productIds.kentangGoreng.id,
-            variantId: params.productIds.kentangLarge.id,
-            productName: 'Kentang Goreng (Large)',
-            quantity: 2,
-            station: 'fryer',
+            productId: params.productIds.croissant.id,
+            productName: 'Butter Croissant',
+            quantity: 3,
+            station: 'pastry',
             status: 'pending',
           },
         ],
@@ -355,16 +346,16 @@ export async function seedOrders(prisma: PrismaClient, params: SeedOrdersParams)
       items: {
         create: [
           {
-            productId: params.productIds.dimsum.id,
-            productName: 'Dimsum Ayam (5 pcs)',
+            productId: params.productIds.clubSandwich.id,
+            productName: 'Club Sandwich',
             quantity: 2,
-            station: 'steam',
+            station: 'kitchen',
             status: 'ready',
             completedAt: new Date(),
           },
           {
-            productId: params.productIds.tehTarik.id,
-            productName: 'Teh Tarik',
+            productId: params.productIds.mocha.id,
+            productName: 'Mocha',
             quantity: 2,
             station: 'bar',
             status: 'ready',

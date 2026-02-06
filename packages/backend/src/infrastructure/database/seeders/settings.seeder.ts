@@ -16,8 +16,8 @@ interface SeedSettingsParams {
   };
   shiftId: string;
   productIds: {
-    nasiGoreng: { id: string };
-    dimsum: { id: string };
+    croissant: { id: string };
+    blueberryMuffin: { id: string };
   };
 }
 
@@ -174,7 +174,7 @@ export async function seedSettings(prisma: PrismaClient, params: SeedSettingsPar
         employeeId: params.inventoryStaffId,
         action: 'stock_adjusted',
         entityType: 'stock_level',
-        newValue: { product: 'Air Mineral', adjustment: '+200' },
+        newValue: { product: 'Butter Croissant', adjustment: '+50' },
       },
     ],
   });
@@ -194,11 +194,15 @@ export async function seedSettings(prisma: PrismaClient, params: SeedSettingsPar
       items: {
         create: [
           {
-            productId: params.productIds.nasiGoreng.id,
-            itemName: 'Nasi Goreng Spesial (bahan)',
+            productId: params.productIds.croissant.id,
+            itemName: 'Butter Croissant',
             quantitySent: 20,
           },
-          { productId: params.productIds.dimsum.id, itemName: 'Dimsum Ayam', quantitySent: 10 },
+          {
+            productId: params.productIds.blueberryMuffin.id,
+            itemName: 'Blueberry Muffin',
+            quantitySent: 15,
+          },
         ],
       },
     },
