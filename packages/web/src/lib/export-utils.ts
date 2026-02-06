@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { formatCurrency, formatDate } from './format';
 
 /**
@@ -50,50 +50,89 @@ export function exportToPDF(
 }
 
 /**
- * Export data to Excel
+ * Export data to Excel using ExcelJS
  */
-export function exportToExcel(
+export async function exportToExcel(
   title: string,
   headers: string[],
   data: (string | number)[][],
   filename: string,
   summary?: { label: string; value: string | number }[]
 ) {
-  // Create workbook
-  const wb = XLSX.utils.book_new();
+  // Create workbook and worksheet
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Laporan');
 
-  // Prepare data with title and summary
-  const wsData: (string | number)[][] = [];
+  let currentRow = 1;
 
   // Add title
-  wsData.push([title]);
-  wsData.push([`Dicetak: ${formatDate(new Date())}`]);
-  wsData.push([]); // Empty row
+  worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + headers.length)}${currentRow}`);
+  const titleCell = worksheet.getCell(`A${currentRow}`);
+  titleCell.value = title;
+  titleCell.font = { size: 16, bold: true };
+  titleCell.alignment = { horizontal: 'center' };
+  currentRow++;
+
+  // Add export date
+  worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + headers.length)}${currentRow}`);
+  const dateCell = worksheet.getCell(`A${currentRow}`);
+  dateCell.value = `Dicetak: ${formatDate(new Date())}`;
+  dateCell.font = { size: 10 };
+  currentRow++;
+
+  // Empty row
+  currentRow++;
 
   // Add summary if provided
   if (summary && summary.length > 0) {
     summary.forEach((item) => {
-      wsData.push([item.label, item.value]);
+      const row = worksheet.getRow(currentRow);
+      row.getCell(1).value = item.label;
+      row.getCell(2).value = item.value;
+      row.getCell(1).font = { bold: true };
+      currentRow++;
     });
-    wsData.push([]); // Empty row
+    currentRow++; // Empty row
   }
 
-  // Add headers and data
-  wsData.push(headers);
-  data.forEach((row) => wsData.push(row));
+  // Add headers
+  const headerRow = worksheet.getRow(currentRow);
+  headers.forEach((header, index) => {
+    const cell = headerRow.getCell(index + 1);
+    cell.value = header;
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF2563EB' }
+    };
+    cell.alignment = { horizontal: 'center' };
+  });
+  currentRow++;
 
-  // Create worksheet
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  // Add data
+  data.forEach((rowData) => {
+    const row = worksheet.getRow(currentRow);
+    rowData.forEach((value, index) => {
+      row.getCell(index + 1).value = value;
+    });
+    currentRow++;
+  });
 
   // Set column widths
-  const colWidths = headers.map(() => ({ wch: 20 }));
-  ws['!cols'] = colWidths;
+  headers.forEach((_, index) => {
+    worksheet.getColumn(index + 1).width = 20;
+  });
 
-  // Add worksheet to workbook
-  XLSX.utils.book_append_sheet(wb, ws, 'Laporan');
-
-  // Save file
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  // Generate file and download
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.xlsx`;
+  link.click();
+  window.URL.revokeObjectURL(url);
 }
 
 /**

@@ -13,20 +13,20 @@ export class CacheInterceptor implements NestInterceptor {
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
     const request = context.switchToHttp().getRequest();
     if (request.method !== 'GET') {
-      return next.handle();
+      return next.handle() as Observable<unknown>;
     }
 
     const cacheKey = `http:${request.url}`;
     const cached = await this.redis.get<unknown>(cacheKey);
     if (cached) {
       this.logger.debug(`Cache hit: ${cacheKey}`);
-      return of(cached);
+      return of(cached) as Observable<unknown>;
     }
 
     return next.handle().pipe(
-      tap(async (response) => {
+      tap(async (response: unknown) => {
         await this.redis.set(cacheKey, response, CACHE_DEFAULTS.MEDIUM_TTL);
       }),
-    );
+    ) as Observable<unknown>;
   }
 }

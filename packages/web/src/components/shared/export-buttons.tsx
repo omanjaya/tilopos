@@ -28,8 +28,8 @@ export function ExportButtons({
     onExport?.();
   };
 
-  const handleExportExcel = () => {
-    exportToExcel(title, headers, data, filename, summary);
+  const handleExportExcel = async () => {
+    await exportToExcel(title, headers, data, filename, summary);
     onExport?.();
   };
 

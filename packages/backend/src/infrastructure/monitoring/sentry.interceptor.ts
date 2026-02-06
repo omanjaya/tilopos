@@ -9,15 +9,15 @@ export class SentryInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return next.handle().pipe(
-      catchError((error) => {
+      catchError((error: unknown) => {
         const request = context.switchToHttp().getRequest();
-        this.sentryService.captureException(error, {
+        this.sentryService.captureException(error as Error, {
           url: request?.url,
           method: request?.method,
           userId: request?.user?.employeeId,
         });
         return throwError(() => error);
       }),
-    );
+    ) as Observable<unknown>;
   }
 }
