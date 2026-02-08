@@ -6,6 +6,8 @@ import { OfflineBanner } from '@/components/shared/offline-banner';
 import { OnboardingProvider } from '@/features/onboarding/onboarding-provider';
 import { router } from './router';
 
+const ONBOARDING_KEY = 'tilo_onboarding_completed';
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -16,11 +18,30 @@ const queryClient = new QueryClient({
   },
 });
 
+function getOnboardingCompleted(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setOnboardingCompleted(completed: boolean): void {
+  try {
+    localStorage.setItem(ONBOARDING_KEY, String(completed));
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 export function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <OnboardingProvider>
+        <OnboardingProvider
+          initialCompleted={getOnboardingCompleted()}
+          onCompletedChange={setOnboardingCompleted}
+        >
           <OfflineBanner />
           <RouterProvider router={router} />
           <Toaster />

@@ -96,6 +96,9 @@ const TransfersPage = lazy(() => import('@/features/inventory/transfers-page').t
 const TransferDetailPage = lazy(() => import('@/features/inventory/transfer-detail-page').then(m => ({ default: m.TransferDetailPage })));
 const SuppliersPage = lazy(() => import('@/features/inventory/suppliers-page').then(m => ({ default: m.SuppliersPage })));
 const PurchaseOrdersPage = lazy(() => import('@/features/inventory/purchase-orders-page').then(m => ({ default: m.PurchaseOrdersPage })));
+const PriceTiersPage = lazy(() => import('@/features/inventory/price-tiers-page').then(m => ({ default: m.PriceTiersPage })));
+const UnitConversionPage = lazy(() => import('@/features/inventory/unit-conversion-page').then(m => ({ default: m.UnitConversionPage })));
+const BatchTrackingPage = lazy(() => import('@/features/inventory/batch-tracking-page').then(m => ({ default: m.BatchTrackingPage })));
 
 // Orders & Tables
 const OrdersPage = lazy(() => import('@/features/orders/orders-page').then(m => ({ default: m.OrdersPage })));
@@ -126,6 +129,8 @@ const TaxSettingsPage = lazy(() => import('@/features/settings/tax-settings-page
 const ReceiptTemplatePage = lazy(() => import('@/features/settings/receipt-template-page').then(m => ({ default: m.ReceiptTemplatePage })));
 const OperatingHoursPage = lazy(() => import('@/features/settings/operating-hours-page').then(m => ({ default: m.OperatingHoursPage })));
 const ModifierGroupsPage = lazy(() => import('@/features/settings/modifier-groups-page').then(m => ({ default: m.ModifierGroupsPage })));
+const FeaturesPage = lazy(() => import('@/features/settings/features-page').then(m => ({ default: m.FeaturesPage })));
+const BusinessTypePage = lazy(() => import('@/features/settings/business-type-page').then(m => ({ default: m.BusinessTypePage })));
 
 // Audit
 const AuditPage = lazy(() => import('@/features/audit/audit-page').then(m => ({ default: m.AuditPage })));
@@ -136,6 +141,12 @@ const IngredientsPage = lazy(() => import('@/features/ingredients/ingredients-pa
 // Online Store & Self Order
 const OnlineStorePage = lazy(() => import('@/features/online-store/online-store-page').then(m => ({ default: m.OnlineStorePage })));
 const SelfOrderPage = lazy(() => import('@/features/self-order/self-order-page').then(m => ({ default: m.SelfOrderPage })));
+
+// Phase 2: Service Business
+const AppointmentsPage = lazy(() => import('@/features/appointments/appointments-page').then(m => ({ default: m.AppointmentsPage })));
+const WorkOrdersPage = lazy(() => import('@/features/work-orders/work-orders-page').then(m => ({ default: m.WorkOrdersPage })));
+const SerialNumbersPage = lazy(() => import('@/features/inventory/serial-numbers-page').then(m => ({ default: m.SerialNumbersPage })));
+const ItemTrackingPage = lazy(() => import('@/features/item-tracking/item-tracking-page').then(m => ({ default: m.ItemTrackingPage })));
 
 // Help & Profile
 const HelpCenterPage = lazy(() => import('@/features/help/help-center-page').then(m => ({ default: m.HelpCenterPage })));
@@ -348,6 +359,30 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: 'inventory/price-tiers',
+        element: (
+          <LazyRoute>
+            <PriceTiersPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'inventory/unit-conversion',
+        element: (
+          <LazyRoute>
+            <UnitConversionPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'inventory/batch-tracking',
+        element: (
+          <LazyRoute>
+            <BatchTrackingPage />
+          </LazyRoute>
+        ),
+      },
+      {
         path: 'orders',
         element: (
           <LazyRoute>
@@ -424,6 +459,38 @@ export const router = createBrowserRouter([
         element: (
           <LazyRoute>
             <IngredientsPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'appointments',
+        element: (
+          <LazyRoute>
+            <AppointmentsPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'work-orders',
+        element: (
+          <LazyRoute>
+            <WorkOrdersPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'inventory/serial-numbers',
+        element: (
+          <LazyRoute>
+            <SerialNumbersPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'item-tracking',
+        element: (
+          <LazyRoute>
+            <ItemTrackingPage />
           </LazyRoute>
         ),
       },
@@ -576,6 +643,26 @@ export const router = createBrowserRouter([
         element: (
           <LazyRoute>
             <ModifierGroupsPage />
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'settings/features',
+        element: (
+          <LazyRoute>
+            <RoleGuard allowedRoles={['owner', 'super_admin']}>
+              <FeaturesPage />
+            </RoleGuard>
+          </LazyRoute>
+        ),
+      },
+      {
+        path: 'settings/business-type',
+        element: (
+          <LazyRoute>
+            <RoleGuard allowedRoles={['owner', 'super_admin']}>
+              <BusinessTypePage />
+            </RoleGuard>
           </LazyRoute>
         ),
       },

@@ -1,13 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui.store';
+import { useFeatureStore } from '@/stores/feature.store';
 import {
   LayoutDashboard, Package, Users, UserRound, ChevronLeft, ShoppingCart,
   Receipt, BarChart3, Warehouse, ArrowLeftRight, Truck, ClipboardList,
   UtensilsCrossed, MonitorPlay, Clock, CalendarDays, Tag, Heart,
   FlaskConical, Globe, QrCode, ScrollText, Settings, Building2, Monitor, Bell,
   Banknote, Ticket, Filter, Calculator, Printer, ListPlus, ChevronDown,
+  ToggleLeft, Store, TrendingUp, RefreshCw, Calendar, Wrench, Hash,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -73,6 +75,18 @@ const navSections: NavSection[] = [
       { to: '/app/inventory/transfers', label: 'Transfer', icon: ArrowLeftRight },
       { to: '/app/inventory/suppliers', label: 'Supplier', icon: Truck },
       { to: '/app/inventory/purchase-orders', label: 'Purchase Order', icon: ClipboardList },
+      { to: '/app/inventory/price-tiers', label: 'Harga Bertingkat', icon: TrendingUp },
+      { to: '/app/inventory/unit-conversion', label: 'Konversi Satuan', icon: RefreshCw },
+      { to: '/app/inventory/batch-tracking', label: 'Batch & Expiry', icon: Calendar },
+      { to: '/app/inventory/serial-numbers', label: 'Serial Number', icon: Hash },
+    ],
+  },
+  {
+    title: 'Layanan',
+    items: [
+      { to: '/app/appointments', label: 'Appointment', icon: CalendarDays },
+      { to: '/app/work-orders', label: 'Work Order', icon: Wrench },
+      { to: '/app/item-tracking', label: 'Item Tracking', icon: Package },
     ],
   },
   {
@@ -106,6 +120,8 @@ const navSections: NavSection[] = [
       { to: '/app/settings/receipt', label: 'Struk', icon: Printer },
       { to: '/app/settings/hours', label: 'Jam Operasional', icon: Clock },
       { to: '/app/settings/modifiers', label: 'Modifier', icon: ListPlus },
+      { to: '/app/settings/business-type', label: 'Tipe Bisnis', icon: Store },
+      { to: '/app/settings/features', label: 'Fitur', icon: ToggleLeft },
     ],
   },
 ];
@@ -156,6 +172,17 @@ function PremiumNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const isPathVisible = useFeatureStore((s) => s.isPathVisible);
+
+  // Filter nav sections based on enabled features
+  const filteredSections = useMemo(() => {
+    return navSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => isPathVisible(item.to)),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [isPathVisible]);
 
   // Load expanded sections from localStorage or default to all expanded
   const [expandedSections, setExpandedSections] = useState<Set<number>>(() => {
@@ -164,10 +191,10 @@ export function Sidebar() {
       try {
         return new Set(JSON.parse(saved));
       } catch {
-        return new Set(navSections.map((_, idx) => idx));
+        return new Set(filteredSections.map((_, idx) => idx));
       }
     }
-    return new Set(navSections.map((_, idx) => idx));
+    return new Set(filteredSections.map((_, idx) => idx));
   });
 
   // Persist expanded sections to localStorage
@@ -234,7 +261,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2.5">
-        {navSections.map((section, idx) => {
+        {filteredSections.map((section, idx) => {
           const isExpanded = expandedSections.has(idx);
           const hasTitle = !!section.title;
 

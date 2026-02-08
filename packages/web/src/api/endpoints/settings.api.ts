@@ -129,7 +129,7 @@ export const settingsApi = {
     if (!outletId) {
       return Promise.resolve({
         id: '',
-        schedule: DAY_DEFAULTS.map((d) => ({ ...d, isOpen: true, openTime: '08:00', closeTime: '22:00' })),
+        schedule: DAY_DEFAULTS.map((d) => ({ ...d, isOpen: false, openTime: '', closeTime: '' })),
         specialHours: [],
         businessId: '',
       } as OperatingHours);
@@ -142,9 +142,9 @@ export const settingsApi = {
         return {
           day: def.day,
           dayLabel: def.dayLabel,
-          isOpen: entry ? !entry.isClosed : true,
-          openTime: entry?.openTime ?? '08:00',
-          closeTime: entry?.closeTime ?? '22:00',
+          isOpen: entry ? !entry.isClosed : false,
+          openTime: entry?.openTime ?? '',
+          closeTime: entry?.closeTime ?? '',
         };
       });
       return { id: outletId, schedule, specialHours: [], businessId: '' } as OperatingHours;

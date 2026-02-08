@@ -4,12 +4,15 @@ import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
+import { useFeatureStore } from '@/stores/feature.store';
+import { featuresApi } from '@/api/endpoints/features.api';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
 import { GlobalShortcutsDialog } from './global-shortcuts-dialog';
 import { OnboardingWizard } from '@/features/onboarding/onboarding-wizard';
 import { useOnboarding } from '@/features/onboarding/onboarding-provider';
 import { useCompleteOnboarding } from '@/features/onboarding/use-onboarding';
 import { CommandPalette, useCommandPalette } from '@/components/shared/command-palette';
+import { RealtimeProvider } from '@/components/shared/realtime-provider';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpCircle } from 'lucide-react';
@@ -27,6 +30,19 @@ export function AppLayout() {
   // Enable global keyboard shortcuts across the app
   useGlobalShortcuts();
 
+  // Fetch enabled features on mount
+  const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
+  const setBusinessType = useFeatureStore((s) => s.setBusinessType);
+  useEffect(() => {
+    featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => {
+      // If feature API fails, show all features (graceful degradation)
+      setEnabledFeatures([]);
+    });
+    featuresApi.getBusinessType().then((data) => {
+      setBusinessType(data.businessType?.code ?? null);
+    }).catch(() => {});
+  }, [setEnabledFeatures, setBusinessType]);
+
   // Auto-collapse sidebar on POS and KDS pages for maximum screen space
   useEffect(() => {
     const autoCollapsePaths = ['/pos', '/kds'];
@@ -43,6 +59,10 @@ export function AppLayout() {
 
   // Check if user needs onboarding
   useEffect(() => {
+    // Check if already completed via localStorage (client-side persistence)
+    const localCompleted = localStorage.getItem('tilo_onboarding_completed') === 'true';
+    if (localCompleted) return;
+
     // Allow disabling auto-show via localStorage for development
     const disableAutoShow = localStorage.getItem('tilo-disable-onboarding-autoshow') === 'true';
     if (disableAutoShow) return;
@@ -69,6 +89,7 @@ export function AppLayout() {
   };
 
   return (
+    <RealtimeProvider>
     <TooltipProvider>
       <div className="min-h-screen bg-background">
         <Sidebar />
@@ -100,5 +121,6 @@ export function AppLayout() {
         <OnboardingWizard onComplete={handleOnboardingComplete} />
       </div>
     </TooltipProvider>
+    </RealtimeProvider>
   );
 }
