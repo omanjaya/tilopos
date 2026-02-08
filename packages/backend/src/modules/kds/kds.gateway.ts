@@ -54,6 +54,19 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
         occurredOn: event.occurredOn,
       });
 
+      // Emit order:new when a new order is created (pending status from empty previous)
+      if (event.newStatus === 'pending' && !event.previousStatus) {
+        this.server.to(`outlet:${event.outletId}`).emit('order:new', {
+          orderId: event.orderId,
+          outletId: event.outletId,
+          createdAt: event.occurredOn.toISOString(),
+        });
+
+        this.logger.log(
+          `New order event emitted for order ${event.orderId} in outlet ${event.outletId}`,
+        );
+      }
+
       // Emit order:ready event to outlet room when order is bumped to "ready"
       if (event.newStatus === 'ready') {
         this.server.to(`outlet:${event.outletId}`).emit('order:ready', {
@@ -70,7 +83,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
     });
 
     this.logger.log(
-      'KDS Gateway initialized with multi-station support and order:ready notifications',
+      'KDS Gateway initialized with multi-station support, order:new and order:ready notifications',
     );
   }
 

@@ -59,7 +59,7 @@ export async function exportToExcel(
   summary?: { label: string; value: string | number }[]
 ) {
   // Dynamic import ExcelJS (lazy load for better performance)
-  const ExcelJS = (await import('exceljs')).default;
+  const ExcelJS = await import('exceljs');
 
   // Create workbook and worksheet
   const workbook = new ExcelJS.Workbook();

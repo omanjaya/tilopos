@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { transactionsApi } from '@/api/endpoints/transactions.api';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { Button } from '@/components/ui/button';
@@ -78,16 +80,24 @@ export function TransactionsPage() {
   const [refundTarget, setRefundTarget] = useState<Transaction | null>(null);
   const [refundReason, setRefundReason] = useState('');
 
+  // Get outlet context - fixes data inconsistency issue
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId;
+
   const { data: transactionsData, isLoading } = useQuery({
-    queryKey: ['transactions', search, statusFilter, startDate, endDate],
+    queryKey: ['transactions', outletId, search, statusFilter, startDate, endDate],
     queryFn: () =>
       transactionsApi.list({
+        outletId: outletId || undefined, // Convert null to undefined for type safety
         search: search || undefined,
         status: statusFilter !== 'all' ? (statusFilter as TransactionStatus) : undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
       }),
+    enabled: !!outletId, // Only fetch when outletId is available
   });
+
 
   const voidMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => transactionsApi.void(id, reason),

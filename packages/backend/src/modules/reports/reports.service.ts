@@ -52,7 +52,7 @@ export interface AvailableMetricsResult {
   dimensions: { key: ReportDimension; label: string; description: string }[];
 }
 
-export interface ReportTemplate {
+export interface ReportTemplateDto {
   id: string;
   businessId: string;
   name: string;
@@ -63,10 +63,6 @@ export interface ReportTemplate {
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
-
-  /** In-memory template store (in production, use a DB table) */
-  private readonly templates = new Map<string, ReportTemplate>();
-  private templateCounter = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -325,42 +321,48 @@ export class ReportsService {
   // ========================================================================
 
   /**
-   * Saves report configuration as a named template.
+   * Saves report configuration as a named template (persisted in DB).
    */
   async saveReportTemplate(
     businessId: string,
     name: string,
     config: CustomReportConfig,
-  ): Promise<ReportTemplate> {
-    this.templateCounter++;
-    const id = `template_${businessId}_${this.templateCounter}`;
+  ): Promise<ReportTemplateDto> {
+    const template = await this.prisma.reportTemplate.create({
+      data: {
+        businessId,
+        name,
+        config: JSON.parse(JSON.stringify(config)),
+      },
+    });
 
-    const template: ReportTemplate = {
-      id,
-      businessId,
-      name,
-      config,
-      createdAt: new Date(),
+    this.logger.log(`Report template saved: ${name} (${template.id}) for business ${businessId}`);
+
+    return {
+      id: template.id,
+      businessId: template.businessId,
+      name: template.name,
+      config: template.config as unknown as CustomReportConfig,
+      createdAt: template.createdAt,
     };
-
-    this.templates.set(id, template);
-
-    this.logger.log(`Report template saved: ${name} (${id}) for business ${businessId}`);
-
-    return template;
   }
 
   /**
-   * List saved report templates for the business.
+   * List saved report templates for the business (from DB).
    */
-  async getSavedTemplates(businessId: string): Promise<ReportTemplate[]> {
-    const templates: ReportTemplate[] = [];
-    for (const template of this.templates.values()) {
-      if (template.businessId === businessId) {
-        templates.push(template);
-      }
-    }
-    return templates.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  async getSavedTemplates(businessId: string): Promise<ReportTemplateDto[]> {
+    const templates = await this.prisma.reportTemplate.findMany({
+      where: { businessId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return templates.map((t) => ({
+      id: t.id,
+      businessId: t.businessId,
+      name: t.name,
+      config: t.config as unknown as CustomReportConfig,
+      createdAt: t.createdAt,
+    }));
   }
 
   // ========================================================================

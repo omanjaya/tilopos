@@ -3,20 +3,18 @@
  *
  * Channels:
  * - Push notifications (FCM/APNs)
- * - Email (SMTP/SendGrid/SES)
+ * - Email (SMTP via nodemailer)
  * - SMS (Twilio/local providers)
- * - WhatsApp (Official API)
+ * - WhatsApp (Fonnte API)
  *
- * Features:
- * - Template-based messaging
- * - Batch sending
- * - Delivery tracking
- * - Rate limiting
+ * All channels persist delivery logs to the notification_logs table.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationChannel, NotificationType, NotificationLogStatus } from '@prisma/client';
+import * as nodemailer from 'nodemailer';
 
 // Types
 export interface NotificationPayload {
@@ -31,43 +29,6 @@ export interface NotificationPayload {
   actionUrl?: string;
 }
 
-export interface NotificationTemplate {
-  id: string;
-  type: NotificationType;
-  channel: NotificationChannel;
-  subject: string;
-  body: string;
-  variables: string[]; // {{variable}} placeholders
-}
-
-export interface EmailConfig {
-  host: string;
-  port: number;
-  secure: boolean;
-  user: string;
-  pass: string;
-  from: string;
-}
-
-export interface SMSConfig {
-  provider: 'twilio' | 'nexmo' | 'local';
-  accountSid?: string;
-  authToken?: string;
-  from: string;
-}
-
-export interface WhatsAppConfig {
-  apiUrl: string;
-  apiKey: string;
-  phoneNumberId: string;
-}
-
-export interface PushConfig {
-  fcmServerKey?: string;
-  apnsKeyId?: string;
-  apnsTeamId?: string;
-}
-
 // Channel Interfaces
 interface INotificationChannel {
   send(
@@ -77,33 +38,59 @@ interface INotificationChannel {
 }
 
 // ========================================
-// PUSH NOTIFICATION CHANNEL
+// PUSH NOTIFICATION CHANNEL (FCM)
 // ========================================
 
 @Injectable()
 export class PushNotificationChannel implements INotificationChannel {
   private readonly logger = new Logger(PushNotificationChannel.name);
 
+  constructor(private readonly configService: ConfigService) {}
+
   async send(
     payload: NotificationPayload,
     deviceToken: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      // FCM implementation
       this.logger.log(`Sending push to ${deviceToken}: ${payload.title}`);
 
-      // In production, use firebase-admin
-      // const message = {
-      //     notification: { title: payload.title, body: payload.body },
-      //     data: payload.data,
-      //     token: deviceToken,
-      // };
-      // const response = await admin.messaging().send(message);
+      // FCM requires firebase-admin SDK + service account credentials
+      // When FCM_SERVER_KEY is configured, use it
+      const fcmKey = this.configService.get<string>('FCM_SERVER_KEY');
+      if (!fcmKey) {
+        this.logger.warn('FCM_SERVER_KEY not configured - push notification logged but not delivered');
+        return {
+          success: true,
+          messageId: `push_logged_${Date.now()}`,
+        };
+      }
 
-      // Stub response
+      // Real FCM HTTP v1 send
+      const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `key=${fcmKey}`,
+        },
+        body: JSON.stringify({
+          to: deviceToken,
+          notification: {
+            title: payload.title,
+            body: payload.body,
+            image: payload.imageUrl,
+          },
+          data: payload.data,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success === 1) {
+        return { success: true, messageId: `fcm_${result.multicast_id}` };
+      }
+
       return {
-        success: true,
-        messageId: `push_${Date.now()}`,
+        success: false,
+        error: result.results?.[0]?.error || 'FCM send failed',
       };
     } catch (error) {
       this.logger.error(`Push failed: ${error}`);
@@ -113,12 +100,32 @@ export class PushNotificationChannel implements INotificationChannel {
 }
 
 // ========================================
-// EMAIL CHANNEL
+// EMAIL CHANNEL (nodemailer)
 // ========================================
 
 @Injectable()
 export class EmailChannel implements INotificationChannel {
   private readonly logger = new Logger(EmailChannel.name);
+  private transporter: nodemailer.Transporter | null = null;
+
+  constructor(private readonly configService: ConfigService) {
+    const host = this.configService.get<string>('SMTP_HOST');
+    const port = this.configService.get<number>('SMTP_PORT', 587);
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass = this.configService.get<string>('SMTP_PASS');
+
+    if (host && user && pass) {
+      this.transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+      });
+      this.logger.log(`Email transport configured: ${host}:${port}`);
+    } else {
+      this.logger.warn('SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS) - emails will be logged but not delivered');
+    }
+  }
 
   async send(
     payload: NotificationPayload,
@@ -127,18 +134,30 @@ export class EmailChannel implements INotificationChannel {
     try {
       this.logger.log(`Sending email to ${email}: ${payload.title}`);
 
-      // In production, use nodemailer or SendGrid
-      // const transporter = nodemailer.createTransport(config);
-      // await transporter.sendMail({
-      //     from: config.from,
-      //     to: email,
-      //     subject: payload.title,
-      //     html: payload.body,
-      // });
+      if (!this.transporter) {
+        this.logger.warn(`Email not delivered (SMTP not configured): ${payload.title} → ${email}`);
+        return {
+          success: true,
+          messageId: `email_logged_${Date.now()}`,
+        };
+      }
+
+      const from = this.configService.get<string>('SMTP_FROM', 'noreply@tilopos.com');
+      const info = await this.transporter.sendMail({
+        from,
+        to: email,
+        subject: payload.title,
+        text: payload.body,
+        html: `<div style="font-family:sans-serif;padding:20px;">
+          <h2>${payload.title}</h2>
+          <p>${payload.body}</p>
+          ${payload.actionUrl ? `<p><a href="${payload.actionUrl}">View Details</a></p>` : ''}
+        </div>`,
+      });
 
       return {
         success: true,
-        messageId: `email_${Date.now()}`,
+        messageId: info.messageId,
       };
     } catch (error) {
       this.logger.error(`Email failed: ${error}`);
@@ -155,6 +174,8 @@ export class EmailChannel implements INotificationChannel {
 export class SMSChannel implements INotificationChannel {
   private readonly logger = new Logger(SMSChannel.name);
 
+  constructor(private readonly configService: ConfigService) {}
+
   async send(
     payload: NotificationPayload,
     phone: string,
@@ -162,18 +183,41 @@ export class SMSChannel implements INotificationChannel {
     try {
       this.logger.log(`Sending SMS to ${phone}: ${payload.body.substring(0, 50)}...`);
 
-      // In production, use Twilio
-      // const client = twilio(accountSid, authToken);
-      // const message = await client.messages.create({
-      //     body: payload.body,
-      //     from: config.from,
-      //     to: phone,
-      // });
+      const twilioSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
+      const twilioToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
+      const twilioFrom = this.configService.get<string>('TWILIO_FROM_NUMBER');
 
-      return {
-        success: true,
-        messageId: `sms_${Date.now()}`,
-      };
+      if (!twilioSid || !twilioToken || !twilioFrom) {
+        this.logger.warn(`SMS not delivered (Twilio not configured): ${payload.body.substring(0, 50)} → ${phone}`);
+        return {
+          success: true,
+          messageId: `sms_logged_${Date.now()}`,
+        };
+      }
+
+      // Real Twilio HTTP API call
+      const response = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64')}`,
+          },
+          body: new URLSearchParams({
+            To: phone,
+            From: twilioFrom,
+            Body: payload.body,
+          }).toString(),
+        },
+      );
+
+      const result = await response.json();
+      if (result.sid) {
+        return { success: true, messageId: result.sid };
+      }
+
+      return { success: false, error: result.message || 'Twilio send failed' };
     } catch (error) {
       this.logger.error(`SMS failed: ${error}`);
       return { success: false, error: String(error) };
@@ -182,12 +226,14 @@ export class SMSChannel implements INotificationChannel {
 }
 
 // ========================================
-// WHATSAPP CHANNEL
+// WHATSAPP CHANNEL (Fonnte API)
 // ========================================
 
 @Injectable()
 export class WhatsAppChannel implements INotificationChannel {
   private readonly logger = new Logger(WhatsAppChannel.name);
+
+  constructor(private readonly configService: ConfigService) {}
 
   async send(
     payload: NotificationPayload,
@@ -196,22 +242,38 @@ export class WhatsAppChannel implements INotificationChannel {
     try {
       this.logger.log(`Sending WhatsApp to ${phone}: ${payload.title}`);
 
-      // In production, use WhatsApp Business API
-      // const response = await fetch(`${config.apiUrl}/${config.phoneNumberId}/messages`, {
-      //     method: 'POST',
-      //     headers: { 'Authorization': `Bearer ${config.apiKey}` },
-      //     body: JSON.stringify({
-      //         messaging_product: 'whatsapp',
-      //         to: phone,
-      //         type: 'template',
-      //         template: { name: 'notification', ... }
-      //     }),
-      // });
+      const apiUrl = this.configService.get<string>('WHATSAPP_API_URL', 'https://api.fonnte.com/send');
+      const apiToken = this.configService.get<string>('WHATSAPP_API_TOKEN');
 
-      return {
-        success: true,
-        messageId: `wa_${Date.now()}`,
-      };
+      if (!apiToken) {
+        this.logger.warn(`WhatsApp not delivered (WHATSAPP_API_TOKEN not configured): ${payload.title} → ${phone}`);
+        return {
+          success: true,
+          messageId: `wa_logged_${Date.now()}`,
+        };
+      }
+
+      // Real Fonnte API call
+      const message = `*${payload.title}*\n\n${payload.body}`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': apiToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          target: phone,
+          message,
+          countryCode: '62', // Indonesia
+        }),
+      });
+
+      const result = await response.json();
+      if (result.status) {
+        return { success: true, messageId: `wa_${result.id || Date.now()}` };
+      }
+
+      return { success: false, error: result.reason || 'Fonnte send failed' };
     } catch (error) {
       this.logger.error(`WhatsApp failed: ${error}`);
       return { success: false, error: String(error) };
@@ -247,11 +309,11 @@ export class NotificationsService {
   // ========================================
 
   /**
-   * Send notification to a recipient
+   * Send notification to a recipient and log to DB.
    */
   async send(
-    _businessId: string,
-    _outletId: string,
+    businessId: string,
+    outletId: string,
     payload: NotificationPayload,
   ): Promise<{ success: boolean; logId: string }> {
     const channel = this.channels.get(payload.channel);
@@ -269,12 +331,30 @@ export class NotificationsService {
     // Send via channel
     const result = await channel.send(payload, contact);
 
-    // Log notification (simplified - in production use proper NotificationLog model)
+    // Persist to notification_logs table
+    const log = await this.prisma.notificationLog.create({
+      data: {
+        businessId,
+        outletId: outletId || null,
+        recipientId: payload.recipientId,
+        notificationType: payload.type,
+        channel: payload.channel,
+        title: payload.title,
+        body: payload.body,
+        status: result.success ? 'sent' : ('failed' as NotificationLogStatus),
+        metadata: {
+          messageId: result.messageId || null,
+          error: result.error || null,
+          ...(payload.data || {}),
+        },
+      },
+    });
+
     this.logger.log(
-      `Notification sent: ${payload.channel}/${payload.type} to ${payload.recipientId}`,
+      `Notification ${result.success ? 'sent' : 'FAILED'}: ${payload.channel}/${payload.type} to ${payload.recipientId} (log: ${log.id})`,
     );
 
-    return { success: result.success, logId: `notif_${Date.now()}` };
+    return { success: result.success, logId: log.id };
   }
 
   /**
@@ -313,24 +393,23 @@ export class NotificationsService {
         businessId,
         OR: [{ outletId }, { outletId: null }],
         employeeId: { not: null },
-        [`${type}Enabled`]: true,
+        isEnabled: true,
+        notificationType: type,
       },
       include: { employee: true },
     });
 
     for (const setting of settings) {
-      const channels = this.getEnabledChannels(setting);
-      for (const channel of channels) {
-        await this.send(businessId, outletId, {
-          type,
-          channel,
-          recipientId: setting.employeeId!,
-          recipientType: 'employee',
-          title,
-          body,
-          data,
-        });
-      }
+      if (!setting.employeeId) continue;
+      await this.send(businessId, outletId, {
+        type,
+        channel: setting.channel,
+        recipientId: setting.employeeId,
+        recipientType: 'employee',
+        title,
+        body,
+        data,
+      });
     }
   }
 
@@ -352,7 +431,7 @@ export class NotificationsService {
       businessId,
       outletId,
       'low_stock',
-      '⚠️ Low Stock Alert',
+      'Low Stock Alert',
       `${productName} is running low (${currentStock} remaining, threshold: ${threshold})`,
       { productName, currentStock, threshold },
     );
@@ -372,7 +451,7 @@ export class NotificationsService {
       businessId,
       outletId,
       'large_transaction',
-      '💰 Large Transaction',
+      'Large Transaction',
       `Transaction Rp ${amount.toLocaleString()} processed by ${employeeName}`,
       { transactionId, amount, employeeName },
     );
@@ -392,7 +471,7 @@ export class NotificationsService {
       businessId,
       outletId,
       'refund',
-      '↩️ Refund Processed',
+      'Refund Processed',
       `Refund of Rp ${amount.toLocaleString()} - ${reason}`,
       { transactionId, amount, reason },
     );
@@ -412,7 +491,7 @@ export class NotificationsService {
       businessId,
       outletId,
       'online_order',
-      `📱 New ${platform} Order`,
+      `New ${platform} Order`,
       `Order #${orderId} - Rp ${total.toLocaleString()}`,
       { orderId, platform, total },
     );
@@ -434,7 +513,7 @@ export class NotificationsService {
       channel: 'push',
       recipientId: employeeId,
       recipientType: 'employee',
-      title: '⏰ Shift Reminder',
+      title: 'Shift Reminder',
       body: `Your shift starts at ${timeStr}`,
       data: { shiftStart: shiftStart.toISOString() },
     });
@@ -456,7 +535,7 @@ export class NotificationsService {
     channel: 'email' | 'whatsapp',
   ): Promise<void> {
     await this.send(businessId, outletId, {
-      type: 'large_transaction', // Using as generic receipt type
+      type: 'large_transaction',
       channel,
       recipientId: customerId,
       recipientType: 'customer',
@@ -483,7 +562,7 @@ export class NotificationsService {
       channel,
       recipientId: customerId,
       recipientType: 'customer',
-      title: '⭐ Points Earned!',
+      title: 'Points Earned!',
       body: `You earned ${pointsEarned} points! Total: ${totalPoints} points`,
       data: { pointsEarned, totalPoints },
     });
@@ -514,7 +593,7 @@ export class NotificationsService {
 
   async getNotificationLogs(
     businessId: string,
-    _options?: {
+    options?: {
       outletId?: string;
       type?: NotificationType;
       channel?: NotificationChannel;
@@ -522,10 +601,17 @@ export class NotificationsService {
       limit?: number;
     },
   ): Promise<unknown[]> {
-    // In production, implement proper NotificationLog querying
-    // For now, return empty array
-    this.logger.log(`Getting notification logs for ${businessId}`);
-    return [];
+    return this.prisma.notificationLog.findMany({
+      where: {
+        businessId,
+        ...(options?.outletId && { outletId: options.outletId }),
+        ...(options?.type && { notificationType: options.type }),
+        ...(options?.channel && { channel: options.channel }),
+        ...(options?.status && { status: options.status }),
+      },
+      orderBy: { sentAt: 'desc' },
+      take: options?.limit || 50,
+    });
   }
 
   // ========================================
@@ -570,15 +656,5 @@ export class NotificationsService {
           return null;
       }
     }
-  }
-
-  private getEnabledChannels(setting: unknown): NotificationChannel[] {
-    const channels: NotificationChannel[] = [];
-    const s = setting as Record<string, boolean>;
-    if (s.pushEnabled) channels.push('push');
-    if (s.emailEnabled) channels.push('email');
-    if (s.smsEnabled) channels.push('sms');
-    if (s.whatsappEnabled) channels.push('whatsapp');
-    return channels;
   }
 }

@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { posApi } from '@/api/endpoints/pos.api';
+import { apiClient } from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 import { useCartStore } from '@/stores/cart.store';
 import { useAuthStore } from '@/stores/auth.store';
@@ -57,16 +58,32 @@ export function usePosTransaction({
     });
 
     // Handle checkout complete
-    const handleCheckoutComplete = () => {
+    const handleCheckoutComplete = async () => {
         if (items.length === 0) return;
+
+        // Fetch current active shift from backend
+        let shiftId: string | null = null;
+        try {
+            const res = await apiClient.get('/employees/shifts/current');
+            shiftId = (res.data as { id: string })?.id ?? null;
+        } catch {
+            // No active shift
+        }
+
+        if (!shiftId) {
+            toast({
+                title: 'Tidak Ada Shift Aktif',
+                description: 'Silakan mulai shift terlebih dahulu sebelum membuat transaksi.',
+                variant: 'destructive',
+            });
+            return;
+        }
 
         // Build transaction request
         const request = {
             outletId,
             employeeId: user?.employeeId ?? '',
-            // TODO: Implement GET /api/v1/shifts/current endpoint to fetch active shift
-            // For now, using the active shift ID from the database
-            shiftId: '1e6f1a55-7a6c-4bd8-b0e3-aadd3a7ae8d0',
+            shiftId,
             orderType: useCartStore.getState().orderType,
             items: items.map((item) => ({
                 productId: item.productId,

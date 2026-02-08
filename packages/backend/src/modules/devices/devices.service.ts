@@ -32,14 +32,6 @@ export interface DeviceUpdateCheckResult {
 export class DevicesService {
   private readonly logger = new Logger(DevicesService.name);
 
-  /**
-   * In-memory store for app versions.
-   * In production, this should be a dedicated database table (e.g., app_versions).
-   * Structure: Map<id, AppVersionRecord>
-   */
-  private readonly appVersions = new Map<string, AppVersionRecord>();
-  private versionCounter = 0;
-
   constructor(private readonly prisma: PrismaService) {}
 
   // ==================== Version Management ====================
@@ -48,12 +40,22 @@ export class DevicesService {
    * List all published app versions, optionally filtered by platform.
    */
   async listVersions(platform?: string): Promise<AppVersionRecord[]> {
-    const versions = Array.from(this.appVersions.values());
+    const versions = await this.prisma.appVersion.findMany({
+      where: platform ? { platform } : undefined,
+      orderBy: { publishedAt: 'desc' },
+    });
 
-    const filtered = platform ? versions.filter((v) => v.platform === platform) : versions;
-
-    // Sort by publish date descending (newest first)
-    return filtered.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+    return versions.map((v) => ({
+      id: v.id,
+      version: v.version,
+      platform: v.platform,
+      releaseNotes: v.releaseNotes,
+      downloadUrl: v.downloadUrl,
+      minRequired: v.minRequired,
+      forceUpdate: v.forceUpdate,
+      publishedAt: v.publishedAt,
+      createdAt: v.createdAt,
+    }));
   }
 
   /**
@@ -72,9 +74,9 @@ export class DevicesService {
     }
 
     // Check if this version already exists for the platform
-    const existing = Array.from(this.appVersions.values()).find(
-      (v) => v.version === data.version && v.platform === data.platform,
-    );
+    const existing = await this.prisma.appVersion.findFirst({
+      where: { version: data.version, platform: data.platform },
+    });
 
     if (existing) {
       throw new BadRequestException(
@@ -82,31 +84,36 @@ export class DevicesService {
       );
     }
 
-    this.versionCounter++;
-    const id = `appver_${this.versionCounter}_${Date.now()}`;
-
-    const record: AppVersionRecord = {
-      id,
-      version: data.version,
-      platform: data.platform,
-      releaseNotes: data.releaseNotes || null,
-      downloadUrl: data.downloadUrl || null,
-      minRequired: null,
-      forceUpdate: data.forceUpdate || false,
-      publishedAt: new Date(),
-      createdAt: new Date(),
-    };
-
-    this.appVersions.set(id, record);
+    const record = await this.prisma.appVersion.create({
+      data: {
+        version: data.version,
+        platform: data.platform,
+        releaseNotes: data.releaseNotes || null,
+        downloadUrl: data.downloadUrl || null,
+        forceUpdate: data.forceUpdate || false,
+      },
+    });
 
     this.logger.log(
       `Published version ${data.version} for ${data.platform} (force: ${data.forceUpdate})`,
     );
 
-    // Notify devices of the platform about the new version
-    await this.notifyDevicesOfUpdate(data.platform, record);
+    const versionRecord: AppVersionRecord = {
+      id: record.id,
+      version: record.version,
+      platform: record.platform,
+      releaseNotes: record.releaseNotes,
+      downloadUrl: record.downloadUrl,
+      minRequired: record.minRequired,
+      forceUpdate: record.forceUpdate,
+      publishedAt: record.publishedAt,
+      createdAt: record.createdAt,
+    };
 
-    return record;
+    // Notify devices of the platform about the new version
+    await this.notifyDevicesOfUpdate(data.platform, versionRecord);
+
+    return versionRecord;
   }
 
   /**
@@ -132,7 +139,7 @@ export class DevicesService {
     const platform = device.platform;
 
     // Find the latest version for this device's platform
-    const latestVersion = platform ? this.getLatestVersionForPlatform(platform) : null;
+    const latestVersion = platform ? await this.getLatestVersionForPlatform(platform) : null;
 
     let updateAvailable = false;
     let forceUpdate = false;
@@ -261,12 +268,29 @@ export class DevicesService {
   /**
    * Get the latest published version for a platform.
    */
-  private getLatestVersionForPlatform(platform: string): AppVersionRecord | null {
-    const versions = Array.from(this.appVersions.values())
-      .filter((v) => v.platform === platform)
-      .sort((a, b) => this.compareVersions(b.version, a.version));
+  private async getLatestVersionForPlatform(platform: string): Promise<AppVersionRecord | null> {
+    const versions = await this.prisma.appVersion.findMany({
+      where: { platform },
+      orderBy: { publishedAt: 'desc' },
+    });
 
-    return versions.length > 0 ? versions[0] : null;
+    if (versions.length === 0) return null;
+
+    // Sort by semver to find truly latest
+    const sorted = versions.sort((a, b) => this.compareVersions(b.version, a.version));
+    const v = sorted[0];
+
+    return {
+      id: v.id,
+      version: v.version,
+      platform: v.platform,
+      releaseNotes: v.releaseNotes,
+      downloadUrl: v.downloadUrl,
+      minRequired: v.minRequired,
+      forceUpdate: v.forceUpdate,
+      publishedAt: v.publishedAt,
+      createdAt: v.createdAt,
+    };
   }
 
   /**

@@ -7,10 +7,10 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { EventBusService } from '../../infrastructure/events/event-bus.service';
-import { Logger } from '@nestjs/common';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 // Domain Events
 import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
@@ -47,7 +47,10 @@ export class NotificationsGateway
   private readonly logger = new Logger(NotificationsGateway.name);
   private readonly userRooms = new Map<string, Set<string>>();
 
-  constructor(private readonly eventBus: EventBusService) {}
+  constructor(
+    private readonly eventBus: EventBusService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   onModuleInit() {
     // Order events
@@ -70,6 +73,9 @@ export class NotificationsGateway
         customerId: event.customerId,
         occurredOn: event.occurredOn,
       });
+
+      // Emit shift:sales_updated for active shift banner
+      void this.emitShiftSalesUpdate(event.transactionId, event.outletId);
     });
 
     // Stock level events — emit to outlet when stock levels change
@@ -328,6 +334,41 @@ export class NotificationsGateway
   // Helper method to broadcast to all
   broadcast(event: string, data: Record<string, unknown>) {
     this.server.emit(event, data);
+  }
+
+  /**
+   * Look up the active shift for a transaction's employee and emit shift:sales_updated.
+   */
+  private async emitShiftSalesUpdate(transactionId: string, outletId: string) {
+    try {
+      const transaction = await this.prisma.transaction.findUnique({
+        where: { id: transactionId },
+        select: { employeeId: true, grandTotal: true },
+      });
+      if (!transaction || !transaction.employeeId) return;
+
+      const activeShift = await this.prisma.shift.findFirst({
+        where: { employeeId: transaction.employeeId, status: 'open' },
+        select: { id: true },
+      });
+      if (!activeShift) return;
+
+      // Aggregate shift totals
+      const aggregate = await this.prisma.transaction.aggregate({
+        where: { shiftId: activeShift.id, status: { not: 'voided' } },
+        _sum: { grandTotal: true },
+        _count: true,
+      });
+
+      this.server.to(`outlet:${outletId}`).emit('shift:sales_updated', {
+        shiftId: activeShift.id,
+        totalSales: Number(aggregate._sum?.grandTotal ?? 0),
+        totalTransactions: aggregate._count,
+        occurredOn: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.logger.error('Failed to emit shift:sales_updated', error);
+    }
   }
 
   /**

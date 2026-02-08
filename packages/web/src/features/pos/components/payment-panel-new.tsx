@@ -7,6 +7,7 @@ import {
     X,
     Check,
     Plus,
+    Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,6 +28,7 @@ import type { PaymentMethod, PaymentEntry } from '@/types/pos.types';
 interface PaymentPanelProps {
     onComplete: () => void;
     onCancel: () => void;
+    isProcessing?: boolean;
 }
 
 interface PaymentMethodOption {
@@ -45,7 +47,7 @@ const paymentMethods: PaymentMethodOption[] = [
     { id: 'ovo', name: 'OVO', icon: Wallet, color: 'bg-purple-500' },
 ];
 
-export function PaymentPanel({ onComplete, onCancel }: PaymentPanelProps) {
+export function PaymentPanel({ onComplete, onCancel, isProcessing = false }: PaymentPanelProps) {
     const { total, payments, addPayment, removePayment, totalPayments, changeDue } =
         useCartStore();
 
@@ -263,9 +265,14 @@ export function PaymentPanel({ onComplete, onCancel }: PaymentPanelProps) {
                         <Button
                             className="w-full h-11 text-sm font-semibold bg-green-600 hover:bg-green-500"
                             onClick={onComplete}
+                            disabled={isProcessing}
                         >
-                            <Check className="h-4 w-4 mr-2" />
-                            Selesai {changeDue > 0 && `— Kembalian ${formatCurrency(changeDue)}`}
+                            {isProcessing ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Check className="h-4 w-4 mr-2" />
+                            )}
+                            {isProcessing ? 'Memproses...' : `Selesai ${changeDue > 0 ? `— Kembalian ${formatCurrency(changeDue)}` : ''}`}
                         </Button>
                     )}
                 </CardFooter>

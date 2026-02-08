@@ -30,7 +30,7 @@ export function POSPage() {
     const { isOffline, pendingCount, syncStatus, manualSync, queueTransaction } = useOfflinePOS();
     const { products, categories, isLoading, refetchProducts } = usePosData({ outletId });
     const modals = usePosModals();
-    const { handleCheckoutComplete } = usePosTransaction({
+    const { handleCheckoutComplete, isProcessing } = usePosTransaction({
         outletId,
         isOffline,
         queueTransaction,
@@ -79,7 +79,7 @@ export function POSPage() {
         onPrintReceipt: () => { if (modals.receiptData) modals.setShowReceipt(true); },
         onOpenShortcutHelp: modals.openShortcutHelp,
         onCloseModal: modals.closeAllModals,
-        onConfirmAction: () => {},
+        onConfirmAction: () => { },
     });
 
     const totalQuantity = items.reduce((sum, i) => sum + i.quantity, 0);
@@ -143,6 +143,7 @@ export function POSPage() {
                 <PaymentPanel
                     onComplete={handleCheckoutComplete}
                     onCancel={() => { modals.closePayment(); clearPayments(); }}
+                    isProcessing={isProcessing}
                 />
             )}
 

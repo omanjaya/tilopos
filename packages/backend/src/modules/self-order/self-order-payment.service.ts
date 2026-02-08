@@ -1,5 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { EventBusService } from '../../infrastructure/events/event-bus.service';
+import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
 
 export interface CreatePaymentDto {
   sessionCode: string;
@@ -32,12 +34,11 @@ export interface QrisPaymentData {
 @Injectable()
 export class SelfOrderPaymentService {
   private readonly logger = new Logger(SelfOrderPaymentService.name);
-  private paymentReferences = new Map<
-    string,
-    { transactionId: string; method: string; status: string; createdAt: Date }
-  >();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
+  ) {}
 
   async calculateSessionTotal(sessionCode: string) {
     const session = await this.prisma.selfOrderSession.findUnique({
@@ -111,12 +112,15 @@ export class SelfOrderPaymentService {
     // Generate payment reference
     const transactionId = `SO-${dto.sessionCode}-${Date.now()}`;
 
-    // Store payment reference
-    this.paymentReferences.set(dto.sessionCode, {
-      transactionId,
-      method: dto.paymentMethod,
-      status: 'pending',
-      createdAt: new Date(),
+    // Store payment reference in DB
+    await this.prisma.selfOrderSession.update({
+      where: { sessionCode: dto.sessionCode },
+      data: {
+        paymentRef: transactionId,
+        paymentMethod: dto.paymentMethod,
+        paymentStatus: 'pending',
+        paymentAt: new Date(),
+      },
     });
 
     // Handle different payment methods
@@ -267,11 +271,11 @@ export class SelfOrderPaymentService {
       return;
     }
 
-    // Update payment reference status
-    const paymentRef = this.paymentReferences.get(sessionCode);
-    if (paymentRef) {
-      paymentRef.status = status;
-    }
+    // Update payment reference status in DB
+    await this.prisma.selfOrderSession.update({
+      where: { sessionCode },
+      data: { paymentStatus: status },
+    });
 
     if (status === 'success') {
       await this.prisma.selfOrderSession.update({
@@ -340,17 +344,24 @@ export class SelfOrderPaymentService {
       });
     }
 
+    // Notify KDS via event bus
+    this.eventBus.publish(new OrderStatusChangedEvent(order.id, outletId, '', 'pending'));
+
     this.logger.log(`Auto-submitted order ${orderNumber} to KDS for paid session`);
   }
 
   /**
-   * Get detailed payment status for a session.
+   * Get detailed payment status for a session (from DB).
    */
   async getPaymentStatus(sessionCode: string) {
     const session = await this.prisma.selfOrderSession.findUnique({
       where: { sessionCode },
       select: {
         status: true,
+        paymentRef: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paymentAt: true,
         updatedAt: true,
       },
     });
@@ -359,15 +370,13 @@ export class SelfOrderPaymentService {
       throw new NotFoundException('Session not found');
     }
 
-    const paymentRef = this.paymentReferences.get(sessionCode);
-
     return {
       sessionStatus: session.status,
       isPaid: session.status === 'paid',
-      paymentReference: paymentRef?.transactionId || null,
-      paymentMethod: paymentRef?.method || null,
-      paymentStatus: paymentRef?.status || null,
-      paymentCreatedAt: paymentRef?.createdAt || null,
+      paymentReference: session.paymentRef,
+      paymentMethod: session.paymentMethod,
+      paymentStatus: session.paymentStatus,
+      paymentCreatedAt: session.paymentAt,
       lastUpdated: session.updatedAt,
     };
   }

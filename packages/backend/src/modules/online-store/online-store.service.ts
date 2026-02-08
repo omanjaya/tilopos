@@ -6,6 +6,8 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { EventBusService } from '../../infrastructure/events/event-bus.service';
+import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
 import {
   CatalogSyncResult,
   StoreAnalyticsResult,
@@ -26,7 +28,10 @@ import {
 export class OnlineStoreService {
   private readonly logger = new Logger(OnlineStoreService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
+  ) {}
 
   // ========================================================================
   // CATALOG SYNC WITH STOCK CHECK
@@ -874,6 +879,38 @@ export class OnlineStoreService {
     });
 
     this.logger.log(`Storefront order created: ${orderNumber} for store ${slug}`);
+
+    // Create kitchen order for KDS so kitchen can prepare the food
+    const kitchenOrderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+    const kitchenOrder = await this.prisma.order.create({
+      data: {
+        outletId: outlet.id,
+        orderNumber: kitchenOrderNumber,
+        orderType: orderData.shippingMethod === 'pickup' ? 'takeaway' : 'delivery',
+        status: 'pending',
+        notes: `Online order ${orderNumber} - ${orderData.customerName}`,
+      },
+    });
+
+    for (const item of orderItems) {
+      await this.prisma.orderItem.create({
+        data: {
+          orderId: kitchenOrder.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.productName,
+          quantity: item.quantity,
+          status: 'pending',
+        },
+      });
+    }
+
+    // Notify KDS via event bus
+    this.eventBus.publish(
+      new OrderStatusChangedEvent(kitchenOrder.id, outlet.id, '', 'pending'),
+    );
+
+    this.logger.log(`Kitchen order ${kitchenOrderNumber} created for online order ${orderNumber}`);
 
     return {
       orderId: storeOrder.id,

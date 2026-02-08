@@ -167,6 +167,11 @@ export class RabbitMqService implements OnModuleDestroy {
     const prefixedQueue = this.getPrefixedQueueName(queue);
 
     try {
+      // Assert queue exists before consuming (auto-creates if missing)
+      await this.channel.assertQueue(prefixedQueue, {
+        durable: true,
+        arguments: { 'x-dead-letter-exchange': 'tilo.dlx' },
+      });
       await this.channel.prefetch(10);
       await this.channel.consume(
         prefixedQueue,
@@ -251,8 +256,7 @@ export class RabbitMqService implements OnModuleDestroy {
   private async loadAmqpLib(): Promise<boolean> {
     try {
       // Dynamic import so the system works without amqplib installed
-      // @ts-expect-error - amqplib is an optional dependency
-      const lib = (await import('amqplib')) as typeof import('amqplib');
+      const lib = (await import('amqplib')) as unknown as AmqpLib;
       this.amqpLib = lib;
       return true;
     } catch {

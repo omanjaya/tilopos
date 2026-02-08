@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useKdsOrders } from './hooks/useKdsOrders';
+import { useKdsSocket } from './hooks/useKdsSocket';
 import { useKdsSound } from './hooks/useKdsSound';
 import { useKdsTimer } from './hooks/useKdsTimer';
 import { useKdsFilters } from './hooks/useKdsFilters';
@@ -30,6 +31,9 @@ export function KDSPage() {
     bumpingItemId,
     notifyingOrderId,
   } = useKdsOrders(outletId);
+
+  // Real-time WebSocket updates from /kds namespace
+  useKdsSocket(outletId);
 
   // Sound effects
   useKdsSound(orders);

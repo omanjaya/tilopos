@@ -64,7 +64,7 @@ export class CreateTransactionUseCase {
     private readonly inventoryRepo: IInventoryRepository,
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   async execute(input: CreateTransactionInput): Promise<CreateTransactionOutput> {
     const shift = await this.shiftRepo.findById(input.shiftId);
@@ -268,6 +268,10 @@ export class CreateTransactionUseCase {
         input.customerId || null,
       ),
     );
+
+    // Note: Order creation for KDS is handled by TransactionToOrderHandler
+    // which listens to TransactionCreatedEvent and creates the order using
+    // CreateOrderUseCase for proper event emission and KDS notification
 
     return {
       transactionId: transactionRecord.id,

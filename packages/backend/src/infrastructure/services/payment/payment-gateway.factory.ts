@@ -15,7 +15,7 @@ export class PaymentGatewayFactory {
   ) {}
 
   getGateway(provider?: string): IPaymentGateway {
-    const gateway = provider || this.configService.get<string>('PAYMENT_GATEWAY', 'mock');
+    const gateway = provider || this.configService.get<string>('PAYMENT_GATEWAY', 'xendit');
     switch (gateway) {
       case 'midtrans':
         return this.midtrans;

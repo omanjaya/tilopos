@@ -59,6 +59,77 @@ export class InventoryController {
     return this.productRepo.findByBusinessId(user.businessId);
   }
 
+  @Get('products/barcode/:code')
+  @ApiOperation({ summary: 'Lookup product by barcode or SKU' })
+  async lookupByBarcode(
+    @Param('code') code: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Try barcode first (product level)
+    let product = await this.prisma.product.findFirst({
+      where: { businessId: user.businessId, barcode: code, isActive: true },
+      include: {
+        variants: { where: { isActive: true } },
+        category: { select: { name: true } },
+        priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
+      },
+    });
+
+    if (product) return { found: true, type: 'product', product, variant: null };
+
+    // Try SKU (product level)
+    product = await this.prisma.product.findFirst({
+      where: { businessId: user.businessId, sku: code, isActive: true },
+      include: {
+        variants: { where: { isActive: true } },
+        category: { select: { name: true } },
+        priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
+      },
+    });
+
+    if (product) return { found: true, type: 'product', product, variant: null };
+
+    // Try barcode on variant
+    const variant = await this.prisma.productVariant.findFirst({
+      where: {
+        barcode: code,
+        isActive: true,
+        product: { businessId: user.businessId, isActive: true },
+      },
+      include: {
+        product: {
+          include: {
+            category: { select: { name: true } },
+            priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
+          },
+        },
+      },
+    });
+
+    if (variant) return { found: true, type: 'variant', product: variant.product, variant };
+
+    // Try SKU on variant
+    const variantBySku = await this.prisma.productVariant.findFirst({
+      where: {
+        sku: code,
+        isActive: true,
+        product: { businessId: user.businessId, isActive: true },
+      },
+      include: {
+        product: {
+          include: {
+            category: { select: { name: true } },
+            priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
+          },
+        },
+      },
+    });
+
+    if (variantBySku) return { found: true, type: 'variant', product: variantBySku.product, variant: variantBySku };
+
+    throw new NotFoundException(`No product found with barcode/SKU: ${code}`);
+  }
+
   @Post('products')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async createProduct(@Body() dto: CreateProductDto, @CurrentUser() user: AuthUser) {

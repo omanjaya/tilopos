@@ -7,6 +7,7 @@ import {
     X,
     Check,
     ChevronLeft,
+    Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,6 +30,7 @@ import type { PaymentMethod, PaymentEntry } from '@/types/pos.types';
 interface PaymentPanelProps {
     onComplete: () => void;
     onCancel: () => void;
+    isProcessing?: boolean;
 }
 
 interface PaymentMethodOption {
@@ -50,7 +52,7 @@ const paymentMethods: PaymentMethodOption[] = [
     { id: 'linkaja', name: 'LinkAja', icon: Wallet, category: 'ewallet' },
 ];
 
-export function PaymentPanel({ onComplete, onCancel }: PaymentPanelProps) {
+export function PaymentPanel({ onComplete, onCancel, isProcessing = false }: PaymentPanelProps) {
     const { total, payments, addPayment, removePayment, totalPayments, changeDue } =
         useCartStore();
 
@@ -264,14 +266,20 @@ export function PaymentPanel({ onComplete, onCancel }: PaymentPanelProps) {
 
                 <CardFooter className="border-t p-4">
                     <Button
-                        className="w-full h-14 text-lg bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400"
+                        className="w-full h-14 text-lg bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 disabled:opacity-70"
                         onClick={onComplete}
-                        disabled={!isPaid}
+                        disabled={!isPaid || isProcessing}
                     >
-                        <Check className="h-5 w-5 mr-2" />
-                        {isPaid
-                            ? `Selesai — Kembalian ${formatCurrency(changeDue)}`
-                            : `Kurang ${formatCurrency(remaining)}`}
+                        {isProcessing ? (
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        ) : (
+                            <Check className="h-5 w-5 mr-2" />
+                        )}
+                        {isProcessing
+                            ? 'Memproses...'
+                            : isPaid
+                                ? `Selesai — Kembalian ${formatCurrency(changeDue)}`
+                                : `Kurang ${formatCurrency(remaining)}`}
                     </Button>
                 </CardFooter>
             </Card>

@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { WaitingListStatus } from '@prisma/client';
 
 export interface CreateWaitingListDto {
@@ -20,7 +21,10 @@ export interface UpdateWaitingListDto {
 
 @Injectable()
 export class WaitingListService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notificationsGateway?: NotificationsGateway,
+  ) {}
 
   async create(data: CreateWaitingListDto) {
     // Calculate estimated wait based on current queue
@@ -32,7 +36,7 @@ export class WaitingListService {
     });
     const estimatedWait = (currentQueue + 1) * 15; // 15 min per party
 
-    return this.prisma.waitingList.create({
+    const entry = await this.prisma.waitingList.create({
       data: {
         outletId: data.outletId,
         customerName: data.customerName,
@@ -47,6 +51,17 @@ export class WaitingListService {
         table: { select: { name: true } },
       },
     });
+
+    // Emit real-time event
+    this.notificationsGateway?.emitQueueCustomerAdded(data.outletId, {
+      customerId: entry.id,
+      customerName: data.customerName,
+      partySize: data.partySize,
+      position: currentQueue + 1,
+      estimatedWaitMinutes: estimatedWait,
+    });
+
+    return entry;
   }
 
   async findByOutlet(outletId: string, status?: WaitingListStatus) {
@@ -98,7 +113,24 @@ export class WaitingListService {
   }
 
   async notify(id: string) {
-    return this.update(id, { status: 'notified' as WaitingListStatus });
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id },
+      select: { outletId: true, customerName: true, tableId: true },
+    });
+
+    const result = await this.update(id, { status: 'notified' as WaitingListStatus });
+
+    // Emit real-time event
+    if (entry) {
+      this.notificationsGateway?.emitQueueCustomerCalled(entry.outletId, {
+        customerId: id,
+        customerName: entry.customerName,
+        tableId: entry.tableId || '',
+        tableName: result.table?.name || '',
+      });
+    }
+
+    return result;
   }
 
   async seat(id: string, tableId: string) {
@@ -123,6 +155,16 @@ export class WaitingListService {
         occupiedAt: new Date(),
       },
     });
+
+    // Emit real-time event
+    if (entry.table) {
+      this.notificationsGateway?.emitQueueCustomerSeated(entry.outletId, {
+        customerId: entry.id,
+        customerName: entry.customerName,
+        tableId,
+        tableName: entry.table.name,
+      });
+    }
 
     return entry;
   }

@@ -1,6 +1,13 @@
 import { Module } from '@nestjs/common';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsGateway } from './notifications.gateway';
+import {
+  NotificationsService,
+  PushNotificationChannel,
+  EmailChannel,
+  SMSChannel,
+  WhatsAppChannel,
+} from './notifications.service';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaNotificationRepository } from '../../infrastructure/repositories/prisma-notification.repository';
 import { EventBusModule } from '../../infrastructure/events/event-bus.module';
@@ -15,7 +22,13 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
     NotificationsGateway,
     PrismaService,
     RealtimeMetricsService,
+    // Real notification channels
+    PushNotificationChannel,
+    EmailChannel,
+    SMSChannel,
+    WhatsAppChannel,
+    NotificationsService,
   ],
-  exports: [NotificationsGateway, RealtimeMetricsService],
+  exports: [NotificationsGateway, RealtimeMetricsService, NotificationsService],
 })
 export class NotificationsModule {}

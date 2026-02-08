@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth.store';
-
-const SOCKET_URL = import.meta.env.VITE_WS_URL || '';
-const SOCKET_NAMESPACE = '/notifications';
+import { getSharedSocket, releaseSharedSocket } from '@/hooks/realtime/socket.util';
 
 interface ShiftInfo {
   shiftId: string;
@@ -43,7 +40,6 @@ interface UseShiftStatusReturn {
 export function useShiftStatus(): UseShiftStatusReturn {
   const [currentShift, setCurrentShift] = useState<ShiftInfo | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
   const user = useAuthStore((s) => s.user);
 
   const clearShift = useCallback(() => {
@@ -51,19 +47,10 @@ export function useShiftStatus(): UseShiftStatusReturn {
   }, []);
 
   useEffect(() => {
-    const socket = io(`${SOCKET_URL}${SOCKET_NAMESPACE}`, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-    });
+    const socket = getSharedSocket();
 
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
+    const onConnect = () => {
       setIsConnected(true);
-      // Join outlet room when connected
       if (user?.outletId) {
         socket.emit('joinRoom', {
           room: 'outlet',
@@ -71,13 +58,13 @@ export function useShiftStatus(): UseShiftStatusReturn {
           businessId: user.businessId,
         });
       }
-    });
+    };
 
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       setIsConnected(false);
-    });
+    };
 
-    socket.on('shift:started', (data: ShiftStartedEvent) => {
+    const onShiftStarted = (data: ShiftStartedEvent) => {
       setCurrentShift({
         shiftId: data.shiftId,
         employeeId: data.employeeId,
@@ -86,11 +73,10 @@ export function useShiftStatus(): UseShiftStatusReturn {
         startedAt: data.occurredOn,
         isActive: true,
       });
-    });
+    };
 
-    socket.on('shift:ended', (data: ShiftEndedEvent) => {
+    const onShiftEnded = (data: ShiftEndedEvent) => {
       setCurrentShift(prev => {
-        // Only update if this is the current active shift
         if (prev?.shiftId === data.shiftId) {
           return {
             ...prev,
@@ -101,11 +87,22 @@ export function useShiftStatus(): UseShiftStatusReturn {
         }
         return prev;
       });
-    });
+    };
+
+    // If already connected, fire handler immediately
+    if (socket.connected) onConnect();
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('shift:started', onShiftStarted);
+    socket.on('shift:ended', onShiftEnded);
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('shift:started', onShiftStarted);
+      socket.off('shift:ended', onShiftEnded);
+      releaseSharedSocket();
     };
   }, [user?.outletId, user?.businessId]);
 
