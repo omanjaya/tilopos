@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import type { PaymentMethod } from '@prisma/client';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
@@ -64,7 +65,7 @@ export class CreateTransactionUseCase {
     private readonly inventoryRepo: IInventoryRepository,
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
 
   async execute(input: CreateTransactionInput): Promise<CreateTransactionOutput> {
     const shift = await this.shiftRepo.findById(input.shiftId);
@@ -200,7 +201,7 @@ export class CreateTransactionUseCase {
         await tx.payment.create({
           data: {
             transactionId: txn.id,
-            paymentMethod: payment.method as any, // Type assertion for enum
+            paymentMethod: payment.method as PaymentMethod,
             amount: payment.amount,
             referenceNumber: payment.referenceNumber || null,
           },
