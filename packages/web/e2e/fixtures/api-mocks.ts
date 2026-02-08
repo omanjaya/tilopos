@@ -220,6 +220,173 @@ export const mockKDSOrders = [
 ];
 
 // ---------------------------------------------------------------------------
+// Settings Mock Data
+// ---------------------------------------------------------------------------
+
+export const mockBusinessSettings = {
+  id: 'biz-1',
+  name: 'Warung Makan Sejahtera',
+  email: 'warung@test.com',
+  phone: '021-12345678',
+  address: 'Jl. Sudirman No. 123, Jakarta Pusat',
+  logoUrl: null,
+  currency: 'IDR',
+  timezone: 'Asia/Jakarta',
+};
+
+export const mockSettingsOutlets = [
+  {
+    id: 'outlet-1',
+    name: 'Outlet Utama',
+    code: 'OUT-001',
+    address: 'Jl. Sudirman No. 123',
+    phone: '021-12345678',
+    taxRate: 11,
+    serviceCharge: 5,
+    isActive: true,
+  },
+  {
+    id: 'outlet-2',
+    name: 'Outlet Cabang Kemang',
+    code: 'OUT-002',
+    address: 'Jl. Kemang Raya No. 45',
+    phone: '021-87654321',
+    taxRate: 11,
+    serviceCharge: 0,
+    isActive: true,
+  },
+  {
+    id: 'outlet-3',
+    name: 'Outlet Senayan',
+    code: 'OUT-003',
+    address: 'Jl. Asia Afrika No. 8',
+    phone: '021-55512345',
+    taxRate: 11,
+    serviceCharge: 10,
+    isActive: false,
+  },
+];
+
+export const mockDevices = [
+  {
+    id: 'dev-1',
+    deviceName: 'Kasir Utama',
+    deviceType: 'pos_terminal',
+    platform: 'Windows',
+    outletId: 'outlet-1',
+    lastSyncAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    isActive: true,
+  },
+  {
+    id: 'dev-2',
+    deviceName: 'KDS Dapur',
+    deviceType: 'kds_display',
+    platform: 'Android',
+    outletId: 'outlet-1',
+    lastSyncAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    isActive: true,
+  },
+  {
+    id: 'dev-3',
+    deviceName: 'Mobile Kasir',
+    deviceType: 'mobile',
+    platform: 'iOS',
+    outletId: 'outlet-2',
+    lastSyncAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    isActive: false,
+  },
+];
+
+export const mockNotificationSettings = [
+  { id: 'notif-1', type: 'low_stock', channel: 'push', isEnabled: true },
+  { id: 'notif-2', type: 'new_order', channel: 'push', isEnabled: true },
+  { id: 'notif-3', type: 'order_completed', channel: 'in_app', isEnabled: false },
+  { id: 'notif-4', type: 'payment_received', channel: 'email', isEnabled: true },
+  { id: 'notif-5', type: 'shift_started', channel: 'in_app', isEnabled: true },
+];
+
+export const mockNotificationLogs = [
+  {
+    id: 'log-1',
+    type: 'new_order',
+    message: 'Pesanan baru #001 dari Meja 3',
+    isRead: false,
+    createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'log-2',
+    type: 'low_stock',
+    message: 'Stok Nasi Goreng hampir habis (5 tersisa)',
+    isRead: true,
+    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+  },
+];
+
+export const mockTaxConfig = {
+  taxRate: 11,
+  serviceChargeRate: 5,
+  isTaxInclusive: true,
+  taxExemptionRules: [
+    { id: 'rule-1', name: 'Pemerintah', description: 'Transaksi dengan instansi pemerintah', isActive: true },
+    { id: 'rule-2', name: 'Ekspor', description: 'Transaksi untuk ekspor', isActive: false },
+  ],
+};
+
+export const mockReceiptTemplate = {
+  showLogo: true,
+  showAddress: true,
+  showTaxBreakdown: true,
+  showBarcode: false,
+  showQrCode: true,
+  headerText: 'Selamat Datang',
+  footerText: 'Terima kasih atas kunjungan Anda!',
+  paperSize: '80mm',
+};
+
+export const mockOperatingHours = {
+  schedule: [
+    { day: 'monday', dayLabel: 'Senin', isOpen: true, openTime: '08:00', closeTime: '22:00' },
+    { day: 'tuesday', dayLabel: 'Selasa', isOpen: true, openTime: '08:00', closeTime: '22:00' },
+    { day: 'wednesday', dayLabel: 'Rabu', isOpen: true, openTime: '08:00', closeTime: '22:00' },
+    { day: 'thursday', dayLabel: 'Kamis', isOpen: true, openTime: '08:00', closeTime: '22:00' },
+    { day: 'friday', dayLabel: 'Jumat', isOpen: true, openTime: '08:00', closeTime: '22:00' },
+    { day: 'saturday', dayLabel: 'Sabtu', isOpen: true, openTime: '09:00', closeTime: '23:00' },
+    { day: 'sunday', dayLabel: 'Minggu', isOpen: false, openTime: '09:00', closeTime: '23:00' },
+  ],
+  specialHours: [
+    { id: 'special-1', name: 'Tahun Baru', date: '2026-01-01', isOpen: false, openTime: null, closeTime: null },
+    { id: 'special-2', name: 'Idul Fitri', date: '2026-03-31', isOpen: true, openTime: '10:00', closeTime: '18:00' },
+  ],
+};
+
+export const mockModifierGroups = [
+  {
+    id: 'mod-grp-1',
+    name: 'Tingkat Kepedesan',
+    isRequired: true,
+    minSelections: 1,
+    maxSelections: 1,
+    modifiers: [
+      { id: 'mod-1', name: 'Tidak Pedas', price: 0, isActive: true, sortOrder: 0 },
+      { id: 'mod-2', name: 'Pedas Sedang', price: 0, isActive: true, sortOrder: 1 },
+      { id: 'mod-3', name: 'Pedas Banget', price: 2000, isActive: true, sortOrder: 2 },
+    ],
+  },
+  {
+    id: 'mod-grp-2',
+    name: 'Topping Tambahan',
+    isRequired: false,
+    minSelections: 0,
+    maxSelections: 3,
+    modifiers: [
+      { id: 'mod-4', name: 'Telur Ceplok', price: 5000, isActive: true, sortOrder: 0 },
+      { id: 'mod-5', name: 'Kerupuk', price: 3000, isActive: true, sortOrder: 1 },
+      { id: 'mod-6', name: 'Sate Ayam', price: 8000, isActive: false, sortOrder: 2 },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Route Interceptors
 // ---------------------------------------------------------------------------
 
@@ -334,13 +501,218 @@ export async function setupApiMocks(page: Page): Promise<void> {
     }
   });
 
-  // Outlets (settings)
+  // Settings - Business
+  await page.route('**/api/v1/settings/business*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockBusinessSettings),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockBusinessSettings, ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Outlets (detailed)
   await page.route('**/api/v1/settings/outlets*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(mockOutlets),
-    });
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      const detailMatch = url.match(/\/outlets\/([^/?]+)$/);
+      if (detailMatch) {
+        const outlet = mockSettingsOutlets.find((o) => o.id === detailMatch[1]);
+        await route.fulfill({
+          status: outlet ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(outlet ?? { message: 'Not found' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockSettingsOutlets),
+      });
+    } else if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'outlet-new', ...JSON.parse(request.postData() ?? '{}'), isActive: true }),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'outlet-1', ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else if (request.method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Devices
+  await page.route('**/api/v1/settings/devices*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockDevices),
+      });
+    } else if (url.includes('/sync')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Device synced successfully' }),
+      });
+    } else if (request.method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Notifications
+  await page.route('**/api/v1/settings/notifications*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      if (url.includes('/logs')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(mockNotificationLogs),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(mockNotificationSettings),
+        });
+      }
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Tax
+  await page.route('**/api/v1/settings/tax*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockTaxConfig),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockTaxConfig, ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Receipt
+  await page.route('**/api/v1/settings/receipt*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockReceiptTemplate),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockReceiptTemplate, ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Operating Hours
+  await page.route('**/api/v1/settings/hours*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockOperatingHours),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockOperatingHours, ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Settings - Modifiers
+  await page.route('**/api/v1/settings/modifiers*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      const detailMatch = url.match(/\/modifiers\/([^/?]+)$/);
+      if (detailMatch) {
+        const group = mockModifierGroups.find((g) => g.id === detailMatch[1]);
+        await route.fulfill({
+          status: group ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(group ?? { message: 'Not found' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockModifierGroups),
+      });
+    } else if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'mod-grp-new', ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'mod-grp-1', ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else if (request.method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+    } else {
+      await route.continue();
+    }
   });
 
   // Outlets (standalone endpoint)
@@ -478,6 +850,328 @@ export async function setupApiMocks(page: Page): Promise<void> {
     });
   });
 
+  // Reports - Products
+  await page.route('**/api/v1/reports/products*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        topProducts: [
+          { productName: 'Nasi Goreng Spesial', quantity: 150, revenue: 5250000 },
+          { productName: 'Es Teh Manis', quantity: 200, revenue: 1600000 },
+          { productName: 'Mie Ayam Bakso', quantity: 80, revenue: 2400000 },
+        ],
+        totalProducts: 4,
+        totalQuantitySold: 430,
+      }),
+    });
+  });
+
+  // Reports - Payment
+  await page.route('**/api/v1/reports/payment*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        paymentBreakdown: [
+          { method: 'Cash', amount: 8000000, count: 150 },
+          { method: 'QRIS', amount: 4000000, count: 60 },
+          { method: 'Debit', amount: 3000000, count: 35 },
+        ],
+        totalAmount: 15000000,
+        totalTransactions: 245,
+      }),
+    });
+  });
+
+  // Inventory endpoints
+  await page.route('**/api/v1/inventory/stock*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'stock-1', productId: 'prod-1', productName: 'Nasi Goreng Spesial', quantity: 50, minStock: 10 },
+        { id: 'stock-2', productId: 'prod-3', productName: 'Mie Ayam Bakso', quantity: 25, minStock: 5 },
+      ]),
+    });
+  });
+
+  await page.route('**/api/v1/inventory/categories*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockCategories),
+    });
+  });
+
+  await page.route('**/api/v1/inventory/products*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockProducts),
+    });
+  });
+
+  // Shifts (basic mock - detailed mocks in transactions.spec.ts)
+  await page.route('**/api/v1/shifts*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'shift-1', employeeName: 'John Owner', startTime: '2026-02-06T08:00:00Z', endTime: null, status: 'active' },
+      ]),
+    });
+  });
+
+  // Transactions (basic mock - detailed mocks in transactions.spec.ts)
+  await page.route('**/api/v1/transactions*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    }
+  });
+
+  // Settlements (basic mock - detailed mocks in transactions.spec.ts)
+  await page.route('**/api/v1/settlements*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    });
+  });
+
+  // Dashboard stats
+  await page.route('**/api/v1/dashboard*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        todaySales: 2500000,
+        todayTransactions: 45,
+        topProducts: mockProducts.slice(0, 3),
+        recentOrders: [],
+      }),
+    });
+  });
+
+  // Self-Order Sessions
+  await page.route('**/api/v1/self-order/sessions/*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    // Match session code from URL
+    const sessionCodeMatch = url.match(/\/sessions\/([^/?]+)/);
+    const sessionCode = sessionCodeMatch?.[1];
+
+    if (request.method() === 'GET') {
+      // Check for expired session
+      if (sessionCode === 'EXPIRED123') {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Session not found or expired' }),
+        });
+        return;
+      }
+
+      // Valid session
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockSelfOrderSession(sessionCode || 'ABC123')),
+      });
+    } else if (request.method() === 'POST') {
+      // Add item to session or submit session
+      if (url.includes('/items')) {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+      } else if (url.includes('/submit')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            orderNumber: 'ORD-2026-0042',
+            status: 'submitted',
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...mockSelfOrderSession(sessionCode || 'NEW123'),
+            sessionCode: sessionCode || 'NEW123',
+          }),
+        });
+      }
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Self-Order Menu
+  await page.route('**/api/v1/self-order/menu*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockSelfOrderMenuItems),
+    });
+  });
+
+  // Self-Order Orders (for tracking)
+  await page.route('**/api/v1/self-order/orders*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      const orderMatch = url.match(/\/orders\/([^/?]+)$/);
+      if (orderMatch) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(mockSelfOrderOrderStatus(orderMatch[1])),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([mockSelfOrderOrderStatus('ORD-2026-0042')]),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Online Store - Admin endpoints
+  await page.route('**/api/v1/online-store/stores*', async (route) => {
+    const request = route.request();
+    const url = request.url();
+
+    if (request.method() === 'GET') {
+      const detailMatch = url.match(/\/stores\/([^/?]+)$/);
+      if (detailMatch) {
+        const store = mockOnlineStores.find((s) => s.id === detailMatch[1] || s.slug === detailMatch[1]);
+        await route.fulfill({
+          status: store ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(store ?? { message: 'Not found' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockOnlineStores),
+      });
+    } else if (request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'store-new',
+          businessId: 'biz-1',
+          name: body.storeName || body.name,
+          slug: body.slug,
+          description: body.description || null,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockOnlineStores[0], ...JSON.parse(request.postData() ?? '{}') }),
+      });
+    } else if (request.method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Online Store - Settings
+  await page.route('**/api/v1/online-store/settings*', async (route) => {
+    const request = route.request();
+
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockOnlineStoreSettings),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Online Store - Products
+  await page.route('**/api/v1/online-store/products*', async (route) => {
+    const request = route.request();
+
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockStorefrontProducts),
+      });
+    } else if (request.method() === 'PUT' || request.method() === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // Online Store - Public Storefront
+  await page.route('**/api/v1/online-store/s/*/storefront*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockStorefront),
+    });
+  });
+
+  // Online Store - Public Store Orders
+  await page.route('**/api/v1/online-store/s/*/orders*', async (route) => {
+    const request = route.request();
+
+    if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(mockStorefrontOrder),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
   // Catch-all for any remaining API calls that are not explicitly handled
   await page.route('**/api/v1/**', async (route) => {
     const method = route.request().method();
@@ -496,3 +1190,218 @@ export async function setupApiMocks(page: Page): Promise<void> {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Self-Order Mock Data
+// ---------------------------------------------------------------------------
+
+export const mockSelfOrderMenuItems = [
+  {
+    id: 'menu-1',
+    name: 'Nasi Goreng Spesial',
+    description: 'Nasi goreng dengan telur, ayam, dan sayuran segar',
+    price: 35000,
+    imageUrl: null,
+    categoryName: 'Makanan',
+    isAvailable: true,
+  },
+  {
+    id: 'menu-2',
+    name: 'Es Teh Manis',
+    description: 'Teh manis segar dengan es batu',
+    price: 8000,
+    imageUrl: null,
+    categoryName: 'Minuman',
+    isAvailable: true,
+  },
+  {
+    id: 'menu-3',
+    name: 'Mie Ayam Bakso',
+    description: 'Mie ayam dengan bakso sapi pilihan',
+    price: 30000,
+    imageUrl: null,
+    categoryName: 'Makanan',
+    isAvailable: true,
+  },
+  {
+    id: 'menu-4',
+    name: 'Kopi Susu',
+    description: 'Kopi susu gula aren',
+    price: 18000,
+    imageUrl: null,
+    categoryName: 'Minuman',
+    isAvailable: true,
+  },
+  {
+    id: 'menu-5',
+    name: 'Ayam Bakar',
+    description: 'Ayam bakar bumbu kecap',
+    price: 45000,
+    imageUrl: null,
+    categoryName: 'Makanan',
+    isAvailable: false,
+  },
+];
+
+export function mockSelfOrderSession(sessionCode: string) {
+  return {
+    id: `session-${sessionCode}`,
+    outletId: 'outlet-1',
+    tableId: 'table-3',
+    sessionCode: sessionCode,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    outletName: 'Outlet Utama',
+    tableNumber: 'Meja 3',
+  };
+}
+
+export function mockSelfOrderOrderStatus(orderNumber: string) {
+  return {
+    orderNumber: orderNumber,
+    status: 'preparing',
+    items: [
+      { productName: 'Nasi Goreng Spesial', quantity: 2, price: 35000 },
+      { productName: 'Es Teh Manis', quantity: 2, price: 8000 },
+    ],
+    subtotal: 86000,
+    total: 86000,
+    estimatedTime: 15,
+    createdAt: new Date().toISOString(),
+    tableNumber: 'Meja 3',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Online Store Mock Data
+// ---------------------------------------------------------------------------
+
+export const mockOnlineStores = [
+  {
+    id: 'store-1',
+    businessId: 'biz-1',
+    name: 'Kedai Kopi Nusantara',
+    slug: 'kedai-kopi-nusantara',
+    description: 'Kopi lokal berkualitas tinggi dari berbagai daerah Indonesia',
+    isActive: true,
+    createdAt: '2026-01-15T10:00:00Z',
+    updatedAt: '2026-02-01T14:30:00Z',
+  },
+  {
+    id: 'store-2',
+    businessId: 'biz-1',
+    name: 'Warung Makan Bahagia',
+    slug: 'warung-makan-bahagia',
+    description: 'Masakan rumahan Indonesia',
+    isActive: false,
+    createdAt: '2026-01-20T08:00:00Z',
+    updatedAt: '2026-01-25T09:00:00Z',
+  },
+];
+
+export const mockOnlineStoreSettings = {
+  storeName: 'Kedai Kopi Nusantara',
+  logo: null,
+  theme: 'light',
+  primaryColor: '#3B82F6',
+  enableCart: true,
+  enableCheckout: true,
+  deliveryEnabled: true,
+  pickupEnabled: true,
+};
+
+export const mockStorefrontCategories = [
+  { id: 'cat-1', name: 'Kopi', slug: 'kopi' },
+  { id: 'cat-2', name: 'Non-Kopi', slug: 'non-kopi' },
+  { id: 'cat-3', name: 'Makanan', slug: 'makanan' },
+];
+
+export const mockStorefrontProducts = [
+  {
+    id: 'prod-1',
+    name: 'Kopi Susu Gula Aren',
+    description: 'Kopi susu dengan pemanis gula aren asli',
+    imageUrl: null,
+    price: 25000,
+    compareAtPrice: 30000,
+    isAvailable: true,
+    categoryId: 'cat-1',
+    variants: [
+      { id: 'var-1', name: 'Regular', price: 25000, sku: 'KSGA-R', isAvailable: true, stock: 50 },
+      { id: 'var-2', name: 'Large', price: 32000, sku: 'KSGA-L', isAvailable: true, stock: 30 },
+    ],
+    modifierGroups: [
+      {
+        id: 'mod-group-1',
+        name: 'Tingkat Gula',
+        minSelections: 1,
+        maxSelections: 1,
+        modifiers: [
+          { id: 'mod-1', name: 'Normal', price: 0, isAvailable: true },
+          { id: 'mod-2', name: 'Less Sugar', price: 0, isAvailable: true },
+          { id: 'mod-3', name: 'Extra Sweet', price: 0, isAvailable: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'prod-2',
+    name: 'Es Teh Manis',
+    description: 'Teh manis dingin segar',
+    imageUrl: null,
+    price: 10000,
+    compareAtPrice: null,
+    isAvailable: true,
+    categoryId: 'cat-2',
+    variants: [],
+    modifierGroups: [],
+  },
+  {
+    id: 'prod-3',
+    name: 'Roti Bakar Coklat',
+    description: 'Roti bakar dengan selai coklat',
+    imageUrl: null,
+    price: 18000,
+    compareAtPrice: 22000,
+    isAvailable: true,
+    categoryId: 'cat-3',
+    variants: [],
+    modifierGroups: [],
+  },
+  {
+    id: 'prod-4',
+    name: 'Espresso',
+    description: 'Espresso single shot',
+    imageUrl: null,
+    price: 15000,
+    compareAtPrice: null,
+    isAvailable: false,
+    categoryId: 'cat-1',
+    variants: [],
+    modifierGroups: [],
+  },
+];
+
+export const mockStorefront = {
+  id: 'store-1',
+  name: 'Kedai Kopi Nusantara',
+  slug: 'kedai-kopi-nusantara',
+  description: 'Kopi lokal berkualitas tinggi dari berbagai daerah Indonesia',
+  logo: null,
+  banner: null,
+  facebookUrl: 'https://facebook.com/kedaikopinusantara',
+  instagramUrl: 'https://instagram.com/kedaikopinusantara',
+  whatsappNumber: '6281234567890',
+  currency: 'IDR',
+  categories: mockStorefrontCategories,
+  products: mockStorefrontProducts,
+};
+
+export const mockStorefrontOrder = {
+  id: 'order-1',
+  orderNumber: 'ORD-2026-0001',
+  customerName: 'Andi Wijaya',
+  total: 57000,
+  status: 'pending',
+  createdAt: '2026-02-06T12:00:00Z',
+};
