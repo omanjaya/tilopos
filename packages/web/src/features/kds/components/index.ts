@@ -6,5 +6,6 @@ export { KdsOrderCard } from './kds-order-card';
 export { KdsEmptyState } from './kds-empty-state';
 export { OrderGrid } from './order-grid';
 export { OrderItemRow } from './order-item-row';
-export { OrderTimer, getElapsedColor, getElapsedBadgeVariant } from './order-timer';
-export { PriorityBadge, getPriorityBorderClass } from './priority-badge';
+export { OrderTimer } from './order-timer';
+export { PriorityBadge } from './priority-badge';
+export { getElapsedColor, getElapsedBadgeVariant, getPriorityBorderClass } from './kds-style-utils';

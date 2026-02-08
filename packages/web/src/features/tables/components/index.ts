@@ -1,4 +1,5 @@
-export { TableLayoutEditor, generateDemoTables } from './table-layout-editor';
+export { TableLayoutEditor } from './table-layout-editor';
+export { generateDemoTables } from '../utils/demo-data';
 export { TableToolbar } from './table-toolbar';
 export { TableLegend } from './table-legend';
 export { TableCanvas } from './table-canvas';

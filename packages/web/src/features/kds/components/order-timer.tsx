@@ -1,17 +1,6 @@
 import { Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-export function getElapsedColor(minutes: number): string {
-  if (minutes >= 10) return 'border-red-500 bg-red-500/10';
-  if (minutes >= 5) return 'border-yellow-500 bg-yellow-500/10';
-  return 'border-zinc-700 bg-zinc-800';
-}
-
-export function getElapsedBadgeVariant(minutes: number): string {
-  if (minutes >= 10) return 'bg-red-600 text-white';
-  if (minutes >= 5) return 'bg-yellow-600 text-white';
-  return 'bg-zinc-700 text-zinc-300';
-}
+import { getElapsedBadgeVariant } from './kds-style-utils';
 
 interface OrderTimerProps {
   elapsedMinutes: number;

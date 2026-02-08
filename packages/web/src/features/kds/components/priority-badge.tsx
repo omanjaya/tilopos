@@ -2,12 +2,6 @@ import { Crown, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { KDSOrderPriority } from '@/types/kds.types';
 
-export function getPriorityBorderClass(priority: KDSOrderPriority): string {
-  if (priority === 'vip') return 'border-amber-400 ring-1 ring-amber-400/30';
-  if (priority === 'urgent') return 'border-orange-500';
-  return '';
-}
-
 interface PriorityBadgeProps {
   priority: KDSOrderPriority;
 }

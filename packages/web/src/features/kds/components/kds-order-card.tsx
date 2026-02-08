@@ -3,8 +3,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CookingTimer } from './cooking-timer';
-import { OrderTimer, getElapsedColor } from './order-timer';
-import { PriorityBadge, getPriorityBorderClass } from './priority-badge';
+import { OrderTimer } from './order-timer';
+import { PriorityBadge } from './priority-badge';
+import { getElapsedColor, getPriorityBorderClass } from './kds-style-utils';
 import { OrderItemRow } from './order-item-row';
 import type { KDSOrder, KDSOrderPriority } from '@/types/kds.types';
 

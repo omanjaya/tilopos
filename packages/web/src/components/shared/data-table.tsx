@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -43,7 +43,7 @@ export function DataTable<T>({
   emptyAction,
   filters,
 }: DataTableProps<T>) {
-  const data = Array.isArray(rawData) ? rawData : [];
+  const data = useMemo(() => Array.isArray(rawData) ? rawData : [], [rawData]);
   const [searchQuery, setSearchQuery] = useState('');
   const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);

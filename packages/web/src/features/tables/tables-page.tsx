@@ -18,7 +18,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Scissors, Merge, Loader2, Info, LayoutGrid, List } from 'lucide-react';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
-import { TableLayoutEditor, generateDemoTables } from './components/table-layout-editor';
+import { TableLayoutEditor } from './components/table-layout-editor';
+import { generateDemoTables } from './utils/demo-data';
 
 export function TablesPage() {
   const { toast } = useToast();

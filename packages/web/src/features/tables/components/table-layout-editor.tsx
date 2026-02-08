@@ -11,10 +11,6 @@ import { TableCanvas } from './table-canvas';
 import { TableDetailPanel } from './table-detail-panel';
 import { TableSummary } from './table-summary';
 
-// Re-export types and utilities for backward compatibility
-export type { TableStatus, LayoutTable } from '../types/layout.types';
-export { generateDemoTables } from '../utils/demo-data';
-
 export function TableLayoutEditor({
   tables: rawTables,
   onSavePositions,
