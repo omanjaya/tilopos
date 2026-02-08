@@ -37,6 +37,14 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { WaitingListModule } from './modules/waiting-list/waiting-list.module';
+import { BusinessModule } from './modules/business/business.module';
+import { PriceTiersModule } from './modules/price-tiers/price-tiers.module';
+import { UnitConversionModule } from './modules/unit-conversion/unit-conversion.module';
+import { BatchTrackingModule } from './modules/batch-tracking/batch-tracking.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { WorkOrdersModule } from './modules/work-orders/work-orders.module';
+import { SerialNumbersModule } from './modules/serial-numbers/serial-numbers.module';
+import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module';
 
 @Module({
   imports: [
@@ -79,6 +87,14 @@ import { WaitingListModule } from './modules/waiting-list/waiting-list.module';
     UploadsModule,
     PaymentsModule,
     WaitingListModule,
+    BusinessModule,
+    PriceTiersModule,
+    UnitConversionModule,
+    BatchTrackingModule,
+    AppointmentsModule,
+    WorkOrdersModule,
+    SerialNumbersModule,
+    ItemTrackingModule,
   ],
   providers: [
     {
@@ -87,4 +103,4 @@ import { WaitingListModule } from './modules/waiting-list/waiting-list.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }

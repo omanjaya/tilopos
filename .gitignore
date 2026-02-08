@@ -58,3 +58,7 @@ temp/
 !*.key.example
 *.crt
 !*.crt.example
+
+# lighthouse reports
+*.report.html
+*.report.json
