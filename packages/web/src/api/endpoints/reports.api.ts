@@ -12,6 +12,7 @@ import type {
   StaffReport,
   AppointmentReport,
 } from '@/types/report.types';
+import { errorToast } from '@/lib/toast-utils';
 
 interface ReportParams {
   outletId: string;
@@ -63,11 +64,15 @@ export const reportsApi = {
         totalProducts: Number(d.totalProducts ?? 0),
         totalQuantitySold: Number(d.totalQuantitySold ?? 0),
       } as ProductReport;
-    }).catch(() => ({
-      topProducts: [],
-      totalProducts: 0,
-      totalQuantitySold: 0,
-    } as ProductReport)),
+    }).catch((error) => {
+      console.error('Failed to fetch product report:', error);
+      errorToast('Failed to load product report');
+      return {
+        topProducts: [],
+        totalProducts: 0,
+        totalQuantitySold: 0,
+      } as ProductReport;
+    }),
 
   paymentMethods: (params: ReportParams) =>
     apiClient.get('/reports/payment-methods', { params }).then((r) => {
@@ -77,11 +82,15 @@ export const reportsApi = {
         totalAmount: Number(d.totalAmount ?? 0),
         totalTransactions: Number(d.totalTransactions ?? 0),
       } as PaymentMethodReport;
-    }).catch(() => ({
-      methods: [],
-      totalAmount: 0,
-      totalTransactions: 0,
-    } as PaymentMethodReport)),
+    }).catch((error) => {
+      console.error('Failed to fetch payment methods report:', error);
+      errorToast('Failed to load payment methods report');
+      return {
+        methods: [],
+        totalAmount: 0,
+        totalTransactions: 0,
+      } as PaymentMethodReport;
+    }),
 
   // Inventory Report (Retail)
   inventory: (params: ReportParams) =>

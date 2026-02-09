@@ -22,6 +22,7 @@ import type {
   PaymentStatus,
 } from '@domain/interfaces/services';
 import type { XenditConfig, XenditWebhookPayload } from './types';
+import { AppError, ErrorCode } from '../../../../shared/errors/app-error';
 
 // Services
 import { XenditQRISService } from './services/qris.service';
@@ -224,7 +225,10 @@ export class XenditGateway implements IPaymentGateway {
     transactionId: string;
   } {
     if (!this.webhookService.validatePayload(payload)) {
-      throw new Error('Invalid webhook payload structure');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Invalid webhook payload structure',
+      );
     }
 
     this.webhookService.logWebhook(payload, true);

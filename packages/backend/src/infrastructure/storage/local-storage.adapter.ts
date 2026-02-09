@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
 import type { StorageAdapter } from './storage.service';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 @Injectable()
 export class LocalStorageAdapter implements StorageAdapter {
@@ -12,7 +13,10 @@ export class LocalStorageAdapter implements StorageAdapter {
     // Prevent path traversal
     const safePath = resolve(this.uploadDir, filename);
     if (!safePath.startsWith(resolve(this.uploadDir))) {
-      throw new Error('Invalid file path: path traversal detected');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Invalid file path: path traversal detected',
+      );
     }
 
     await mkdir(dirname(safePath), { recursive: true });
@@ -25,7 +29,10 @@ export class LocalStorageAdapter implements StorageAdapter {
     // Prevent path traversal
     const safePath = resolve(this.uploadDir, filepath);
     if (!safePath.startsWith(resolve(this.uploadDir))) {
-      throw new Error('Invalid file path: path traversal detected');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Invalid file path: path traversal detected',
+      );
     }
 
     try {

@@ -9,6 +9,7 @@ import { LoyaltyRepository } from '../repositories/loyalty.repository';
 import { TierRules } from '../business-rules/tier.rules';
 import { LoyaltyConfig, TierConfig, CustomerLoyaltyInfo } from '../types/interfaces';
 import { LoyaltyProgram, LoyaltyTier } from '@prisma/client';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 export interface TierEvaluationSummary {
   evaluated: number;
@@ -158,7 +159,10 @@ export class TierManagementService {
   ): Promise<CustomerLoyaltyInfo> {
     const customer = await this.repository.getCustomer(customerId);
     if (!customer) {
-      throw new Error(`Customer ${customerId} not found`);
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        `Customer ${customerId} not found`,
+      );
     }
 
     const tiers = await this.repository.getTiers(businessId);

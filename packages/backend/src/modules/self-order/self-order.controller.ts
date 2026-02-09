@@ -5,9 +5,7 @@ import {
   Body,
   Param,
   Query,
-  NotFoundException,
   Put,
-  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { CreateSelfOrderSessionUseCase } from '../../application/use-cases/self-order/create-session.use-case';
@@ -18,6 +16,7 @@ import { SelfOrderPaymentService } from './self-order-payment.service';
 import { SelfOrderScheduler } from './self-order.scheduler';
 import { MenuTranslationBatchDto } from '../../application/dtos/self-order-features.dto';
 import { getTranslations, getSupportedLocales, isSupportedLocale } from './i18n';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 @ApiTags('Self Order')
 @Controller('self-order')
@@ -51,12 +50,18 @@ export class SelfOrderController {
     });
 
     if (!session) {
-      throw new NotFoundException('Session not found or expired');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found or expired',
+      );
     }
 
     // Check if session is expired
     if (new Date() > session.expiresAt) {
-      throw new NotFoundException('Session has expired');
+      throw new AppError(
+        ErrorCode.SESSION_EXPIRED,
+        'Session has expired',
+      );
     }
 
     return {
@@ -154,17 +159,26 @@ export class SelfOrderController {
       include: { outlet: true },
     });
     if (!session) {
-      throw new NotFoundException('Session not found');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found',
+      );
     }
 
     // Check if session is still active
     if (session.status !== 'active') {
-      throw new NotFoundException('Session is not active');
+      throw new AppError(
+        ErrorCode.SESSION_EXPIRED,
+        'Session is not active',
+      );
     }
 
     // Check if session is expired
     if (new Date() > session.expiresAt) {
-      throw new NotFoundException('Session has expired');
+      throw new AppError(
+        ErrorCode.SESSION_EXPIRED,
+        'Session has expired',
+      );
     }
 
     // Validate product exists
@@ -174,14 +188,20 @@ export class SelfOrderController {
     });
 
     if (!product) {
-      throw new NotFoundException('Product not found');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Product not found',
+      );
     }
 
     // Validate variant if provided
     if (dto.variantId) {
       const variant = product.variants.find((v) => v.id === dto.variantId);
       if (!variant) {
-        throw new NotFoundException('Variant not found');
+        throw new AppError(
+          ErrorCode.RESOURCE_NOT_FOUND,
+          'Variant not found',
+        );
       }
     }
 
@@ -206,11 +226,17 @@ export class SelfOrderController {
     });
 
     if (!session) {
-      throw new NotFoundException('Session not found');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found',
+      );
     }
 
     if (session.items.length === 0) {
-      throw new Error('Cannot submit empty order');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Cannot submit empty order',
+      );
     }
 
     // Update session status
@@ -321,7 +347,10 @@ export class SelfOrderController {
     });
 
     if (!outlet) {
-      throw new NotFoundException('Outlet not found');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Outlet not found',
+      );
     }
 
     const products = await this.prisma.product.findMany({
@@ -511,7 +540,10 @@ export class SelfOrderController {
   @ApiOperation({ summary: 'Initiate QRIS payment for session' })
   async initiateQrisPayment(@Param('code') code: string, @Body() dto: { amount: number }) {
     if (!dto.amount || dto.amount <= 0) {
-      throw new BadRequestException('Amount must be greater than 0');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Amount must be greater than 0',
+      );
     }
     return this.paymentService.initiateQRISPayment(code, dto.amount);
   }

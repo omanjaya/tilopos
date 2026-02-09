@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 const TOTP_DIGITS = 6;
 const TOTP_PERIOD = 30;
@@ -43,7 +44,10 @@ export function decodeBase32(encoded: string): Buffer {
   for (let i = 0; i < cleanInput.length; i++) {
     const index = BASE32_ALPHABET.indexOf(cleanInput[i]);
     if (index === -1) {
-      throw new Error(`Invalid base32 character: ${cleanInput[i]}`);
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Invalid base32 character: ${cleanInput[i]}`,
+      );
     }
 
     value = (value << 5) | index;

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { SagaStep } from '../saga-orchestrator';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 // ==================== Context ====================
 
@@ -73,14 +74,16 @@ export class ValidateStockStep implements SagaStep<CreateOrderContext> {
         });
 
         if (!stockLevel) {
-          throw new Error(
+          throw new AppError(
+            ErrorCode.RESOURCE_NOT_FOUND,
             `No stock record for ingredient "${recipeItem.ingredient.name}" at this outlet`,
           );
         }
 
         const available = Number(stockLevel.quantity);
         if (available < needed) {
-          throw new Error(
+          throw new AppError(
+            ErrorCode.VALIDATION_ERROR,
             `Insufficient stock for "${recipeItem.ingredient.name}": need ${needed} ${recipeItem.unit}, have ${available}`,
           );
         }
@@ -261,7 +264,10 @@ export class SendToKdsStep implements SagaStep<CreateOrderContext> {
 
   async execute(context: CreateOrderContext): Promise<CreateOrderContext> {
     if (!context.orderId) {
-      throw new Error('Cannot send to KDS without an order ID');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Cannot send to KDS without an order ID',
+      );
     }
 
     this.logger.debug(`Sending order ${context.orderId} to KDS`);

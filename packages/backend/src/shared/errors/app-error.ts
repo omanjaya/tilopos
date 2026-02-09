@@ -1,6 +1,8 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { ErrorCode } from '../constants/error-codes';
 
+export { ErrorCode };
+
 export class AppError extends HttpException {
   constructor(
     public readonly code: ErrorCode,

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 export interface CreateIngredientParams {
   businessId: string;
@@ -23,7 +24,10 @@ export class CreateIngredientUseCase {
     if (params.sku) {
       const existing = await this.ingredientRepository.findBySKU(params.businessId, params.sku);
       if (existing) {
-        throw new Error('Ingredient with this SKU already exists');
+        throw new AppError(
+          ErrorCode.DUPLICATE_RESOURCE,
+          'Ingredient with this SKU already exists',
+        );
       }
     }
 

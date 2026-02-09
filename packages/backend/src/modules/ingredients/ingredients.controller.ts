@@ -6,6 +6,7 @@ import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 // Use Cases
 import { CreateIngredientUseCase } from '../../application/use-cases/ingredients/create-ingredient.use-case';
@@ -119,7 +120,10 @@ export class IngredientsController {
   @ApiOperation({ summary: 'Adjust ingredient stock (add/deduct)' })
   async adjustStock(@Body() dto: AdjustIngredientStockDto, @CurrentUser() user: AuthUser) {
     if (!user.outletId) {
-      throw new Error('User must be assigned to an outlet');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'User must be assigned to an outlet',
+      );
     }
 
     return this.adjustIngredientStockUseCase.execute({

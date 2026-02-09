@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationChannel, NotificationType, NotificationLogStatus } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 // Types
 export interface NotificationPayload {
@@ -329,7 +330,10 @@ export class NotificationsService {
   ): Promise<{ success: boolean; logId: string }> {
     const channel = this.channels.get(payload.channel);
     if (!channel) {
-      throw new Error(`Unknown channel: ${payload.channel}`);
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unknown channel: ${payload.channel}`,
+      );
     }
 
     // Get recipient contact

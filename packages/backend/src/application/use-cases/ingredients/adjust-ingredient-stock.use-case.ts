@@ -1,7 +1,8 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { IAuditLogRepository } from '../../../domain/interfaces/repositories/audit.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 export interface AdjustIngredientStockParams {
   outletId: string;
@@ -30,7 +31,10 @@ export class AdjustIngredientStockUseCase {
       params.ingredientId,
     );
     if (!stock) {
-      throw new NotFoundException('Ingredient stock not found for this outlet');
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Ingredient stock not found for this outlet',
+      );
     }
 
     const currentQty = Number(stock.quantity);
@@ -38,7 +42,10 @@ export class AdjustIngredientStockUseCase {
 
     // Validate: don't allow negative stock
     if (newQty < 0) {
-      throw new Error('Insufficient stock for this operation');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Insufficient stock for this operation',
+      );
     }
 
     // Adjust stock

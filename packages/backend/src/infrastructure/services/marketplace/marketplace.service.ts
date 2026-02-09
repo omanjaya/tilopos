@@ -28,6 +28,7 @@ import {
   MarketplaceOrderStatus,
   MarketplacePlatform,
 } from './marketplace.types';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit {
@@ -59,7 +60,12 @@ export class MarketplaceService implements OnModuleInit {
     credentials: MarketplaceCredentials,
   ): Promise<MarketplaceCredentials> {
     const gateway = this.gateways.get(platform);
-    if (!gateway) throw new Error(`Unknown platform: ${platform}`);
+    if (!gateway) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
+      );
+    }
 
     const authed = await gateway.authenticate(credentials);
     this.credentials.set(`${outletId}-${platform}`, authed);
@@ -159,7 +165,12 @@ export class MarketplaceService implements OnModuleInit {
     orderId: string,
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
-    if (!gateway) throw new Error(`Unknown platform: ${platform}`);
+    if (!gateway) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
+      );
+    }
 
     await gateway.acceptOrder(orderId);
 
@@ -180,7 +191,12 @@ export class MarketplaceService implements OnModuleInit {
     reason: string,
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
-    if (!gateway) throw new Error(`Unknown platform: ${platform}`);
+    if (!gateway) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
+      );
+    }
 
     await gateway.rejectOrder(orderId, reason);
 
@@ -202,7 +218,12 @@ export class MarketplaceService implements OnModuleInit {
     status: MarketplaceOrderStatus,
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
-    if (!gateway) throw new Error(`Unknown platform: ${platform}`);
+    if (!gateway) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
+      );
+    }
 
     await gateway.updateOrderStatus(orderId, status);
   }
