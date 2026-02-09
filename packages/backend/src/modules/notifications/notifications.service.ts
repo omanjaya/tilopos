@@ -58,7 +58,9 @@ export class PushNotificationChannel implements INotificationChannel {
       // When FCM_SERVER_KEY is configured, use it
       const fcmKey = this.configService.get<string>('FCM_SERVER_KEY');
       if (!fcmKey) {
-        this.logger.warn('FCM_SERVER_KEY not configured - push notification logged but not delivered');
+        this.logger.warn(
+          'FCM_SERVER_KEY not configured - push notification logged but not delivered',
+        );
         return {
           success: true,
           messageId: `push_logged_${Date.now()}`,
@@ -70,7 +72,7 @@ export class PushNotificationChannel implements INotificationChannel {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `key=${fcmKey}`,
+          Authorization: `key=${fcmKey}`,
         },
         body: JSON.stringify({
           to: deviceToken,
@@ -123,7 +125,9 @@ export class EmailChannel implements INotificationChannel {
       });
       this.logger.log(`Email transport configured: ${host}:${port}`);
     } else {
-      this.logger.warn('SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS) - emails will be logged but not delivered');
+      this.logger.warn(
+        'SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS) - emails will be logged but not delivered',
+      );
     }
   }
 
@@ -188,7 +192,9 @@ export class SMSChannel implements INotificationChannel {
       const twilioFrom = this.configService.get<string>('TWILIO_FROM_NUMBER');
 
       if (!twilioSid || !twilioToken || !twilioFrom) {
-        this.logger.warn(`SMS not delivered (Twilio not configured): ${payload.body.substring(0, 50)} → ${phone}`);
+        this.logger.warn(
+          `SMS not delivered (Twilio not configured): ${payload.body.substring(0, 50)} → ${phone}`,
+        );
         return {
           success: true,
           messageId: `sms_logged_${Date.now()}`,
@@ -202,7 +208,7 @@ export class SMSChannel implements INotificationChannel {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64')}`,
+            Authorization: `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64')}`,
           },
           body: new URLSearchParams({
             To: phone,
@@ -242,11 +248,16 @@ export class WhatsAppChannel implements INotificationChannel {
     try {
       this.logger.log(`Sending WhatsApp to ${phone}: ${payload.title}`);
 
-      const apiUrl = this.configService.get<string>('WHATSAPP_API_URL', 'https://api.fonnte.com/send');
+      const apiUrl = this.configService.get<string>(
+        'WHATSAPP_API_URL',
+        'https://api.fonnte.com/send',
+      );
       const apiToken = this.configService.get<string>('WHATSAPP_API_TOKEN');
 
       if (!apiToken) {
-        this.logger.warn(`WhatsApp not delivered (WHATSAPP_API_TOKEN not configured): ${payload.title} → ${phone}`);
+        this.logger.warn(
+          `WhatsApp not delivered (WHATSAPP_API_TOKEN not configured): ${payload.title} → ${phone}`,
+        );
         return {
           success: true,
           messageId: `wa_logged_${Date.now()}`,
@@ -258,7 +269,7 @@ export class WhatsAppChannel implements INotificationChannel {
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': apiToken,
+          Authorization: apiToken,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

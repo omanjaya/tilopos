@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/collapsible';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { formatCurrency } from '@/lib/format';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
 import {
   DollarSign,
   ShoppingCart,
@@ -21,6 +23,10 @@ import {
   ChevronDown,
   BarChart3,
   PieChart,
+  LayoutGrid,
+  ChefHat,
+  CalendarClock,
+  Package,
 } from 'lucide-react';
 import {
   BarChart,
@@ -71,6 +77,9 @@ export function DashboardPage() {
   });
 
   const isLoading = salesLoading || financialLoading || customerLoading;
+
+  // Business type checks for dynamic dashboard
+  const { isFnB, isService, isRetail } = useBusinessFeatures();
 
   const metrics = [
     {
@@ -160,6 +169,69 @@ export function DashboardPage() {
               <div key={i} className="h-1.5 w-1.5 rounded-full bg-muted" />
             ))}
           </div>
+
+          {/* F&B Specific Metrics */}
+          <FeatureGate feature={[FEATURES.TABLE_MANAGEMENT, FEATURES.KITCHEN_DISPLAY]}>
+            {isFnB && !isLoading && (
+              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
+                <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
+                  <MetricCardMobile
+                    title="Meja Terisi"
+                    value="8/12"
+                    icon={LayoutGrid}
+                    color="text-orange-600"
+                    bgColor="bg-orange-50"
+                  />
+                </FeatureGate>
+                <FeatureGate feature={FEATURES.KITCHEN_DISPLAY}>
+                  <MetricCardMobile
+                    title="Pesanan Dimasak"
+                    value="5"
+                    icon={ChefHat}
+                    color="text-amber-600"
+                    bgColor="bg-amber-50"
+                  />
+                </FeatureGate>
+              </div>
+            )}
+          </FeatureGate>
+
+          {/* Service Specific Metrics */}
+          <FeatureGate feature={FEATURES.APPOINTMENTS}>
+            {isService && !isLoading && (
+              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
+                <MetricCardMobile
+                  title="Jadwal Hari Ini"
+                  value="8"
+                  icon={CalendarClock}
+                  color="text-purple-600"
+                  bgColor="bg-purple-50"
+                />
+                <MetricCardMobile
+                  title="Selesai"
+                  value="5"
+                  icon={TrendingUp}
+                  color="text-green-600"
+                  bgColor="bg-green-50"
+                />
+              </div>
+            )}
+          </FeatureGate>
+
+          {/* Retail Specific Metrics */}
+          <FeatureGate feature={FEATURES.STOCK_MANAGEMENT}>
+            {isRetail && !isLoading && (
+              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
+                <MetricCardMobile
+                  title="Stok Rendah"
+                  value="12"
+                  icon={Package}
+                  color="text-red-600"
+                  bgColor="bg-red-50"
+                />
+              </div>
+            )}
+          </FeatureGate>
         </div>
 
         {/* Sales Chart - Collapsible */}

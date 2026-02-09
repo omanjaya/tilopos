@@ -138,9 +138,7 @@ export class UnitConversionService {
       };
     }
 
-    throw new NotFoundException(
-      `No conversion found for ${fromUnit} → ${toUnit} on this product`,
-    );
+    throw new NotFoundException(`No conversion found for ${fromUnit} → ${toUnit} on this product`);
   }
 
   /**

@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { formatCurrency } from '@/lib/format';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import type { ReceiptData, TransactionItem, Payment, PaymentMethod } from '@/types/pos.types';
 
 interface ReceiptPreviewProps {
@@ -32,7 +33,7 @@ const paymentMethodNames: Record<PaymentMethod, string> = {
 };
 
 export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewProps) {
-    const { transaction, business, outlet, employee, customer } = data;
+    const { transaction, business, outlet, employee, customer, table } = data;
 
     const handlePrint = () => {
         window.print();
@@ -87,6 +88,15 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
                                 <span className="text-right">{customer.name}</span>
                             </>
                         )}
+                        {/* Show table for F&B */}
+                        <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
+                            {table && (
+                                <>
+                                    <span>Meja:</span>
+                                    <span className="text-right font-semibold">{table.name}</span>
+                                </>
+                            )}
+                        </FeatureGate>
                     </div>
 
                     <Separator className="border-dashed my-2" />

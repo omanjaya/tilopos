@@ -30,18 +30,12 @@ export class AppointmentsController {
   }
 
   @Get('customer/:customerId')
-  async listByCustomer(
-    @Param('customerId') customerId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async listByCustomer(@Param('customerId') customerId: string, @CurrentUser() user: AuthUser) {
     return this.appointmentsService.listByCustomer(customerId, user.businessId);
   }
 
   @Get('upcoming/:outletId')
-  async getUpcoming(
-    @Param('outletId') outletId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getUpcoming(@Param('outletId') outletId: string, @CurrentUser() user: AuthUser) {
     return this.appointmentsService.getUpcoming(outletId, user.businessId);
   }
 
@@ -63,10 +57,7 @@ export class AppointmentsController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async findById(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.appointmentsService.findById(id, user.businessId);
   }
 

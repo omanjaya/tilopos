@@ -70,12 +70,7 @@ export class SerialNumbersService {
     );
   }
 
-  async markSold(
-    id: string,
-    businessId: string,
-    customerId?: string,
-    transactionId?: string,
-  ) {
+  async markSold(id: string, businessId: string, customerId?: string, transactionId?: string) {
     const serial = await this.findOneOrFail(id, businessId);
 
     return this.prisma.serialNumber.update({
@@ -140,20 +135,13 @@ export class SerialNumbersService {
     });
 
     if (!serial) {
-      throw new NotFoundException(
-        `Serial number "${serialNumber}" not found`,
-      );
+      throw new NotFoundException(`Serial number "${serialNumber}" not found`);
     }
 
     return serial;
   }
 
-  async listByProduct(
-    productId: string,
-    outletId: string,
-    businessId: string,
-    status?: string,
-  ) {
+  async listByProduct(productId: string, outletId: string, businessId: string, status?: string) {
     return this.prisma.serialNumber.findMany({
       where: {
         businessId,

@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/format';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { Loader2, ArrowLeft, Wallet, Footprints, Trophy } from 'lucide-react';
 import type { CreateCustomerRequest, UpdateCustomerRequest } from '@/types/customer.types';
 import type { AxiosError } from 'axios';
@@ -122,17 +123,19 @@ export function CustomerFormPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                <Trophy className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Poin Loyalti</p>
-                <p className="text-xl font-bold">{customer.loyaltyPoints.toLocaleString('id-ID')}</p>
-              </div>
-            </CardContent>
-          </Card>
+          <FeatureGate feature={FEATURES.CUSTOMER_LOYALTY}>
+            <Card>
+              <CardContent className="flex items-center gap-4 pt-6">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-500/10">
+                  <Trophy className="h-5 w-5 text-yellow-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Poin Loyalti</p>
+                  <p className="text-xl font-bold text-yellow-600 dark:text-yellow-500">{customer.loyaltyPoints.toLocaleString('id-ID')}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </FeatureGate>
         </div>
       )}
 

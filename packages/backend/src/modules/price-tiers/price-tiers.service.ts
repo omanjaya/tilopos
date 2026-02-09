@@ -72,10 +72,7 @@ export class PriceTiersService {
     await this.prisma.priceTier.delete({ where: { id } });
   }
 
-  async bulkCreateForProduct(
-    productId: string,
-    tiers: Omit<CreatePriceTierDto, 'productId'>[],
-  ) {
+  async bulkCreateForProduct(productId: string, tiers: Omit<CreatePriceTierDto, 'productId'>[]) {
     // Delete existing tiers
     await this.prisma.priceTier.deleteMany({ where: { productId } });
 

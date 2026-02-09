@@ -7,10 +7,11 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useUIStore } from '@/stores/ui.store';
 import { useCartStore } from '@/stores/cart.store';
 import { useOfflinePOS } from '@/hooks/use-offline-pos';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import {
     ProductGrid, CartPanel, PaymentPanel, ReceiptPreview, HeldBillsPanel,
     ProductModal, CustomerSelector, TableSelector, DiscountModal, ShortcutsDialog,
-    OrderReadyToast, PosHeader, OfflineBanner, MobileCartBar,
+    OrderReadyToast, PosHeader, OfflineBanner, MobileCartBar, TodayTransactionsSheet,
 } from './components';
 import { usePOSShortcuts, usePosData, usePosTransaction, usePosModals } from './hooks';
 import type { POSProduct, HeldBill } from '@/types/pos.types';
@@ -93,6 +94,7 @@ export function POSPage() {
                 onTableClick={modals.openTableSelector} onDiscountClick={modals.openDiscountModal}
                 onHeldBillsClick={modals.openHeldBills} onShortcutHelpClick={modals.openShortcutHelp}
                 onCartClick={modals.openCartSheet} onRefreshProducts={() => void refetchProducts()}
+                onTodayTransactionsClick={modals.openTodayTransactions}
             />
 
             <OfflineBanner
@@ -167,16 +169,26 @@ export function POSPage() {
                 selectedCustomerId={customerId}
             />
 
-            <TableSelector open={modals.showTableSelector} onClose={modals.closeTableSelector}
-                onSelect={(table) => {
-                    if (table) setTable(table.id, table.name);
-                    else setTable(undefined, undefined);
-                }}
-                selectedTableId={tableId} outletId={outletId}
-            />
+            <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
+                <TableSelector open={modals.showTableSelector} onClose={modals.closeTableSelector}
+                    onSelect={(table) => {
+                        if (table) setTable(table.id, table.name);
+                        else setTable(undefined, undefined);
+                    }}
+                    selectedTableId={tableId} outletId={outletId}
+                />
+            </FeatureGate>
 
             <DiscountModal open={modals.showDiscountModal} onClose={modals.closeDiscountModal} />
             <ShortcutsDialog open={modals.showShortcutHelp} onClose={modals.closeShortcutHelp} />
+
+            <TodayTransactionsSheet
+                open={modals.showTodayTransactions}
+                onClose={modals.closeTodayTransactions}
+                outletId={outletId}
+                onPrintReceipt={() => {}}
+            />
+
             <OrderReadyToast />
         </div>
     );

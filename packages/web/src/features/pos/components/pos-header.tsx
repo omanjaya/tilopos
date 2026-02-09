@@ -14,6 +14,7 @@ import {
     User,
     Keyboard,
     ShoppingCart,
+    Receipt,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,8 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '@/stores/auth.store';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { OrderTypeButtons } from './order-type-selector';
 
 interface PosHeaderProps {
@@ -42,6 +45,7 @@ interface PosHeaderProps {
     onShortcutHelpClick: () => void;
     onCartClick: () => void;
     onRefreshProducts: () => void;
+    onTodayTransactionsClick: () => void;
 }
 
 export function PosHeader({
@@ -59,10 +63,12 @@ export function PosHeader({
     onShortcutHelpClick,
     onCartClick,
     onRefreshProducts,
+    onTodayTransactionsClick,
 }: PosHeaderProps) {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
     const logout = useAuthStore((s) => s.logout);
+    const { hasTableManagement, hasOrderTypes } = useBusinessFeatures();
 
     return (
         <header className="h-14 md:h-16 bg-card border-b flex items-center justify-between px-3 md:px-4 shrink-0">
@@ -86,9 +92,11 @@ export function PosHeader({
 
             <div className="flex items-center gap-1 md:gap-2">
                 {/* Order Type - hidden on small screens, in dropdown */}
-                <div className="hidden md:block">
-                    <OrderTypeButtons />
-                </div>
+                <FeatureGate feature={FEATURES.ORDER_TYPES}>
+                    <div className="hidden md:block">
+                        <OrderTypeButtons />
+                    </div>
+                </FeatureGate>
 
                 {/* Customer Button */}
                 <Button
@@ -101,16 +109,18 @@ export function PosHeader({
                     <span className="hidden lg:inline">{customerName || 'Pelanggan'}</span>
                 </Button>
 
-                {/* Table Button (only for dine-in) */}
-                <Button
-                    variant={tableId ? 'default' : 'outline'}
-                    size="sm"
-                    className="gap-2 min-h-[44px]"
-                    onClick={onTableClick}
-                >
-                    <LayoutGrid className="h-4 w-4" />
-                    <span className="hidden lg:inline">{tableName || 'Meja'}</span>
-                </Button>
+                {/* Table Button (only when table_management is enabled) */}
+                <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
+                    <Button
+                        variant={tableId ? 'default' : 'outline'}
+                        size="sm"
+                        className="gap-2 min-h-[44px]"
+                        onClick={onTableClick}
+                    >
+                        <LayoutGrid className="h-4 w-4" />
+                        <span className="hidden lg:inline">{tableName || 'Meja'}</span>
+                    </Button>
+                </FeatureGate>
 
                 {/* Discount Button */}
                 <Button
@@ -142,6 +152,18 @@ export function PosHeader({
                             {heldBillsCount}
                         </Badge>
                     )}
+                </Button>
+
+                {/* Today Transactions Button */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 min-h-[44px] hidden sm:inline-flex"
+                    onClick={onTodayTransactionsClick}
+                    title="Transaksi Hari Ini"
+                >
+                    <Receipt className="h-4 w-4" />
+                    <span className="hidden lg:inline">Transaksi</span>
                 </Button>
 
                 {/* Keyboard Shortcut Button */}
@@ -187,12 +209,16 @@ export function PosHeader({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                         {/* Order type toggle for mobile */}
-                        <div className="md:hidden px-2 py-2">
-                            <OrderTypeButtons className="w-full" />
-                        </div>
-                        <div className="md:hidden">
-                            <DropdownMenuSeparator />
-                        </div>
+                        {hasOrderTypes && (
+                            <div className="md:hidden px-2 py-2">
+                                <OrderTypeButtons className="w-full" />
+                            </div>
+                        )}
+                        {hasOrderTypes && (
+                            <div className="md:hidden">
+                                <DropdownMenuSeparator />
+                            </div>
+                        )}
                         <DropdownMenuItem onClick={onRefreshProducts}>
                             <RefreshCw className="h-4 w-4 mr-2" />
                             Refresh Produk
@@ -204,6 +230,10 @@ export function PosHeader({
                         <DropdownMenuItem>
                             <MinusCircle className="h-4 w-4 mr-2" />
                             Cash Out
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onTodayTransactionsClick}>
+                            <Receipt className="h-4 w-4 mr-2" />
+                            Transaksi Hari Ini
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="sm:hidden" onClick={onDiscountClick}>
@@ -223,10 +253,12 @@ export function PosHeader({
                             <Users className="h-4 w-4 mr-2" />
                             Pilih Pelanggan
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={onTableClick}>
-                            <LayoutGrid className="h-4 w-4 mr-2" />
-                            Pilih Meja
-                        </DropdownMenuItem>
+                        {hasTableManagement && (
+                            <DropdownMenuItem onClick={onTableClick}>
+                                <LayoutGrid className="h-4 w-4 mr-2" />
+                                Pilih Meja
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onShortcutHelpClick}>
                             <Keyboard className="h-4 w-4 mr-2" />

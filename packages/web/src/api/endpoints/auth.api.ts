@@ -9,10 +9,25 @@ import type {
   ActivityLogResponse,
   AuthUser,
 } from '@/types/auth.types';
+import type {
+  RegisterRequest,
+  RegisterResponse,
+  BusinessTypePresetPublic,
+} from '@/types/register.types';
 
 export const authApi = {
   login: (data: LoginRequest) =>
     apiClient.post<LoginResponse>('/auth/login', data).then((r) => r.data),
+
+  register: (data: RegisterRequest) =>
+    apiClient.post<RegisterResponse>('/auth/register', data).then((r) => r.data),
+
+  getBusinessTypePresets: () =>
+    apiClient
+      .get<{ presets: BusinessTypePresetPublic[]; grouped: Record<string, BusinessTypePresetPublic[]> }>(
+        '/auth/business-type-presets',
+      )
+      .then((r) => r.data),
 
   getMe: () =>
     apiClient.get<AuthUser>('/auth/me').then((r) => r.data),

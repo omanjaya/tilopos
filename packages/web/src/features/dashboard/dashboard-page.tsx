@@ -9,7 +9,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/format';
 import { MetricCardsSkeleton, ChartSkeleton } from '@/components/shared/loading-skeletons';
-import { DollarSign, ShoppingCart, TrendingUp, Users } from 'lucide-react';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
+import {
+  DollarSign,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+  LayoutGrid,
+  CalendarClock,
+  Package,
+  ChefHat
+} from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -29,6 +40,9 @@ export function DashboardPage() {
 
   // Check if user has access to reports (not cashier/kitchen)
   const hasReportsAccess = user?.role && ['owner', 'manager', 'supervisor'].includes(user.role);
+
+  // Business type checks for dynamic dashboard
+  const { isFnB, isService, isRetail } = useBusinessFeatures();
 
   const { data: salesReport, isLoading: salesLoading } = useQuery({
     queryKey: ['reports', 'sales', outletId, dateRange],
@@ -90,6 +104,84 @@ export function DashboardPage() {
           </>
         )}
       </div>
+
+      {/* F&B Specific Metrics */}
+      <FeatureGate feature={[FEATURES.TABLE_MANAGEMENT, FEATURES.KITCHEN_DISPLAY]}>
+        {isFnB && !isLoading && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
+            <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
+              <MetricCard
+                title="Meja Terisi"
+                value="8/12"
+                icon={LayoutGrid}
+                className="bg-orange-50 dark:bg-orange-950/20"
+              />
+            </FeatureGate>
+            <FeatureGate feature={FEATURES.KITCHEN_DISPLAY}>
+              <MetricCard
+                title="Pesanan Dimasak"
+                value="5"
+                icon={ChefHat}
+                className="bg-amber-50 dark:bg-amber-950/20"
+              />
+            </FeatureGate>
+            <FeatureGate feature={FEATURES.WAITING_LIST}>
+              <MetricCard
+                title="Dalam Antrian"
+                value="3"
+                icon={Users}
+                className="bg-blue-50 dark:bg-blue-950/20"
+              />
+            </FeatureGate>
+          </div>
+        )}
+      </FeatureGate>
+
+      {/* Service Specific Metrics */}
+      <FeatureGate feature={FEATURES.APPOINTMENTS}>
+        {isService && !isLoading && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
+            <MetricCard
+              title="Jadwal Hari Ini"
+              value="8"
+              icon={CalendarClock}
+              className="bg-purple-50 dark:bg-purple-950/20"
+            />
+            <MetricCard
+              title="Selesai"
+              value="5"
+              icon={TrendingUp}
+              className="bg-green-50 dark:bg-green-950/20"
+            />
+            <MetricCard
+              title="Dalam Progress"
+              value="2"
+              icon={Users}
+              className="bg-blue-50 dark:bg-blue-950/20"
+            />
+          </div>
+        )}
+      </FeatureGate>
+
+      {/* Retail Specific Metrics */}
+      <FeatureGate feature={FEATURES.STOCK_MANAGEMENT}>
+        {isRetail && !isLoading && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
+            <MetricCard
+              title="Stok Rendah"
+              value="12"
+              icon={Package}
+              className="bg-red-50 dark:bg-red-950/20"
+            />
+            <MetricCard
+              title="Produk Terlaris"
+              value="Coca Cola"
+              icon={TrendingUp}
+              className="bg-green-50 dark:bg-green-950/20"
+            />
+          </div>
+        )}
+      </FeatureGate>
 
       {salesLoading ? (
         <ChartSkeleton height={300} />

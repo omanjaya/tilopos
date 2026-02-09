@@ -103,4 +103,4 @@ import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module
     },
   ],
 })
-export class AppModule { }
+export class AppModule {}

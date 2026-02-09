@@ -175,6 +175,10 @@ export interface ReceiptData {
         name: string;
         phone?: string;
     };
+    /** Optional table info for F&B */
+    table?: {
+        name: string;
+    };
 }
 
 // Cash Drawer

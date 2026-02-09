@@ -18,6 +18,7 @@ import {
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { MoreHorizontal, Eye, Play, Check, HandPlatter, CheckCircle2, XCircle } from 'lucide-react';
 import type { Order, OrderStatus } from '@/types/order.types';
 import type { AxiosError } from 'axios';
@@ -86,6 +87,9 @@ export function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [confirmAction, setConfirmAction] = useState<{ order: Order; action: StatusAction } | null>(null);
 
+  // Feature checks
+  const { hasTableManagement } = useBusinessFeatures();
+
   const { data: orders, isLoading } = useQuery({
     queryKey: ['orders', selectedOutletId, statusFilter],
     queryFn: () =>
@@ -122,13 +126,14 @@ export function OrdersPage() {
       header: 'No. Pesanan',
       cell: (row) => <span className="font-medium">{row.orderNumber}</span>,
     },
-    {
+    // Table column - only show if table_management is enabled
+    ...(hasTableManagement ? [{
       key: 'tableName',
       header: 'Meja',
-      cell: (row) => (
+      cell: (row: Order) => (
         <span className="text-muted-foreground">{row.tableName || '-'}</span>
       ),
-    },
+    }] : []),
     {
       key: 'orderType',
       header: 'Tipe',

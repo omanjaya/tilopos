@@ -61,10 +61,7 @@ export class InventoryController {
 
   @Get('products/barcode/:code')
   @ApiOperation({ summary: 'Lookup product by barcode or SKU' })
-  async lookupByBarcode(
-    @Param('code') code: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async lookupByBarcode(@Param('code') code: string, @CurrentUser() user: AuthUser) {
     // Try barcode first (product level)
     let product = await this.prisma.product.findFirst({
       where: { businessId: user.businessId, barcode: code, isActive: true },
@@ -125,7 +122,8 @@ export class InventoryController {
       },
     });
 
-    if (variantBySku) return { found: true, type: 'variant', product: variantBySku.product, variant: variantBySku };
+    if (variantBySku)
+      return { found: true, type: 'variant', product: variantBySku.product, variant: variantBySku };
 
     throw new NotFoundException(`No product found with barcode/SKU: ${code}`);
   }

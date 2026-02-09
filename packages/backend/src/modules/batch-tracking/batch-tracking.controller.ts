@@ -1,6 +1,15 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query,
-  UseGuards, HttpCode, HttpStatus,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
 import {
@@ -15,19 +24,13 @@ export class BatchTrackingController {
   constructor(private readonly service: BatchTrackingService) {}
 
   @Get('product/:productId/outlet/:outletId')
-  async listByProduct(
-    @Param('productId') productId: string,
-    @Param('outletId') outletId: string,
-  ) {
+  async listByProduct(@Param('productId') productId: string, @Param('outletId') outletId: string) {
     const batches = await this.service.listByProduct(productId, outletId);
     return { batches };
   }
 
   @Get('active/:productId/:outletId')
-  async listActive(
-    @Param('productId') productId: string,
-    @Param('outletId') outletId: string,
-  ) {
+  async listActive(@Param('productId') productId: string, @Param('outletId') outletId: string) {
     const batches = await this.service.listActive(productId, outletId);
     return { batches };
   }
@@ -59,10 +62,7 @@ export class BatchTrackingController {
   }
 
   @Get('expiring/:outletId')
-  async getExpiringBatches(
-    @Param('outletId') outletId: string,
-    @Query('days') days?: string,
-  ) {
+  async getExpiringBatches(@Param('outletId') outletId: string, @Query('days') days?: string) {
     const daysAhead = days ? parseInt(days, 10) : 7;
     const batches = await this.service.getExpiringBatches(outletId, daysAhead);
     return { batches, daysAhead };
@@ -75,9 +75,7 @@ export class BatchTrackingController {
   }
 
   @Post('deduct')
-  async deductFIFO(
-    @Body() body: { productId: string; outletId: string; quantity: number },
-  ) {
+  async deductFIFO(@Body() body: { productId: string; outletId: string; quantity: number }) {
     return this.service.deductFIFO(body.productId, body.outletId, body.quantity);
   }
 }

@@ -125,8 +125,7 @@ export class FeatureGuard implements CanActivate {
 
     // From outlet context (for multi-outlet)
     if (request.user?.outletId) {
-      // Note: In real implementation, you might need to fetch businessId from outlet
-      return request.user.businessId;
+      return request.user.businessId ?? null;
     }
 
     return null;

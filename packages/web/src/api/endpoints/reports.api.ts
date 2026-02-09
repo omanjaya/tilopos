@@ -7,6 +7,10 @@ import type {
   ProductReport,
   PaymentMethodReport,
   InventoryReport,
+  KitchenReport,
+  TableReport,
+  StaffReport,
+  AppointmentReport,
 } from '@/types/report.types';
 
 interface ReportParams {
@@ -79,6 +83,24 @@ export const reportsApi = {
       totalTransactions: 0,
     } as PaymentMethodReport)),
 
-  inventory: (params: { outletId: string }) =>
+  // Inventory Report (Retail)
+  inventory: (params: ReportParams) =>
     apiClient.get<InventoryReport>('/reports/inventory', { params }).then((r) => r.data),
+
+  // Kitchen Report (F&B)
+  kitchen: (params: ReportParams) =>
+    apiClient.get<KitchenReport>('/reports/kitchen', { params }).then((r) => r.data),
+
+  // Table Report (F&B)
+  table: (params: ReportParams) =>
+    apiClient.get<TableReport>('/reports/table', { params }).then((r) => r.data),
+
+  // Staff Report (Service)
+  staff: (params: ReportParams) =>
+    apiClient.get<StaffReport>('/reports/staff', { params }).then((r) => r.data),
+
+  // Appointment Report (Service)
+  appointment: (params: ReportParams) =>
+    apiClient.get<AppointmentReport>('/reports/appointment', { params }).then((r) => r.data),
 };
+

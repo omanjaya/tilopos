@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useNavigate, Link } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
 import { useToast } from '@/hooks/use-toast';
@@ -17,11 +17,13 @@ export function LoginPage() {
   const [pin, setPin] = useState('');
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: (data) => {
+      queryClient.clear();
       setAuth(
         {
           id: data.employeeId,
@@ -95,6 +97,12 @@ export function LoginPage() {
               Masuk
             </Button>
           </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Belum punya akun?{' '}
+            <Link to="/register" className="font-medium text-primary hover:underline">
+              Daftar sekarang
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

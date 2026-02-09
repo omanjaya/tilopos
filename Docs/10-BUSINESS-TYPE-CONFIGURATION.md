@@ -717,9 +717,9 @@ export class KdsController {
 #### 4.4 Migration Prompt (Existing Users)
 | Task | File | Status |
 |------|------|--------|
-| Create MigrationPromptModal | `packages/web/src/components/modals/migration-prompt-modal.tsx` | ⬜ |
-| Add check in App.tsx | `packages/web/src/App.tsx` | ⬜ |
-| Store "prompted" flag | `localStorage` or database | ⬜ |
+| Create MigrationPromptModal | `packages/web/src/components/modals/business-type-migration-modal.tsx` | ✅ |
+| Add check in App.tsx | `packages/web/src/components/layout/app-layout.tsx` | ✅ |
+| Store "prompted" flag | `localStorage` | ✅ |
 
 **Phase 4 Deliverables:**
 - ✅ New user can select business type during onboarding
@@ -770,13 +770,14 @@ export const REPORTS_CONFIG = [
 #### 5.2 New Reports for Different Business Types
 | Report | For Business Type | Status |
 |--------|------------------|--------|
-| Stock Valuation Report | Retail, Hardware | ⬜ |
+| Stock Valuation Report (InventoryReport) | Retail, Hardware | ✅ |
 | Supplier Payment Due | Retail, Hardware | ⬜ |
 | Unit Conversion Summary | Hardware | ⬜ |
-| Appointment Analytics | Service | ⬜ |
-| Staff Commission Report | Service | ⬜ |
+| Appointment Analytics (AppointmentReport) | Service | ✅ |
+| Staff Commission Report (StaffReport) | Service | ✅ |
 | Recipe Cost Analysis | F&B | ⬜ |
-| Ingredient Usage Report | F&B | ⬜ |
+| Kitchen Performance (KitchenReport) | F&B | ✅ |
+| Table Turnover (TableReport) | F&B | ✅ |
 
 #### 5.3 Report Export with Business Context
 | Task | File | Status |
@@ -784,10 +785,19 @@ export const REPORTS_CONFIG = [
 | Add business type to report header | Report templates | ⬜ |
 | Export only relevant columns | Based on features | ⬜ |
 
+#### 5.4 Implemented Report Components
+| Component | For Business Type | Status |
+|-----------|------------------|--------|
+| InventoryReport | Retail | ✅ |
+| KitchenReport | F&B | ✅ |
+| TableReport | F&B | ✅ |
+| StaffReport | Service | ✅ |
+| AppointmentReport | Service | ✅ |
+
 **Phase 5 Deliverables:**
 - ✅ Reports page shows only relevant reports
 - ✅ New specialized reports per business type
-- ✅ Export includes business type context
+- ⬜ Export includes business type context
 
 ---
 

@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
-import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { Plus, MoreHorizontal, Pencil, Trash2, Star } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -26,6 +27,9 @@ export function CustomersPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+
+  // Feature checks
+  const { hasCustomerLoyalty } = useBusinessFeatures();
 
   const { data: customersData, isLoading } = useQuery({
     queryKey: ['customers', search],
@@ -59,7 +63,20 @@ export function CustomersPage() {
     { key: 'phone', header: 'Telepon', cell: (row) => <span className="text-muted-foreground">{row.phone ?? '-'}</span> },
     { key: 'totalSpent', header: 'Total Belanja', cell: (row) => formatCurrency(row.totalSpent) },
     { key: 'visitCount', header: 'Kunjungan', cell: (row) => row.visitCount },
-    { key: 'loyaltyPoints', header: 'Poin Loyalti', cell: (row) => row.loyaltyPoints.toLocaleString('id-ID') },
+    // Loyalty points - only show if customer_loyalty is enabled
+    ...(hasCustomerLoyalty ? [{
+      key: 'loyaltyPoints',
+      header: (
+        <span className="flex items-center gap-1">
+          <Star className="h-3.5 w-3.5 text-yellow-500" /> Poin
+        </span>
+      ),
+      cell: (row: Customer) => (
+        <span className="font-medium text-yellow-600 dark:text-yellow-500">
+          {row.loyaltyPoints.toLocaleString('id-ID')}
+        </span>
+      ),
+    }] : []),
     {
       key: 'status',
       header: 'Status',

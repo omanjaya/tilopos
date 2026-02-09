@@ -40,19 +40,24 @@ async function testProductsAPI() {
     if (products.length > 0) {
       const sample = products[0];
       console.log('Sample product structure:');
-      console.log(JSON.stringify({
-        id: sample.id,
-        name: sample.name,
-        sku: sample.sku,
-        basePrice: sample.basePrice,
-        imageUrl: sample.imageUrl,
-        categoryId: sample.categoryId,
-        category: sample.category,
-        variants: sample.variants,
-        isActive: sample.isActive,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            id: sample.id,
+            name: sample.name,
+            sku: sample.sku,
+            basePrice: sample.basePrice,
+            imageUrl: sample.imageUrl,
+            categoryId: sample.categoryId,
+            category: sample.category,
+            variants: sample.variants,
+            isActive: sample.isActive,
+          },
+          null,
+          2,
+        ),
+      );
     }
-
   } catch (error) {
     console.error('❌ Error:', error);
   } finally {

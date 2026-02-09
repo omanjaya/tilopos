@@ -74,9 +74,12 @@ export class BatchTrackingService {
       data: {
         quantity: dto.quantity,
         costPrice: dto.costPrice,
-        expiresAt: dto.expiresAt !== undefined
-          ? (dto.expiresAt ? new Date(dto.expiresAt) : null)
-          : undefined,
+        expiresAt:
+          dto.expiresAt !== undefined
+            ? dto.expiresAt
+              ? new Date(dto.expiresAt)
+              : null
+            : undefined,
         notes: dto.notes,
         status: dto.status,
       },

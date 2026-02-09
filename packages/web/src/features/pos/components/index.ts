@@ -15,3 +15,4 @@ export { OrderReadyToast } from './order-ready-toast';
 export { PosHeader } from './pos-header';
 export { OfflineBanner } from './offline-banner';
 export { MobileCartBar } from './mobile-cart-bar';
+export { TodayTransactionsSheet } from './today-transactions-sheet';

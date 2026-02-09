@@ -13,6 +13,7 @@ import { useOnboarding } from '@/features/onboarding/onboarding-provider';
 import { useCompleteOnboarding } from '@/features/onboarding/use-onboarding';
 import { CommandPalette, useCommandPalette } from '@/components/shared/command-palette';
 import { RealtimeProvider } from '@/components/shared/realtime-provider';
+import { BusinessTypeMigrationModal, useBusinessTypeMigration } from '@/components/modals/business-type-migration-modal';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpCircle } from 'lucide-react';
@@ -27,6 +28,9 @@ export function AppLayout() {
   const { completeOnboarding: apiCompleteOnboarding } = useCompleteOnboarding();
   const { open: commandPaletteOpen, setOpen: setCommandPaletteOpen } = useCommandPalette();
 
+  // Business type migration for existing users
+  const { shouldShowPrompt: showMigrationModal, setPrompted: setMigrationPrompted } = useBusinessTypeMigration();
+
   // Enable global keyboard shortcuts across the app
   useGlobalShortcuts();
 
@@ -40,7 +44,7 @@ export function AppLayout() {
     });
     featuresApi.getBusinessType().then((data) => {
       setBusinessType(data.businessType?.code ?? null);
-    }).catch(() => {});
+    }).catch(() => { });
   }, [setEnabledFeatures, setBusinessType]);
 
   // Auto-collapse sidebar on POS and KDS pages for maximum screen space
@@ -90,37 +94,42 @@ export function AppLayout() {
 
   return (
     <RealtimeProvider>
-    <TooltipProvider>
-      <div className="min-h-screen bg-background">
-        <Sidebar />
-        <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
-          <Header />
-          <main className="px-12 py-8">
-            <Outlet />
-          </main>
+      <TooltipProvider>
+        <div className="min-h-screen bg-background">
+          <Sidebar />
+          <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
+            <Header />
+            <main className="px-12 py-8">
+              <Outlet />
+            </main>
+          </div>
+
+          {/* Floating Help Button - Re-open Onboarding */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={openOnboarding}
+                size="icon"
+                className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              <p>Buka Panduan Onboarding</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <GlobalShortcutsDialog />
+          <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+          <OnboardingWizard onComplete={handleOnboardingComplete} />
+          <BusinessTypeMigrationModal
+            open={showMigrationModal}
+            onClose={setMigrationPrompted}
+            onComplete={setMigrationPrompted}
+          />
         </div>
-
-        {/* Floating Help Button - Re-open Onboarding */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              onClick={openOnboarding}
-              size="icon"
-              className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            <p>Buka Panduan Onboarding</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <GlobalShortcutsDialog />
-        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
-        <OnboardingWizard onComplete={handleOnboardingComplete} />
-      </div>
-    </TooltipProvider>
+      </TooltipProvider>
     </RealtimeProvider>
   );
 }

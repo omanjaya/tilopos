@@ -14,7 +14,7 @@ async function checkData() {
     });
 
     console.log('📍 Outlets in database:');
-    outlets.forEach(o => console.log(`  - ${o.name} (${o.id})`));
+    outlets.forEach((o) => console.log(`  - ${o.name} (${o.id})`));
 
     const employee = await prisma.employee.findFirst({
       select: {
@@ -32,7 +32,6 @@ async function checkData() {
 
     const products = await prisma.product.count();
     console.log(`\n📦 Total products: ${products}`);
-
   } catch (error) {
     console.error('❌ Error:', error);
   } finally {

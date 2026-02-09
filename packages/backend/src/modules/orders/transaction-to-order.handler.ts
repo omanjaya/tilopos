@@ -59,7 +59,9 @@ export class TransactionToOrderHandler implements OnModuleInit {
 
       // Skip if transaction has no items
       if (transaction.items.length === 0) {
-        this.logger.debug(`Transaction ${event.transactionId} has no items, skipping order creation`);
+        this.logger.debug(
+          `Transaction ${event.transactionId} has no items, skipping order creation`,
+        );
         return;
       }
 
@@ -76,7 +78,9 @@ export class TransactionToOrderHandler implements OnModuleInit {
         }));
 
       if (validItems.length === 0) {
-        this.logger.warn(`Transaction ${event.transactionId} has no valid items, skipping order creation`);
+        this.logger.warn(
+          `Transaction ${event.transactionId} has no valid items, skipping order creation`,
+        );
         return;
       }
 

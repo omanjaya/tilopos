@@ -3,8 +3,6 @@ import { AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useOnboarding } from './onboarding-provider';
 import { WelcomeStep } from './steps/welcome-step';
-import { BusinessStep } from './steps/business-step';
-import { OutletStep } from './steps/outlet-step';
 import { TourStep } from './steps/tour-step';
 
 interface OnboardingWizardProps {
@@ -13,8 +11,6 @@ interface OnboardingWizardProps {
 
 const steps = [
   { id: 'welcome', title: 'Selamat Datang' },
-  { id: 'business', title: 'Informasi Bisnis' },
-  { id: 'outlet', title: 'Outlet Pertama' },
   { id: 'tour', title: 'Fitur Utama' },
 ];
 
@@ -27,7 +23,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const handleNext = () => {
     if (state.currentStep === steps.length - 1) {
-      // Last step - complete onboarding
       onComplete?.();
     } else {
       nextStep();
@@ -70,7 +65,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 `}
                 disabled={idx > state.currentStep}
               >
-                {idx < state.currentStep ? '✓' : idx + 1}
+                {idx < state.currentStep ? '\u2713' : idx + 1}
               </button>
               {idx < steps.length - 1 && (
                 <div
@@ -100,22 +95,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             />
           )}
           {state.currentStep === 1 && (
-            <BusinessStep
-              key="business"
-              onNext={handleNext}
-              onBack={handleBack}
-              onSkip={skipOnboarding}
-            />
-          )}
-          {state.currentStep === 2 && (
-            <OutletStep
-              key="outlet"
-              onNext={handleNext}
-              onBack={handleBack}
-              onSkip={skipOnboarding}
-            />
-          )}
-          {state.currentStep === 3 && (
             <TourStep
               key="tour"
               onNext={handleNext}

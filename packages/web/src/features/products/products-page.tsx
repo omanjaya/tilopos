@@ -25,7 +25,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags } from 'lucide-react';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -37,6 +38,9 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+
+  // Feature checks for dynamic UI
+  const { hasBarcodeScanning } = useBusinessFeatures();
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -84,7 +88,15 @@ export function ProductsPage() {
         ),
     },
     { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
-    { key: 'sku', header: 'SKU', cell: (row) => <span className="text-muted-foreground">{row.sku}</span> },
+    {
+      key: 'sku',
+      header: hasBarcodeScanning ? (
+        <span className="flex items-center gap-1">
+          <Barcode className="h-3.5 w-3.5" /> SKU
+        </span>
+      ) : 'SKU',
+      cell: (row) => <span className="text-muted-foreground font-mono text-sm">{row.sku}</span>
+    },
     { key: 'price', header: 'Harga', cell: (row) => formatCurrency(row.basePrice) },
     {
       key: 'category',

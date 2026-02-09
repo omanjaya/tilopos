@@ -15,6 +15,9 @@ import { ProductReportsController } from './controllers/product-reports.controll
 import { PaymentReportsController } from './controllers/payment-reports.controller';
 import { PromotionReportsController } from './controllers/promotion-reports.controller';
 import { CustomReportsController } from './controllers/custom-reports.controller';
+import { TableReportsController } from './controllers/table-reports.controller';
+import { StaffReportsController } from './controllers/staff-reports.controller';
+import { AppointmentReportsController } from './controllers/appointment-reports.controller';
 
 @Module({
   imports: [ExportModule],
@@ -29,8 +32,12 @@ import { CustomReportsController } from './controllers/custom-reports.controller
     PaymentReportsController,
     PromotionReportsController,
     CustomReportsController,
+    TableReportsController,
+    StaffReportsController,
+    AppointmentReportsController,
   ],
   providers: [GenerateSalesReportUseCase, GenerateInventoryReportUseCase, ReportsService],
   exports: [ReportsService],
 })
-export class ReportsModule {}
+export class ReportsModule { }
+

@@ -5,12 +5,14 @@ import { productsApi } from '@/api/endpoints/products.api';
 import { categoriesApi } from '@/api/endpoints/categories.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { ImageUpload } from '@/components/shared/image-upload';
+import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -19,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
-import { Loader2, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowLeft, Barcode } from 'lucide-react';
 import type { CreateProductRequest, CreateVariantRequest } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -39,6 +41,9 @@ export function ProductFormPage() {
   const [trackStock, setTrackStock] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [variants, setVariants] = useState<CreateVariantRequest[]>([]);
+
+  // Feature checks
+  const { hasBarcodeScanning } = useBusinessFeatures();
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -163,8 +168,19 @@ export function ProductFormPage() {
                 <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sku">SKU</Label>
-                <Input id="sku" value={sku} onChange={(e) => setSku(e.target.value)} required />
+                <Label htmlFor="sku">{hasBarcodeScanning ? 'SKU / Barcode' : 'SKU'}</Label>
+                <div className="relative">
+                  <Input
+                    id="sku"
+                    value={sku}
+                    onChange={(e) => setSku(e.target.value)}
+                    required
+                    placeholder={hasBarcodeScanning ? 'Scan atau ketik barcode' : 'SKU produk'}
+                  />
+                  {hasBarcodeScanning && (
+                    <Barcode className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  )}
+                </div>
               </div>
             </div>
 
@@ -219,10 +235,12 @@ export function ProductFormPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Switch id="trackStock" checked={trackStock} onCheckedChange={setTrackStock} />
-              <Label htmlFor="trackStock">Lacak Stok</Label>
-            </div>
+            <FeatureGate feature={FEATURES.STOCK_MANAGEMENT}>
+              <div className="flex items-center gap-3">
+                <Switch id="trackStock" checked={trackStock} onCheckedChange={setTrackStock} />
+                <Label htmlFor="trackStock">Lacak Stok</Label>
+              </div>
+            </FeatureGate>
 
             <div className="space-y-2">
               <Label>Gambar Produk</Label>
@@ -231,66 +249,71 @@ export function ProductFormPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Varian</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={addVariant}>
-              <Plus className="mr-2 h-4 w-4" /> Tambah Varian
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {variants.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Belum ada varian. Tambahkan varian jika produk memiliki beberapa pilihan.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {variants.map((variant, index) => (
-                  <div key={index} className="flex items-end gap-3">
-                    <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Nama</Label>
-                      <Input
-                        value={variant.name}
-                        onChange={(e) => updateVariant(index, 'name', e.target.value)}
-                        placeholder="Contoh: Large"
-                        required
-                      />
-                    </div>
-                    <div className="w-32 space-y-1">
-                      <Label className="text-xs">Harga</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={variant.price}
-                        onChange={(e) => updateVariant(index, 'price', Number(e.target.value))}
-                        required
-                      />
-                    </div>
-                    <div className="w-32 space-y-1">
-                      <Label className="text-xs">Modal</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={variant.costPrice}
-                        onChange={(e) => updateVariant(index, 'costPrice', Number(e.target.value))}
-                        required
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeVariant(index)}
-                      className="shrink-0 text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+        <FeatureGate feature={FEATURES.PRODUCT_VARIANTS}>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Varian</CardTitle>
+                <CardDescription>Tambahkan varian jika produk memiliki beberapa pilihan (ukuran, warna, dll)</CardDescription>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              <Button type="button" variant="outline" size="sm" onClick={addVariant}>
+                <Plus className="mr-2 h-4 w-4" /> Tambah Varian
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {variants.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Belum ada varian. Klik tombol di atas untuk menambahkan varian.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {variants.map((variant, index) => (
+                    <div key={index} className="flex items-end gap-3">
+                      <div className="flex-1 space-y-1">
+                        <Label className="text-xs">Nama</Label>
+                        <Input
+                          value={variant.name}
+                          onChange={(e) => updateVariant(index, 'name', e.target.value)}
+                          placeholder="Contoh: Large"
+                          required
+                        />
+                      </div>
+                      <div className="w-32 space-y-1">
+                        <Label className="text-xs">Harga</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={variant.price}
+                          onChange={(e) => updateVariant(index, 'price', Number(e.target.value))}
+                          required
+                        />
+                      </div>
+                      <div className="w-32 space-y-1">
+                        <Label className="text-xs">Modal</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={variant.costPrice}
+                          onChange={(e) => updateVariant(index, 'costPrice', Number(e.target.value))}
+                          required
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeVariant(index)}
+                        className="shrink-0 text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </FeatureGate>
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={() => navigate('/app/products')}>

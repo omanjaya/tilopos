@@ -67,10 +67,13 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
   },
 
   isPathVisible: (path) => {
-    const { enabledFeatures, isLoaded } = get();
+    const { enabledFeatures, isLoaded, businessType } = get();
 
     // If features haven't loaded yet, show everything
     if (!isLoaded) return true;
+
+    // For custom business type, show all paths (user will configure features manually)
+    if (businessType === 'custom') return true;
 
     // Check if this path is controlled by any feature
     const requiredFeatures = PATH_FEATURE_MAP[path];

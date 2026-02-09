@@ -272,7 +272,9 @@ export class TransactionEventListener implements OnModuleInit {
     });
 
     if (!loyaltyTransaction) {
-      this.logger.debug(`No loyalty transaction found for ${event.transactionId}, skipping reversal`);
+      this.logger.debug(
+        `No loyalty transaction found for ${event.transactionId}, skipping reversal`,
+      );
       return;
     }
 
@@ -281,7 +283,9 @@ export class TransactionEventListener implements OnModuleInit {
     });
 
     if (!customer || !customer.isActive) {
-      this.logger.warn(`Customer ${loyaltyTransaction.customerId} not found or inactive, skipping loyalty reversal`);
+      this.logger.warn(
+        `Customer ${loyaltyTransaction.customerId} not found or inactive, skipping loyalty reversal`,
+      );
       return;
     }
 

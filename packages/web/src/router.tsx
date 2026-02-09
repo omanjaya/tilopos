@@ -56,6 +56,9 @@ import { LoginPage } from '@/features/auth/login-page';
 import { LandingPage } from '@/pages/landing-page';
 import { CustomerSelfOrderPage } from '@/features/self-order/customer-self-order-page';
 
+// Registration (lazy-loaded)
+const RegisterPage = lazy(() => import('@/features/auth/register/register-page').then(m => ({ default: m.RegisterPage })));
+
 // Lazy-loaded pages (code splitting for better bundle size)
 // Dashboard
 const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then(m => ({ default: m.DashboardPage })));
@@ -168,6 +171,14 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/register',
+    element: (
+      <LazyRoute>
+        <RegisterPage />
+      </LazyRoute>
+    ),
   },
   // Public customer-facing self-order (no auth required)
   {

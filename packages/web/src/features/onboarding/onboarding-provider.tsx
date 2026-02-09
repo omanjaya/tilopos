@@ -60,7 +60,7 @@ export function OnboardingProvider({
   const nextStep = useCallback(() => {
     setState((prev) => ({
       ...prev,
-      currentStep: Math.min(prev.currentStep + 1, 3), // 4 steps: 0-3
+      currentStep: Math.min(prev.currentStep + 1, 1), // 2 steps: 0-1
     }));
   }, []);
 
@@ -74,7 +74,7 @@ export function OnboardingProvider({
   const goToStep = useCallback((step: number) => {
     setState((prev) => ({
       ...prev,
-      currentStep: Math.max(0, Math.min(step, 3)),
+      currentStep: Math.max(0, Math.min(step, 1)),
     }));
   }, []);
 
@@ -94,7 +94,7 @@ export function OnboardingProvider({
       ...prev,
       isOpen: false,
       completed: true,
-      currentStep: 3,
+      currentStep: 1,
     }));
     onCompletedChange?.(true);
   }, [onCompletedChange]);

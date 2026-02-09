@@ -17,15 +17,48 @@ export class InventoryReportsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly generateInventoryReport: GenerateInventoryReportUseCase,
-  ) {}
+  ) { }
 
   @Get('inventory')
   @ApiOperation({ summary: 'Inventory stock levels report' })
   async inventoryReport(@Query('outletId') outletId: string) {
-    return this.prisma.stockLevel.findMany({
+    const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId },
       include: { product: true, variant: true },
     });
+
+    // Calculate summary
+    const totalItems = stockLevels.length;
+    const lowStockItems = stockLevels.filter(
+      (s) => Number(s.quantity) <= s.lowStockAlert && Number(s.quantity) > 0,
+    ).length;
+    const outOfStockItems = stockLevels.filter((s) => Number(s.quantity) <= 0).length;
+    const totalValue = stockLevels.reduce((sum, s) => {
+      const cost = s.product?.costPrice || s.variant?.costPrice || 0;
+      return sum + Number(s.quantity) * Number(cost);
+    }, 0);
+
+    // Format items for frontend
+    const items = stockLevels.map((s) => ({
+      id: s.id,
+      productId: s.productId,
+      productName: s.product?.name || s.variant?.name || 'Unknown',
+      variantName: s.variant?.name || null,
+      sku: s.product?.sku || s.variant?.sku || null,
+      currentStock: Number(s.quantity),
+      lowStockAlert: s.lowStockAlert,
+      unit: s.product?.sellUnit || 'pcs',
+      costPrice: Number(s.product?.costPrice || s.variant?.costPrice || 0),
+      stockValue: Number(s.quantity) * Number(s.product?.costPrice || s.variant?.costPrice || 0),
+    }));
+
+    return {
+      totalItems,
+      lowStockItems,
+      outOfStockItems,
+      totalValue: Math.round(totalValue),
+      items,
+    };
   }
 
   @Get('inventory/export')
@@ -43,3 +76,4 @@ export class InventoryReportsController {
     res.send(result.buffer);
   }
 }
+

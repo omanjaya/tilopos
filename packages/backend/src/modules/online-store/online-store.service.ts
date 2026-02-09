@@ -906,9 +906,7 @@ export class OnlineStoreService {
     }
 
     // Notify KDS via event bus
-    this.eventBus.publish(
-      new OrderStatusChangedEvent(kitchenOrder.id, outlet.id, '', 'pending'),
-    );
+    this.eventBus.publish(new OrderStatusChangedEvent(kitchenOrder.id, outlet.id, '', 'pending'));
 
     this.logger.log(`Kitchen order ${kitchenOrderNumber} created for online order ${orderNumber}`);
 

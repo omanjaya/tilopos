@@ -1,9 +1,22 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query,
-  UseGuards, HttpCode, HttpStatus,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
-import { PriceTiersService, type CreatePriceTierDto, type UpdatePriceTierDto } from './price-tiers.service';
+import {
+  PriceTiersService,
+  type CreatePriceTierDto,
+  type UpdatePriceTierDto,
+} from './price-tiers.service';
 
 @Controller('price-tiers')
 @UseGuards(JwtAuthGuard)
@@ -44,10 +57,7 @@ export class PriceTiersController {
   }
 
   @Get('resolve/:productId')
-  async resolvePrice(
-    @Param('productId') productId: string,
-    @Query('quantity') quantity: string,
-  ) {
+  async resolvePrice(@Param('productId') productId: string, @Query('quantity') quantity: string) {
     const qty = parseFloat(quantity) || 1;
     return this.service.resolvePrice(productId, qty);
   }

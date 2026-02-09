@@ -159,3 +159,80 @@ export function formatPercentage(
     maximumFractionDigits: decimals,
   }).format(value) + '%';
 }
+
+const timeFormatter = new Intl.DateTimeFormat('id-ID', {
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/**
+ * Format time only to Indonesian locale
+ *
+ * @param date - Date to format (string or Date object)
+ * @returns Formatted time string (HH:MM)
+ *
+ * @example
+ * ```tsx
+ * formatTime('2024-01-15T14:30:00') // "14:30"
+ * formatTime(null) // ""
+ * ```
+ */
+export function formatTime(date: string | Date | null | undefined): string {
+  if (!date) return '';
+
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return '';
+    return timeFormatter.format(dateObj);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Alias for formatCurrency - Format number as Indonesian Rupiah
+ * 
+ * @param amount - Amount to format
+ * @returns Formatted currency string
+ * 
+ * @example
+ * ```tsx
+ * formatRupiah(15000) // "Rp 15.000"
+ * ```
+ */
+export function formatRupiah(amount: number | null | undefined): string {
+  return formatCurrency(amount);
+}
+
+/**
+ * Format duration in minutes to human readable format
+ * 
+ * @param minutes - Duration in minutes
+ * @returns Formatted duration string
+ * 
+ * @example
+ * ```tsx
+ * formatDuration(45) // "45 menit"
+ * formatDuration(90) // "1j 30m"
+ * formatDuration(120) // "2 jam"
+ * ```
+ */
+export function formatDuration(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined || !isFinite(minutes) || minutes <= 0) {
+    return '0 menit';
+  }
+
+  if (minutes < 60) {
+    return `${Math.round(minutes)} menit`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = Math.round(minutes % 60);
+
+  if (remainingMinutes === 0) {
+    return `${hours} jam`;
+  }
+
+  return `${hours}j ${remainingMinutes}m`;
+}
+

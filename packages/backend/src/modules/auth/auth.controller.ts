@@ -18,11 +18,14 @@ import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { LoginUseCase } from '../../application/use-cases/auth/login.use-case';
+import { RegisterUseCase } from '../../application/use-cases/auth/register.use-case';
 import { UpdateProfileUseCase } from '../../application/use-cases/auth/update-profile.use-case';
 import { ChangePinUseCase } from '../../application/use-cases/auth/change-pin.use-case';
 import { GetActivityLogUseCase } from '../../application/use-cases/auth/get-activity-log.use-case';
 import { LoginDto, UpdateProfileDto, ChangePinDto } from '../../application/dtos/auth.dto';
+import { RegisterDto } from '../../application/dtos/register.dto';
 import { AuthService } from './auth.service';
+import { BusinessTypeService } from '../business/services/business-type.service';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
@@ -38,10 +41,12 @@ interface GoogleAuthRequest extends Request {
 export class AuthController {
   constructor(
     private readonly loginUseCase: LoginUseCase,
+    private readonly registerUseCase: RegisterUseCase,
     private readonly updateProfileUseCase: UpdateProfileUseCase,
     private readonly changePinUseCase: ChangePinUseCase,
     private readonly getActivityLogUseCase: GetActivityLogUseCase,
     private readonly authService: AuthService,
+    private readonly businessTypeService: BusinessTypeService,
   ) {}
 
   @Post('login')
@@ -53,6 +58,23 @@ export class AuthController {
       pin: dto.pin,
       outletId: dto.outletId,
     });
+  }
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @Throttle({ short: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Register new business account' })
+  async register(@Body() dto: RegisterDto) {
+    return this.registerUseCase.execute(dto);
+  }
+
+  @Get('business-type-presets')
+  @ApiOperation({ summary: 'Get all business type presets (public)' })
+  getBusinessTypePresets() {
+    return {
+      presets: this.businessTypeService.getAllPresets(),
+      grouped: this.businessTypeService.getPresetsGrouped(),
+    };
   }
 
   @Get('google')

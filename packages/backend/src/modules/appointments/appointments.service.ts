@@ -222,7 +222,13 @@ export class AppointmentsService {
       where: {
         outletId,
         employeeId,
-        status: { in: [AppointmentStatus.scheduled, AppointmentStatus.confirmed, AppointmentStatus.in_progress] },
+        status: {
+          in: [
+            AppointmentStatus.scheduled,
+            AppointmentStatus.confirmed,
+            AppointmentStatus.in_progress,
+          ],
+        },
         ...(excludeId && { id: { not: excludeId } }),
         startTime: { lt: end },
         endTime: { gt: start },

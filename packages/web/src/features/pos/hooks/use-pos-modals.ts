@@ -13,6 +13,7 @@ export function usePosModals() {
     const [showDiscountModal, setShowDiscountModal] = useState(false);
     const [showShortcutHelp, setShowShortcutHelp] = useState(false);
     const [showCartSheet, setShowCartSheet] = useState(false);
+    const [showTodayTransactions, setShowTodayTransactions] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<POSProduct | null>(null);
     const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
@@ -26,6 +27,7 @@ export function usePosModals() {
         setShowShortcutHelp(false);
         setSelectedProduct(null);
         setShowCartSheet(false);
+        setShowTodayTransactions(false);
     }, []);
 
     return {
@@ -84,6 +86,12 @@ export function usePosModals() {
         setShowCartSheet,
         openCartSheet: () => setShowCartSheet(true),
         closeCartSheet: () => setShowCartSheet(false),
+
+        // Today transactions sheet
+        showTodayTransactions,
+        setShowTodayTransactions,
+        openTodayTransactions: () => setShowTodayTransactions(true),
+        closeTodayTransactions: () => setShowTodayTransactions(false),
 
         // Product modal
         selectedProduct,

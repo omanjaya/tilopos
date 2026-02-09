@@ -27,7 +27,7 @@ async function addSampleProducts() {
 
     // Check if category exists first
     let foodCategory = await prisma.category.findFirst({
-      where: { businessId: business.id, name: 'Makanan' }
+      where: { businessId: business.id, name: 'Makanan' },
     });
     if (!foodCategory) {
       foodCategory = await prisma.category.create({
@@ -37,12 +37,12 @@ async function addSampleProducts() {
           description: 'Menu makanan',
           sortOrder: 1,
           isActive: true,
-        }
+        },
       });
     }
 
     let drinkCategory = await prisma.category.findFirst({
-      where: { businessId: business.id, name: 'Minuman' }
+      where: { businessId: business.id, name: 'Minuman' },
     });
     if (!drinkCategory) {
       drinkCategory = await prisma.category.create({
@@ -52,12 +52,12 @@ async function addSampleProducts() {
           description: 'Menu minuman',
           sortOrder: 2,
           isActive: true,
-        }
+        },
       });
     }
 
     let snackCategory = await prisma.category.findFirst({
-      where: { businessId: business.id, name: 'Snack' }
+      where: { businessId: business.id, name: 'Snack' },
     });
     if (!snackCategory) {
       snackCategory = await prisma.category.create({
@@ -67,7 +67,7 @@ async function addSampleProducts() {
           description: 'Menu snack & cemilan',
           sortOrder: 3,
           isActive: true,
-        }
+        },
       });
     }
 
@@ -284,7 +284,6 @@ async function addSampleProducts() {
     console.log(`🏢 Business: ${business.name}`);
     console.log(`🏪 Outlet: ${outlet.name}`);
     console.log('\n💡 Refresh your POS page to see the products!\n');
-
   } catch (error) {
     console.error('❌ Error adding sample products:', error);
     throw error;

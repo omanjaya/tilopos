@@ -32,20 +32,12 @@ export class SerialNumbersController {
     @Query('status') status: string | undefined,
     @CurrentUser() user: AuthUser,
   ) {
-    const serials = await this.service.listByProduct(
-      productId,
-      outletId,
-      user.businessId,
-      status,
-    );
+    const serials = await this.service.listByProduct(productId, outletId, user.businessId, status);
     return { serials };
   }
 
   @Get('customer/:customerId')
-  async listByCustomer(
-    @Param('customerId') customerId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async listByCustomer(@Param('customerId') customerId: string, @CurrentUser() user: AuthUser) {
     const serials = await this.service.listByCustomer(customerId, user.businessId);
     return { serials };
   }
@@ -61,26 +53,17 @@ export class SerialNumbersController {
   }
 
   @Get('lookup/:serialNumber')
-  async lookupBySerial(
-    @Param('serialNumber') serialNumber: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async lookupBySerial(@Param('serialNumber') serialNumber: string, @CurrentUser() user: AuthUser) {
     return this.service.findBySerial(serialNumber, user.businessId);
   }
 
   @Get(':id')
-  async getById(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getById(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.findById(id, user.businessId);
   }
 
   @Post()
-  async register(
-    @Body() dto: RegisterSerialNumberDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async register(@Body() dto: RegisterSerialNumberDto, @CurrentUser() user: AuthUser) {
     const serial = await this.service.register(user.businessId, dto);
     return { serial };
   }
@@ -97,7 +80,8 @@ export class SerialNumbersController {
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body() dto: Partial<{
+    @Body()
+    dto: Partial<{
       serialNumber: string;
       purchaseDate: string | null;
       warrantyExpiry: string | null;
@@ -157,10 +141,7 @@ export class SerialNumbersController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async delete(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.service.delete(id, user.businessId);
   }
 }
