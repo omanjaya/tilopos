@@ -51,16 +51,16 @@ export class SelfOrderController {
 
     if (!session) {
       throw new AppError(
-        'Session not found or expired',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found or expired',
       );
     }
 
     // Check if session is expired
     if (new Date() > session.expiresAt) {
       throw new AppError(
-        'Session has expired',
         ErrorCode.SESSION_EXPIRED,
+        'Session has expired',
       );
     }
 
@@ -160,24 +160,24 @@ export class SelfOrderController {
     });
     if (!session) {
       throw new AppError(
-        'Session not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found',
       );
     }
 
     // Check if session is still active
     if (session.status !== 'active') {
       throw new AppError(
-        'Session is not active',
         ErrorCode.SESSION_EXPIRED,
+        'Session is not active',
       );
     }
 
     // Check if session is expired
     if (new Date() > session.expiresAt) {
       throw new AppError(
-        'Session has expired',
         ErrorCode.SESSION_EXPIRED,
+        'Session has expired',
       );
     }
 
@@ -189,8 +189,8 @@ export class SelfOrderController {
 
     if (!product) {
       throw new AppError(
-        'Product not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Product not found',
       );
     }
 
@@ -199,8 +199,8 @@ export class SelfOrderController {
       const variant = product.variants.find((v) => v.id === dto.variantId);
       if (!variant) {
         throw new AppError(
-          'Variant not found',
           ErrorCode.RESOURCE_NOT_FOUND,
+          'Variant not found',
         );
       }
     }
@@ -227,15 +227,15 @@ export class SelfOrderController {
 
     if (!session) {
       throw new AppError(
-        'Session not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found',
       );
     }
 
     if (session.items.length === 0) {
       throw new AppError(
-        'Cannot submit empty order',
         ErrorCode.VALIDATION_ERROR,
+        'Cannot submit empty order',
       );
     }
 
@@ -348,8 +348,8 @@ export class SelfOrderController {
 
     if (!outlet) {
       throw new AppError(
-        'Outlet not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Outlet not found',
       );
     }
 
@@ -541,8 +541,8 @@ export class SelfOrderController {
   async initiateQrisPayment(@Param('code') code: string, @Body() dto: { amount: number }) {
     if (!dto.amount || dto.amount <= 0) {
       throw new AppError(
-        'Amount must be greater than 0',
         ErrorCode.VALIDATION_ERROR,
+        'Amount must be greater than 0',
       );
     }
     return this.paymentService.initiateQRISPayment(code, dto.amount);

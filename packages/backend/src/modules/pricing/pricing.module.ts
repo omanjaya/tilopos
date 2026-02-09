@@ -3,10 +3,8 @@ import { PricingController } from './pricing.controller';
 import { CalculateDynamicPriceUseCase } from '../../application/use-cases/pricing/calculate-dynamic-price.use-case';
 import { PricingCalculatorService } from '../../domain/services/pricing-calculator.service';
 import { PrismaPricingRuleRepository } from '../../infrastructure/repositories/prisma-pricing-rule.repository';
-import { PrismaModule } from '../../infrastructure/database/prisma.module';
 
 @Module({
-  imports: [PrismaModule],
   controllers: [PricingController],
   providers: [
     CalculateDynamicPriceUseCase,

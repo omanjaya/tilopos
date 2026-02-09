@@ -45,8 +45,8 @@ export function decodeBase32(encoded: string): Buffer {
     const index = BASE32_ALPHABET.indexOf(cleanInput[i]);
     if (index === -1) {
       throw new AppError(
-        `Invalid base32 character: ${cleanInput[i]}`,
         ErrorCode.VALIDATION_ERROR,
+        `Invalid base32 character: ${cleanInput[i]}`,
       );
     }
 

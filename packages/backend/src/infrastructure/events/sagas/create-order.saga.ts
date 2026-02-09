@@ -75,16 +75,16 @@ export class ValidateStockStep implements SagaStep<CreateOrderContext> {
 
         if (!stockLevel) {
           throw new AppError(
-            `No stock record for ingredient "${recipeItem.ingredient.name}" at this outlet`,
             ErrorCode.RESOURCE_NOT_FOUND,
+            `No stock record for ingredient "${recipeItem.ingredient.name}" at this outlet`,
           );
         }
 
         const available = Number(stockLevel.quantity);
         if (available < needed) {
           throw new AppError(
-            `Insufficient stock for "${recipeItem.ingredient.name}": need ${needed} ${recipeItem.unit}, have ${available}`,
             ErrorCode.VALIDATION_ERROR,
+            `Insufficient stock for "${recipeItem.ingredient.name}": need ${needed} ${recipeItem.unit}, have ${available}`,
           );
         }
       }
@@ -265,8 +265,8 @@ export class SendToKdsStep implements SagaStep<CreateOrderContext> {
   async execute(context: CreateOrderContext): Promise<CreateOrderContext> {
     if (!context.orderId) {
       throw new AppError(
-        'Cannot send to KDS without an order ID',
         ErrorCode.VALIDATION_ERROR,
+        'Cannot send to KDS without an order ID',
       );
     }
 

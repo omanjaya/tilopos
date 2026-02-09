@@ -160,8 +160,8 @@ export class TierManagementService {
     const customer = await this.repository.getCustomer(customerId);
     if (!customer) {
       throw new AppError(
-        `Customer ${customerId} not found`,
         ErrorCode.RESOURCE_NOT_FOUND,
+        `Customer ${customerId} not found`,
       );
     }
 

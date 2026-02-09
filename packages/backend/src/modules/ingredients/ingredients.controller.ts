@@ -121,8 +121,8 @@ export class IngredientsController {
   async adjustStock(@Body() dto: AdjustIngredientStockDto, @CurrentUser() user: AuthUser) {
     if (!user.outletId) {
       throw new AppError(
-        'User must be assigned to an outlet',
         ErrorCode.VALIDATION_ERROR,
+        'User must be assigned to an outlet',
       );
     }
 

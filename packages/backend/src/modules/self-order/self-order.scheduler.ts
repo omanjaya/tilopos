@@ -90,8 +90,8 @@ export class SelfOrderScheduler {
 
     if (!session) {
       throw new AppError(
-        'Session not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Session not found',
       );
     }
 

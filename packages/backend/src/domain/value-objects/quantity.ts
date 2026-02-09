@@ -4,8 +4,8 @@ export class Quantity {
   private constructor(private readonly _value: number) {
     if (_value < 0) {
       throw new AppError(
-        'Quantity cannot be negative',
         ErrorCode.VALIDATION_ERROR,
+        'Quantity cannot be negative',
       );
     }
   }

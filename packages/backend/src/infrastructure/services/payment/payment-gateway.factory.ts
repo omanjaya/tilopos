@@ -25,15 +25,15 @@ export class PaymentGatewayFactory {
       case 'mock':
         if (this.configService.get<string>('NODE_ENV') === 'production') {
           throw new AppError(
-            'Mock payment gateway cannot be used in production. Set PAYMENT_GATEWAY to midtrans or xendit.',
             ErrorCode.CONFIGURATION_ERROR,
+            'Mock payment gateway cannot be used in production. Set PAYMENT_GATEWAY to midtrans or xendit.',
           );
         }
         return this.mock;
       default:
         throw new AppError(
-          `Unknown payment gateway: ${gateway}. Valid options: midtrans, xendit, mock`,
           ErrorCode.CONFIGURATION_ERROR,
+          `Unknown payment gateway: ${gateway}. Valid options: midtrans, xendit, mock`,
         );
     }
   }

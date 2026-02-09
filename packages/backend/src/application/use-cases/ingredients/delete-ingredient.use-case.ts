@@ -14,8 +14,8 @@ export class DeleteIngredientUseCase {
     const ingredient = await this.ingredientRepository.findById(id);
     if (!ingredient) {
       throw new AppError(
-        'Ingredient not found',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Ingredient not found',
       );
     }
 
@@ -23,8 +23,8 @@ export class DeleteIngredientUseCase {
     const recipes = await this.ingredientRepository.findRecipesByIngredient(id);
     if (recipes.length > 0) {
       throw new AppError(
-        'Cannot delete ingredient that is used in recipes',
         ErrorCode.CONFLICT,
+        'Cannot delete ingredient that is used in recipes',
       );
     }
 

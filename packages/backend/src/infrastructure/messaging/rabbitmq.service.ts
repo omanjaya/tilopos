@@ -273,8 +273,8 @@ export class RabbitMqService implements OnModuleDestroy {
   private async establishConnection(): Promise<void> {
     if (!this.amqpLib || !this.url) {
       throw new AppError(
-        'amqplib not loaded or URL not configured',
         ErrorCode.CONFIGURATION_ERROR,
+        'amqplib not loaded or URL not configured',
       );
     }
 

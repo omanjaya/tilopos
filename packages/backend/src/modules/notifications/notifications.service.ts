@@ -320,8 +320,8 @@ export class NotificationsService {
     const channel = this.channels.get(payload.channel);
     if (!channel) {
       throw new AppError(
-        `Unknown channel: ${payload.channel}`,
         ErrorCode.VALIDATION_ERROR,
+        `Unknown channel: ${payload.channel}`,
       );
     }
 

@@ -62,8 +62,8 @@ export class MarketplaceService implements OnModuleInit {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
       throw new AppError(
-        `Unknown platform: ${platform}`,
         ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
       );
     }
 
@@ -167,8 +167,8 @@ export class MarketplaceService implements OnModuleInit {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
       throw new AppError(
-        `Unknown platform: ${platform}`,
         ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
       );
     }
 
@@ -193,8 +193,8 @@ export class MarketplaceService implements OnModuleInit {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
       throw new AppError(
-        `Unknown platform: ${platform}`,
         ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
       );
     }
 
@@ -220,8 +220,8 @@ export class MarketplaceService implements OnModuleInit {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
       throw new AppError(
-        `Unknown platform: ${platform}`,
         ErrorCode.VALIDATION_ERROR,
+        `Unknown platform: ${platform}`,
       );
     }
 

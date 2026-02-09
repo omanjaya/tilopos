@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IPricingRuleRepository } from '../../repositories/pricing-rule.repository';
 import {
   PricingCalculatorService,
@@ -35,6 +35,7 @@ export interface CalculateBatchPriceInput {
 @Injectable()
 export class CalculateDynamicPriceUseCase {
   constructor(
+    @Inject('IPricingRuleRepository')
     private readonly pricingRuleRepository: IPricingRuleRepository,
     private readonly pricingCalculator: PricingCalculatorService,
   ) {}

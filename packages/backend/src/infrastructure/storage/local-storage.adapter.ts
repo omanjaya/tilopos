@@ -14,8 +14,8 @@ export class LocalStorageAdapter implements StorageAdapter {
     const safePath = resolve(this.uploadDir, filename);
     if (!safePath.startsWith(resolve(this.uploadDir))) {
       throw new AppError(
-        'Invalid file path: path traversal detected',
         ErrorCode.VALIDATION_ERROR,
+        'Invalid file path: path traversal detected',
       );
     }
 
@@ -30,8 +30,8 @@ export class LocalStorageAdapter implements StorageAdapter {
     const safePath = resolve(this.uploadDir, filepath);
     if (!safePath.startsWith(resolve(this.uploadDir))) {
       throw new AppError(
-        'Invalid file path: path traversal detected',
         ErrorCode.VALIDATION_ERROR,
+        'Invalid file path: path traversal detected',
       );
     }
 

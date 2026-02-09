@@ -14,6 +14,32 @@ import {
 import { AppError } from '../../shared/errors/app-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
 
+type PricingRuleRecord = {
+  id: string;
+  businessId: string;
+  name: string;
+  type: string;
+  priority: number;
+  status: string;
+  validFrom: Date;
+  validUntil: Date | null;
+  conditions: unknown;
+  discountType: string;
+  discountValue: unknown;
+  minQuantity: number | null;
+  maxQuantity: number | null;
+  applicableDays: number[];
+  timeFrom: string | null;
+  timeUntil: string | null;
+  customerSegments: string[];
+  productIds: string[];
+  categoryIds: string[];
+  excludeProductIds: string[];
+  isCombinable: boolean;
+  maxApplicationsPerTransaction: number | null;
+  description: string | null;
+};
+
 @Injectable()
 export class PrismaPricingRuleRepository implements IPricingRuleRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -66,7 +92,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
       orderBy: { priority: 'desc' },
     });
 
-    return records.map((record) => this.toDomain(record));
+    return records.map((record: PricingRuleRecord) => this.toDomain(record));
   }
 
   async findActiveForProduct(
@@ -92,8 +118,8 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
     // Filter by product/category in application layer
     // (Prisma doesn't support complex array queries well)
     const rules = records
-      .map((record) => this.toDomain(record))
-      .filter((rule) => rule.appliesTo(productId, categoryId));
+      .map((record: PricingRuleRecord) => this.toDomain(record))
+      .filter((rule: PricingRule) => rule.appliesTo(productId, categoryId));
 
     return rules;
   }
@@ -200,7 +226,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
   /**
    * Convert Prisma record to domain entity
    */
-  private toDomain(record: any): PricingRule {
+  private toDomain(record: PricingRuleRecord): PricingRule {
     return new PricingRule(
       record.id,
       record.businessId,
@@ -224,7 +250,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
       record.excludeProductIds,
       record.isCombinable,
       record.maxApplicationsPerTransaction,
-      record.description,
+      record.description ?? undefined,
     );
   }
 }

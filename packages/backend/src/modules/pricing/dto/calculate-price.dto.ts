@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 
 export class CalculatePriceDto {
   @IsString()
-  productId: string;
+  productId!: string;
 
   @IsOptional()
   @IsString()
@@ -11,11 +11,11 @@ export class CalculatePriceDto {
 
   @IsNumber()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @IsNumber()
   @Min(0)
-  originalPrice: number;
+  originalPrice!: number;
 
   @IsOptional()
   @IsString()
@@ -39,7 +39,7 @@ export class CalculatePriceDto {
 
 export class BatchPriceItemDto {
   @IsString()
-  productId: string;
+  productId!: string;
 
   @IsOptional()
   @IsString()
@@ -47,18 +47,18 @@ export class BatchPriceItemDto {
 
   @IsNumber()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @IsNumber()
   @Min(0)
-  originalPrice: number;
+  originalPrice!: number;
 }
 
 export class CalculateBatchPriceDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BatchPriceItemDto)
-  items: BatchPriceItemDto[];
+  items!: BatchPriceItemDto[];
 
   @IsOptional()
   @IsString()

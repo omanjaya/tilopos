@@ -29,8 +29,8 @@ export class CreateRecipeUseCase {
     );
     if (existing.length > 0) {
       throw new AppError(
-        'Recipe already exists for this product/variant',
         ErrorCode.DUPLICATE_RESOURCE,
+        'Recipe already exists for this product/variant',
       );
     }
 
@@ -39,8 +39,8 @@ export class CreateRecipeUseCase {
       const ingredient = await this.ingredientRepository.findById(item.ingredientId);
       if (!ingredient) {
         throw new AppError(
-          `Ingredient ${item.ingredientId} not found`,
           ErrorCode.RESOURCE_NOT_FOUND,
+          `Ingredient ${item.ingredientId} not found`,
         );
       }
     }

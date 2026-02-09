@@ -32,8 +32,8 @@ export class AdjustIngredientStockUseCase {
     );
     if (!stock) {
       throw new AppError(
-        'Ingredient stock not found for this outlet',
         ErrorCode.RESOURCE_NOT_FOUND,
+        'Ingredient stock not found for this outlet',
       );
     }
 
@@ -43,8 +43,8 @@ export class AdjustIngredientStockUseCase {
     // Validate: don't allow negative stock
     if (newQty < 0) {
       throw new AppError(
-        'Insufficient stock for this operation',
         ErrorCode.VALIDATION_ERROR,
+        'Insufficient stock for this operation',
       );
     }
 

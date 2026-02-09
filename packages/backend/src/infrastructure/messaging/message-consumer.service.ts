@@ -131,8 +131,8 @@ export class MessageConsumerService {
       typeof parsed['payload'] !== 'object'
     ) {
       throw new AppError(
-        'Invalid message envelope: missing eventType or payload',
         ErrorCode.VALIDATION_ERROR,
+        'Invalid message envelope: missing eventType or payload',
       );
     }
 
