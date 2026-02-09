@@ -4,6 +4,7 @@ import { MidtransGateway } from './midtrans-gateway';
 import { XenditGateway } from './xendit/xendit-gateway';
 import { MockPaymentGateway } from '../mock-payment-gateway';
 import type { IPaymentGateway } from '@domain/interfaces/services';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 @Injectable()
 export class PaymentGatewayFactory {
@@ -23,14 +24,16 @@ export class PaymentGatewayFactory {
         return this.xendit;
       case 'mock':
         if (this.configService.get<string>('NODE_ENV') === 'production') {
-          throw new Error(
+          throw new AppError(
             'Mock payment gateway cannot be used in production. Set PAYMENT_GATEWAY to midtrans or xendit.',
+            ErrorCode.CONFIGURATION_ERROR,
           );
         }
         return this.mock;
       default:
-        throw new Error(
+        throw new AppError(
           `Unknown payment gateway: ${gateway}. Valid options: midtrans, xendit, mock`,
+          ErrorCode.CONFIGURATION_ERROR,
         );
     }
   }

@@ -1,6 +1,7 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 export interface CreateRecipeParams {
   productId: string;
@@ -27,14 +28,20 @@ export class CreateRecipeUseCase {
       params.variantId,
     );
     if (existing.length > 0) {
-      throw new Error('Recipe already exists for this product/variant');
+      throw new AppError(
+        'Recipe already exists for this product/variant',
+        ErrorCode.DUPLICATE_RESOURCE,
+      );
     }
 
     // Validate ingredients exist
     for (const item of params.items) {
       const ingredient = await this.ingredientRepository.findById(item.ingredientId);
       if (!ingredient) {
-        throw new NotFoundException(`Ingredient ${item.ingredientId} not found`);
+        throw new AppError(
+          `Ingredient ${item.ingredientId} not found`,
+          ErrorCode.RESOURCE_NOT_FOUND,
+        );
       }
     }
 

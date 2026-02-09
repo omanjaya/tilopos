@@ -1,6 +1,7 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 @Injectable()
 export class DeleteIngredientUseCase {
@@ -12,13 +13,19 @@ export class DeleteIngredientUseCase {
   async execute(id: string) {
     const ingredient = await this.ingredientRepository.findById(id);
     if (!ingredient) {
-      throw new NotFoundException('Ingredient not found');
+      throw new AppError(
+        'Ingredient not found',
+        ErrorCode.RESOURCE_NOT_FOUND,
+      );
     }
 
     // Check if ingredient is used in any recipe
     const recipes = await this.ingredientRepository.findRecipesByIngredient(id);
     if (recipes.length > 0) {
-      throw new Error('Cannot delete ingredient that is used in recipes');
+      throw new AppError(
+        'Cannot delete ingredient that is used in recipes',
+        ErrorCode.CONFLICT,
+      );
     }
 
     // Soft delete

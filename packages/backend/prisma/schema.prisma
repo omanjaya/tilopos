@@ -373,6 +373,7 @@ model Business {
   vouchers              Voucher[]
   reportTemplates       ReportTemplate[]
   features              BusinessFeature[]
+  pricingRules          PricingRule[]
 
   @@map("businesses")
 }
@@ -2040,6 +2041,26 @@ enum ServiceItemStatus {
   @@map("service_item_status")
 }
 
+enum PricingRuleType {
+  time_based
+  quantity_based
+  customer_segment
+  inventory_based
+  bundle
+  dynamic_surge
+
+  @@map("pricing_rule_type")
+}
+
+enum PricingRuleStatus {
+  active
+  inactive
+  scheduled
+  expired
+
+  @@map("pricing_rule_status")
+}
+
 // ============================================================================
 // 53. APPOINTMENTS (Salon, Workshop Booking)
 // ============================================================================
@@ -2204,4 +2225,47 @@ model ServiceItem {
   @@index([customerId], map: "idx_service_items_customer")
   @@index([status], map: "idx_service_items_status")
   @@map("service_items")
+}
+
+// ============================================================================
+// PRICING RULES (Dynamic Pricing Engine)
+// ============================================================================
+
+model PricingRule {
+  id                             String             @id @default(uuid()) @db.Uuid
+  businessId                     String             @map("business_id") @db.Uuid
+  name                           String             @db.VarChar(255)
+  description                    String?            @db.Text
+  type                           PricingRuleType
+  priority                       Int                @default(0)
+  status                         PricingRuleStatus  @default(active)
+  validFrom                      DateTime           @map("valid_from") @db.Timestamptz()
+  validUntil                     DateTime?          @map("valid_until") @db.Timestamptz()
+  conditions                     Json
+  discountType                   String             @map("discount_type") @db.VarChar(50)
+  discountValue                  Decimal            @map("discount_value") @db.Decimal(10, 2)
+  minQuantity                    Int?               @map("min_quantity")
+  maxQuantity                    Int?               @map("max_quantity")
+  applicableDays                 Int[]              @map("applicable_days")
+  timeFrom                       String?            @map("time_from") @db.VarChar(10)
+  timeUntil                      String?            @map("time_until") @db.VarChar(10)
+  customerSegments               String[]           @map("customer_segments")
+  productIds                     String[]           @map("product_ids")
+  categoryIds                    String[]           @map("category_ids")
+  excludeProductIds              String[]           @map("exclude_product_ids")
+  isCombinable                   Boolean            @default(false) @map("is_combinable")
+  maxApplicationsPerTransaction  Int?               @map("max_applications_per_transaction")
+  metadata                       Json?
+  createdAt                      DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt                      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business                       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId], map: "idx_pricing_rules_business")
+  @@index([type], map: "idx_pricing_rules_type")
+  @@index([status], map: "idx_pricing_rules_status")
+  @@index([validFrom, validUntil], map: "idx_pricing_rules_validity")
+  @@index([priority], map: "idx_pricing_rules_priority")
+  @@map("pricing_rules")
 }

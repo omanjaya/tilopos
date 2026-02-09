@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RabbitMqService } from './rabbitmq.service';
 import type { AmqpMessage, MessageEnvelope, MessageHandler } from './rabbitmq.types';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 /**
  * Registry entry for a queue handler.
@@ -129,7 +130,10 @@ export class MessageConsumerService {
       !parsed['payload'] ||
       typeof parsed['payload'] !== 'object'
     ) {
-      throw new Error('Invalid message envelope: missing eventType or payload');
+      throw new AppError(
+        'Invalid message envelope: missing eventType or payload',
+        ErrorCode.VALIDATION_ERROR,
+      );
     }
 
     return parsed as unknown as MessageEnvelope;

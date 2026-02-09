@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
 @Injectable()
 export class SelfOrderScheduler {
@@ -88,7 +89,10 @@ export class SelfOrderScheduler {
     });
 
     if (!session) {
-      throw new Error('Session not found');
+      throw new AppError(
+        'Session not found',
+        ErrorCode.RESOURCE_NOT_FOUND,
+      );
     }
 
     const newExpiresAt = new Date(session.expiresAt);

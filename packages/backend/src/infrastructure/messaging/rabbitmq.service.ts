@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RABBITMQ_ENV, RABBITMQ_DEFAULTS } from './rabbitmq.constants';
 import { EXCHANGES, QUEUE_BINDINGS } from './rabbitmq.config';
+import { AppError, ErrorCode } from '../../shared/errors/app-error';
 import type {
   AmqpConnection,
   AmqpChannel,
@@ -271,7 +272,10 @@ export class RabbitMqService implements OnModuleDestroy {
 
   private async establishConnection(): Promise<void> {
     if (!this.amqpLib || !this.url) {
-      throw new Error('amqplib not loaded or URL not configured');
+      throw new AppError(
+        'amqplib not loaded or URL not configured',
+        ErrorCode.CONFIGURATION_ERROR,
+      );
     }
 
     this.connection = await this.amqpLib.connect(this.url);

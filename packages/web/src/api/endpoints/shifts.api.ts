@@ -1,5 +1,6 @@
 import { apiClient } from '../client';
 import type { Shift } from '@/types/order.types';
+import { errorToast } from '@/lib/toast-utils';
 
 export const shiftsApi = {
   list: (_employeeId: string) =>
@@ -19,7 +20,11 @@ export const shiftsApi = {
         return (raw as Record<string, unknown>).shifts as Shift[];
       }
       return [];
-    }).catch(() => [] as Shift[]),
+    }).catch((error) => {
+      console.error('Failed to fetch shifts:', error);
+      errorToast('Failed to load shift history');
+      return [] as Shift[];
+    }),
 
   start: (_employeeId: string, data: { outletId: string; openingCash: number }) =>
     // Backend endpoint: POST /employees/shifts/start (uses @CurrentUser)
@@ -30,8 +35,17 @@ export const shiftsApi = {
     apiClient.get('/employees/shifts/current').then((r) => {
       const shift = r.data as Record<string, unknown>;
       const shiftId = shift?.id as string;
-      if (!shiftId) throw new Error('No active shift found');
+      if (!shiftId) {
+        errorToast('No active shift found');
+        throw new Error('No active shift found');
+      }
       return apiClient.post(`/employees/shifts/${shiftId}/end`, data).then((r2) => r2.data);
+    }).catch((error) => {
+      console.error('Failed to end shift:', error);
+      if (error.message !== 'No active shift found') {
+        errorToast('Failed to end shift');
+      }
+      throw error;
     }),
 
   cashIn: (data: { shiftId: string; amount: number; notes?: string }) =>

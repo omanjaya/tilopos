@@ -45,6 +45,7 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { WorkOrdersModule } from './modules/work-orders/work-orders.module';
 import { SerialNumbersModule } from './modules/serial-numbers/serial-numbers.module';
 import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module';
+import { PricingModule } from './modules/pricing/pricing.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module
     WorkOrdersModule,
     SerialNumbersModule,
     ItemTrackingModule,
+    PricingModule,
   ],
   providers: [
     {
