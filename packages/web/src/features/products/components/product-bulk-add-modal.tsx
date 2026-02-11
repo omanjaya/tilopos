@@ -180,7 +180,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
         basePrice: Number(row.price),
         costPrice: 0,
         trackStock: true,
-        categoryId: row.categoryId || undefined,
+        categoryId: row.categoryId && row.categoryId !== '__none__' ? row.categoryId : undefined,
       };
     });
 
@@ -246,7 +246,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
                         <SelectValue placeholder="Pilih..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Tanpa kategori</SelectItem>
+                        <SelectItem value="__none__">Tanpa kategori</SelectItem>
                         {categories?.map((cat) => (
                           <SelectItem key={cat.id} value={cat.id}>
                             {cat.name}

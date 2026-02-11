@@ -94,7 +94,7 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
       basePrice: Number(basePrice),
       costPrice: 0,
       trackStock: true,
-      categoryId: categoryId || undefined,
+      categoryId: categoryId && categoryId !== '__none__' ? categoryId : undefined,
     });
   };
 
@@ -165,7 +165,7 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
                 <SelectValue placeholder="Pilih kategori..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Tanpa kategori</SelectItem>
+                <SelectItem value="__none__">Tanpa kategori</SelectItem>
                 {categories?.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
