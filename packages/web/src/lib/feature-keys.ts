@@ -11,6 +11,9 @@ export const FEATURES = {
     MODIFIERS: 'modifiers',
     SELF_ORDER_QR: 'self_order_qr',
     ORDER_TYPES: 'order_types',
+    POS_PRICE_EDITING: 'pos_price_editing',
+    CREDIT_SALES: 'credit_sales',
+    DECIMAL_QUANTITIES: 'decimal_quantities',
 
     // Inventory
     BARCODE_SCANNING: 'barcode_scanning',
@@ -47,6 +50,7 @@ export const FEATURES = {
     AUDIT_LOG: 'audit_log',
     API_INTEGRATION: 'api_integration',
     OFFLINE_MODE: 'offline_mode',
+    EXCEL_IMPORT: 'excel_import',
 } as const;
 
 export type FeatureKey = (typeof FEATURES)[keyof typeof FEATURES];

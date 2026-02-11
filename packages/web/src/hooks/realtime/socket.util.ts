@@ -6,6 +6,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client';
+import { useAuthStore } from '@/stores/auth.store';
 
 // -------------------------------------------------------------------
 // Configuration
@@ -28,7 +29,7 @@ let refCount = 0;
  */
 export function getSharedSocket(): Socket {
   if (!sharedSocket) {
-    const token = localStorage.getItem('token');
+    const token = useAuthStore.getState().token;
 
     sharedSocket = io(`${SOCKET_URL}${SOCKET_NAMESPACE}`, {
       transports: ['websocket', 'polling'],
