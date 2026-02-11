@@ -22,6 +22,7 @@ import { EmployeeRole } from '../../shared/constants/roles';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { ISupplierRepository } from '../../domain/interfaces/repositories/supplier.repository';
 import { SuppliersService } from './suppliers.service';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 import {
   SupplierAnalyticsQueryDto,
   AutoReorderDto,
@@ -70,12 +71,14 @@ export class SuppliersController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'supplier', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async update(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
     return this.supplierRepo.update(id, dto);
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'supplier', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async remove(@Param('id') id: string) {
     await this.supplierRepo.deactivate(id);
@@ -94,6 +97,7 @@ export class SuppliersController {
   }
 
   @Get('analytics/:id')
+  @BusinessScoped({ resource: 'supplier', param: 'id' })
   async getSupplierAnalytics(
     @Param('id') id: string,
     @Query('from') from: string,

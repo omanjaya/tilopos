@@ -28,6 +28,7 @@ import {
   CreatePaymentMethodDto,
   UpdatePaymentMethodDto,
 } from '../../application/dtos/settings.dto';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -96,6 +97,7 @@ export class SettingsController {
   }
 
   @Put('outlets/:id')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async updateOutlet(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
     return this.settingsRepo.updateOutlet(id, dto);
   }
@@ -169,6 +171,7 @@ export class SettingsController {
   }
 
   @Get('outlets/:id')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async getOutlet(@Param('id') id: string) {
     const outlet = await this.settingsRepo.findOutletById(id);
     if (!outlet) throw new NotFoundException('Outlet not found');
@@ -181,6 +184,7 @@ export class SettingsController {
   }
 
   @Delete('outlets/:id')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async deleteOutlet(@Param('id') id: string) {
     await this.settingsRepo.deleteOutlet(id);
     return { message: 'Outlet deactivated' };
@@ -250,11 +254,13 @@ export class SettingsController {
 
   // Legacy Tax Configuration (per outlet)
   @Get('outlets/:id/tax')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async getTaxConfig(@Param('id') outletId: string) {
     return this.settingsRepo.getTaxConfig(outletId);
   }
 
   @Put('outlets/:id/tax')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async updateTaxConfig(
     @Param('id') outletId: string,
     @Body()
@@ -271,11 +277,13 @@ export class SettingsController {
 
   // Legacy Receipt Template (per outlet)
   @Get('outlets/:id/receipt')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async getReceiptTemplate(@Param('id') outletId: string) {
     return this.settingsRepo.getReceiptTemplate(outletId);
   }
 
   @Put('outlets/:id/receipt')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async updateReceiptTemplate(
     @Param('id') outletId: string,
     @Body()
@@ -296,11 +304,13 @@ export class SettingsController {
 
   // Legacy Operating Hours (per outlet)
   @Get('outlets/:id/hours')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async getOperatingHours(@Param('id') outletId: string) {
     return this.settingsRepo.getOperatingHours(outletId);
   }
 
   @Put('outlets/:id/hours')
+  @BusinessScoped({ resource: 'outlet', param: 'id' })
   async updateOperatingHours(
     @Param('id') outletId: string,
     @Body()

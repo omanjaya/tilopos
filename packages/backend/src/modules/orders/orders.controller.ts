@@ -22,6 +22,7 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import type { IOrderRepository } from '../../domain/interfaces/repositories/order.repository';
 import { OrdersService } from './orders.service';
 import type { OrderPriorityLevel } from '../../application/dtos/order-priority.dto';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -72,12 +73,14 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Get order by ID' })
   async getOrder(@Param('id') id: string) {
     return this.orderRepo.findById(id);
   }
 
   @Put(':id/status')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Update order status' })
   async updateStatus(
     @Param('id') id: string,
@@ -92,6 +95,7 @@ export class OrdersController {
   }
 
   @Put(':id/items')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Modify order items (add/remove/update quantity)' })
   async modifyOrderItems(
     @Param('id') id: string,
@@ -113,6 +117,7 @@ export class OrdersController {
   }
 
   @Put(':id/cancel')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Cancel an order with reason' })
   async cancelOrder(
     @Param('id') id: string,
@@ -123,6 +128,7 @@ export class OrdersController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Modify order (add/remove/update items)' })
   async modifyOrder(
     @Param('id') id: string,
@@ -154,12 +160,14 @@ export class OrdersController {
   }
 
   @Put(':id/priority')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Set order priority (normal, urgent, vip)' })
   async setPriority(@Param('id') id: string, @Body() dto: { priority: OrderPriorityLevel }) {
     return this.ordersService.setPriority(id, dto.priority);
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'order', param: 'id' })
   @ApiOperation({ summary: 'Cancel order with reason' })
   async deleteOrder(
     @Param('id') id: string,

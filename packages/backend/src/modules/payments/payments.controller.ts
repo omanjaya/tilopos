@@ -7,6 +7,7 @@ import {
   BadRequestException,
   RawBodyRequest,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -14,6 +15,7 @@ import { HandleMidtransWebhookUseCase } from '../../application/use-cases/paymen
 import { HandleXenditWebhookUseCase } from '../../application/use-cases/payments/handle-xendit-webhook.use-case';
 import { MidtransWebhookDto } from '../../application/dtos/midtrans-webhook.dto';
 import { XenditWebhookDto } from '../../application/dtos/xendit-webhook.dto';
+import { WebhookGuard } from '../../shared/guards/webhook.guard';
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -30,6 +32,7 @@ export class PaymentsWebhookController {
   // ===========================================================================
 
   @Post('webhook/midtrans')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Handle Midtrans webhook notification' })
   async midtransWebhook(@Body() dto: MidtransWebhookDto) {
     this.logger.log(`Midtrans webhook received: order=${dto.order_id}, status=${dto.status_code}`);
@@ -56,6 +59,7 @@ export class PaymentsWebhookController {
   // ===========================================================================
 
   @Post('webhook/xendit')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Handle Xendit webhook notification' })
   @ApiHeader({ name: 'x-callback-token', description: 'Xendit callback verification token' })
   async xenditWebhook(
@@ -65,12 +69,7 @@ export class PaymentsWebhookController {
   ) {
     this.logger.log(`Xendit webhook received: event=${dto.event}, id=${dto.id || dto.external_id}`);
 
-    // Verify callback token
-    if (callbackToken && !this.handleXenditWebhook.verifyCallback(callbackToken)) {
-      this.logger.warn('Invalid Xendit callback token');
-      throw new BadRequestException('Invalid callback token');
-    }
-
+    // Note: Webhook authentication is handled by WebhookGuard
     // Extract relevant data from webhook payload
     const webhookData = this.extractXenditWebhookData(dto);
 
@@ -97,6 +96,7 @@ export class PaymentsWebhookController {
   // ===========================================================================
 
   @Post('xendit/callback')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Alternative Xendit callback endpoint' })
   async xenditCallback(
     @Body() dto: XenditWebhookDto,
@@ -106,6 +106,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('xendit/invoice')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Xendit invoice webhook endpoint' })
   async xenditInvoiceWebhook(
     @Body() dto: XenditWebhookDto,
@@ -119,6 +120,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('xendit/qris')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Xendit QRIS webhook endpoint' })
   async xenditQrisWebhook(
     @Body() dto: XenditWebhookDto,
@@ -132,6 +134,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('xendit/va')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Xendit Virtual Account webhook endpoint' })
   async xenditVAWebhook(
     @Body() dto: XenditWebhookDto,
@@ -145,6 +148,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('xendit/ewallet')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Xendit E-Wallet webhook endpoint' })
   async xenditEwalletWebhook(
     @Body() dto: XenditWebhookDto,
@@ -158,6 +162,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('xendit/retail')
+  @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Xendit Retail Outlet webhook endpoint' })
   async xenditRetailWebhook(
     @Body() dto: XenditWebhookDto,

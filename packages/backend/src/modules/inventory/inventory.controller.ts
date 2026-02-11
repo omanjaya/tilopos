@@ -8,12 +8,15 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   Inject,
   NotFoundException,
   BadRequestException,
   Res,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -36,7 +39,11 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import type { IProductRepository } from '../../domain/interfaces/repositories/product.repository';
 import type { IInventoryRepository } from '../../domain/interfaces/repositories/inventory.repository';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { ExcelParserService } from '../../infrastructure/import/excel-parser.service';
 import { InventoryService } from './inventory.service';
+import { OutletProductService } from './outlet-product.service';
+import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Inventory')
 @ApiBearerAuth()
@@ -51,11 +58,24 @@ export class InventoryController {
     @Inject(REPOSITORY_TOKENS.INVENTORY)
     private readonly inventoryRepo: IInventoryRepository,
     private readonly prisma: PrismaService,
+    private readonly excelParser: ExcelParserService,
     private readonly inventoryService: InventoryService,
+    private readonly outletProductService: OutletProductService,
   ) {}
 
   @Get('products')
   async listProducts(@CurrentUser() user: AuthUser) {
+    // Owner/super_admin can see ALL products regardless of their assigned outlet
+    if (OutletAccessGuard.canAccessAllOutlets(user)) {
+      return this.productRepo.findByBusinessId(user.businessId);
+    }
+
+    // Non-owner users with outlet assignment see only their outlet's products
+    if (user.outletId) {
+      return this.outletProductService.getProductsForOutlet(user.outletId);
+    }
+
+    // Fallback: users without outlet see all products (backward compatibility)
     return this.productRepo.findByBusinessId(user.businessId);
   }
 
@@ -147,6 +167,7 @@ export class InventoryController {
   }
 
   @Get('products/:id')
+  @BusinessScoped({ resource: 'product', param: 'id' })
   async getProduct(@Param('id') id: string) {
     const product = await this.productRepo.findById(id);
     if (!product) throw new NotFoundException('Product not found');
@@ -154,6 +175,7 @@ export class InventoryController {
   }
 
   @Put('products/:id')
+  @BusinessScoped({ resource: 'product', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async updateProduct(@Param('id') id: string, @Body() dto: Partial<CreateProductDto>) {
     const product = await this.productRepo.findById(id);
@@ -168,6 +190,7 @@ export class InventoryController {
   }
 
   @Delete('products/:id')
+  @BusinessScoped({ resource: 'product', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async deleteProduct(@Param('id') id: string) {
     await this.productRepo.delete(id);
@@ -198,6 +221,7 @@ export class InventoryController {
   }
 
   @Put('categories/:id')
+  @BusinessScoped({ resource: 'category', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
     return this.prisma.category.update({
@@ -213,10 +237,95 @@ export class InventoryController {
   }
 
   @Delete('categories/:id')
+  @BusinessScoped({ resource: 'category', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async deleteCategory(@Param('id') id: string) {
     await this.prisma.category.update({ where: { id }, data: { isActive: false } });
     return { message: 'Category deactivated' };
+  }
+
+  // ==================== XLSX Import Endpoints ====================
+
+  @Post('products/import-xlsx/preview')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Preview XLSX file sheets and headers for product import' })
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  async previewXlsxImport(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File is required');
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('File size must be under 10MB');
+    }
+
+    const sheets = await this.excelParser.getSheetNames(file.buffer);
+    const previews = await Promise.all(
+      sheets.map((name) => this.excelParser.previewSheet(file.buffer, name)),
+    );
+    return previews;
+  }
+
+  @Post('products/import-xlsx')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import products from XLSX file' })
+  async importXlsx(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('sheetName') sheetName: string,
+    @Body('mappings') mappingsJson: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!file) throw new BadRequestException('File is required');
+    if (!sheetName) throw new BadRequestException('Sheet name is required');
+    if (!mappingsJson) throw new BadRequestException('Column mappings are required');
+
+    let mappings: { excelColumn: string; field: string }[];
+    try {
+      mappings = JSON.parse(mappingsJson);
+    } catch {
+      throw new BadRequestException('Invalid mappings JSON');
+    }
+
+    const rows = await this.excelParser.parseRows(file.buffer, sheetName, mappings);
+
+    let imported = 0;
+    const errors: string[] = [];
+
+    for (const row of rows) {
+      try {
+        const name = String(row.name || '').trim();
+        if (!name) {
+          errors.push(`Row ${imported + errors.length + 2}: Product name is required`);
+          continue;
+        }
+
+        const created = await this.prisma.product.create({
+          data: {
+            businessId: user.businessId,
+            name,
+            sku: row.sku ? String(row.sku) : undefined,
+            basePrice: Number(row.price || row.basePrice || 0),
+            costPrice: row.costPrice ? Number(row.costPrice) : undefined,
+            description: row.description ? String(row.description) : undefined,
+            sellUnit: row.unit ? String(row.unit) : undefined,
+            trackStock: true,
+          },
+        });
+
+        // Auto-assign imported product to all outlets
+        await this.outletProductService.assignToAllOutlets(user.businessId, created.id);
+        imported++;
+      } catch (e) {
+        errors.push(`Row ${imported + errors.length + 2}: ${(e as Error).message}`);
+      }
+    }
+
+    return { imported, errors, total: rows.length };
   }
 
   // ==================== Import/Export Endpoints ====================
@@ -271,6 +380,44 @@ export class InventoryController {
       });
       res.send(json);
     }
+  }
+
+  // ==================== Outlet Product Assignment Endpoints ====================
+
+  @Get('outlets/:outletId/products')
+  @ApiOperation({ summary: 'Get products assigned to a specific outlet' })
+  async getOutletProducts(@Param('outletId') outletId: string) {
+    return this.outletProductService.getProductsForOutlet(outletId);
+  }
+
+  @Get('outlets/:outletId/products/unassigned')
+  @ApiOperation({ summary: 'Get products NOT assigned to an outlet' })
+  async getUnassignedProducts(@Param('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    return this.outletProductService.getUnassignedProducts(outletId, user.businessId);
+  }
+
+  @Post('outlets/:outletId/products/assign')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Assign products to an outlet' })
+  async assignProducts(
+    @Param('outletId') outletId: string,
+    @Body() body: { productIds: string[] },
+  ) {
+    if (!body.productIds?.length) {
+      throw new BadRequestException('productIds array is required');
+    }
+    return this.outletProductService.bulkAssign(outletId, body.productIds);
+  }
+
+  @Delete('outlets/:outletId/products/:productId')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Remove a product from an outlet' })
+  async removeOutletProduct(
+    @Param('outletId') outletId: string,
+    @Param('productId') productId: string,
+  ) {
+    await this.outletProductService.removeProduct(outletId, productId);
+    return { message: 'Product removed from outlet' };
   }
 
   // ==================== Stock Discrepancy Endpoints ====================

@@ -8,12 +8,15 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   Inject,
   NotFoundException,
   Res,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -34,7 +37,10 @@ import {
 } from '../../application/dtos/customer-import-export.dto';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { ICustomerRepository } from '../../domain/interfaces/repositories/customer.repository';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { ExcelParserService } from '../../infrastructure/import/excel-parser.service';
 import { CustomersService } from './customers.service';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Customers')
 @ApiBearerAuth()
@@ -49,6 +55,8 @@ export class CustomersController {
     private readonly getLoyaltyHistoryUseCase: GetLoyaltyHistoryUseCase,
     @Inject(REPOSITORY_TOKENS.CUSTOMER)
     private readonly customerRepo: ICustomerRepository,
+    private readonly prisma: PrismaService,
+    private readonly excelParser: ExcelParserService,
     private readonly customersService: CustomersService,
   ) {}
 
@@ -132,6 +140,87 @@ export class CustomersController {
     }
   }
 
+  // ==================== XLSX Import Endpoints ====================
+
+  @Post('import-xlsx/preview')
+  @UseGuards(RolesGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Preview XLSX file sheets and headers for customer import' })
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  async previewXlsxImport(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File is required');
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('File size must be under 10MB');
+    }
+
+    const sheets = await this.excelParser.getSheetNames(file.buffer);
+    const previews = await Promise.all(
+      sheets.map((name) => this.excelParser.previewSheet(file.buffer, name)),
+    );
+    return previews;
+  }
+
+  @Post('import-xlsx')
+  @UseGuards(RolesGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import customers from XLSX file' })
+  async importXlsx(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('sheetName') sheetName: string,
+    @Body('mappings') mappingsJson: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!file) throw new BadRequestException('File is required');
+    if (!sheetName) throw new BadRequestException('Sheet name is required');
+    if (!mappingsJson) throw new BadRequestException('Column mappings are required');
+
+    let mappings: { excelColumn: string; field: string }[];
+    try {
+      mappings = JSON.parse(mappingsJson);
+    } catch {
+      throw new BadRequestException('Invalid mappings JSON');
+    }
+
+    const rows = await this.excelParser.parseRows(file.buffer, sheetName, mappings);
+
+    let imported = 0;
+    const errors: string[] = [];
+
+    for (const row of rows) {
+      try {
+        const name = String(row.name || '').trim();
+        if (!name) {
+          errors.push(`Row ${imported + errors.length + 2}: Customer name is required`);
+          continue;
+        }
+
+        await this.prisma.customer.create({
+          data: {
+            businessId: user.businessId,
+            name,
+            phone: row.phone ? String(row.phone) : undefined,
+            email: row.email ? String(row.email) : undefined,
+            address: row.address ? String(row.address) : undefined,
+            notes: row.notes ? String(row.notes) : undefined,
+          },
+        });
+        imported++;
+      } catch (e) {
+        errors.push(`Row ${imported + errors.length + 2}: ${(e as Error).message}`);
+      }
+    }
+
+    return { imported, errors, total: rows.length };
+  }
+
   @Post('import')
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
@@ -176,6 +265,7 @@ export class CustomersController {
   }
 
   @Get(':id')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer by ID' })
   async get(@Param('id') id: string) {
     const c = await this.customerRepo.findById(id);
@@ -184,6 +274,7 @@ export class CustomersController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Update customer' })
   async update(
     @Param('id') id: string,
@@ -193,6 +284,7 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Soft delete (deactivate) customer' })
   async remove(@Param('id') id: string) {
     await this.customerRepo.delete(id);
@@ -200,6 +292,7 @@ export class CustomersController {
   }
 
   @Get(':id/history')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer purchase history' })
   async getPurchaseHistory(
     @Param('id') id: string,
@@ -218,6 +311,7 @@ export class CustomersController {
   // ==================== Loyalty Endpoints ====================
 
   @Post(':id/loyalty/earn')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Earn loyalty points from transaction' })
   async earnLoyalty(
     @Param('id') id: string,
@@ -231,6 +325,7 @@ export class CustomersController {
   }
 
   @Post(':id/loyalty/redeem')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Redeem loyalty points for discount' })
   async redeemLoyalty(
     @Param('id') id: string,
@@ -244,12 +339,14 @@ export class CustomersController {
   }
 
   @Get(':id/loyalty/balance')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer loyalty balance' })
   async getLoyaltyBalance(@Param('id') id: string) {
     return this.getLoyaltyBalanceUseCase.execute({ customerId: id });
   }
 
   @Get(':id/loyalty/history')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer loyalty transaction history' })
   async getLoyaltyHistory(@Param('id') id: string, @Query('limit') limit?: string) {
     return this.getLoyaltyHistoryUseCase.execute({
@@ -260,6 +357,7 @@ export class CustomersController {
 
   // Legacy endpoint - kept for backward compatibility
   @Post(':id/loyalty/add')
+  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Add loyalty points (legacy)' })
   async addLoyalty(
     @Param('id') id: string,

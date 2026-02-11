@@ -28,6 +28,7 @@ import { ValidateVoucherUseCase } from '../../application/use-cases/promotions/v
 import { GenerateVoucherBatchUseCase } from '../../application/use-cases/promotions/generate-voucher-batch.use-case';
 import { GenerateVoucherBatchDto } from '../../application/dtos/voucher-batch.dto';
 import { randomBytes } from 'crypto';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Promotions')
 @ApiBearerAuth()
@@ -284,6 +285,7 @@ export class PromotionsController {
   // ==================== Parameterized routes (must be LAST) ====================
 
   @Get(':id')
+  @BusinessScoped({ resource: 'promotion', param: 'id' })
   @ApiOperation({ summary: 'Get promotion by ID' })
   async get(@Param('id') id: string) {
     const p = await this.promotionRepo.findById(id);
@@ -292,6 +294,7 @@ export class PromotionsController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'promotion', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Update promotion' })
   async update(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
@@ -299,6 +302,7 @@ export class PromotionsController {
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'promotion', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Deactivate promotion' })
   async remove(@Param('id') id: string) {

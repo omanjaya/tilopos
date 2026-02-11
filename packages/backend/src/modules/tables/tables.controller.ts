@@ -22,6 +22,7 @@ import { UpdateTableUseCase } from '../../application/use-cases/tables/update-ta
 import { DeleteTableUseCase } from '../../application/use-cases/tables/delete-table.use-case';
 import { MergeBillDto } from '../../application/dtos/merge-bill.dto';
 import { TablesService } from './tables.service';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
 @ApiTags('Tables')
 @ApiBearerAuth()
@@ -63,6 +64,7 @@ export class TablesController {
   }
 
   @Get(':id')
+  @BusinessScoped({ resource: 'table', param: 'id' })
   @ApiOperation({ summary: 'Get single table by ID' })
   async getById(@Param('id') id: string) {
     return this.tablesService.findById(id);
@@ -85,6 +87,7 @@ export class TablesController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'table', param: 'id' })
   @ApiOperation({ summary: 'Update table' })
   async update(
     @Param('id') id: string,
@@ -103,6 +106,7 @@ export class TablesController {
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'table', param: 'id' })
   @ApiOperation({ summary: 'Delete (deactivate) table' })
   async remove(@Param('id') id: string) {
     await this.deleteTableUseCase.execute(id);
@@ -110,6 +114,7 @@ export class TablesController {
   }
 
   @Put(':id/status')
+  @BusinessScoped({ resource: 'table', param: 'id' })
   @ApiOperation({ summary: 'Update table status' })
   async updateStatus(
     @Param('id') id: string,

@@ -46,6 +46,8 @@ import { WorkOrdersModule } from './modules/work-orders/work-orders.module';
 import { SerialNumbersModule } from './modules/serial-numbers/serial-numbers.module';
 import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module';
 import { PricingModule } from './modules/pricing/pricing.module';
+import { CreditModule } from './modules/credit/credit.module';
+import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
 
 @Module({
   imports: [
@@ -97,11 +99,16 @@ import { PricingModule } from './modules/pricing/pricing.module';
     SerialNumbersModule,
     ItemTrackingModule,
     PricingModule,
+    CreditModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: BusinessScopeGuard,
     },
   ],
 })
