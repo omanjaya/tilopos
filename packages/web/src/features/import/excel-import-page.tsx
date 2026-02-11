@@ -31,8 +31,10 @@ import {
   X,
   Package,
   Users,
+  Download,
 } from 'lucide-react';
 import { ColumnMapper, autoMapColumns, type TargetField } from './components/column-mapper';
+import { downloadCSVTemplate } from '@/lib/csv-template';
 
 type ImportType = 'products' | 'customers';
 
@@ -283,22 +285,33 @@ export function ExcelImportPage() {
 
       {/* Import Type Selector */}
       {step === 0 && (
-        <div className="flex gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex gap-3">
+            <Button
+              variant={importType === 'products' ? 'default' : 'outline'}
+              className="flex items-center gap-2"
+              onClick={() => setImportType('products')}
+            >
+              <Package className="h-4 w-4" />
+              Produk
+            </Button>
+            <Button
+              variant={importType === 'customers' ? 'default' : 'outline'}
+              className="flex items-center gap-2"
+              onClick={() => setImportType('customers')}
+            >
+              <Users className="h-4 w-4" />
+              Customer
+            </Button>
+          </div>
           <Button
-            variant={importType === 'products' ? 'default' : 'outline'}
+            variant="outline"
+            size="sm"
+            onClick={() => downloadCSVTemplate(importType, true)}
             className="flex items-center gap-2"
-            onClick={() => setImportType('products')}
           >
-            <Package className="h-4 w-4" />
-            Produk
-          </Button>
-          <Button
-            variant={importType === 'customers' ? 'default' : 'outline'}
-            className="flex items-center gap-2"
-            onClick={() => setImportType('customers')}
-          >
-            <Users className="h-4 w-4" />
-            Customer
+            <Download className="h-4 w-4" />
+            Download Template CSV
           </Button>
         </div>
       )}

@@ -28,7 +28,7 @@ import {
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -74,6 +74,35 @@ export function ProductsPage() {
       toast.error({
         title: 'Gagal menghapus produk',
         description: error.response?.data?.message || 'Terjadi kesalahan saat menghapus produk',
+      });
+    },
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (product: Product) => {
+      const duplicatedData = {
+        name: `${product.name} (Copy)`,
+        sku: `${product.sku}-COPY-${Date.now().toString(36).toUpperCase()}`,
+        description: product.description,
+        categoryId: product.categoryId,
+        basePrice: product.basePrice,
+        costPrice: product.costPrice,
+        trackStock: product.trackStock,
+        imageUrl: product.imageUrl,
+      };
+      return productsApi.create(duplicatedData);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success({
+        title: '✅ Produk berhasil diduplikasi!',
+        description: `"${data.name}" telah ditambahkan`,
+      });
+    },
+    onError: (error: AxiosError<ApiErrorResponse>) => {
+      toast.error({
+        title: 'Gagal menduplikasi produk',
+        description: error.response?.data?.message || 'Terjadi kesalahan',
       });
     },
   });
@@ -131,6 +160,9 @@ export function ProductsPage() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => navigate(`/app/products/${row.id}/edit`)}>
               <Pencil className="mr-2 h-4 w-4" /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => duplicateMutation.mutate(row)}>
+              <Copy className="mr-2 h-4 w-4" /> Duplikasi
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setDeleteTarget(row)}

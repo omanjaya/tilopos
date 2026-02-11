@@ -4,6 +4,7 @@ import { uploadsApi } from '@/api/endpoints/uploads.api';
 import { useToast } from '@/hooks/use-toast';
 import { ImagePlus, X, Loader2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ImageCropperModal } from './image-cropper-modal';
 
 interface ImageUploadProps {
   value?: string | null;
@@ -15,6 +16,8 @@ interface ImageUploadProps {
 export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: ImageUploadProps) {
   const [preview, setPreview] = useState<string | null>(value ?? null);
   const [isDragging, setIsDragging] = useState(false);
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -48,16 +51,27 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
       return;
     }
 
+    // Show cropper modal
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageToCrop(reader.result as string);
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCropComplete = async (croppedFile: File) => {
     // Show preview immediately
     const reader = new FileReader();
     reader.onload = () => setPreview(reader.result as string);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(croppedFile);
 
     // Compress image before upload (if > 1MB)
-    let fileToUpload = file;
+    let fileToUpload = croppedFile;
+    const fileSizeMB = croppedFile.size / (1024 * 1024);
     if (fileSizeMB > 1) {
       try {
-        fileToUpload = await compressImage(file, 0.8);
+        fileToUpload = await compressImage(croppedFile, 0.8);
       } catch (error) {
         console.warn('Image compression failed, uploading original', error);
       }
@@ -151,8 +165,9 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   };
 
   return (
-    <div className={cn('relative', className)}>
-      <input ref={inputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+    <>
+      <div className={cn('relative', className)}>
+        <input ref={inputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
       {preview ? (
         <div className="relative h-48 w-48 overflow-hidden rounded-lg border-2 border-muted">
           <img src={preview} alt="Preview" className="h-full w-full object-cover" />
@@ -200,6 +215,17 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
           )}
         </div>
       )}
-    </div>
+      </div>
+
+      {/* Cropper Modal */}
+      {imageToCrop && (
+        <ImageCropperModal
+          open={cropperOpen}
+          onOpenChange={setCropperOpen}
+          imageSrc={imageToCrop}
+          onCropComplete={handleCropComplete}
+        />
+      )}
+    </>
   );
 }
