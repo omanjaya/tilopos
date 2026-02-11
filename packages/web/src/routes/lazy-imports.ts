@@ -36,6 +36,7 @@ export const SettlementsPage = lazy(() => import('@/features/transactions/settle
 export const StockPage = lazy(() => import('@/features/inventory/stock-page').then(m => ({ default: m.StockPage })));
 export const StockPageMobile = lazy(() => import('@/features/inventory/stock-page.mobile').then(m => ({ default: m.StockPage })));
 export const TransfersPage = lazy(() => import('@/features/inventory/transfers-page').then(m => ({ default: m.TransfersPage })));
+export const TransfersDashboardPage = lazy(() => import('@/features/inventory/transfers-dashboard-page').then(m => ({ default: m.TransfersDashboardPage })));
 export const TransferDetailPage = lazy(() => import('@/features/inventory/transfer-detail-page').then(m => ({ default: m.TransferDetailPage })));
 export const SuppliersPage = lazy(() => import('@/features/inventory/suppliers-page').then(m => ({ default: m.SuppliersPage })));
 export const PurchaseOrdersPage = lazy(() => import('@/features/inventory/purchase-orders-page').then(m => ({ default: m.PurchaseOrdersPage })));

@@ -12,7 +12,7 @@ import {
   CustomersPage, CustomersPageMobile, CustomerFormPage, CustomerSegmentsPage,
   TransactionsPage, TransactionDetailPage, SettlementsPage,
   ReportsPage, ReportsPageMobile,
-  StockPage, StockPageMobile, TransfersPage, TransferDetailPage,
+  StockPage, StockPageMobile, TransfersPage, TransferDetailPage, TransfersDashboardPage,
   SuppliersPage, PurchaseOrdersPage, PriceTiersPage,
   UnitConversionPage, BatchTrackingPage, SerialNumbersPage,
   ProductAssignmentPage,
@@ -67,6 +67,7 @@ export const appRoutes: RouteObject[] = [
   // Inventory
   { path: 'inventory/stock', element: <LazyRoute><DeviceRoute desktop={StockPage} mobile={StockPageMobile} /></LazyRoute> },
   { path: 'inventory/transfers', element: <LazyRoute><TransfersPage /></LazyRoute> },
+  { path: 'inventory/transfers/dashboard', element: <LazyRoute><TransfersDashboardPage /></LazyRoute> },
   { path: 'inventory/transfers/:id', element: <LazyRoute><TransferDetailPage /></LazyRoute> },
   { path: 'inventory/suppliers', element: <LazyRoute><SuppliersPage /></LazyRoute> },
   { path: 'inventory/purchase-orders', element: <LazyRoute><PurchaseOrdersPage /></LazyRoute> },

@@ -133,7 +133,7 @@ export function ProductsPage() {
   const columns: Column<Product>[] = [
     {
       key: 'select',
-      header: () => (
+      header: (
         <Checkbox
           checked={isAllSelected}
           indeterminate={isSomeSelected}

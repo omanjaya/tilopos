@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { StockTransferStatusChangedEvent } from '@domain/events/stock-transfer-status-changed.event';
 
 export interface TransferItemInput {
   productId?: string;
@@ -26,7 +28,10 @@ export interface RequestTransferOutput {
 
 @Injectable()
 export class RequestTransferUseCase {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
+  ) {}
 
   async execute(input: RequestTransferInput): Promise<RequestTransferOutput> {
     const transferNumber = `TRF-${Date.now().toString(36).toUpperCase()}`;
@@ -37,7 +42,7 @@ export class RequestTransferUseCase {
         transferNumber,
         sourceOutletId: input.sourceOutletId,
         destinationOutletId: input.destinationOutletId,
-        status: 'pending',
+        status: 'requested',
         notes: input.notes || null,
         requestedBy: input.requestedBy,
         items: {
@@ -52,10 +57,23 @@ export class RequestTransferUseCase {
       },
     });
 
+    // Emit event for real-time updates
+    this.eventBus.publish(
+      new StockTransferStatusChangedEvent(
+        transfer.id,
+        input.sourceOutletId,
+        input.destinationOutletId,
+        input.businessId,
+        'requested', // previousStatus for new transfer
+        'requested',
+        input.requestedBy,
+      ),
+    );
+
     return {
       transferId: transfer.id,
       transferNumber,
-      status: 'pending',
+      status: 'requested',
     };
   }
 }

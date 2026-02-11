@@ -79,6 +79,22 @@ export const inventoryApi = {
   receiveTransfer: (id: string, items: { stockTransferItemId: string; receivedQuantity: number }[]) =>
     apiClient.put(`/stock-transfers/${id}/receive`, { items }).then((r) => r.data),
 
+  // Transfer Templates
+  listTransferTemplates: () =>
+    apiClient.get('/transfer-templates').then((r) => r.data),
+
+  getTransferTemplate: (id: string) =>
+    apiClient.get(`/transfer-templates/${id}`).then((r) => r.data),
+
+  createTransferTemplate: (data: any) =>
+    apiClient.post('/transfer-templates', data).then((r) => r.data),
+
+  updateTransferTemplate: (id: string, data: any) =>
+    apiClient.put(`/transfer-templates/${id}`, data).then((r) => r.data),
+
+  deleteTransferTemplate: (id: string) =>
+    apiClient.delete(`/transfer-templates/${id}`).then((r) => r.data),
+
   // Suppliers
   listSuppliers: (params?: { search?: string }) =>
     apiClient.get('/suppliers', { params }).then((r) => {

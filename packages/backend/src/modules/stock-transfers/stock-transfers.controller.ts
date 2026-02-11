@@ -19,6 +19,9 @@ import { EmployeeRole } from '../../shared/constants/roles';
 import { RequestTransferUseCase } from '../../application/use-cases/stock-transfers/request-transfer.use-case';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { StockTransfersService } from './stock-transfers.service';
+import { EventBusService } from '../../infrastructure/events/event-bus.service';
+import { StockTransferStatusChangedEvent } from '../../domain/events/stock-transfer-status-changed.event';
+import type { StockTransferStatus } from '../../domain/events/stock-transfer-status-changed.event';
 import {
   DiscrepancyQueryDto,
   AutoTransferRequestDto,
@@ -33,6 +36,7 @@ export class StockTransfersController {
     private readonly requestTransferUseCase: RequestTransferUseCase,
     private readonly prisma: PrismaService,
     private readonly stockTransfersService: StockTransfersService,
+    private readonly eventBus: EventBusService,
   ) {}
 
   @Get()
@@ -86,7 +90,22 @@ export class StockTransfersController {
   @Put(':id/approve')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.prisma.stockTransfer.update({
+    // Get current transfer to emit event with correct data
+    const currentTransfer = await this.prisma.stockTransfer.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        sourceOutletId: true,
+        destinationOutletId: true,
+        businessId: true,
+      },
+    });
+
+    if (!currentTransfer) {
+      throw new BadRequestException('Transfer not found');
+    }
+
+    const updatedTransfer = await this.prisma.stockTransfer.update({
       where: { id },
       data: {
         status: 'approved',
@@ -94,21 +113,81 @@ export class StockTransfersController {
         approvedAt: new Date(),
       },
     });
+
+    // Emit event for real-time updates
+    this.eventBus.publish(
+      new StockTransferStatusChangedEvent(
+        id,
+        currentTransfer.sourceOutletId,
+        currentTransfer.destinationOutletId,
+        currentTransfer.businessId,
+        currentTransfer.status as StockTransferStatus,
+        'approved',
+        user.employeeId,
+      ),
+    );
+
+    return updatedTransfer;
   }
 
   @Put(':id/ship')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async ship(@Param('id') id: string) {
-    return this.prisma.stockTransfer.update({
+  async ship(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    // Get current transfer to emit event with correct data
+    const currentTransfer = await this.prisma.stockTransfer.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        sourceOutletId: true,
+        destinationOutletId: true,
+        businessId: true,
+      },
+    });
+
+    if (!currentTransfer) {
+      throw new BadRequestException('Transfer not found');
+    }
+
+    const updatedTransfer = await this.prisma.stockTransfer.update({
       where: { id },
       data: { status: 'in_transit', shippedAt: new Date() },
     });
+
+    // Emit event for real-time updates
+    this.eventBus.publish(
+      new StockTransferStatusChangedEvent(
+        id,
+        currentTransfer.sourceOutletId,
+        currentTransfer.destinationOutletId,
+        currentTransfer.businessId,
+        currentTransfer.status as StockTransferStatus,
+        'shipped',
+        user.employeeId,
+      ),
+    );
+
+    return updatedTransfer;
   }
 
   @Put(':id/receive')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async receive(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.prisma.stockTransfer.update({
+    // Get current transfer to emit event with correct data
+    const currentTransfer = await this.prisma.stockTransfer.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        sourceOutletId: true,
+        destinationOutletId: true,
+        businessId: true,
+      },
+    });
+
+    if (!currentTransfer) {
+      throw new BadRequestException('Transfer not found');
+    }
+
+    const updatedTransfer = await this.prisma.stockTransfer.update({
       where: { id },
       data: {
         status: 'received',
@@ -116,6 +195,21 @@ export class StockTransfersController {
         receivedAt: new Date(),
       },
     });
+
+    // Emit event for real-time updates
+    this.eventBus.publish(
+      new StockTransferStatusChangedEvent(
+        id,
+        currentTransfer.sourceOutletId,
+        currentTransfer.destinationOutletId,
+        currentTransfer.businessId,
+        currentTransfer.status as StockTransferStatus,
+        'received',
+        user.employeeId,
+      ),
+    );
+
+    return updatedTransfer;
   }
 
   @Get('discrepancies')

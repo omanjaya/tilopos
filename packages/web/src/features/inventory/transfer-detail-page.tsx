@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -9,6 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
+import { TransferTimeline } from './components/transfer-timeline';
 import {
   Table,
   TableBody,
@@ -19,7 +22,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { formatDateTime } from '@/lib/format';
-import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2, AlertTriangle } from 'lucide-react';
 import type { TransferStatus } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -52,6 +55,18 @@ export function TransferDetailPage() {
   const { toast } = useToast();
 
   const [receivedQuantities, setReceivedQuantities] = useState<Record<string, string>>({});
+
+  // Real-time WebSocket updates
+  useTransferSocket({
+    onStatusChange: (payload) => {
+      // Only refresh if this is the current transfer
+      if (payload.transferId === id) {
+        queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
+        queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      }
+    },
+    showNotifications: true,
+  });
 
   const { data: transfer, isLoading } = useQuery({
     queryKey: ['stock-transfer', id],
@@ -116,6 +131,31 @@ export function TransferDetailPage() {
   const isMutating = approveMutation.isPending || shipMutation.isPending || receiveMutation.isPending;
   const currentStepIndex = transfer ? getStepIndex(transfer.status) : -1;
 
+  // Calculate discrepancies
+  const discrepancies = useMemo(() => {
+    if (!transfer || transfer.status !== 'shipped') return [];
+
+    return transfer.items
+      .map((item) => {
+        const receivedQty = Number(receivedQuantities[item.id] ?? item.requestedQuantity);
+        const sentQty = item.requestedQuantity;
+        const diff = receivedQty - sentQty;
+
+        if (diff !== 0) {
+          return {
+            itemName: item.itemName,
+            sent: sentQty,
+            received: receivedQty,
+            difference: diff,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }, [transfer, receivedQuantities]);
+
+  const hasDiscrepancies = discrepancies.length > 0;
+
   if (isLoading) {
     return (
       <div>
@@ -156,51 +196,27 @@ export function TransferDetailPage() {
         </Button>
       </PageHeader>
 
-      {/* Status Badge */}
-      <div className="mb-6">
-        <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
-      </div>
-
-      {/* Workflow Stepper */}
-      {transfer.status !== 'cancelled' && (
-        <div className="mb-6">
+      {/* Transfer Timeline */}
+      <Card className="mb-6">
+        <CardHeader>
           <div className="flex items-center justify-between">
-            {WORKFLOW_STEPS.map((step, index) => {
-              const isCompleted = index <= currentStepIndex;
-              const isCurrent = index === currentStepIndex;
-              return (
-                <div key={step.status} className="flex flex-1 items-center">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-medium ${
-                        isCompleted
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-muted-foreground/30 text-muted-foreground'
-                      } ${isCurrent ? 'ring-2 ring-primary/30' : ''}`}
-                    >
-                      {index + 1}
-                    </div>
-                    <span
-                      className={`mt-1 text-xs ${
-                        isCompleted ? 'font-medium text-primary' : 'text-muted-foreground'
-                      }`}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
-                  {index < WORKFLOW_STEPS.length - 1 && (
-                    <div
-                      className={`mx-2 h-0.5 flex-1 ${
-                        index < currentStepIndex ? 'bg-primary' : 'bg-muted-foreground/30'
-                      }`}
-                    />
-                  )}
-                </div>
-              );
-            })}
+            <CardTitle className="text-base">Status Transfer</CardTitle>
+            <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
           </div>
-        </div>
-      )}
+        </CardHeader>
+        <CardContent>
+          <TransferTimeline
+            currentStatus={transfer.status}
+            requestedAt={transfer.createdAt}
+            requestedBy={transfer.requestedBy}
+            approvedAt={transfer.approvedAt}
+            approvedBy={transfer.approvedBy}
+            shippedAt={transfer.shippedAt}
+            receivedAt={transfer.receivedAt}
+            receivedBy={transfer.receivedBy}
+          />
+        </CardContent>
+      </Card>
 
       {/* Info Section */}
       <Card className="mb-6">
@@ -241,6 +257,31 @@ export function TransferDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Discrepancy Warning */}
+      {hasDiscrepancies && transfer.status === 'shipped' && (
+        <Alert className="mb-6 border-yellow-500 bg-yellow-50">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="text-yellow-900">Terdeteksi Perbedaan Quantity!</AlertTitle>
+          <AlertDescription className="text-yellow-800">
+            <p className="mb-2">
+              Ada {discrepancies.length} item dengan quantity berbeda dari yang dikirim:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              {discrepancies.map((disc: any, idx: number) => (
+                <li key={idx}>
+                  <strong>{disc.itemName}</strong>: Dikirim {disc.sent}, Diterima {disc.received}
+                  {disc.difference > 0 && <span className="text-green-700"> (+{disc.difference})</span>}
+                  {disc.difference < 0 && <span className="text-red-700"> ({disc.difference})</span>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs">
+              ℹ️ Pastikan quantity yang diterima sudah sesuai. System akan menyesuaikan stok berdasarkan quantity yang Anda input.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Items Table */}
       <Card className="mb-6">
         <CardHeader>
@@ -257,33 +298,42 @@ export function TransferDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transfer.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.productName}</TableCell>
-                    <TableCell>{item.requestedQuantity}</TableCell>
-                    <TableCell>
-                      {transfer.status === 'shipped' ? (
-                        <Input
-                          type="number"
-                          min={0}
-                          max={item.requestedQuantity}
-                          className="w-24"
-                          value={receivedQuantities[item.id] ?? String(item.requestedQuantity)}
-                          onChange={(e) =>
-                            setReceivedQuantities((prev) => ({
-                              ...prev,
-                              [item.id]: e.target.value,
-                            }))
-                          }
-                        />
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {item.receivedQuantity !== null ? item.receivedQuantity : '-'}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {transfer.items.map((item) => {
+                  const receivedQty = Number(receivedQuantities[item.id] ?? item.requestedQuantity);
+                  const hasDiff = receivedQty !== item.requestedQuantity;
+
+                  return (
+                    <TableRow key={item.id} className={hasDiff && transfer.status === 'shipped' ? 'bg-yellow-50' : ''}>
+                      <TableCell className="font-medium">
+                        {item.productName}
+                        {hasDiff && transfer.status === 'shipped' && (
+                          <AlertTriangle className="inline ml-2 h-3 w-3 text-yellow-600" />
+                        )}
+                      </TableCell>
+                      <TableCell>{item.requestedQuantity}</TableCell>
+                      <TableCell>
+                        {transfer.status === 'shipped' ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            className={`w-24 ${hasDiff ? 'border-yellow-500 border-2' : ''}`}
+                            value={receivedQuantities[item.id] ?? String(item.requestedQuantity)}
+                            onChange={(e) =>
+                              setReceivedQuantities((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {item.receivedQuantity !== null ? item.receivedQuantity : '-'}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

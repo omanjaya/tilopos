@@ -7,6 +7,9 @@ import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
+import { TransferTemplatesModal } from './components/transfer-templates-modal';
 import {
   Select,
   SelectContent,
@@ -29,6 +32,8 @@ import {
   CheckCircle,
   Truck,
   PackageCheck,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 import type { StockTransfer } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
@@ -48,10 +53,21 @@ export function TransfersPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedTransfers, setSelectedTransfers] = useState<StockTransfer[]>([]);
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'approve' | 'ship';
-    transfer: StockTransfer;
+    type: 'approve' | 'ship' | 'bulk-approve';
+    transfer?: StockTransfer;
   } | null>(null);
+  const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
+
+  // Real-time WebSocket updates
+  const { isConnected } = useTransferSocket({
+    onStatusChange: () => {
+      // Auto-refresh transfer list when status changes
+      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+    },
+    showNotifications: true,
+  });
 
   const { data: transfers, isLoading } = useQuery({
     queryKey: ['stock-transfers', statusFilter],
@@ -93,14 +109,67 @@ export function TransfersPage() {
     },
   });
 
+  const bulkApproveMutation = useMutation({
+    mutationFn: async (transferIds: string[]) => {
+      const results = await Promise.allSettled(
+        transferIds.map((id) => inventoryApi.approveTransfer(id))
+      );
+      return results;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      const successful = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
+
+      if (successful > 0) {
+        toast({
+          title: `✅ ${successful} transfer disetujui!`,
+          description: failed > 0 ? `${failed} transfer gagal disetujui` : undefined,
+        });
+      }
+
+      setSelectedTransfers([]);
+      setConfirmAction(null);
+    },
+    onError: () => {
+      toast({
+        variant: 'destructive',
+        title: 'Gagal menyetujui transfer',
+        description: 'Terjadi kesalahan saat bulk approve',
+      });
+    },
+  });
+
   function handleConfirmAction() {
     if (!confirmAction) return;
-    if (confirmAction.type === 'approve') {
-      approveMutation.mutate(confirmAction.transfer.id);
+    if (confirmAction.type === 'bulk-approve') {
+      const transferIds = selectedTransfers.map((t) => t.id);
+      bulkApproveMutation.mutate(transferIds);
+    } else if (confirmAction.type === 'approve') {
+      approveMutation.mutate(confirmAction.transfer!.id);
     } else {
-      shipMutation.mutate(confirmAction.transfer.id);
+      shipMutation.mutate(confirmAction.transfer!.id);
     }
   }
+
+  const isAllSelected = transfers && transfers.length > 0 && selectedTransfers.length === transfers.length;
+  const isSomeSelected = selectedTransfers.length > 0 && selectedTransfers.length < (transfers?.length || 0);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedTransfers([]);
+    } else {
+      setSelectedTransfers(transfers || []);
+    }
+  };
+
+  const toggleSelectTransfer = (transfer: StockTransfer) => {
+    setSelectedTransfers((prev) =>
+      prev.find((t) => t.id === transfer.id)
+        ? prev.filter((t) => t.id !== transfer.id)
+        : [...prev, transfer],
+    );
+  };
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -119,6 +188,24 @@ export function TransfersPage() {
   }, [navigate]);
 
   const columns: Column<StockTransfer>[] = [
+    {
+      key: 'select',
+      header: (
+        <Checkbox
+          checked={isAllSelected}
+          indeterminate={isSomeSelected}
+          onCheckedChange={toggleSelectAll}
+          aria-label="Select all transfers"
+        />
+      ),
+      cell: (row) => (
+        <Checkbox
+          checked={selectedTransfers.some((t) => t.id === row.id)}
+          onCheckedChange={() => toggleSelectTransfer(row)}
+          aria-label={`Select ${row.transferNumber}`}
+        />
+      ),
+    },
     {
       key: 'transferNumber',
       header: 'No. Transfer',
@@ -189,9 +276,32 @@ export function TransfersPage() {
     },
   ];
 
+  const requestedCount = selectedTransfers.filter((t) => t.status === 'requested').length;
+
   return (
     <div>
       <PageHeader title="Transfer Stok" description="Kelola transfer stok antar outlet">
+        {isConnected && (
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+            <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse" />
+            Live Updates
+          </Badge>
+        )}
+        {selectedTransfers.length > 0 && requestedCount > 0 && (
+          <Button
+            variant="default"
+            onClick={() => setConfirmAction({ type: 'bulk-approve' })}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <CheckCircle className="mr-2 h-4 w-4" /> Setujui {requestedCount} Transfer
+          </Button>
+        )}
+        <Button variant="outline" onClick={() => setTemplatesModalOpen(true)}>
+          <FileText className="mr-2 h-4 w-4" /> Templates
+        </Button>
+        <Button variant="outline" onClick={() => navigate('/app/inventory/transfers/dashboard')}>
+          <BarChart3 className="mr-2 h-4 w-4" /> Dashboard
+        </Button>
         <Button onClick={() => navigate('/app/inventory/transfers/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Buat Transfer
         </Button>
@@ -224,16 +334,35 @@ export function TransfersPage() {
       <ConfirmDialog
         open={!!confirmAction}
         onOpenChange={(open) => !open && setConfirmAction(null)}
-        title={confirmAction?.type === 'approve' ? 'Setujui Transfer' : 'Kirim Transfer'}
-        description={
-          confirmAction?.type === 'approve'
-            ? `Apakah Anda yakin ingin menyetujui transfer ${confirmAction?.transfer.transferNumber}?`
-            : `Apakah Anda yakin ingin menandai transfer ${confirmAction?.transfer.transferNumber} sebagai dikirim?`
+        title={
+          confirmAction?.type === 'bulk-approve'
+            ? 'Bulk Approve Transfer'
+            : confirmAction?.type === 'approve'
+              ? 'Setujui Transfer'
+              : 'Kirim Transfer'
         }
-        confirmLabel={confirmAction?.type === 'approve' ? 'Setujui' : 'Kirim'}
+        description={
+          confirmAction?.type === 'bulk-approve'
+            ? `Apakah Anda yakin ingin menyetujui ${requestedCount} transfer yang dipilih?`
+            : confirmAction?.type === 'approve'
+              ? `Apakah Anda yakin ingin menyetujui transfer ${confirmAction?.transfer?.transferNumber}?`
+              : `Apakah Anda yakin ingin menandai transfer ${confirmAction?.transfer?.transferNumber} sebagai dikirim?`
+        }
+        confirmLabel={
+          confirmAction?.type === 'bulk-approve'
+            ? `Setujui ${requestedCount} Transfer`
+            : confirmAction?.type === 'approve'
+              ? 'Setujui'
+              : 'Kirim'
+        }
         onConfirm={handleConfirmAction}
-        isLoading={approveMutation.isPending || shipMutation.isPending}
+        isLoading={approveMutation.isPending || shipMutation.isPending || bulkApproveMutation.isPending}
         variant="default"
+      />
+
+      <TransferTemplatesModal
+        open={templatesModalOpen}
+        onOpenChange={setTemplatesModalOpen}
       />
     </div>
   );
