@@ -7,6 +7,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { CategoryManager } from './components/category-manager';
+import { ProductQuickAddModal } from './components/product-quick-add-modal';
+import { ProductBulkAddModal } from './components/product-bulk-add-modal';
 import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +28,7 @@ import {
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -38,6 +40,8 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
 
   // Feature checks for dynamic UI
   const { hasBarcodeScanning } = useBusinessFeatures();
@@ -151,10 +155,22 @@ export function ProductsPage() {
         return;
       }
 
-      // N - New product
+      // N - New product (full form)
       if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         navigate('/app/products/new');
+      }
+
+      // Q - Quick add product
+      if (e.key === 'q' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setQuickAddOpen(true);
+      }
+
+      // B - Bulk add product
+      if (e.key === 'b' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setBulkAddOpen(true);
       }
 
       // / - Focus search
@@ -166,7 +182,7 @@ export function ProductsPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
+  }, [navigate, setQuickAddOpen, setBulkAddOpen]);
 
   return (
     <div>
@@ -174,6 +190,15 @@ export function ProductsPage() {
         <HelpSidebar page="products" />
         <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
           <Tags className="mr-2 h-4 w-4" /> Kategori
+        </Button>
+        <Button variant="outline" onClick={() => navigate('/app/import?type=products')}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+        </Button>
+        <Button variant="outline" onClick={() => setBulkAddOpen(true)} aria-keyshortcuts="B">
+          <FileStack className="mr-2 h-4 w-4" /> Bulk Add
+        </Button>
+        <Button variant="outline" onClick={() => setQuickAddOpen(true)} aria-keyshortcuts="Q">
+          <Zap className="mr-2 h-4 w-4" /> Quick Add
         </Button>
         <Button onClick={() => navigate('/app/products/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Produk
@@ -191,9 +216,24 @@ export function ProductsPage() {
         emptyTitle="Belum ada produk"
         emptyDescription="Mulai dengan menambahkan produk pertama Anda untuk mulai berjualan."
         emptyAction={
-          <Button onClick={() => navigate('/app/products/new')}>
-            <Plus className="mr-2 h-4 w-4" /> Tambah Produk Pertama
-          </Button>
+          <div className="flex flex-col gap-3 items-center">
+            <div className="flex gap-2">
+              <Button onClick={() => setQuickAddOpen(true)}>
+                <Zap className="mr-2 h-4 w-4" /> Quick Add
+              </Button>
+              <Button variant="outline" onClick={() => setBulkAddOpen(true)}>
+                <FileStack className="mr-2 h-4 w-4" /> Bulk Add
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => navigate('/app/import?type=products')}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => navigate('/app/products/new')}>
+                <Plus className="mr-2 h-4 w-4" /> Form Lengkap
+              </Button>
+            </div>
+          </div>
         }
         filters={
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
@@ -223,6 +263,8 @@ export function ProductsPage() {
       />
 
       <CategoryManager open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen} />
+      <ProductQuickAddModal open={quickAddOpen} onOpenChange={setQuickAddOpen} />
+      <ProductBulkAddModal open={bulkAddOpen} onOpenChange={setBulkAddOpen} />
     </div>
   );
 }

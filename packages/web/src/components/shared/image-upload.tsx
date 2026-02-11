@@ -1,19 +1,20 @@
 import { useState, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { uploadsApi } from '@/api/endpoints/uploads.api';
-import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ImagePlus, X, Loader2 } from 'lucide-react';
+import { ImagePlus, X, Loader2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ImageUploadProps {
   value?: string | null;
   onChange: (url: string | null) => void;
   className?: string;
+  maxSizeMB?: number;
 }
 
-export function ImageUpload({ value, onChange, className }: ImageUploadProps) {
+export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: ImageUploadProps) {
   const [preview, setPreview] = useState<string | null>(value ?? null);
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -22,25 +23,125 @@ export function ImageUpload({ value, onChange, className }: ImageUploadProps) {
     onSuccess: (data) => {
       setPreview(data.url);
       onChange(data.url);
+      toast({ title: 'Berhasil!', description: 'Gambar berhasil diupload' });
     },
     onError: () => {
       toast({ variant: 'destructive', title: 'Upload gagal', description: 'Gagal mengupload gambar.' });
     },
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const validateAndUpload = async (file: File) => {
+    // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast({ variant: 'destructive', title: 'File tidak valid', description: 'Pilih file gambar.' });
+      toast({ variant: 'destructive', title: 'File tidak valid', description: 'Pilih file gambar (JPG, PNG, GIF)' });
       return;
     }
 
+    // Validate file size
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > maxSizeMB) {
+      toast({
+        variant: 'destructive',
+        title: 'File terlalu besar',
+        description: `Ukuran maksimal ${maxSizeMB}MB. File ini ${fileSizeMB.toFixed(1)}MB`,
+      });
+      return;
+    }
+
+    // Show preview immediately
     const reader = new FileReader();
     reader.onload = () => setPreview(reader.result as string);
     reader.readAsDataURL(file);
-    uploadMutation.mutate(file);
+
+    // Compress image before upload (if > 1MB)
+    let fileToUpload = file;
+    if (fileSizeMB > 1) {
+      try {
+        fileToUpload = await compressImage(file, 0.8);
+      } catch (error) {
+        console.warn('Image compression failed, uploading original', error);
+      }
+    }
+
+    uploadMutation.mutate(fileToUpload);
+  };
+
+  const compressImage = (file: File, quality: number): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1200;
+
+          let { width, height } = img;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+              } else {
+                reject(new Error('Canvas toBlob failed'));
+              }
+            },
+            'image/jpeg',
+            quality,
+          );
+        };
+        img.onerror = reject;
+      };
+      reader.onerror = reject;
+    });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    validateAndUpload(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      validateAndUpload(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   const handleRemove = () => {
@@ -53,31 +154,51 @@ export function ImageUpload({ value, onChange, className }: ImageUploadProps) {
     <div className={cn('relative', className)}>
       <input ref={inputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
       {preview ? (
-        <div className="relative h-40 w-40 overflow-hidden rounded-lg border">
+        <div className="relative h-48 w-48 overflow-hidden rounded-lg border-2 border-muted">
           <img src={preview} alt="Preview" className="h-full w-full object-cover" />
           <button
             type="button"
             onClick={handleRemove}
-            className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-destructive-foreground shadow-sm"
+            className="absolute right-2 top-2 rounded-full bg-destructive p-1.5 text-destructive-foreground shadow-md transition-transform hover:scale-110"
           >
-            <X className="h-3 w-3" />
+            <X className="h-4 w-4" />
           </button>
           {uploadMutation.isPending && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-              <Loader2 className="h-6 w-6 animate-spin text-white" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 backdrop-blur-sm">
+              <Loader2 className="h-8 w-8 animate-spin text-white" />
+              <p className="text-xs text-white">Uploading...</p>
             </div>
           )}
         </div>
       ) : (
-        <Button
-          type="button"
-          variant="outline"
-          className="h-40 w-40 flex-col gap-2"
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
           onClick={() => inputRef.current?.click()}
+          className={cn(
+            'flex h-48 w-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed transition-all hover:border-primary hover:bg-accent/50',
+            isDragging && 'border-primary bg-accent',
+          )}
         >
-          <ImagePlus className="h-8 w-8 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Upload Gambar</span>
-        </Button>
+          {isDragging ? (
+            <>
+              <Upload className="h-10 w-10 text-primary" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-primary">Drop gambar di sini</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <ImagePlus className="h-10 w-10 text-muted-foreground" />
+              <div className="text-center">
+                <p className="text-sm font-medium">Upload Gambar</p>
+                <p className="text-xs text-muted-foreground">Klik atau drag & drop</p>
+                <p className="mt-1 text-xs text-muted-foreground">Max {maxSizeMB}MB</p>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
