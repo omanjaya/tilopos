@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
-import { outletsApi } from '@/api/endpoints/outlets.api';
+import { settingsApi } from '@/api/endpoints/settings.api';
 import { productsApi } from '@/api/endpoints/products.api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -51,7 +51,7 @@ export function TransferTemplateFormModal({
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],
-    queryFn: () => outletsApi.list(),
+    queryFn: settingsApi.getOutlets,
     enabled: open,
   });
 

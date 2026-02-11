@@ -12,7 +12,10 @@ import { useAuthStore } from '@/stores/auth.store';
 // Configuration
 // -------------------------------------------------------------------
 
-const SOCKET_URL = import.meta.env.VITE_WS_URL || '';
+// Use backend URL from env, or default to API base URL (Vite proxies this)
+const SOCKET_URL = import.meta.env.VITE_WS_URL ||
+                   import.meta.env.VITE_API_URL ||
+                   'http://localhost:3001';
 const SOCKET_NAMESPACE = '/notifications';
 
 // -------------------------------------------------------------------
