@@ -111,8 +111,8 @@ export function ProductsPage() {
     },
   });
 
-  const isAllSelected = productsData && productsData.length > 0 && selectedProducts.length === productsData.length;
-  const isSomeSelected = selectedProducts.length > 0 && selectedProducts.length < (productsData?.length || 0);
+  const isAllSelected = Boolean(productsData && productsData.length > 0 && selectedProducts.length === productsData.length);
+  const isSomeSelected = selectedProducts.length > 0 && !isAllSelected;
 
   const toggleSelectAll = () => {
     if (isAllSelected) {

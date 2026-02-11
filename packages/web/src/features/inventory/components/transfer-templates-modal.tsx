@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -92,6 +92,9 @@ export function TransferTemplatesModal({
                 <Plus className="mr-2 h-4 w-4" /> Buat Template
               </Button>
             </div>
+            <DialogDescription>
+              Kelola template transfer untuk pola transfer yang sering digunakan
+            </DialogDescription>
           </DialogHeader>
 
           {isLoading ? (

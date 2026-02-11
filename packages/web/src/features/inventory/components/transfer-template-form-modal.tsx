@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { productsApi } from '@/api/endpoints/products.api';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -202,6 +202,9 @@ export function TransferTemplateFormModal({
           <DialogTitle>
             {template ? 'Edit Template' : 'Buat Template Baru'}
           </DialogTitle>
+          <DialogDescription>
+            {template ? 'Perbarui informasi template transfer' : 'Buat template untuk transfer yang sering dilakukan'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
