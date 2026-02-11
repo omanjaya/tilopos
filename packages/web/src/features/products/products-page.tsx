@@ -9,7 +9,9 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { CategoryManager } from './components/category-manager';
 import { ProductQuickAddModal } from './components/product-quick-add-modal';
 import { ProductBulkAddModal } from './components/product-bulk-add-modal';
+import { BulkEditModal } from './components/bulk-edit-modal';
 import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -28,7 +30,7 @@ import {
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2 } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -42,6 +44,8 @@ export function ProductsPage() {
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
 
   // Feature checks for dynamic UI
   const { hasBarcodeScanning } = useBusinessFeatures();
@@ -107,7 +111,44 @@ export function ProductsPage() {
     },
   });
 
+  const isAllSelected = productsData && productsData.length > 0 && selectedProducts.length === productsData.length;
+  const isSomeSelected = selectedProducts.length > 0 && selectedProducts.length < (productsData?.length || 0);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedProducts([]);
+    } else {
+      setSelectedProducts(productsData || []);
+    }
+  };
+
+  const toggleSelectProduct = (product: Product) => {
+    setSelectedProducts((prev) =>
+      prev.find((p) => p.id === product.id)
+        ? prev.filter((p) => p.id !== product.id)
+        : [...prev, product],
+    );
+  };
+
   const columns: Column<Product>[] = [
+    {
+      key: 'select',
+      header: () => (
+        <Checkbox
+          checked={isAllSelected}
+          indeterminate={isSomeSelected}
+          onCheckedChange={toggleSelectAll}
+          aria-label="Select all products"
+        />
+      ),
+      cell: (row) => (
+        <Checkbox
+          checked={selectedProducts.some((p) => p.id === row.id)}
+          onCheckedChange={() => toggleSelectProduct(row)}
+          aria-label={`Select ${row.name}`}
+        />
+      ),
+    },
     {
       key: 'image',
       header: '',
@@ -220,6 +261,15 @@ export function ProductsPage() {
     <div>
       <PageHeader title="Produk" description="Kelola daftar produk Anda">
         <HelpSidebar page="products" />
+        {selectedProducts.length > 0 && (
+          <Button
+            variant="default"
+            onClick={() => setBulkEditOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Edit2 className="mr-2 h-4 w-4" /> Bulk Edit ({selectedProducts.length})
+          </Button>
+        )}
         <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
           <Tags className="mr-2 h-4 w-4" /> Kategori
         </Button>
@@ -297,6 +347,12 @@ export function ProductsPage() {
       <CategoryManager open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen} />
       <ProductQuickAddModal open={quickAddOpen} onOpenChange={setQuickAddOpen} />
       <ProductBulkAddModal open={bulkAddOpen} onOpenChange={setBulkAddOpen} />
+      <BulkEditModal
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selectedProducts={selectedProducts}
+        onComplete={() => setSelectedProducts([])}
+      />
     </div>
   );
 }
