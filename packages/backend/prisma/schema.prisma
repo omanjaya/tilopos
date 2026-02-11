@@ -72,6 +72,8 @@ enum TransactionStatus {
   completed
   voided
   refunded
+  credit
+  partially_paid
 
   @@map("transaction_status")
 }
@@ -419,6 +421,11 @@ model Outlet {
   receiptFooter         String?   @map("receipt_footer") @db.Text
   settings              Json      @default("{}") @db.JsonB
   isActive              Boolean   @default(true) @map("is_active")
+
+  // Outlet-level business type (allows different types per outlet)
+  outletType            String    @default("custom") @map("outlet_type") @db.VarChar(30)
+  outletTypeSetAt       DateTime? @map("outlet_type_set_at") @db.Timestamptz()
+
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -452,9 +459,56 @@ model Outlet {
   workOrders            WorkOrder[]
   serialNumbers         SerialNumber[]
   serviceItems          ServiceItem[]
+  creditSales           CreditSale[]
+  outletFeatures        OutletFeature[]
+  outletProducts        OutletProduct[]
 
   @@index([businessId], map: "idx_outlets_business")
   @@map("outlets")
+}
+
+// ============================================================================
+// 2.1 OUTLET FEATURE (Per-Outlet Feature Toggle)
+// ============================================================================
+
+model OutletFeature {
+  id              String    @id @default(uuid()) @db.Uuid
+  outletId        String    @map("outlet_id") @db.Uuid
+  featureKey      String    @map("feature_key") @db.VarChar(50)
+  isEnabled       Boolean   @default(true) @map("is_enabled")
+  enabledAt       DateTime? @map("enabled_at") @db.Timestamptz()
+  disabledAt      DateTime? @map("disabled_at") @db.Timestamptz()
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, featureKey])
+  @@index([outletId, isEnabled])
+  @@map("outlet_features")
+}
+
+// ============================================================================
+// 2.2 OUTLET PRODUCT (Product ↔ Outlet Assignment)
+// ============================================================================
+
+model OutletProduct {
+  id              String    @id @default(uuid()) @db.Uuid
+  outletId        String    @map("outlet_id") @db.Uuid
+  productId       String    @map("product_id") @db.Uuid
+  isActive        Boolean   @default(true) @map("is_active")
+  sortOrder       Int       @default(0) @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  outlet          Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, productId])
+  @@index([outletId])
+  @@index([productId])
+  @@map("outlet_products")
 }
 
 // ============================================================================
@@ -505,6 +559,8 @@ model Employee {
   attendances           EmployeeAttendance[]
   appointments          Appointment[]
   workOrders            WorkOrder[]
+  creditSalesCreated    CreditSale[]    @relation("CreditSaleCreatedBy")
+  creditPaymentsReceived CreditPayment[] @relation("CreditPaymentReceivedBy")
 
   @@index([businessId], map: "idx_employees_business")
   @@index([outletId], map: "idx_employees_outlet")
@@ -631,6 +687,7 @@ model Product {
   unitConversions       UnitConversion[]
   batchLots             BatchLot[]
   serialNumbers         SerialNumber[]
+  outletProducts        OutletProduct[]
 
   @@unique([businessId, sku], map: "uq_products_business_sku")
   @@unique([businessId, barcode], map: "uq_products_business_barcode")
@@ -763,6 +820,7 @@ model Transaction {
   payments          Payment[]
   onlineOrders      OnlineOrder[]
   loyaltyTransactions LoyaltyTransaction[]
+  creditSales       CreditSale[]
 
   @@index([outletId], map: "idx_transactions_outlet")
   @@index([createdAt], map: "idx_transactions_date")
@@ -868,6 +926,8 @@ model Customer {
   totalSpent        Decimal             @default(0) @map("total_spent") @db.Decimal(15, 2)
   visitCount        Int                 @default(0) @map("visit_count")
   lastVisitAt       DateTime?           @map("last_visit_at") @db.Timestamptz()
+  creditLimit       Decimal             @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  creditBalance     Decimal             @default(0) @map("credit_balance") @db.Decimal(15, 2)
   notes             String?             @db.Text
   isActive          Boolean             @default(true) @map("is_active")
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
@@ -883,6 +943,7 @@ model Customer {
   workOrders        WorkOrder[]
   serialNumbers     SerialNumber[]
   serviceItems      ServiceItem[]
+  creditSales       CreditSale[]
 
   @@index([businessId], map: "idx_customers_business")
   @@index([phone], map: "idx_customers_phone")
@@ -2268,4 +2329,53 @@ model PricingRule {
   @@index([validFrom, validUntil], map: "idx_pricing_rules_validity")
   @@index([priority], map: "idx_pricing_rules_priority")
   @@map("pricing_rules")
+}
+
+// ============================================================================
+// CREDIT SALES (BON/PIUTANG)
+// ============================================================================
+
+model CreditSale {
+  id                String          @id @default(uuid()) @db.Uuid
+  transactionId     String          @map("transaction_id") @db.Uuid
+  customerId        String          @map("customer_id") @db.Uuid
+  outletId          String          @map("outlet_id") @db.Uuid
+  totalAmount       Decimal         @map("total_amount") @db.Decimal(15, 2)
+  paidAmount        Decimal         @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  outstandingAmount Decimal         @map("outstanding_amount") @db.Decimal(15, 2)
+  dueDate           DateTime?       @map("due_date") @db.Date
+  status            String          @default("outstanding") @db.VarChar(20)
+  notes             String?         @db.Text
+  createdBy         String?         @map("created_by") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  transaction       Transaction     @relation(fields: [transactionId], references: [id])
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  createdByEmployee Employee?       @relation("CreditSaleCreatedBy", fields: [createdBy], references: [id])
+  payments          CreditPayment[]
+
+  @@index([customerId], map: "idx_credit_sales_customer")
+  @@index([outletId], map: "idx_credit_sales_outlet")
+  @@index([status], map: "idx_credit_sales_status")
+  @@index([transactionId], map: "idx_credit_sales_transaction")
+  @@map("credit_sales")
+}
+
+model CreditPayment {
+  id              String        @id @default(uuid()) @db.Uuid
+  creditSaleId    String        @map("credit_sale_id") @db.Uuid
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentMethod   PaymentMethod @default(cash) @map("payment_method")
+  referenceNumber String?       @map("reference_number") @db.VarChar(100)
+  notes           String?       @db.Text
+  receivedBy      String?       @map("received_by") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  creditSale      CreditSale    @relation(fields: [creditSaleId], references: [id], onDelete: Cascade)
+  receivedByEmployee Employee?  @relation("CreditPaymentReceivedBy", fields: [receivedBy], references: [id])
+
+  @@index([creditSaleId], map: "idx_credit_payments_credit_sale")
+  @@map("credit_payments")
 }
