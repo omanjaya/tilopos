@@ -264,10 +264,7 @@ export class SendToKdsStep implements SagaStep<CreateOrderContext> {
 
   async execute(context: CreateOrderContext): Promise<CreateOrderContext> {
     if (!context.orderId) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Cannot send to KDS without an order ID',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot send to KDS without an order ID');
     }
 
     this.logger.debug(`Sending order ${context.orderId} to KDS`);

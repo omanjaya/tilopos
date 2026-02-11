@@ -42,10 +42,7 @@ export class AdjustIngredientStockUseCase {
 
     // Validate: don't allow negative stock
     if (newQty < 0) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Insufficient stock for this operation',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Insufficient stock for this operation');
     }
 
     // Adjust stock

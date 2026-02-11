@@ -17,4 +17,5 @@ export const REPOSITORY_TOKENS = {
   INGREDIENT: 'IIngredientRepository',
   LOYALTY: 'ILoyaltyRepository',
   TABLE: 'ITableRepository',
+  CREDIT_SALE: 'ICreditSaleRepository',
 } as const;

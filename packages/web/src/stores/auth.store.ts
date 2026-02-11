@@ -29,6 +29,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('token');
     localStorage.removeItem('tilo-pos-cart');
     localStorage.removeItem('selectedOutletId');
+    localStorage.removeItem('tilopos-offline-queue');
+    // Clear IndexedDB offline transaction queue
+    try { indexedDB.deleteDatabase('tilopos-sync'); } catch { /* ignore */ }
     set({ user: null, token: null, isAuthenticated: false });
   },
   isTokenExpired: () => {

@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { syncEngine } from '@/services/sync';
+import { useAuthStore } from '@/stores/auth.store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -221,7 +222,7 @@ export function useOfflinePOS(): UseOfflinePOSReturn {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('token') ?? ''}`,
+              Authorization: `Bearer ${useAuthStore.getState().token ?? ''}`,
             },
             body: JSON.stringify(tx),
           });

@@ -13,19 +13,13 @@ export class DeleteIngredientUseCase {
   async execute(id: string) {
     const ingredient = await this.ingredientRepository.findById(id);
     if (!ingredient) {
-      throw new AppError(
-        ErrorCode.RESOURCE_NOT_FOUND,
-        'Ingredient not found',
-      );
+      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Ingredient not found');
     }
 
     // Check if ingredient is used in any recipe
     const recipes = await this.ingredientRepository.findRecipesByIngredient(id);
     if (recipes.length > 0) {
-      throw new AppError(
-        ErrorCode.CONFLICT,
-        'Cannot delete ingredient that is used in recipes',
-      );
+      throw new AppError(ErrorCode.CONFLICT, 'Cannot delete ingredient that is used in recipes');
     }
 
     // Soft delete

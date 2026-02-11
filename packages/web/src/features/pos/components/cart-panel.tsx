@@ -1,6 +1,8 @@
-import { Trash2, Plus, Minus, Edit3 } from 'lucide-react';
+import { useState } from 'react';
+import { Trash2, Plus, Minus, Banknote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
     Card,
     CardContent,
@@ -10,17 +12,20 @@ import {
 } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useCartStore } from '@/stores/cart.store';
+import { useUIStore } from '@/stores/ui.store';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { formatCurrency } from '@/lib/format';
+import { formatQuantity } from '@/lib/quantity-format';
 import { cn } from '@/lib/utils';
 import type { CartItem } from '@/types/pos.types';
 
 interface CartPanelProps {
     onCheckout: () => void;
     onHoldBill: () => void;
-    onItemEdit?: (item: CartItem) => void;
+    onQuickCashCheckout?: () => void;
 }
 
-export function CartPanel({ onCheckout, onHoldBill, onItemEdit }: CartPanelProps) {
+export function CartPanel({ onCheckout, onHoldBill, onQuickCashCheckout }: CartPanelProps) {
     const {
         items,
         customerName,
@@ -32,8 +37,11 @@ export function CartPanel({ onCheckout, onHoldBill, onItemEdit }: CartPanelProps
         taxAmount,
         total,
         updateItemQuantity,
+        updateItemPrice,
         removeItem,
     } = useCartStore();
+    const { taxRate, serviceChargeRate } = useUIStore();
+    const { hasPriceEditing, hasDecimalQuantities } = useBusinessFeatures();
 
     const orderTypeLabels = {
         dine_in: 'Makan di Tempat',
@@ -90,7 +98,9 @@ export function CartPanel({ onCheckout, onHoldBill, onItemEdit }: CartPanelProps
                                 item={item}
                                 onQuantityChange={(qty) => updateItemQuantity(item.id, qty)}
                                 onRemove={() => removeItem(item.id)}
-                                onEdit={() => onItemEdit?.(item)}
+                                allowPriceEdit={hasPriceEditing}
+                                onPriceChange={(price) => updateItemPrice(item.id, price)}
+                                allowDecimalQty={hasDecimalQuantities}
                             />
                         ))}
                     </div>
@@ -106,9 +116,9 @@ export function CartPanel({ onCheckout, onHoldBill, onItemEdit }: CartPanelProps
                             <SummaryRow label="Diskon" value={-discountTotal} isDiscount />
                         )}
                         {serviceCharge > 0 && (
-                            <SummaryRow label="Biaya Layanan (5%)" value={serviceCharge} />
+                            <SummaryRow label={`Layanan (${(serviceChargeRate * 100).toFixed(0)}%)`} value={serviceCharge} />
                         )}
-                        <SummaryRow label="Pajak (PPN 11%)" value={taxAmount} />
+                        <SummaryRow label={`PPN (${(taxRate * 100).toFixed(0)}%)`} value={taxAmount} />
                         <Separator className="my-2" />
                         <div className="flex items-center justify-between font-bold text-lg">
                             <span>Total</span>
@@ -117,17 +127,28 @@ export function CartPanel({ onCheckout, onHoldBill, onItemEdit }: CartPanelProps
                     </div>
 
                     <CardFooter className="flex-col gap-2 p-4 border-t">
+                        <div className="flex gap-2 w-full">
+                            <Button
+                                onClick={onQuickCashCheckout}
+                                className="flex-1 h-14 text-base font-semibold bg-green-600 hover:bg-green-500 shadow-lg"
+                                size="lg"
+                            >
+                                <Banknote className="h-5 w-5 mr-2" />
+                                Uang Pas — {formatCurrency(total)}
+                            </Button>
+                            <Button
+                                onClick={onCheckout}
+                                variant="outline"
+                                className="h-14 px-5 font-semibold"
+                                size="lg"
+                            >
+                                Bayar Lainnya
+                            </Button>
+                        </div>
                         <Button
-                            onClick={onCheckout}
-                            className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg"
-                            size="lg"
-                        >
-                            Bayar — {formatCurrency(total)}
-                        </Button>
-                        <Button
-                            variant="outline"
+                            variant="ghost"
                             onClick={onHoldBill}
-                            className="w-full"
+                            className="w-full text-sm"
                         >
                             Tahan Pesanan
                         </Button>
@@ -142,108 +163,148 @@ interface CartItemRowProps {
     item: CartItem;
     onQuantityChange: (quantity: number) => void;
     onRemove: () => void;
-    onEdit?: () => void;
+    allowPriceEdit?: boolean;
+    onPriceChange?: (price: number) => void;
+    allowDecimalQty?: boolean;
 }
 
-function CartItemRow({ item, onQuantityChange, onRemove, onEdit }: CartItemRowProps) {
+function CartItemRow({ item, onQuantityChange, onRemove, allowPriceEdit, onPriceChange, allowDecimalQty }: CartItemRowProps) {
+    const [isEditingPrice, setIsEditingPrice] = useState(false);
+    const [isEditingQty, setIsEditingQty] = useState(false);
+    const step = allowDecimalQty ? 0.5 : 1;
     const modifiersTotal = item.modifiers.reduce((sum, m) => sum + m.price, 0);
     const itemTotal = (item.price + modifiersTotal) * item.quantity;
 
-    return (
-        <div className="p-4 hover:bg-muted/30 transition-colors group">
-            <div className="flex items-start gap-3">
-                {/* Product Info */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <h4 className="font-medium text-sm">{item.name}</h4>
-                            {item.variantName && (
-                                <span className="text-xs text-muted-foreground">
-                                    {item.variantName}
-                                </span>
-                            )}
-                        </div>
-                        <div className="text-right">
-                            <p className="font-semibold text-sm">{formatCurrency(itemTotal)}</p>
-                            <p className="text-xs text-muted-foreground">
-                                @ {formatCurrency(item.price + modifiersTotal)}
-                            </p>
-                        </div>
-                    </div>
+    const handlePriceSubmit = (value: string) => {
+        const newPrice = Number(value);
+        if (newPrice > 0 && onPriceChange) {
+            onPriceChange(newPrice);
+        }
+        setIsEditingPrice(false);
+    };
 
-                    {/* Modifiers */}
+    return (
+        <div className="px-4 py-3 hover:bg-muted/30 transition-colors">
+            <div className="flex items-center gap-3">
+                {/* Quantity Controls - LEFT */}
+                <div className="flex items-center gap-0.5 bg-muted rounded-lg shrink-0">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onQuantityChange(item.quantity - step)}
+                        className="h-8 w-8 p-0"
+                        aria-label="Kurangi jumlah"
+                    >
+                        <Minus className="h-3.5 w-3.5" />
+                    </Button>
+                    {isEditingQty ? (
+                        <Input
+                            autoFocus
+                            type="number"
+                            step={allowDecimalQty ? '0.001' : '1'}
+                            defaultValue={item.quantity}
+                            className="w-14 h-7 text-sm text-center p-0"
+                            onBlur={(e) => {
+                                const val = Number(e.target.value);
+                                if (val > 0) onQuantityChange(val);
+                                setIsEditingQty(false);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    const val = Number(e.currentTarget.value);
+                                    if (val > 0) onQuantityChange(val);
+                                    setIsEditingQty(false);
+                                }
+                                if (e.key === 'Escape') setIsEditingQty(false);
+                            }}
+                        />
+                    ) : (
+                        <button
+                            onClick={() => allowDecimalQty ? setIsEditingQty(true) : undefined}
+                            className={cn(
+                                'w-8 text-center font-semibold text-sm tabular-nums',
+                                allowDecimalQty && 'w-14 cursor-pointer hover:text-primary'
+                            )}
+                        >
+                            {formatQuantity(item.quantity, !!allowDecimalQty)}
+                        </button>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onQuantityChange(item.quantity + step)}
+                        className="h-8 w-8 p-0"
+                        aria-label="Tambah jumlah"
+                    >
+                        <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+
+                {/* Product Info - CENTER */}
+                <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-sm truncate">{item.name}</h4>
+                    {item.variantName && (
+                        <span className="text-xs text-muted-foreground">{item.variantName}</span>
+                    )}
                     {item.modifiers.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1 mt-0.5">
                             {item.modifiers.map((mod) => (
-                                <Badge
-                                    key={mod.id}
-                                    variant="secondary"
-                                    className="text-xs font-normal"
-                                >
-                                    + {mod.name} ({formatCurrency(mod.price)})
-                                </Badge>
+                                <span key={mod.id} className="text-[10px] text-muted-foreground">
+                                    +{mod.name}
+                                </span>
                             ))}
                         </div>
                     )}
-
-                    {/* Notes */}
-                    {item.notes && (
-                        <p className="mt-1 text-xs text-muted-foreground italic">
-                            Catatan: {item.notes}
-                        </p>
-                    )}
                 </div>
-            </div>
 
-            {/* Quantity Controls */}
-            <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {onEdit && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={onEdit}
-                            className="h-8 w-8 p-0"
-                            aria-label="Ubah item"
+                {/* Price + Delete - RIGHT */}
+                <div className="flex items-center gap-2 shrink-0">
+                    {isEditingPrice ? (
+                        <Input
+                            autoFocus
+                            type="number"
+                            defaultValue={item.price}
+                            className="w-24 h-7 text-sm text-right"
+                            onBlur={(e) => handlePriceSubmit(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handlePriceSubmit(e.currentTarget.value);
+                                if (e.key === 'Escape') setIsEditingPrice(false);
+                            }}
+                        />
+                    ) : allowPriceEdit ? (
+                        <button
+                            onClick={() => setIsEditingPrice(true)}
+                            className="text-right"
+                            aria-label="Ubah harga"
                         >
-                            <Edit3 className="h-4 w-4" />
-                        </Button>
+                            {item.originalPrice && (
+                                <p className="text-[10px] text-muted-foreground line-through tabular-nums">
+                                    {formatCurrency(item.originalPrice)}
+                                </p>
+                            )}
+                            <p className="font-semibold text-sm tabular-nums text-blue-600 dark:text-blue-400 underline decoration-dashed">
+                                {formatCurrency(itemTotal)}
+                            </p>
+                        </button>
+                    ) : (
+                        <p className="font-semibold text-sm tabular-nums">{formatCurrency(itemTotal)}</p>
                     )}
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={onRemove}
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                         aria-label="Hapus item"
                     >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                </div>
-
-                <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onQuantityChange(item.quantity - 1)}
-                        className="h-8 w-8 p-0"
-                        aria-label="Kurangi jumlah"
-                    >
-                        <Minus className="h-4 w-4" />
-                    </Button>
-                    <span className="w-10 text-center font-semibold tabular-nums">
-                        {item.quantity}
-                    </span>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onQuantityChange(item.quantity + 1)}
-                        className="h-8 w-8 p-0"
-                        aria-label="Tambah jumlah"
-                    >
-                        <Plus className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
             </div>
+            {item.notes && (
+                <p className="mt-1 ml-[88px] text-xs text-muted-foreground italic">
+                    Catatan: {item.notes}
+                </p>
+            )}
         </div>
     );
 }

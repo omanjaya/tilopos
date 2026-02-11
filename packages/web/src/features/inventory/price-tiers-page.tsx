@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { priceTiersApi } from '@/api/endpoints/price-tiers.api';
+import { productsApi } from '@/api/endpoints/products.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -143,10 +144,7 @@ export function PriceTiersPage() {
 
   const { data: products, isLoading } = useQuery({
     queryKey: ['products-for-tiers'],
-    queryFn: () =>
-      fetch('/api/v1/inventory/products', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      }).then((r) => r.json()),
+    queryFn: () => productsApi.list(),
   });
 
   const filteredProducts = (products ?? []).filter(

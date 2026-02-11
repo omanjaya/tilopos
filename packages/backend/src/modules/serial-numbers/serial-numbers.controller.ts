@@ -20,7 +20,7 @@ import {
   type BulkRegisterItemDto,
 } from './serial-numbers.service';
 
-@Controller('api/v1/serial-numbers')
+@Controller('serial-numbers')
 @UseGuards(JwtAuthGuard)
 export class SerialNumbersController {
   constructor(private readonly service: SerialNumbersService) {}

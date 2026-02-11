@@ -12,6 +12,20 @@ export async function seedEmployees(prisma: PrismaClient, params: SeedEmployeesP
   console.log('Creating employees...');
   const hashedPin = await bcrypt.hash('1234', 10);
 
+  const superAdmin = await prisma.employee.create({
+    data: {
+      businessId: params.businessId,
+      outletId: params.outletPusatId,
+      name: 'Super Administrator',
+      email: 'superadmin@tilopos.id',
+      phone: '081200000000',
+      pin: hashedPin,
+      role: 'super_admin',
+      permissions: ['all'],
+      hourlyRate: 0,
+    },
+  });
+
   const owner = await prisma.employee.create({
     data: {
       businessId: params.businessId,
@@ -110,6 +124,7 @@ export async function seedEmployees(prisma: PrismaClient, params: SeedEmployeesP
     },
   });
 
+  console.log(`  Super Admin: ${superAdmin.name} (${superAdmin.email})`);
   console.log(`  Owner: ${owner.name} (${owner.email})`);
   console.log(`  Manager: ${manager.name}`);
   console.log(`  Supervisor: ${supervisor.name}`);
@@ -119,5 +134,14 @@ export async function seedEmployees(prisma: PrismaClient, params: SeedEmployeesP
   console.log(`  Inventory: ${inventoryStaff.name}`);
   console.log('  PIN for all employees: 1234');
 
-  return { owner, manager, supervisor, cashier1, cashier2, kitchenStaff, inventoryStaff };
+  return {
+    superAdmin,
+    owner,
+    manager,
+    supervisor,
+    cashier1,
+    cashier2,
+    kitchenStaff,
+    inventoryStaff,
+  };
 }

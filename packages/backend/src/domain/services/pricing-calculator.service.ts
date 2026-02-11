@@ -167,7 +167,11 @@ export class PricingCalculatorService {
     context: PricingContext,
     rules: PricingRule[],
   ): { rule: PricingRule; requiredQuantity: number; potentialSaving: Money }[] {
-    const potentialSavings: { rule: PricingRule; requiredQuantity: number; potentialSaving: Money }[] = [];
+    const potentialSavings: {
+      rule: PricingRule;
+      requiredQuantity: number;
+      potentialSaving: Money;
+    }[] = [];
 
     for (const rule of rules) {
       // Check if rule has minimum quantity requirement

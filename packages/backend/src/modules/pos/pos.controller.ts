@@ -37,6 +37,7 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import type { ITransactionRepository } from '../../domain/interfaces/repositories/transaction.repository';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { decimalToNumberRequired } from '../../infrastructure/repositories/decimal.helper';
+import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
 
 @ApiTags('POS')
 @ApiBearerAuth()
@@ -97,18 +98,23 @@ export class PosController {
     @Query('search') search?: string,
     @CurrentUser() user?: AuthUser,
   ) {
-    const businessId = user!.businessId;
+    // Type guard - user is guaranteed by JwtAuthGuard
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    const businessId = user.businessId;
     const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const pageNum = Math.max(Number(page) || 1, 1);
     const skip = (pageNum - 1) * take;
 
+    // Owner/super_admin can see all outlets, others only their assigned outlet
+    const accessibleOutletId = OutletAccessGuard.getAccessibleOutletId(user, outletId);
+
     const where: Record<string, unknown> = {
       outlet: { businessId },
+      ...OutletAccessGuard.buildOutletFilter(accessibleOutletId),
     };
-
-    if (outletId) {
-      where.outletId = outletId;
-    }
 
     if (status && status !== 'all') {
       where.status = status;

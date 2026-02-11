@@ -24,10 +24,7 @@ export class CreateIngredientUseCase {
     if (params.sku) {
       const existing = await this.ingredientRepository.findBySKU(params.businessId, params.sku);
       if (existing) {
-        throw new AppError(
-          ErrorCode.DUPLICATE_RESOURCE,
-          'Ingredient with this SKU already exists',
-        );
+        throw new AppError(ErrorCode.DUPLICATE_RESOURCE, 'Ingredient with this SKU already exists');
       }
     }
 

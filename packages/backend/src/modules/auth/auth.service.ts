@@ -1,6 +1,7 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { OAuth2Client } from 'google-auth-library';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import type {
   IEmployeeRepository,
@@ -33,12 +34,18 @@ export interface MfaTokenPayload {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly googleClient: OAuth2Client;
+
   constructor(
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    this.googleClient = new OAuth2Client(clientId);
+  }
 
   async validateOAuthUser(profile: GoogleOAuthProfile): Promise<EmployeeRecord> {
     const existingByGoogleId = await this.employeeRepo.findByGoogleId(profile.googleId);
@@ -73,35 +80,21 @@ export class AuthService {
   }
 
   async verifyGoogleIdToken(idToken: string): Promise<GoogleOAuthProfile> {
-    const parts = idToken.split('.');
-    if (parts.length !== 3) {
-      throw new UnauthorizedException('Invalid Google ID token format');
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    if (!clientId) {
+      this.logger.error('GOOGLE_CLIENT_ID not configured — cannot verify Google ID token');
+      throw new UnauthorizedException('Google OAuth is not configured');
     }
 
     try {
-      const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf8');
-      const payload = JSON.parse(payloadJson) as {
-        sub?: string;
-        email?: string;
-        name?: string;
-        picture?: string;
-        iss?: string;
-        aud?: string;
-        exp?: number;
-      };
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: clientId,
+      });
 
-      if (!payload.sub || !payload.email) {
+      const payload = ticket.getPayload();
+      if (!payload || !payload.sub || !payload.email) {
         throw new UnauthorizedException('Invalid Google ID token payload');
-      }
-
-      const expectedClientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
-      if (expectedClientId && payload.aud !== expectedClientId) {
-        throw new UnauthorizedException('Google ID token audience mismatch');
-      }
-
-      if (payload.exp && payload.exp * 1000 < Date.now()) {
-        throw new UnauthorizedException('Google ID token has expired');
       }
 
       return {
@@ -114,6 +107,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      this.logger.warn(`Google ID token verification failed: ${(error as Error).message}`);
       throw new UnauthorizedException('Failed to verify Google ID token');
     }
   }

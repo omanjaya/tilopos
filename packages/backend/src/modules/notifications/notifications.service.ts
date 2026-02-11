@@ -330,10 +330,7 @@ export class NotificationsService {
   ): Promise<{ success: boolean; logId: string }> {
     const channel = this.channels.get(payload.channel);
     if (!channel) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Unknown channel: ${payload.channel}`,
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unknown channel: ${payload.channel}`);
     }
 
     // Get recipient contact

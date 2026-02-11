@@ -1,20 +1,23 @@
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Banknote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { formatCurrency } from '@/lib/format';
 
 interface MobileCartBarProps {
     itemsCount: number;
     totalQuantity: number;
+    total: number;
     onCartClick: () => void;
+    onQuickCashCheckout?: () => void;
 }
 
-export function MobileCartBar({ itemsCount, totalQuantity, onCartClick }: MobileCartBarProps) {
+export function MobileCartBar({ itemsCount, totalQuantity, total, onCartClick, onQuickCashCheckout }: MobileCartBarProps) {
     if (itemsCount === 0) {
         return null;
     }
 
     return (
-        <div className="lg:hidden border-t bg-card px-4 py-3 flex items-center justify-between shrink-0">
+        <div className="lg:hidden border-t bg-card px-4 py-3 flex items-center gap-3 shrink-0">
             <button
                 onClick={onCartClick}
                 className="flex items-center gap-3 flex-1 min-h-[44px]"
@@ -28,10 +31,20 @@ export function MobileCartBar({ itemsCount, totalQuantity, onCartClick }: Mobile
                         {itemsCount}
                     </Badge>
                 </div>
-                <span className="font-medium text-sm ml-2">{totalQuantity} item</span>
+                <div className="text-left ml-2">
+                    <p className="font-bold text-sm">{formatCurrency(total)}</p>
+                    <p className="text-[10px] text-muted-foreground">{totalQuantity} item</p>
+                </div>
             </button>
-            <Button onClick={onCartClick} className="min-h-[44px] px-6 font-semibold">
-                Lihat Keranjang
+            <Button
+                onClick={onQuickCashCheckout}
+                className="min-h-[44px] px-4 font-semibold bg-green-600 hover:bg-green-500"
+            >
+                <Banknote className="h-4 w-4 mr-1.5" />
+                Uang Pas
+            </Button>
+            <Button onClick={onCartClick} variant="outline" className="min-h-[44px] px-4 font-semibold">
+                Bayar
             </Button>
         </div>
     );

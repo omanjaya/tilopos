@@ -89,6 +89,31 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
     defaultFor: ['fnb_restaurant', 'fnb_cafe', 'fnb_fastfood'],
     icon: 'Utensils',
   },
+  {
+    key: 'pos_price_editing',
+    label: 'Ubah Harga di POS',
+    description: 'Kasir dapat mengubah harga produk langsung di POS saat checkout',
+    category: 'sales',
+    defaultFor: ['retail_hardware', 'wholesale'],
+    icon: 'PencilLine',
+  },
+  {
+    key: 'credit_sales',
+    label: 'Penjualan Kredit (BON)',
+    description: 'Sistem piutang/BON untuk pelanggan tetap dengan tracking pembayaran cicilan',
+    category: 'sales',
+    defaultFor: ['retail_hardware', 'wholesale'],
+    menuPaths: ['/app/credit-sales'],
+    icon: 'FileText',
+  },
+  {
+    key: 'decimal_quantities',
+    label: 'Kuantitas Desimal',
+    description: 'Input jumlah dengan desimal (misal: 4.5 lembar, 2.3 meter)',
+    category: 'sales',
+    defaultFor: ['retail_hardware', 'wholesale'],
+    icon: 'Calculator',
+  },
 
   // ============================================================================
   // INVENTORY FEATURES (Retail focused)
@@ -309,6 +334,14 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
   // ============================================================================
   // ADVANCED FEATURES
   // ============================================================================
+  {
+    key: 'excel_import',
+    label: 'Import Excel (XLSX)',
+    description: 'Import data produk dan pelanggan dari file Excel',
+    category: 'advanced',
+    defaultFor: ['retail_hardware', 'wholesale'],
+    icon: 'FileSpreadsheet',
+  },
   {
     key: 'multi_outlet',
     label: 'Multi Outlet',

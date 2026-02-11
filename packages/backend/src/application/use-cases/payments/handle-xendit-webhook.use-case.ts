@@ -108,8 +108,8 @@ export class HandleXenditWebhookUseCase {
 
   verifyCallback(token: string): boolean {
     if (!this.webhookToken) {
-      this.logger.warn('XENDIT_WEBHOOK_TOKEN not configured - skipping verification');
-      return true;
+      this.logger.error('XENDIT_WEBHOOK_TOKEN not configured - rejecting webhook');
+      return false;
     }
 
     return token === this.webhookToken;
@@ -117,8 +117,8 @@ export class HandleXenditWebhookUseCase {
 
   verifySignature(payload: string, signature: string): boolean {
     if (!this.webhookToken) {
-      this.logger.warn('XENDIT_WEBHOOK_TOKEN not configured - skipping signature verification');
-      return true;
+      this.logger.error('XENDIT_WEBHOOK_TOKEN not configured - rejecting webhook');
+      return false;
     }
 
     const expectedSignature = createHash('sha256')

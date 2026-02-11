@@ -47,7 +47,7 @@ export interface ChangeTypeResponse {
 }
 
 export const featuresApi = {
-  // Feature endpoints
+  // Feature endpoints (business-level, legacy)
   getFeatures: () =>
     apiClient.get<{ features: BusinessFeatureDto[] }>('/business/features').then((r) => r.data.features),
 
@@ -94,4 +94,24 @@ export const featuresApi = {
 
   validateTypeCode: (code: string) =>
     apiClient.get<{ valid: boolean }>(`/business/types/validate/${code}`).then((r) => r.data),
+
+  // Outlet-level feature endpoints
+  getOutletFeatures: (outletId: string) =>
+    apiClient.get<{ features: BusinessFeatureDto[] }>(`/outlet/${outletId}/features`).then((r) => r.data.features),
+
+  getOutletEnabledFeatures: (outletId: string) =>
+    apiClient.get<{ features: string[] }>(`/outlet/${outletId}/features/enabled`).then((r) => r.data.features),
+
+  toggleOutletFeature: (outletId: string, featureKey: string, isEnabled: boolean) =>
+    apiClient
+      .put<ToggleFeatureResponse>(`/outlet/${outletId}/features/${featureKey}`, { isEnabled })
+      .then((r) => r.data),
+
+  getOutletType: (outletId: string) =>
+    apiClient
+      .get<{ outletType: BusinessTypeInfo | null }>(`/outlet/${outletId}/type`)
+      .then((r) => r.data),
+
+  changeOutletType: (outletId: string, outletType: string) =>
+    apiClient.put<ChangeTypeResponse>(`/outlet/${outletId}/type`, { outletType }).then((r) => r.data),
 };

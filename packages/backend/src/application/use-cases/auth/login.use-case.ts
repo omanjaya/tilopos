@@ -34,16 +34,15 @@ export class LoginUseCase {
 
   async execute(input: LoginInput): Promise<LoginOutput | MfaRequiredOutput> {
     const employee = await this.employeeRepo.findByEmail(input.email);
-    if (!employee || !employee.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
 
-    if (!employee.pin) {
-      throw new UnauthorizedException('PIN not configured for this employee');
-    }
+    // Always run bcrypt to prevent timing-based user enumeration.
+    // If employee doesn't exist, compare against a dummy hash so the
+    // response time is indistinguishable from an invalid-PIN attempt.
+    const DUMMY_HASH = '$2b$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012';
+    const pinToCompare = employee?.pin || DUMMY_HASH;
+    const pinValid = await bcrypt.compare(input.pin, pinToCompare);
 
-    const pinValid = await bcrypt.compare(input.pin, employee.pin);
-    if (!pinValid) {
+    if (!employee || !employee.isActive || !employee.pin || !pinValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
 

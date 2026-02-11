@@ -6,7 +6,7 @@ import { WorkOrdersService } from './work-orders.service';
 import type { WorkOrderStatus } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/v1/work-orders')
+@Controller('work-orders')
 export class WorkOrdersController {
   constructor(private readonly workOrdersService: WorkOrdersService) {}
 

@@ -1,4 +1,6 @@
 import { Controller, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { IsBoolean, IsString, IsNotEmpty, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
 import { FeatureService, type BusinessFeatureDto } from '../services/feature.service';
@@ -8,14 +10,28 @@ import { type FeatureDefinition } from '@config/features.config';
 
 // DTOs
 class ToggleFeatureDto {
+  @IsBoolean()
   isEnabled!: boolean;
 }
 
+class BulkFeatureItemDto {
+  @IsString()
+  key!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
+}
+
 class BulkUpdateFeaturesDto {
-  features!: { key: string; enabled: boolean }[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkFeatureItemDto)
+  features!: BulkFeatureItemDto[];
 }
 
 class ChangeBusinessTypeDto {
+  @IsString()
+  @IsNotEmpty()
   businessType!: string;
 }
 

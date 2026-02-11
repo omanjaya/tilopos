@@ -16,3 +16,4 @@ export { PosHeader } from './pos-header';
 export { OfflineBanner } from './offline-banner';
 export { MobileCartBar } from './mobile-cart-bar';
 export { TodayTransactionsSheet } from './today-transactions-sheet';
+export { CreditCheckoutModal, type CreditCheckoutData } from './credit-checkout-modal';

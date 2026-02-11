@@ -26,19 +26,42 @@ export interface ServiceItem {
 
 export const itemTrackingApi = {
   listByOutlet: (outletId: string, filters?: { status?: string; search?: string }) =>
-    apiClient.get<{ serviceItems: ServiceItem[] }>(`/item-tracking/outlet/${outletId}`, { params: filters }).then((r) => r.data.serviceItems),
+    apiClient.get<ServiceItem[]>(`/item-tracking/outlet/${outletId}`, { params: filters }).then((r) => {
+      const d = r.data;
+      if (Array.isArray(d)) return d;
+      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
+      return [];
+    }),
 
   getActive: (outletId: string) =>
-    apiClient.get<{ serviceItems: ServiceItem[] }>(`/item-tracking/active/${outletId}`).then((r) => r.data.serviceItems),
+    apiClient.get<ServiceItem[]>(`/item-tracking/active/${outletId}`).then((r) => {
+      const d = r.data;
+      if (Array.isArray(d)) return d;
+      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
+      return [];
+    }),
 
   listByCustomer: (customerId: string) =>
-    apiClient.get<{ serviceItems: ServiceItem[] }>(`/item-tracking/customer/${customerId}`).then((r) => r.data.serviceItems),
+    apiClient.get<ServiceItem[]>(`/item-tracking/customer/${customerId}`).then((r) => {
+      const d = r.data;
+      if (Array.isArray(d)) return d;
+      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
+      return [];
+    }),
 
   findByTicket: (ticketNumber: string) =>
-    apiClient.get<{ serviceItem: ServiceItem }>(`/item-tracking/ticket/${encodeURIComponent(ticketNumber)}`).then((r) => r.data.serviceItem),
+    apiClient.get<ServiceItem>(`/item-tracking/ticket/${encodeURIComponent(ticketNumber)}`).then((r) => {
+      const d = r.data;
+      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
+      return d as ServiceItem;
+    }),
 
   getById: (id: string) =>
-    apiClient.get<{ serviceItem: ServiceItem }>(`/item-tracking/${id}`).then((r) => r.data.serviceItem),
+    apiClient.get<ServiceItem>(`/item-tracking/${id}`).then((r) => {
+      const d = r.data;
+      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
+      return d as ServiceItem;
+    }),
 
   receive: (data: {
     outletId: string;
@@ -52,13 +75,25 @@ export const itemTrackingApi = {
     customerName?: string;
     customerPhone?: string;
     notes?: string;
-  }) => apiClient.post<{ serviceItem: ServiceItem }>('/item-tracking', data).then((r) => r.data.serviceItem),
+  }) => apiClient.post<ServiceItem>('/item-tracking', data).then((r) => {
+    const d = r.data;
+    if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
+    return d as ServiceItem;
+  }),
 
   update: (id: string, data: Partial<ServiceItem>) =>
-    apiClient.put<{ serviceItem: ServiceItem }>(`/item-tracking/${id}`, data).then((r) => r.data.serviceItem),
+    apiClient.put<ServiceItem>(`/item-tracking/${id}`, data).then((r) => {
+      const d = r.data;
+      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
+      return d as ServiceItem;
+    }),
 
   updateStatus: (id: string, status: string) =>
-    apiClient.put<{ serviceItem: ServiceItem }>(`/item-tracking/${id}/status`, { status }).then((r) => r.data.serviceItem),
+    apiClient.put<ServiceItem>(`/item-tracking/${id}/status`, { status }).then((r) => {
+      const d = r.data;
+      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
+      return d as ServiceItem;
+    }),
 
   delete: (id: string) =>
     apiClient.delete(`/item-tracking/${id}`),

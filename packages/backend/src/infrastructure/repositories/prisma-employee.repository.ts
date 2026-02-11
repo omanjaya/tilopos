@@ -53,7 +53,9 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
       orderBy: { name: 'asc' },
     });
 
-    return employees.map((employee) => this.mapToRecord(employee));
+    return employees.map((employee) =>
+      this.mapToRecord({ ...employee, pin: null, mfaSecret: null }),
+    );
   }
 
   async save(employee: EmployeeRecord): Promise<EmployeeRecord> {

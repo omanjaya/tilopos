@@ -37,6 +37,11 @@ export class HandleMidtransWebhookUseCase {
 
   async execute(params: HandleWebhookParams): Promise<HandleWebhookResult> {
     // Verify webhook signature
+    if (!this.serverKey) {
+      this.logger.error('MIDTRANS_SERVER_KEY not configured - rejecting webhook');
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Webhook verification not configured');
+    }
+
     if (params.signatureKey) {
       const expectedSignature = createHash('sha512')
         .update(`${params.orderId}${params.statusCode}${params.grossAmount}${this.serverKey}`)

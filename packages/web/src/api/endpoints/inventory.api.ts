@@ -134,4 +134,17 @@ export const inventoryApi = {
 
   receivePurchaseOrder: (id: string) =>
     apiClient.put(`/suppliers/purchase-orders/${id}/receive`).then((r) => r.data),
+
+  // Outlet Product Assignment
+  getOutletProducts: (outletId: string) =>
+    apiClient.get(`/inventory/outlets/${outletId}/products`).then((r) => r.data),
+
+  getUnassignedProducts: (outletId: string) =>
+    apiClient.get(`/inventory/outlets/${outletId}/products/unassigned`).then((r) => r.data),
+
+  assignProducts: (outletId: string, productIds: string[]) =>
+    apiClient.post(`/inventory/outlets/${outletId}/products/assign`, { productIds }).then((r) => r.data),
+
+  removeProductFromOutlet: (outletId: string, productId: string) =>
+    apiClient.delete(`/inventory/outlets/${outletId}/products/${productId}`).then((r) => r.data),
 };

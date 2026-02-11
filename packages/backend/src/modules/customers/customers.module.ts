@@ -5,6 +5,7 @@ import { CustomerSegmentsService } from './customer-segments.service';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaCustomerRepository } from '../../infrastructure/repositories/prisma-customer.repository';
 import { PrismaLoyaltyRepository } from '../../infrastructure/repositories/prisma-loyalty.repository';
+import { ImportModule } from '../../infrastructure/import/import.module';
 
 // Use Cases - Customer
 import { AddLoyaltyPointsUseCase } from '../../application/use-cases/customers/add-loyalty-points.use-case';
@@ -16,6 +17,7 @@ import { GetLoyaltyBalanceUseCase } from '../../application/use-cases/loyalty/ge
 import { GetLoyaltyHistoryUseCase } from '../../application/use-cases/loyalty/get-loyalty-history.use-case';
 
 @Module({
+  imports: [ImportModule],
   controllers: [CustomersController],
   providers: [
     // Services

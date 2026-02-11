@@ -61,10 +61,7 @@ export class MarketplaceService implements OnModuleInit {
   ): Promise<MarketplaceCredentials> {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Unknown platform: ${platform}`,
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unknown platform: ${platform}`);
     }
 
     const authed = await gateway.authenticate(credentials);
@@ -166,10 +163,7 @@ export class MarketplaceService implements OnModuleInit {
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Unknown platform: ${platform}`,
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unknown platform: ${platform}`);
     }
 
     await gateway.acceptOrder(orderId);
@@ -192,10 +186,7 @@ export class MarketplaceService implements OnModuleInit {
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Unknown platform: ${platform}`,
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unknown platform: ${platform}`);
     }
 
     await gateway.rejectOrder(orderId, reason);
@@ -219,10 +210,7 @@ export class MarketplaceService implements OnModuleInit {
   ): Promise<void> {
     const gateway = this.gateways.get(platform);
     if (!gateway) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Unknown platform: ${platform}`,
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unknown platform: ${platform}`);
     }
 
     await gateway.updateOrderStatus(orderId, status);

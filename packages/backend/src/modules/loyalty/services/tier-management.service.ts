@@ -159,10 +159,7 @@ export class TierManagementService {
   ): Promise<CustomerLoyaltyInfo> {
     const customer = await this.repository.getCustomer(customerId);
     if (!customer) {
-      throw new AppError(
-        ErrorCode.RESOURCE_NOT_FOUND,
-        `Customer ${customerId} not found`,
-      );
+      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, `Customer ${customerId} not found`);
     }
 
     const tiers = await this.repository.getTiers(businessId);

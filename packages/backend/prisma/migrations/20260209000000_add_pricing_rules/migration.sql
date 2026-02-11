@@ -6,23 +6,23 @@ CREATE TYPE "PricingRuleStatus" AS ENUM ('active', 'inactive', 'scheduled', 'exp
 
 -- CreateTable
 CREATE TABLE "pricing_rules" (
-    "id" TEXT NOT NULL,
-    "business_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "business_id" UUID NOT NULL,
+    "name" VARCHAR(255) NOT NULL,
     "description" TEXT,
     "type" "PricingRuleType" NOT NULL,
     "priority" INTEGER NOT NULL DEFAULT 0,
     "status" "PricingRuleStatus" NOT NULL DEFAULT 'active',
-    "valid_from" TIMESTAMP(3) NOT NULL,
-    "valid_until" TIMESTAMP(3),
+    "valid_from" TIMESTAMPTZ NOT NULL,
+    "valid_until" TIMESTAMPTZ,
     "conditions" JSONB NOT NULL,
-    "discount_type" TEXT NOT NULL,
+    "discount_type" VARCHAR(50) NOT NULL,
     "discount_value" DECIMAL(10,2) NOT NULL,
     "min_quantity" INTEGER,
     "max_quantity" INTEGER,
     "applicable_days" INTEGER[],
-    "time_from" TEXT,
-    "time_until" TEXT,
+    "time_from" VARCHAR(10),
+    "time_until" VARCHAR(10),
     "customer_segments" TEXT[],
     "product_ids" TEXT[],
     "category_ids" TEXT[],
@@ -30,8 +30,8 @@ CREATE TABLE "pricing_rules" (
     "is_combinable" BOOLEAN NOT NULL DEFAULT false,
     "max_applications_per_transaction" INTEGER,
     "metadata" JSONB,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "pricing_rules_pkey" PRIMARY KEY ("id")
 );

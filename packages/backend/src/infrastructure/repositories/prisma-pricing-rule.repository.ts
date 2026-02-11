@@ -67,10 +67,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
 
     if (options.activeAt) {
       where.validFrom = { lte: options.activeAt };
-      where.OR = [
-        { validUntil: null },
-        { validUntil: { gte: options.activeAt } },
-      ];
+      where.OR = [{ validUntil: null }, { validUntil: { gte: options.activeAt } }];
     }
 
     if (options.productIds && options.productIds.length > 0) {
@@ -107,10 +104,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
         businessId,
         status: 'active',
         validFrom: { lte: now },
-        OR: [
-          { validUntil: null },
-          { validUntil: { gte: now } },
-        ],
+        OR: [{ validUntil: null }, { validUntil: { gte: now } }],
       },
       orderBy: { priority: 'desc' },
     });
@@ -136,7 +130,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
         status: rule.status,
         validFrom: rule.validFrom,
         validUntil: rule.validUntil,
-        conditions: rule.conditions as unknown as Record<string, unknown>,
+        conditions: rule.conditions as object,
         discountType: rule.discountType,
         discountValue: rule.discountValue,
         minQuantity: rule.minQuantity,
@@ -175,7 +169,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
     if (updates.status !== undefined) data.status = updates.status;
     if (updates.validFrom !== undefined) data.validFrom = updates.validFrom;
     if (updates.validUntil !== undefined) data.validUntil = updates.validUntil;
-    if (updates.conditions !== undefined) data.conditions = updates.conditions as unknown as Record<string, unknown>;
+    if (updates.conditions !== undefined) data.conditions = updates.conditions as object;
     if (updates.discountType !== undefined) data.discountType = updates.discountType;
     if (updates.discountValue !== undefined) data.discountValue = updates.discountValue;
     if (updates.minQuantity !== undefined) data.minQuantity = updates.minQuantity;
@@ -219,7 +213,7 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
 
     await this.prisma.pricingRule.update({
       where: { id },
-      data: { status },
+      data: { status: status as PricingRuleStatus },
     });
   }
 

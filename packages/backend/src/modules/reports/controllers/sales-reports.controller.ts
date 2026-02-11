@@ -5,6 +5,7 @@ import {
   UseGuards,
   Res,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -12,6 +13,8 @@ import { Response } from 'express';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
+import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
@@ -35,23 +38,25 @@ export class SalesReportsController {
   @Get('sales')
   @ApiOperation({ summary: 'Sales report with aggregations and daily breakdown' })
   async salesReport(
+    @CurrentUser() user: AuthUser,
     @Query('outletId') outletId: string,
     @Query('dateRange') dateRange?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    // Validation: outletId is required
     if (!outletId) {
       throw new BadRequestException('outletId is required');
     }
 
-    // Validation: outlet must exist
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
-      select: { id: true },
+      select: { id: true, businessId: true },
     });
     if (!outlet) {
       throw new NotFoundException(`Outlet with ID ${outletId} not found`);
+    }
+    if (outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this outlet');
     }
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
@@ -123,7 +128,19 @@ export class SalesReportsController {
 
   @Get('sales/daily')
   @ApiOperation({ summary: 'Daily sales detail with payments' })
-  async dailySales(@Query('outletId') outletId: string, @Query('date') date: string) {
+  async dailySales(
+    @CurrentUser() user: AuthUser,
+    @Query('outletId') outletId: string,
+    @Query('date') date: string,
+  ) {
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { businessId: true },
+    });
+    if (!outlet || outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+
     const start = new Date(date);
     const end = new Date(date);
     end.setDate(end.getDate() + 1);
@@ -137,12 +154,21 @@ export class SalesReportsController {
   @Get('sales/export')
   @ApiOperation({ summary: 'Export sales report as PDF or Excel' })
   async exportSalesReport(
+    @CurrentUser() user: AuthUser,
     @Query('outletId') outletId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('format') format: 'pdf' | 'excel',
     @Res() res: Response,
   ) {
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { businessId: true },
+    });
+    if (!outlet || outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+
     const result = await this.generateSalesReport.execute({ outletId, startDate, endDate, format });
     res.set({
       'Content-Type': result.contentType,

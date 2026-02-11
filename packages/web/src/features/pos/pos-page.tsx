@@ -23,7 +23,7 @@ export function POSPage() {
     const {
         items, heldBills, holdCurrentBill, resumeBill, removeHeldBill,
         clearPayments, customerId, customerName, tableId, tableName, discountTotal,
-        setCustomer, setTable,
+        setCustomer, setTable, total,
     } = useCartStore();
 
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -31,7 +31,7 @@ export function POSPage() {
     const { isOffline, pendingCount, syncStatus, manualSync, queueTransaction } = useOfflinePOS();
     const { products, categories, isLoading, refetchProducts } = usePosData({ outletId });
     const modals = usePosModals();
-    const { handleCheckoutComplete, isProcessing } = usePosTransaction({
+    const { handleCheckoutComplete, isProcessing, handleCreditCheckout, isCreditProcessing } = usePosTransaction({
         outletId,
         isOffline,
         queueTransaction,
@@ -40,6 +40,13 @@ export function POSPage() {
             modals.closePayment();
         },
     });
+
+    const handleQuickCashCheckout = useCallback(() => {
+        if (items.length === 0) return;
+        const { total, addPayment } = useCartStore.getState();
+        addPayment({ method: 'cash', amount: total });
+        void handleCheckoutComplete();
+    }, [items.length, handleCheckoutComplete]);
 
     const handleHoldBill = useCallback(() => {
         if (items.length === 0) return;
@@ -81,6 +88,7 @@ export function POSPage() {
         onOpenShortcutHelp: modals.openShortcutHelp,
         onCloseModal: modals.closeAllModals,
         onConfirmAction: () => { },
+        onQuickCashCheckout: handleQuickCashCheckout,
     });
 
     const totalQuantity = items.reduce((sum, i) => sum + i.quantity, 0);
@@ -110,14 +118,27 @@ export function POSPage() {
                         viewMode={viewMode} onViewModeChange={setViewMode}
                     />
                 </div>
-                <div className="hidden lg:block w-full lg:w-[35%] max-w-md shrink-0 border-l">
-                    <CartPanel onCheckout={modals.openPayment} onHoldBill={handleHoldBill} />
+                <div className="hidden lg:flex w-full lg:w-[35%] max-w-md shrink-0 border-l flex-col">
+                    {modals.showPayment ? (
+                        <PaymentPanel
+                            mode="inline"
+                            onComplete={handleCheckoutComplete}
+                            onCancel={() => { modals.closePayment(); clearPayments(); }}
+                            isProcessing={isProcessing}
+                            onCreditComplete={(data) => void handleCreditCheckout(data)}
+                            isCreditProcessing={isCreditProcessing}
+                        />
+                    ) : (
+                        <CartPanel onCheckout={modals.openPayment} onHoldBill={handleHoldBill} onQuickCashCheckout={handleQuickCashCheckout} />
+                    )}
                 </div>
             </div>
 
             <MobileCartBar
                 itemsCount={items.length} totalQuantity={totalQuantity}
+                total={total}
                 onCartClick={modals.openCartSheet}
+                onQuickCashCheckout={handleQuickCashCheckout}
             />
 
             <Sheet open={modals.showCartSheet} onOpenChange={modals.setShowCartSheet}>
@@ -136,17 +157,23 @@ export function POSPage() {
                         <CartPanel
                             onCheckout={() => { modals.closeCartSheet(); modals.openPayment(); }}
                             onHoldBill={() => { modals.closeCartSheet(); handleHoldBill(); }}
+                            onQuickCashCheckout={() => { modals.closeCartSheet(); handleQuickCashCheckout(); }}
                         />
                     </div>
                 </SheetContent>
             </Sheet>
 
             {modals.showPayment && (
-                <PaymentPanel
-                    onComplete={handleCheckoutComplete}
-                    onCancel={() => { modals.closePayment(); clearPayments(); }}
-                    isProcessing={isProcessing}
-                />
+                <div className="lg:hidden">
+                    <PaymentPanel
+                        mode="modal"
+                        onComplete={handleCheckoutComplete}
+                        onCancel={() => { modals.closePayment(); clearPayments(); }}
+                        isProcessing={isProcessing}
+                        onCreditComplete={(data) => void handleCreditCheckout(data)}
+                        isCreditProcessing={isCreditProcessing}
+                    />
+                </div>
             )}
 
             {modals.receiptData && (

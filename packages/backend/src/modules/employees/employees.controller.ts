@@ -48,6 +48,7 @@ import {
   decimalToNumberRequired,
   decimalToNumber,
 } from '../../infrastructure/repositories/decimal.helper';
+import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
 
 @ApiTags('Employees')
 @ApiBearerAuth()
@@ -71,9 +72,16 @@ export class EmployeesController {
 
   @Get()
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async listEmployees(@CurrentUser() user: AuthUser) {
+  async listEmployees(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) {
+    // Owner/super_admin can see all outlets, others only their assigned outlet
+    const accessibleOutletId = OutletAccessGuard.getAccessibleOutletId(user, outletId);
+
     const employees = await this.prisma.employee.findMany({
-      where: { businessId: user.businessId, isActive: true },
+      where: {
+        businessId: user.businessId,
+        isActive: true,
+        ...OutletAccessGuard.buildOutletFilter(accessibleOutletId),
+      },
       include: { outlet: { select: { name: true } } },
       orderBy: { name: 'asc' },
     });
@@ -129,12 +137,20 @@ export class EmployeesController {
   }
 
   @Get(':id')
-  async getEmployee(@Param('id') id: string) {
+  async getEmployee(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     const e = await this.prisma.employee.findUnique({
       where: { id },
       include: { outlet: { select: { name: true } } },
     });
     if (!e) throw new NotFoundException('Employee not found');
+
+    // Verify employee belongs to user's business
+    if (e.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access (owner can see all)
+    OutletAccessGuard.enforceOutletAccess(user, e.outletId, 'employee');
 
     return {
       id: e.id,
@@ -154,9 +170,16 @@ export class EmployeesController {
 
   @Put(':id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async updateEmployee(@Param('id') id: string, @Body() dto: UpdateEmployeeDto) {
+  async updateEmployee(
+    @Param('id') id: string,
+    @Body() dto: UpdateEmployeeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     const employee = await this.employeeRepo.findById(id);
     if (!employee) throw new NotFoundException('Employee not found');
+
+    // Enforce outlet access (owner can update all)
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
 
     const updateData: Record<string, unknown> = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -175,7 +198,13 @@ export class EmployeesController {
 
   @Delete(':id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async deleteEmployee(@Param('id') id: string) {
+  async deleteEmployee(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    // Enforce outlet access (owner can delete all)
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
     await this.employeeRepo.update(id, { isActive: false });
     return { message: 'Employee deactivated' };
   }
@@ -222,9 +251,28 @@ export class EmployeesController {
 
   @Get(':id/shifts')
   @ApiOperation({ summary: 'List shifts for a specific employee' })
-  async listEmployeeShifts(@Param('id') id: string) {
+  async listEmployeeShifts(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('outletId') outletId?: string,
+  ) {
+    // Verify employee exists and belongs to business
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
+    // Owner/super_admin can filter by outlet, others see only their outlet's shifts
+    const accessibleOutletId = OutletAccessGuard.getAccessibleOutletId(user, outletId);
+
     const shifts = await this.prisma.shift.findMany({
-      where: { employeeId: id },
+      where: {
+        employeeId: id,
+        ...OutletAccessGuard.buildOutletFilter(accessibleOutletId),
+      },
       include: {
         outlet: { select: { name: true } },
         employee: { select: { name: true } },
@@ -312,7 +360,20 @@ export class EmployeesController {
 
   @Get(':id/shifts/report')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getEmployeeShiftReport(@Param('id') id: string, @Query() query: ShiftReportQueryDto) {
+  async getEmployeeShiftReport(
+    @Param('id') id: string,
+    @Query() query: ShiftReportQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Verify employee exists and belongs to business
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
     return this.employeesService.getEmployeeShiftReport(
       id,
       new Date(query.from),
@@ -378,7 +439,20 @@ export class EmployeesController {
 
   @Get(':id/commissions')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getEmployeeCommissions(@Param('id') id: string, @Query() query: CommissionQueryDto) {
+  async getEmployeeCommissions(
+    @Param('id') id: string,
+    @Query() query: CommissionQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Verify employee exists and belongs to business
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
     return this.employeesService.getEmployeeCommissions(
       id,
       new Date(query.from),
@@ -406,12 +480,34 @@ export class EmployeesController {
   }
 
   @Post(':id/attendance/clock-out')
-  async clockOut(@Param('id') id: string) {
+  async clockOut(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    // Verify employee exists and belongs to business
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
     return this.employeesService.clockOut(id);
   }
 
   @Get(':id/attendance')
-  async getAttendanceRecords(@Param('id') id: string, @Query() query: AttendanceQueryDto) {
+  async getAttendanceRecords(
+    @Param('id') id: string,
+    @Query() query: AttendanceQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Verify employee exists and belongs to business
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Enforce outlet access
+    OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
     return this.employeesService.getAttendanceRecords(id, new Date(query.from), new Date(query.to));
   }
 }

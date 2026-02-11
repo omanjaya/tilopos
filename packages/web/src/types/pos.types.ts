@@ -20,6 +20,7 @@ export interface CartItem {
     name: string;
     variantName?: string;
     price: number;
+    originalPrice?: number; // Original price before editing
     quantity: number;
     modifiers: CartModifier[];
     notes?: string;
@@ -81,6 +82,7 @@ export interface TransactionItemRequest {
     quantity: number;
     modifierIds?: string[];
     notes?: string;
+    unitPrice?: number;
 }
 
 export interface PaymentRequest {

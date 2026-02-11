@@ -7,10 +7,7 @@ export class Money {
     private readonly _currency: string = 'IDR',
   ) {
     if (_amount < 0) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Money amount cannot be negative',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Money amount cannot be negative');
     }
   }
 

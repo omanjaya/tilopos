@@ -1,8 +1,10 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
+import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { getDateRange } from '../utils/date-range.util';
@@ -20,12 +22,21 @@ export class KitchenReportsController {
     summary: 'Kitchen performance report (avg prep time, orders/hour, peak hours, SLA)',
   })
   async kitchenReport(
+    @CurrentUser() user: AuthUser,
     @Query('outletId') outletId: string,
     @Query('dateRange') dateRange?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('slaTargetMinutes') slaTargetMinutes?: string,
   ) {
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { businessId: true },
+    });
+    if (!outlet || outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+
     const { start, end } = getDateRange(dateRange, startDate, endDate);
     const slaTarget = slaTargetMinutes ? parseInt(slaTargetMinutes, 10) : 15;
 

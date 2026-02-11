@@ -3,10 +3,7 @@ import { AppError, ErrorCode } from '../../shared/errors/app-error';
 export class Quantity {
   private constructor(private readonly _value: number) {
     if (_value < 0) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Quantity cannot be negative',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Quantity cannot be negative');
     }
   }
 

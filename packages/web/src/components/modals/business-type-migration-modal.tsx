@@ -25,6 +25,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
 
 const STORAGE_KEY = 'tilo_business_type_prompted';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useBusinessTypeMigration() {
     const businessType = useFeatureStore((s) => s.businessType);
     const isLoaded = useFeatureStore((s) => s.isLoaded);

@@ -6,14 +6,15 @@ services:
     container_name: tilo-elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -25,9 +26,11 @@ services:
     volumes:
       - ./packages/backend/config/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
     ports:
-      - "5000:5000/tcp"
+      - "127.0.0.1:5000:5000/tcp"
     environment:
       - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -37,9 +40,11 @@ services:
     image: docker.elastic.co/kibana/kibana:8.12.0
     container_name: tilo-kibana
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
     depends_on:
       elasticsearch:
         condition: service_healthy

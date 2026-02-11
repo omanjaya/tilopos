@@ -4,8 +4,12 @@ interface FeatureState {
   enabledFeatures: string[];
   isLoaded: boolean;
   businessType: string | null;
+  outletType: string | null;
+  currentOutletId: string | null;
   setEnabledFeatures: (features: string[]) => void;
   setBusinessType: (type: string | null) => void;
+  setOutletType: (type: string | null) => void;
+  setCurrentOutletId: (id: string | null) => void;
   isFeatureEnabled: (featureKey: string) => boolean;
   isPathVisible: (path: string) => boolean;
 }
@@ -40,6 +44,7 @@ const FEATURE_PATH_MAP: Record<string, string[]> = {
   online_store: ['/app/online-store'],
   multi_outlet: ['/app/settings/outlets'],
   audit_log: ['/app/audit'],
+  credit_sales: ['/app/credit-sales'],
 };
 
 // Build reverse map: path -> feature keys that control it
@@ -57,23 +62,30 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
   enabledFeatures: [],
   isLoaded: false,
   businessType: null,
+  outletType: null,
+  currentOutletId: null,
 
   setEnabledFeatures: (features) => set({ enabledFeatures: features, isLoaded: true }),
 
   setBusinessType: (type) => set({ businessType: type }),
+
+  setOutletType: (type) => set({ outletType: type, businessType: type }),
+
+  setCurrentOutletId: (id) => set({ currentOutletId: id }),
 
   isFeatureEnabled: (featureKey) => {
     return get().enabledFeatures.includes(featureKey);
   },
 
   isPathVisible: (path) => {
-    const { enabledFeatures, isLoaded, businessType } = get();
+    const { enabledFeatures, isLoaded, businessType, outletType } = get();
 
     // If features haven't loaded yet, show everything
     if (!isLoaded) return true;
 
-    // For custom business type, show all paths (user will configure features manually)
-    if (businessType === 'custom') return true;
+    // For custom type (outlet or business level), show all paths
+    const activeType = outletType || businessType;
+    if (activeType === 'custom') return true;
 
     // Check if this path is controlled by any feature
     const requiredFeatures = PATH_FEATURE_MAP[path];

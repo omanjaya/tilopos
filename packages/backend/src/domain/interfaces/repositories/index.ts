@@ -45,3 +45,10 @@ export type {
   CreateTableData,
   UpdateTableData,
 } from './table.repository';
+export type {
+  ICreditSaleRepository,
+  CreditSaleRecord,
+  CreditPaymentRecord,
+  CreditSaleFilters,
+  CustomerOutstandingSummary,
+} from './credit-sale.repository';

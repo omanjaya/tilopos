@@ -15,10 +15,6 @@ import { PrismaPricingRuleRepository } from '../../infrastructure/repositories/p
     },
     PrismaPricingRuleRepository,
   ],
-  exports: [
-    CalculateDynamicPriceUseCase,
-    PricingCalculatorService,
-    PrismaPricingRuleRepository,
-  ],
+  exports: [CalculateDynamicPriceUseCase, PricingCalculatorService, PrismaPricingRuleRepository],
 })
 export class PricingModule {}

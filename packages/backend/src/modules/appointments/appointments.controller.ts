@@ -6,7 +6,7 @@ import { AppointmentsService } from './appointments.service';
 import { AppointmentStatus } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/v1/appointments')
+@Controller('appointments')
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 

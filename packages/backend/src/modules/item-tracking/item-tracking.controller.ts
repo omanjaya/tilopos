@@ -44,7 +44,7 @@ interface UpdateBody {
   notes?: string;
 }
 
-@Controller('api/v1/item-tracking')
+@Controller('item-tracking')
 @UseGuards(JwtAuthGuard)
 export class ItemTrackingController {
   constructor(private readonly itemTrackingService: ItemTrackingService) {}

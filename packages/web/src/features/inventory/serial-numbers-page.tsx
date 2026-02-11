@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { serialNumbersApi } from '@/api/endpoints/serial-numbers.api';
+import { productsApi } from '@/api/endpoints/products.api';
 import { useUIStore } from '@/stores/ui.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -58,10 +59,7 @@ export function SerialNumbersPage() {
 
   const { data: products } = useQuery({
     queryKey: ['products-for-serial'],
-    queryFn: () =>
-      fetch('/api/v1/inventory/products', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      }).then((r) => r.json()),
+    queryFn: () => productsApi.list(),
     enabled: activeTab === 'register',
   });
 

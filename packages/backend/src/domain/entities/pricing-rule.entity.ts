@@ -78,31 +78,19 @@ export class PricingRule {
 
   private validate(): void {
     if (this.priority < 0) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Priority must be a non-negative number',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Priority must be a non-negative number');
     }
 
     if (this.discountValue < 0) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Discount value cannot be negative',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Discount value cannot be negative');
     }
 
     if (this.discountType === DiscountType.PERCENTAGE && this.discountValue > 100) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Percentage discount cannot exceed 100%',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Percentage discount cannot exceed 100%');
     }
 
     if (this.minQuantity !== null && this.minQuantity < 1) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Minimum quantity must be at least 1',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Minimum quantity must be at least 1');
     }
 
     if (
@@ -144,20 +132,14 @@ export class PricingRule {
     }
 
     // Check quantity constraints
-    if (
-      this.minQuantity !== null &&
-      context.quantity < this.minQuantity
-    ) {
+    if (this.minQuantity !== null && context.quantity < this.minQuantity) {
       return {
         isEligible: false,
         reason: `Minimum quantity required: ${this.minQuantity}`,
       };
     }
 
-    if (
-      this.maxQuantity !== null &&
-      context.quantity > this.maxQuantity
-    ) {
+    if (this.maxQuantity !== null && context.quantity > this.maxQuantity) {
       return {
         isEligible: false,
         reason: `Maximum quantity exceeded: ${this.maxQuantity}`,
@@ -167,8 +149,7 @@ export class PricingRule {
     // Check customer segment
     if (
       this.customerSegments.length > 0 &&
-      (!context.customerSegment ||
-        !this.customerSegments.includes(context.customerSegment))
+      (!context.customerSegment || !this.customerSegments.includes(context.customerSegment))
     ) {
       return { isEligible: false, reason: 'Customer segment not applicable' };
     }

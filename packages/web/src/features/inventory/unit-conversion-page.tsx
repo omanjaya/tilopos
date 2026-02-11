@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { unitConversionApi } from '@/api/endpoints/unit-conversion.api';
+import { productsApi } from '@/api/endpoints/products.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -126,10 +127,7 @@ export function UnitConversionPage() {
 
   const { data: products, isLoading } = useQuery({
     queryKey: ['products-for-units'],
-    queryFn: () =>
-      fetch('/api/v1/inventory/products', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      }).then((r) => r.json()),
+    queryFn: () => productsApi.list(),
   });
 
   const filteredProducts = (products ?? []).filter(

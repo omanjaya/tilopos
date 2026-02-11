@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PricingRuleType, PricingRuleStatus } from '@prisma/client';
 
 export async function seedPricingRules(prisma: PrismaClient, businessId: string) {
   console.log('🏷️  Seeding pricing rules...');
@@ -30,9 +30,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Happy Hour - 30% Off',
       description: 'Diskon 30% untuk semua produk jam 14:00-16:00',
-      type: 'time_based',
+      type: PricingRuleType.time_based,
       priority: 10,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {},
@@ -58,9 +58,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Beli 3 Gratis 1',
       description: 'Beli 3 produk atau lebih, hemat 25%',
-      type: 'quantity_based',
+      type: PricingRuleType.quantity_based,
       priority: 8,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {
@@ -86,9 +86,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'VIP Member - 20% Off',
       description: 'Diskon khusus 20% untuk member VIP',
-      type: 'customer_segment',
+      type: PricingRuleType.customer_segment,
       priority: 15,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: null,
       conditions: {},
@@ -112,9 +112,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Clearance Sale - 40% Off',
       description: 'Diskon besar untuk produk dengan stok rendah',
-      type: 'inventory_based',
+      type: PricingRuleType.inventory_based,
       priority: 12,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {
@@ -142,9 +142,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Weekend Special - Rp 10.000 Off',
       description: 'Potongan Rp 10.000 untuk kategori tertentu di weekend',
-      type: 'time_based',
+      type: PricingRuleType.time_based,
       priority: 9,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {
@@ -170,9 +170,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Diskon New Customer 15%',
       description: 'Diskon khusus untuk pembelian pertama',
-      type: 'customer_segment',
+      type: PricingRuleType.customer_segment,
       priority: 20,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {},
@@ -198,9 +198,9 @@ export async function seedPricingRules(prisma: PrismaClient, businessId: string)
     {
       name: 'Lunch Hour Discount 10%',
       description: 'Diskon 10% di luar jam makan siang (10:00-12:00)',
-      type: 'dynamic_surge',
+      type: PricingRuleType.dynamic_surge,
       priority: 5,
-      status: 'active',
+      status: PricingRuleStatus.active,
       validFrom: tomorrow,
       validUntil: nextMonth,
       conditions: {},

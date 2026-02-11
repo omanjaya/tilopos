@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CartItem, CartModifier, OrderType, PaymentEntry, HeldBill } from '@/types/pos.types';
+import { useUIStore } from './ui.store';
 
 // Generate unique ID for cart items
 const generateCartItemId = () => `cart-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -48,6 +49,7 @@ interface CartState {
     removeItem: (itemId: string) => void;
     updateItemNotes: (itemId: string, notes: string) => void;
     updateItemModifiers: (itemId: string, modifiers: CartModifier[]) => void;
+    updateItemPrice: (itemId: string, price: number) => void;
 
     setCustomer: (customerId: string | undefined, customerName: string | undefined) => void;
     setTable: (tableId: string | undefined, tableName: string | undefined) => void;
@@ -69,10 +71,7 @@ interface CartState {
     recalculate: () => void;
 }
 
-// Tax rate (should come from settings)
-const TAX_RATE = 0.11; // 11% PPN
-const SERVICE_CHARGE_RATE = 0.05; // 5% service charge
-const MAX_ITEM_QUANTITY = 9999;
+const MAX_ITEM_QUANTITY = 99999.999;
 
 export const useCartStore = create<CartState>()(
     persist(
@@ -164,6 +163,17 @@ export const useCartStore = create<CartState>()(
                 set((state) => ({
                     items: state.items.map((i) =>
                         i.id === itemId ? { ...i, modifiers } : i,
+                    ),
+                }));
+                get().recalculate();
+            },
+
+            updateItemPrice: (itemId, price) => {
+                set((state) => ({
+                    items: state.items.map((i) =>
+                        i.id === itemId
+                            ? { ...i, originalPrice: i.originalPrice ?? i.price, price }
+                            : i,
                     ),
                 }));
                 get().recalculate();
@@ -277,6 +287,8 @@ export const useCartStore = create<CartState>()(
             },
 
             recalculate: () => {
+                const { taxRate, serviceChargeRate } = useUIStore.getState();
+
                 set((state) => {
                     // Calculate subtotal
                     const subtotal = state.items.reduce((sum, item) => {
@@ -300,11 +312,11 @@ export const useCartStore = create<CartState>()(
                     // Service charge (only for dine-in)
                     const serviceCharge =
                         state.orderType === 'dine_in'
-                            ? Math.round(afterDiscount * SERVICE_CHARGE_RATE)
+                            ? Math.round(afterDiscount * serviceChargeRate)
                             : 0;
 
                     // Tax
-                    const taxAmount = Math.round((afterDiscount + serviceCharge) * TAX_RATE);
+                    const taxAmount = Math.round((afterDiscount + serviceCharge) * taxRate);
 
                     // Total
                     const total = afterDiscount + serviceCharge + taxAmount;

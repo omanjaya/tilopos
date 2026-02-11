@@ -39,5 +39,4 @@ import { AppointmentReportsController } from './controllers/appointment-reports.
   providers: [GenerateSalesReportUseCase, GenerateInventoryReportUseCase, ReportsService],
   exports: [ReportsService],
 })
-export class ReportsModule { }
-
+export class ReportsModule {}

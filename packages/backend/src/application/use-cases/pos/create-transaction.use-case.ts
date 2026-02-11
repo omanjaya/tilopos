@@ -18,6 +18,7 @@ export interface TransactionItemInput {
   quantity: number;
   modifierIds?: string[];
   notes?: string;
+  unitPrice?: number;
 }
 
 export interface PaymentInput {
@@ -93,7 +94,7 @@ export class CreateTransactionUseCase {
         );
       }
 
-      const unitPrice = product.basePrice;
+      const unitPrice = item.unitPrice ?? product.basePrice;
       const itemSubtotal = unitPrice * item.quantity;
 
       itemDetails.push({

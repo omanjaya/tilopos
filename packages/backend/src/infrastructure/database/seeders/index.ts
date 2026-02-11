@@ -180,6 +180,7 @@ async function main() {
     console.log('┌──────────────┬─────────────────────────────────┬──────┐');
     console.log('│ Role         │ Email                           │ PIN  │');
     console.log('├──────────────┼─────────────────────────────────┼──────┤');
+    console.log('│ Super Admin  │ superadmin@tilopos.id            │ 1234 │');
     console.log('│ Owner        │ budi@brewbites.id               │ 1234 │');
     console.log('│ Manager      │ siti@brewbites.id               │ 1234 │');
     console.log('│ Supervisor   │ agus@brewbites.id               │ 1234 │');

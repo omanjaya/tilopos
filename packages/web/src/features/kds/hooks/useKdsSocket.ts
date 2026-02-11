@@ -17,7 +17,7 @@ export function useKdsSocket(outletId: string) {
   useEffect(() => {
     if (!outletId) return;
 
-    const token = localStorage.getItem('token');
+    const token = useAuthStore.getState().token;
     const socket = io(`${SOCKET_URL}/kds`, {
       transports: ['websocket', 'polling'],
       autoConnect: true,

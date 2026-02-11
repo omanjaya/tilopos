@@ -275,11 +275,7 @@ describe('PricingCalculatorService', () => {
 
     it('should sort rules by priority', () => {
       const context = createContext();
-      const rules = [
-        createTestRule(5, 10),
-        createTestRule(15, 30),
-        createTestRule(10, 20),
-      ];
+      const rules = [createTestRule(5, 10), createTestRule(15, 30), createTestRule(10, 20)];
 
       const result = service.previewApplicableRules(context, rules);
 

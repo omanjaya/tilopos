@@ -89,10 +89,7 @@ export class SelfOrderScheduler {
     });
 
     if (!session) {
-      throw new AppError(
-        ErrorCode.RESOURCE_NOT_FOUND,
-        'Session not found',
-      );
+      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Session not found');
     }
 
     const newExpiresAt = new Date(session.expiresAt);

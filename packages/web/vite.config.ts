@@ -76,8 +76,9 @@ export default defineConfig({
         },
       },
     },
-    // Generate source maps for production debugging
-    sourcemap: true,
+    // Hidden source maps: generated for error tracking tools (e.g. Sentry)
+    // but NOT referenced in the built JS files, so browsers can't access them.
+    sourcemap: 'hidden',
     // Increase chunk size warning limit (we have manual chunks now)
     chunkSizeWarningLimit: 600,
   },

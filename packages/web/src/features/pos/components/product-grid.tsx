@@ -1,11 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Grid3X3, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { formatQuantity } from '@/lib/quantity-format';
 import { useTouchDevice } from '@/hooks/use-touch-device';
+import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { useCartStore } from '@/stores/cart.store';
 import type { POSProduct, POSCategory } from '@/types/pos.types';
 
 interface ProductGridProps {
@@ -33,6 +36,16 @@ export function ProductGrid({
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
     const [internalViewMode, setInternalViewMode] = useState<'grid' | 'list'>('grid');
     const { isTouchDevice, isTablet } = useTouchDevice();
+    const { hasDecimalQuantities } = useBusinessFeatures();
+
+    const cartItems = useCartStore((s) => s.items);
+    const cartQuantityMap = useMemo(() => {
+        const map = new Map<string, number>();
+        for (const item of cartItems) {
+            map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity);
+        }
+        return map;
+    }, [cartItems]);
 
     const viewMode = controlledViewMode ?? internalViewMode;
     const setViewMode = (mode: 'grid' | 'list') => {
@@ -177,6 +190,8 @@ export function ProductGrid({
                                 onClick={() => onProductClick(product)}
                                 isTablet={isTablet}
                                 isTouchDevice={isTouchDevice}
+                                cartQuantity={cartQuantityMap.get(product.id) ?? 0}
+                                allowDecimalQty={hasDecimalQuantities}
                             />
                         ))}
                     </div>
@@ -187,6 +202,8 @@ export function ProductGrid({
                                 key={product.id}
                                 product={product}
                                 onClick={() => onProductClick(product)}
+                                cartQuantity={cartQuantityMap.get(product.id) ?? 0}
+                                allowDecimalQty={hasDecimalQuantities}
                             />
                         ))}
                     </div>
@@ -201,14 +218,28 @@ interface ProductCardProps {
     onClick: () => void;
     isTablet?: boolean;
     isTouchDevice?: boolean;
+    cartQuantity?: number;
+    allowDecimalQty?: boolean;
 }
 
-function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false }: ProductCardProps) {
+function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false, cartQuantity = 0, allowDecimalQty }: ProductCardProps) {
     const hasVariants = product.variants.length > 0;
     const price = hasVariants
         ? Math.min(product.basePrice, ...product.variants.map((v) => v.price))
         : product.basePrice;
     const isOutOfStock = product.trackStock && product.stockLevel === 0;
+
+    const [justAdded, setJustAdded] = useState(false);
+    const prevQuantity = useRef(cartQuantity);
+
+    useEffect(() => {
+        if (cartQuantity > prevQuantity.current) {
+            setJustAdded(true);
+            const timer = setTimeout(() => setJustAdded(false), 400);
+            return () => clearTimeout(timer);
+        }
+        prevQuantity.current = cartQuantity;
+    }, [cartQuantity]);
 
     return (
         <button
@@ -222,6 +253,7 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                 isOutOfStock && 'opacity-50 cursor-not-allowed',
                 isTouchDevice && 'touch-none-highlight',
                 isTablet && 'pos-product-card-tablet min-h-[200px]',
+                justAdded && 'ring-2 ring-green-500 ring-offset-1',
             )}
         >
             {/* Image */}
@@ -245,6 +277,15 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                 {isOutOfStock && (
                     <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
                         <Badge variant="destructive">Habis</Badge>
+                    </div>
+                )}
+                {cartQuantity > 0 && !isOutOfStock && (
+                    <div className={cn(
+                        "absolute top-2 left-2 h-6 min-w-6 rounded-full bg-green-600 text-white",
+                        "flex items-center justify-center text-xs font-bold px-1.5",
+                        justAdded && "animate-bounce"
+                    )}>
+                        {formatQuantity(cartQuantity, !!allowDecimalQty)}
                     </div>
                 )}
                 {hasVariants && !isOutOfStock && (
@@ -279,7 +320,7 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
     );
 }
 
-function ProductListItem({ product, onClick }: ProductCardProps) {
+function ProductListItem({ product, onClick, cartQuantity = 0, allowDecimalQty }: ProductCardProps) {
     const hasVariants = product.variants.length > 0;
     const price = hasVariants
         ? Math.min(product.basePrice, ...product.variants.map((v) => v.price))
@@ -297,7 +338,7 @@ function ProductListItem({ product, onClick }: ProductCardProps) {
             )}
         >
             {/* Thumbnail */}
-            <div className="h-14 w-14 shrink-0 rounded-lg overflow-hidden bg-muted/50">
+            <div className="relative h-14 w-14 shrink-0 rounded-lg overflow-hidden bg-muted/50">
                 {product.imageUrl ? (
                     <img
                         src={product.imageUrl}
@@ -309,6 +350,11 @@ function ProductListItem({ product, onClick }: ProductCardProps) {
                         <span className="text-xl font-bold text-primary/30">
                             {product.name.charAt(0)}
                         </span>
+                    </div>
+                )}
+                {cartQuantity > 0 && !isOutOfStock && (
+                    <div className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold px-1">
+                        {formatQuantity(cartQuantity, !!allowDecimalQty)}
                     </div>
                 )}
             </div>

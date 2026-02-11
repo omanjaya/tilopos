@@ -225,10 +225,7 @@ export class XenditGateway implements IPaymentGateway {
     transactionId: string;
   } {
     if (!this.webhookService.validatePayload(payload)) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'Invalid webhook payload structure',
-      );
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid webhook payload structure');
     }
 
     this.webhookService.logWebhook(payload, true);

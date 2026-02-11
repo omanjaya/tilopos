@@ -1,143 +1,184 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { reportsApi } from '@/api/endpoints/reports.api';
-import { useUIStore } from '@/stores/ui.store';
-import { useAuthStore } from '@/stores/auth.store';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { Skeleton } from '@/components/ui/skeleton';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { formatCurrency } from '@/lib/format';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { formatCurrency, formatNumber } from '@/lib/format';
+import { calculatePercentageChange, formatPercentageChange } from '@/lib/date-utils';
 import {
-  DollarSign,
-  ShoppingCart,
-  TrendingUp,
-  Users,
-  ChevronDown,
-  BarChart3,
-  PieChart,
-  LayoutGrid,
-  ChefHat,
-  CalendarClock,
-  Package,
+  DollarSign, ShoppingCart, TrendingUp, Users,
+  ChevronDown, BarChart3, PieChart, Trophy, Wallet,
+  ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, PieChart as RPieChart,
+  Pie, Cell,
 } from 'recharts';
 import type { DateRange } from '@/types/report.types';
 import { cn } from '@/lib/utils';
+import { useDashboardData } from './hooks/use-dashboard-data';
 
-/**
- * DashboardPage Mobile Version
- *
- * Mobile-optimized dashboard with:
- * - Swipeable metric cards (carousel)
- * - Collapsible chart sections
- * - Vertical scroll layout
- * - Simplified charts
- */
+const DONUT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e', '#06b6d4', '#f97316'];
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Tunai', qris: 'QRIS', debit_card: 'Debit', credit_card: 'Kredit',
+  gopay: 'GoPay', ovo: 'OVO', dana: 'DANA', shopeepay: 'ShopeePay',
+  linkaja: 'LinkAja', bank_transfer: 'Transfer',
+};
 
+// ── Mobile Metric Card ──
+function MobileMetricCard({
+  title, value, icon: Icon, color, bgColor,
+  current, previous,
+}: {
+  title: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  bgColor: string;
+  current?: number;
+  previous?: number;
+}) {
+  const hasTrend = current !== undefined && previous !== undefined;
+  const change = hasTrend ? calculatePercentageChange(current, previous) : 0;
+  const isUp = change > 0.01;
+  const isDown = change < -0.01;
+
+  return (
+    <div className="min-w-[260px] snap-start rounded-2xl bg-white/80 dark:bg-card/80 border border-border/50 dark:border-white/[0.06] shadow-sm p-4">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <p className="text-sm text-muted-foreground mb-1">{title}</p>
+          <p className="text-2xl font-bold tracking-tight">{value}</p>
+          {hasTrend && (
+            <div className="mt-1.5 flex items-center gap-1">
+              <div
+                className={cn(
+                  'flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                  isUp && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+                  isDown && 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400',
+                  !isUp && !isDown && 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                )}
+              >
+                {isUp && <ArrowUpRight className="h-2.5 w-2.5" />}
+                {isDown && <ArrowDownRight className="h-2.5 w-2.5" />}
+                {formatPercentageChange(change)}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className={cn('rounded-xl p-3', bgColor)}>
+          <Icon className={cn('h-5 w-5', color)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Collapsible Section ──
+function Section({
+  title, icon: Icon, iconColor, iconBg,
+  defaultOpen = false, children,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconColor: string;
+  iconBg: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="rounded-2xl bg-white/80 dark:bg-card/80 border border-border/50 dark:border-white/[0.06] shadow-sm overflow-hidden">
+        <CollapsibleTrigger asChild>
+          <button className="flex w-full items-center justify-between p-4">
+            <div className="flex items-center gap-2">
+              <div className={cn('rounded-lg p-2', iconBg)}>
+                <Icon className={cn('h-4 w-4', iconColor)} />
+              </div>
+              <span className="font-semibold text-sm">{title}</span>
+            </div>
+            <ChevronDown
+              className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')}
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="px-4 pb-4">{children}</div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+// ── Mobile Dashboard ──
 export function DashboardPage() {
   const [dateRange, setDateRange] = useState<DateRange>('this_month');
-  const [salesChartOpen, setSalesChartOpen] = useState(true);
-  const [financialOpen, setFinancialOpen] = useState(false);
-  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
-  const user = useAuthStore((s) => s.user);
-  const outletId = selectedOutletId ?? user?.outletId ?? '';
-
-  const { data: salesReport, isLoading: salesLoading } = useQuery({
-    queryKey: ['reports', 'sales', outletId, dateRange],
-    queryFn: () => reportsApi.sales({ outletId, dateRange }),
-    enabled: !!outletId,
-  });
-
-  const { data: financialReport, isLoading: financialLoading } = useQuery({
-    queryKey: ['reports', 'financial', outletId, dateRange],
-    queryFn: () => reportsApi.financial({ outletId, dateRange }),
-    enabled: !!outletId,
-  });
-
-  const { data: customerReport, isLoading: customerLoading } = useQuery({
-    queryKey: ['reports', 'customers', outletId, dateRange],
-    queryFn: () => reportsApi.customers({ outletId, dateRange }),
-    enabled: !!outletId,
-  });
-
-  const isLoading = salesLoading || financialLoading || customerLoading;
-
-  // Business type checks for dynamic dashboard
   const { isFnB, isService, isRetail } = useBusinessFeatures();
+  const data = useDashboardData(dateRange);
 
   const metrics = [
     {
       title: 'Total Penjualan',
-      value: formatCurrency(salesReport?.totalSales ?? 0),
+      value: formatCurrency(data.sales?.totalSales ?? 0),
       icon: DollarSign,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bgColor: 'bg-emerald-100 dark:bg-emerald-900/40',
+      current: data.sales?.totalSales,
+      previous: data.previousSales?.totalSales,
     },
     {
       title: 'Transaksi',
-      value: String(salesReport?.totalTransactions ?? 0),
+      value: formatNumber(data.sales?.totalTransactions ?? 0),
       icon: ShoppingCart,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
+      color: 'text-blue-600 dark:text-blue-400',
+      bgColor: 'bg-blue-100 dark:bg-blue-900/40',
+      current: data.sales?.totalTransactions,
+      previous: data.previousSales?.totalTransactions,
     },
     {
       title: 'Rata-rata Order',
-      value: formatCurrency(salesReport?.averageOrderValue ?? 0),
+      value: formatCurrency(data.sales?.averageOrderValue ?? 0),
       icon: TrendingUp,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
+      color: 'text-amber-600 dark:text-amber-400',
+      bgColor: 'bg-amber-100 dark:bg-amber-900/40',
+      current: data.sales?.averageOrderValue,
+      previous: data.previousSales?.averageOrderValue,
     },
     {
       title: 'Pelanggan',
-      value: String(customerReport?.totalCustomers ?? 0),
+      value: formatNumber(data.customers?.totalCustomers ?? 0),
       icon: Users,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
+      color: 'text-violet-600 dark:text-violet-400',
+      bgColor: 'bg-violet-100 dark:bg-violet-900/40',
+      current: undefined,
+      previous: undefined,
     },
   ];
 
   return (
     <div className="flex flex-col h-screen bg-muted/30">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-background border-b">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b">
         <div className="px-4 py-3">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="text-xl font-bold">Dashboard</h1>
-              <p className="text-sm text-muted-foreground">
-                Ringkasan performa bisnis
-              </p>
+              <h1 className="text-lg font-bold">Dashboard</h1>
+              <p className="text-xs text-muted-foreground">Ringkasan performa bisnis</p>
             </div>
           </div>
-
-          {/* Date Range Tabs */}
           <Tabs value={dateRange} onValueChange={(v) => setDateRange(v as DateRange)} className="w-full">
             <TabsList className="w-full grid grid-cols-3 h-auto">
-              <TabsTrigger value="today" className="text-xs py-2">
-                Hari Ini
-              </TabsTrigger>
-              <TabsTrigger value="this_week" className="text-xs py-2">
-                Minggu Ini
-              </TabsTrigger>
-              <TabsTrigger value="this_month" className="text-xs py-2">
-                Bulan Ini
-              </TabsTrigger>
+              <TabsTrigger value="today" className="text-xs py-2">Hari Ini</TabsTrigger>
+              <TabsTrigger value="this_week" className="text-xs py-2">Minggu Ini</TabsTrigger>
+              <TabsTrigger value="this_month" className="text-xs py-2">Bulan Ini</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -145,259 +186,214 @@ export function DashboardPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Metric Cards - Horizontal Scroll */}
-        <div className="px-4 py-4">
-          {isLoading ? (
-            <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
-              {[...Array(4)].map((_, i) => (
-                <Card key={i} className="min-w-[280px] snap-start animate-pulse">
-                  <CardContent className="p-4">
-                    <div className="h-20 bg-muted rounded" />
-                  </CardContent>
-                </Card>
+        <div className="px-4 py-4 space-y-4">
+          {/* KPI Carousel */}
+          {data.isLoading ? (
+            <div className="flex gap-3 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="min-w-[260px] snap-start rounded-2xl border bg-white/80 dark:bg-card/80 p-4">
+                  <Skeleton className="h-20" />
+                </div>
               ))}
             </div>
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
-              {metrics.map((metric, i) => (
-                <MetricCardMobile key={i} {...metric} />
+            <div className="flex gap-3 overflow-x-auto -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
+              {metrics.map((m, i) => (
+                <MobileMetricCard key={i} {...m} />
               ))}
             </div>
           )}
-          <div className="flex justify-center gap-1 mt-3">
-            {metrics.map((_, i) => (
-              <div key={i} className="h-1.5 w-1.5 rounded-full bg-muted" />
-            ))}
-          </div>
 
-          {/* F&B Specific Metrics */}
-          <FeatureGate feature={[FEATURES.TABLE_MANAGEMENT, FEATURES.KITCHEN_DISPLAY]}>
-            {isFnB && !isLoading && (
-              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
-                <FeatureGate feature={FEATURES.TABLE_MANAGEMENT}>
-                  <MetricCardMobile
-                    title="Meja Terisi"
-                    value="8/12"
-                    icon={LayoutGrid}
-                    color="text-orange-600"
-                    bgColor="bg-orange-50"
+          {/* Sales Chart */}
+          <Section
+            title="Grafik Penjualan"
+            icon={BarChart3}
+            iconColor="text-primary"
+            iconBg="bg-primary/10"
+            defaultOpen
+          >
+            {data.salesLoading ? (
+              <Skeleton className="h-[200px] w-full rounded-xl" />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={data.sales?.salesByDate ?? []}>
+                  <defs>
+                    <linearGradient id="mSalesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                </FeatureGate>
-                <FeatureGate feature={FEATURES.KITCHEN_DISPLAY}>
-                  <MetricCardMobile
-                    title="Pesanan Dimasak"
-                    value="5"
-                    icon={ChefHat}
-                    color="text-amber-600"
-                    bgColor="bg-amber-50"
+                  <YAxis
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    tickFormatter={(v: number) => {
+                      if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
+                      if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
+                      return String(v);
+                    }}
+                    width={45}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                </FeatureGate>
-              </div>
+                  <Tooltip
+                    formatter={(value: number) => [formatCurrency(value), 'Penjualan']}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="sales"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    fill="url(#mSalesGrad)"
+                    dot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             )}
-          </FeatureGate>
+          </Section>
 
-          {/* Service Specific Metrics */}
-          <FeatureGate feature={FEATURES.APPOINTMENTS}>
-            {isService && !isLoading && (
-              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
-                <MetricCardMobile
-                  title="Jadwal Hari Ini"
-                  value="8"
-                  icon={CalendarClock}
-                  color="text-purple-600"
-                  bgColor="bg-purple-50"
-                />
-                <MetricCardMobile
-                  title="Selesai"
-                  value="5"
-                  icon={TrendingUp}
-                  color="text-green-600"
-                  bgColor="bg-green-50"
-                />
-              </div>
-            )}
-          </FeatureGate>
-
-          {/* Retail Specific Metrics */}
-          <FeatureGate feature={FEATURES.STOCK_MANAGEMENT}>
-            {isRetail && !isLoading && (
-              <div className="flex gap-3 overflow-x-auto pt-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
-                <MetricCardMobile
-                  title="Stok Rendah"
-                  value="12"
-                  icon={Package}
-                  color="text-red-600"
-                  bgColor="bg-red-50"
-                />
-              </div>
-            )}
-          </FeatureGate>
-        </div>
-
-        {/* Sales Chart - Collapsible */}
-        <div className="px-4 pb-4">
-          <Collapsible open={salesChartOpen} onOpenChange={setSalesChartOpen}>
-            <Card>
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-full bg-primary/10 p-2">
-                        <BarChart3 className="h-4 w-4 text-primary" />
-                      </div>
-                      <CardTitle className="text-base">Grafik Penjualan</CardTitle>
-                    </div>
-                    <ChevronDown
-                      className={cn(
-                        'h-5 w-5 text-muted-foreground transition-transform',
-                        salesChartOpen && 'rotate-180'
-                      )}
-                    />
+          {/* Financial */}
+          <Section
+            title="Keuangan"
+            icon={Wallet}
+            iconColor="text-emerald-600 dark:text-emerald-400"
+            iconBg="bg-emerald-100 dark:bg-emerald-900/40"
+          >
+            {data.financial ? (
+              <div className="space-y-2">
+                {[
+                  { label: 'Pendapatan', value: formatCurrency(data.financial.totalRevenue), color: 'text-emerald-600' },
+                  { label: 'Laba Kotor', value: formatCurrency(data.financial.grossProfit), color: 'text-blue-600' },
+                  { label: 'Margin', value: `${data.financial.grossMargin.toFixed(1)}%`, color: 'text-amber-600' },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between p-3 bg-muted/30 rounded-xl">
+                    <span className="text-xs text-muted-foreground">{item.label}</span>
+                    <span className={cn('text-sm font-semibold', item.color)}>{item.value}</span>
                   </div>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent>
-                  {salesLoading ? (
-                    <Skeleton className="h-[200px] w-full" />
-                  ) : (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={salesReport?.salesByDate ?? []}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          dataKey="date"
-                          className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                        />
-                        <YAxis
-                          className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                          tickFormatter={(v: number) => {
-                            if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
-                            if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
-                            return String(v);
-                          }}
-                        />
-                        <Tooltip
-                          formatter={(value: number) => [formatCurrency(value), 'Penjualan']}
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                          }}
-                        />
-                        <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
+                ))}
+              </div>
+            ) : (
+              <Skeleton className="h-32 rounded-xl" />
+            )}
+          </Section>
+
+          {/* Payment Methods */}
+          <Section
+            title="Metode Pembayaran"
+            icon={PieChart}
+            iconColor="text-blue-600 dark:text-blue-400"
+            iconBg="bg-blue-100 dark:bg-blue-900/40"
+          >
+            {data.paymentMethods && data.paymentMethods.methods.length > 0 ? (
+              <>
+                <div className="relative mx-auto h-[150px] w-[150px] mb-3">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RPieChart>
+                      <Pie
+                        data={data.paymentMethods.methods.slice(0, 7)}
+                        dataKey="amount"
+                        nameKey="method"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
+                        paddingAngle={3}
+                        cornerRadius={3}
+                        stroke="none"
+                      >
+                        {data.paymentMethods.methods.slice(0, 7).map((_, i) => (
+                          <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </RPieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-1.5">
+                  {data.paymentMethods.methods.slice(0, 5).map((m, i) => (
+                    <div key={m.method} className="flex items-center gap-2 text-xs">
+                      <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+                      <span className="flex-1">{METHOD_LABELS[m.method] ?? m.method}</span>
+                      <span className="font-medium tabular-nums">{m.percentage.toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-4">Belum ada data</p>
+            )}
+          </Section>
+
+          {/* Top Products */}
+          <Section
+            title="Produk Terlaris"
+            icon={Trophy}
+            iconColor="text-amber-600 dark:text-amber-400"
+            iconBg="bg-amber-100 dark:bg-amber-900/40"
+          >
+            {data.products?.topProducts && data.products.topProducts.length > 0 ? (
+              <div className="space-y-2.5">
+                {data.products.topProducts.slice(0, 5).map((p, i) => (
+                  <div key={p.productId} className="flex items-center gap-2.5">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{p.quantitySold} terjual</p>
+                    </div>
+                    <span className="text-xs font-semibold tabular-nums">{formatCurrency(p.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-4">Belum ada data</p>
+            )}
+          </Section>
+
+          {/* Business-type widgets */}
+          <FeatureGate feature={[FEATURES.TABLE_MANAGEMENT, FEATURES.KITCHEN_DISPLAY]}>
+            {isFnB && (
+              <div className="rounded-2xl bg-white/80 dark:bg-card/80 border border-border/50 dark:border-white/[0.06] shadow-sm p-4">
+                <p className="font-semibold text-sm mb-3">Operasional F&B</p>
+                <p className="text-xs text-muted-foreground">Lihat detail di halaman Laporan</p>
+              </div>
+            )}
+          </FeatureGate>
+
+          <FeatureGate feature={FEATURES.STOCK_MANAGEMENT}>
+            {isRetail && (
+              <div className="rounded-2xl bg-white/80 dark:bg-card/80 border border-border/50 dark:border-white/[0.06] shadow-sm p-4">
+                <p className="font-semibold text-sm mb-3">Inventori</p>
+                <p className="text-xs text-muted-foreground">Lihat detail di halaman Laporan</p>
+              </div>
+            )}
+          </FeatureGate>
+
+          <FeatureGate feature={FEATURES.APPOINTMENTS}>
+            {isService && (
+              <div className="rounded-2xl bg-white/80 dark:bg-card/80 border border-border/50 dark:border-white/[0.06] shadow-sm p-4">
+                <p className="font-semibold text-sm mb-3">Layanan</p>
+                <p className="text-xs text-muted-foreground">Lihat detail di halaman Laporan</p>
+              </div>
+            )}
+          </FeatureGate>
+
+          <div className="h-4" />
         </div>
-
-        {/* Financial Metrics - Collapsible */}
-        {financialReport && (
-          <div className="px-4 pb-4">
-            <Collapsible open={financialOpen} onOpenChange={setFinancialOpen}>
-              <Card>
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-green-600/10 p-2">
-                          <PieChart className="h-4 w-4 text-green-600" />
-                        </div>
-                        <CardTitle className="text-base">Keuangan</CardTitle>
-                      </div>
-                      <ChevronDown
-                        className={cn(
-                          'h-5 w-5 text-muted-foreground transition-transform',
-                          financialOpen && 'rotate-180'
-                        )}
-                      />
-                    </div>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-full bg-green-600/10 p-2">
-                          <DollarSign className="h-4 w-4 text-green-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Pendapatan</p>
-                          <p className="font-semibold">{formatCurrency(financialReport.totalRevenue)}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-full bg-blue-600/10 p-2">
-                          <TrendingUp className="h-4 w-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Laba Kotor</p>
-                          <p className="font-semibold">{formatCurrency(financialReport.grossProfit)}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-full bg-purple-600/10 p-2">
-                          <TrendingUp className="h-4 w-4 text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Margin</p>
-                          <p className="font-semibold">{(financialReport.grossMargin ?? 0).toFixed(1)}%</p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          </div>
-        )}
-
-        {/* Spacer for bottom nav */}
-        <div className="h-4" />
       </div>
 
-      {/* Mobile Nav Spacer */}
       <MobileNavSpacer />
     </div>
-  );
-}
-
-/**
- * MetricCardMobile Component
- * Individual swipeable metric card
- */
-interface MetricCardMobileProps {
-  title: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-  bgColor: string;
-}
-
-function MetricCardMobile({ title, value, icon: Icon, color, bgColor }: MetricCardMobileProps) {
-  return (
-    <Card className="min-w-[280px] snap-start">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-sm text-muted-foreground mb-1">{title}</p>
-            <p className="text-2xl font-bold">{value}</p>
-          </div>
-          <div className={cn('rounded-full p-3', bgColor)}>
-            <Icon className={cn('h-6 w-6', color)} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

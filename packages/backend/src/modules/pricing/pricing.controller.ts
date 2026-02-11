@@ -7,19 +7,14 @@ import { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { CalculateDynamicPriceUseCase } from '../../application/use-cases/pricing/calculate-dynamic-price.use-case';
 import { CalculatePriceDto, CalculateBatchPriceDto } from './dto/calculate-price.dto';
 
-@Controller('api/v1/pricing')
+@Controller('pricing')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PricingController {
-  constructor(
-    private readonly calculateDynamicPrice: CalculateDynamicPriceUseCase,
-  ) {}
+  constructor(private readonly calculateDynamicPrice: CalculateDynamicPriceUseCase) {}
 
   @Post('calculate')
   @Roles('owner', 'manager', 'supervisor', 'cashier')
-  async calculate(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CalculatePriceDto,
-  ) {
+  async calculate(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
     const businessId = user.businessId;
     const result = await this.calculateDynamicPrice.execute({
       businessId,
@@ -46,10 +41,7 @@ export class PricingController {
 
   @Post('calculate-batch')
   @Roles('owner', 'manager', 'supervisor', 'cashier')
-  async calculateBatch(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CalculateBatchPriceDto,
-  ) {
+  async calculateBatch(@CurrentUser() user: AuthUser, @Body() dto: CalculateBatchPriceDto) {
     const businessId = user.businessId;
     const resultsMap = await this.calculateDynamicPrice.executeBatch({
       businessId,
@@ -79,10 +71,7 @@ export class PricingController {
 
   @Post('preview-rules')
   @Roles('owner', 'manager', 'supervisor', 'cashier')
-  async previewRules(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CalculatePriceDto,
-  ) {
+  async previewRules(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
     const businessId = user.businessId;
     const rules = await this.calculateDynamicPrice.previewRules({
       businessId,
@@ -105,10 +94,7 @@ export class PricingController {
 
   @Post('potential-savings')
   @Roles('owner', 'manager', 'supervisor', 'cashier')
-  async getPotentialSavings(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CalculatePriceDto,
-  ) {
+  async getPotentialSavings(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
     const businessId = user.businessId;
     const savings = await this.calculateDynamicPrice.getPotentialSavings({
       businessId,

@@ -93,12 +93,23 @@ export class CreateProductUseCase {
       }
     }
 
-    if (input.trackStock) {
-      const outlets = await this.prisma.outlet.findMany({
-        where: { businessId: input.businessId, isActive: true },
-        select: { id: true },
-      });
+    const outlets = await this.prisma.outlet.findMany({
+      where: { businessId: input.businessId, isActive: true },
+      select: { id: true },
+    });
 
+    // Auto-assign product to all outlets
+    for (const outlet of outlets) {
+      await this.prisma.outletProduct.upsert({
+        where: {
+          outletId_productId: { outletId: outlet.id, productId: product.id },
+        },
+        create: { outletId: outlet.id, productId: product.id, isActive: true },
+        update: { isActive: true },
+      });
+    }
+
+    if (input.trackStock) {
       for (const outlet of outlets) {
         if (hasVariants) {
           for (const variantId of variantIds) {

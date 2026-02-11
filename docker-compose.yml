@@ -18,14 +18,18 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DATABASE_URL=postgresql://tilopos:tilopos_secret@postgres:5432/tilopos?schema=public
+      - DATABASE_URL=postgresql://tilopos:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/tilopos?schema=public
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
-      - JWT_EXPIRES_IN=7d
-      - RABBITMQ_URL=amqp://tilo:tilopass@rabbitmq:5672
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - CORS_ORIGIN=${CORS_ORIGIN:?CORS_ORIGIN is required}
+      - RABBITMQ_URL=amqp://tilo:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672
       - RABBITMQ_EXCHANGE=tilo.events
       - RABBITMQ_QUEUE_PREFIX=tilo
+      - XENDIT_WEBHOOK_TOKEN=${XENDIT_WEBHOOK_TOKEN:-}
+      - MIDTRANS_SERVER_KEY=${MIDTRANS_SERVER_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,9 +47,9 @@ services:
     environment:
       POSTGRES_DB: tilopos
       POSTGRES_USER: tilopos
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tilopos_secret}
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -57,8 +61,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -66,17 +70,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    expose:
+      - "5672"
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: tilo
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-tilopass}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:

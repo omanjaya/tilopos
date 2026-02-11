@@ -24,7 +24,7 @@ export class TransactionItemDto {
 
   @ApiProperty()
   @IsNumber()
-  @Min(1)
+  @Min(0.001)
   quantity!: number;
 
   @ApiPropertyOptional()
@@ -37,6 +37,12 @@ export class TransactionItemDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Custom unit price (requires pos_price_editing feature)' })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  unitPrice?: number;
 }
 
 export class PaymentDto {

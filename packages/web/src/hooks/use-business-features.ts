@@ -25,25 +25,29 @@ export type BusinessCategory = 'fnb' | 'retail' | 'service' | 'wholesale' | 'cus
 export function useBusinessFeatures() {
     const enabledFeatures = useFeatureStore((s) => s.enabledFeatures);
     const businessType = useFeatureStore((s) => s.businessType);
+    const outletType = useFeatureStore((s) => s.outletType);
     const isLoaded = useFeatureStore((s) => s.isLoaded);
     const isFeatureEnabled = useFeatureStore((s) => s.isFeatureEnabled);
 
     return useMemo(() => {
-        // Business type helpers
-        const isFnB = businessType?.startsWith('fnb_') ?? false;
-        const isRetail = businessType?.startsWith('retail_') ?? false;
-        const isService = businessType?.startsWith('service_') ?? false;
-        const isWholesale = businessType === 'wholesale';
-        const isCustom = businessType === 'custom';
+        // Use outlet type if available, fallback to business type
+        const activeType = outletType || businessType;
 
-        // Get category from business type
+        // Business/outlet type helpers
+        const isFnB = activeType?.startsWith('fnb_') ?? false;
+        const isRetail = activeType?.startsWith('retail_') ?? false;
+        const isService = activeType?.startsWith('service_') ?? false;
+        const isWholesale = activeType === 'wholesale';
+        const isCustom = activeType === 'custom';
+
+        // Get category from active type (outlet or business)
         const getCategory = (): BusinessCategory | null => {
-            if (!businessType) return null;
-            if (businessType.startsWith('fnb_')) return 'fnb';
-            if (businessType.startsWith('retail_')) return 'retail';
-            if (businessType.startsWith('service_')) return 'service';
-            if (businessType === 'wholesale') return 'wholesale';
-            if (businessType === 'custom') return 'custom';
+            if (!activeType) return null;
+            if (activeType.startsWith('fnb_')) return 'fnb';
+            if (activeType.startsWith('retail_')) return 'retail';
+            if (activeType.startsWith('service_')) return 'service';
+            if (activeType === 'wholesale') return 'wholesale';
+            if (activeType === 'custom') return 'custom';
             return null;
         };
 
@@ -75,6 +79,9 @@ export function useBusinessFeatures() {
             hasModifiers: isEnabled(FEATURES.MODIFIERS),
             hasSelfOrderQR: isEnabled(FEATURES.SELF_ORDER_QR),
             hasOrderTypes: isEnabled(FEATURES.ORDER_TYPES),
+            hasPriceEditing: isEnabled(FEATURES.POS_PRICE_EDITING),
+            hasCreditSales: isEnabled(FEATURES.CREDIT_SALES),
+            hasDecimalQuantities: isEnabled(FEATURES.DECIMAL_QUANTITIES),
             hasIngredientTracking: isEnabled(FEATURES.INGREDIENT_TRACKING),
 
             // Retail Features
@@ -111,16 +118,18 @@ export function useBusinessFeatures() {
             hasAuditLog: isEnabled(FEATURES.AUDIT_LOG),
             hasApiIntegration: isEnabled(FEATURES.API_INTEGRATION),
             hasOfflineMode: isEnabled(FEATURES.OFFLINE_MODE),
+            hasExcelImport: isEnabled(FEATURES.EXCEL_IMPORT),
         };
 
         return {
             // State
             enabledFeatures,
-            businessType,
+            businessType: activeType,
+            outletType,
             isLoaded,
             category: getCategory(),
 
-            // Business type checks
+            // Business/outlet type checks
             isFnB,
             isRetail,
             isService,
@@ -135,7 +144,7 @@ export function useBusinessFeatures() {
             // Pre-computed common features
             ...commonFeatures,
         };
-    }, [enabledFeatures, businessType, isLoaded, isFeatureEnabled]);
+    }, [enabledFeatures, businessType, outletType, isLoaded, isFeatureEnabled]);
 }
 
 /**
@@ -143,15 +152,17 @@ export function useBusinessFeatures() {
  */
 export function useBusinessType() {
     const businessType = useFeatureStore((s) => s.businessType);
+    const outletType = useFeatureStore((s) => s.outletType);
 
     return useMemo(() => {
-        if (!businessType) return null;
+        const activeType = outletType || businessType;
+        if (!activeType) return null;
 
-        const isFnB = businessType.startsWith('fnb_');
-        const isRetail = businessType.startsWith('retail_');
-        const isService = businessType.startsWith('service_');
-        const isWholesale = businessType === 'wholesale';
-        const isCustom = businessType === 'custom';
+        const isFnB = activeType.startsWith('fnb_');
+        const isRetail = activeType.startsWith('retail_');
+        const isService = activeType.startsWith('service_');
+        const isWholesale = activeType === 'wholesale';
+        const isCustom = activeType === 'custom';
 
         let category: BusinessCategory | null = null;
         if (isFnB) category = 'fnb';
@@ -161,7 +172,7 @@ export function useBusinessType() {
         else if (isCustom) category = 'custom';
 
         return {
-            code: businessType,
+            code: activeType,
             category,
             isFnB,
             isRetail,
@@ -169,5 +180,5 @@ export function useBusinessType() {
             isWholesale,
             isCustom,
         };
-    }, [businessType]);
+    }, [businessType, outletType]);
 }
