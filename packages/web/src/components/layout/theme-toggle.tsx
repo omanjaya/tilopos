@@ -1,14 +1,22 @@
 import { useUIStore } from '@/stores/ui.store';
-import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export function ThemeToggle() {
   const theme = useUIStore((s) => s.theme);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
 
   return (
-    <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">
-      {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-    </Button>
+    <button
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      className={cn(
+        'flex h-8 w-8 items-center justify-center rounded-md',
+        'text-muted-foreground transition-all duration-200',
+        'hover:bg-accent hover:text-accent-foreground hover:scale-105',
+      )}
+    >
+      {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+    </button>
   );
 }

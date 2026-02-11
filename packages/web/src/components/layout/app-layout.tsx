@@ -1,12 +1,13 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
-import { Sidebar } from './sidebar';
-import { Header } from './header';
+import { Sidebar } from './sidebar/index';
+import { Header } from './header/index';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useFeatureStore } from '@/stores/feature.store';
 import { featuresApi } from '@/api/endpoints/features.api';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
+import { useBrandTheme } from '@/hooks/use-brand-theme';
 import { GlobalShortcutsDialog } from './global-shortcuts-dialog';
 import { OnboardingWizard } from '@/features/onboarding/onboarding-wizard';
 import { useOnboarding } from '@/features/onboarding/onboarding-provider';
@@ -34,18 +35,53 @@ export function AppLayout() {
   // Enable global keyboard shortcuts across the app
   useGlobalShortcuts();
 
-  // Fetch enabled features on mount
+  // Apply brand color theme
+  useBrandTheme();
+
+  // Fetch enabled features — per outlet when available, fallback to business-level
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
   const setBusinessType = useFeatureStore((s) => s.setBusinessType);
+  const setOutletType = useFeatureStore((s) => s.setOutletType);
+  const setCurrentOutletId = useFeatureStore((s) => s.setCurrentOutletId);
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const setBrandColor = useUIStore((s) => s.setBrandColor);
+
+  // Determine active outlet: selectedOutletId from UI store or from JWT
+  const activeOutletId = selectedOutletId || user?.outletId || null;
+
   useEffect(() => {
-    featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => {
-      // If feature API fails, show all features (graceful degradation)
-      setEnabledFeatures([]);
+    if (activeOutletId) {
+      // Load outlet-level features and type
+      setCurrentOutletId(activeOutletId);
+      featuresApi.getOutletEnabledFeatures(activeOutletId).then(setEnabledFeatures).catch(() => {
+        // Fallback to business-level
+        featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+      });
+      featuresApi.getOutletType(activeOutletId).then((data) => {
+        setOutletType(data.outletType?.code ?? null);
+      }).catch(() => {
+        // Fallback to business-level type
+        featuresApi.getBusinessType().then((data) => {
+          setBusinessType(data.businessType?.code ?? null);
+        }).catch(() => { });
+      });
+    } else {
+      // No outlet context — use business-level (legacy)
+      setCurrentOutletId(null);
+      featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+      featuresApi.getBusinessType().then((data) => {
+        setBusinessType(data.businessType?.code ?? null);
+      }).catch(() => { });
+    }
+
+    // Sync brand color from server
+    import('@/api/endpoints/settings.api').then(({ settingsApi }) => {
+      settingsApi.getBusiness().then((biz) => {
+        const color = (biz?.settings as Record<string, unknown> | null)?.brandColor as string | undefined;
+        if (color) setBrandColor(color);
+      }).catch(() => { });
     });
-    featuresApi.getBusinessType().then((data) => {
-      setBusinessType(data.businessType?.code ?? null);
-    }).catch(() => { });
-  }, [setEnabledFeatures, setBusinessType]);
+  }, [activeOutletId, setEnabledFeatures, setBusinessType, setOutletType, setCurrentOutletId, setBrandColor]);
 
   // Auto-collapse sidebar on POS and KDS pages for maximum screen space
   useEffect(() => {
@@ -99,7 +135,7 @@ export function AppLayout() {
           <Sidebar />
           <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
             <Header />
-            <main className="px-12 py-8">
+            <main className="px-6 py-6 md:px-8 lg:px-10">
               <Outlet />
             </main>
           </div>

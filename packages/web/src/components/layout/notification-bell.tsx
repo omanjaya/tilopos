@@ -166,12 +166,12 @@ export function NotificationBell() {
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <button
-          className="relative flex items-center justify-center rounded-md p-2 transition-colors hover:bg-accent"
+          className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-accent-foreground hover:scale-105"
           aria-label={`Notifikasi${unreadCount > 0 ? ` (${unreadCount} belum dibaca)` : ''}`}
         >
           <Bell
             className={cn(
-              'h-5 w-5',
+              'h-4 w-4',
               animate && 'animate-bounce',
             )}
           />

@@ -4,11 +4,17 @@ interface UIState {
   sidebarCollapsed: boolean;
   theme: 'light' | 'dark';
   selectedOutletId: string | null;
+  brandColor: string | null;
+  taxRate: number;
+  serviceChargeRate: number;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
   setSelectedOutletId: (id: string) => void;
+  setBrandColor: (color: string | null) => void;
+  setTaxRate: (rate: number) => void;
+  setServiceChargeRate: (rate: number) => void;
 }
 
 const savedTheme = (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
@@ -23,6 +29,9 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: savedSidebarCollapsed,
   theme: savedTheme,
   selectedOutletId: localStorage.getItem('selectedOutletId'),
+  brandColor: localStorage.getItem('brandColor'),
+  taxRate: 0.11,
+  serviceChargeRate: 0.05,
   toggleSidebar: () => set((s) => {
     const newCollapsed = !s.sidebarCollapsed;
     localStorage.setItem('sidebarCollapsed', String(newCollapsed));
@@ -48,4 +57,14 @@ export const useUIStore = create<UIState>((set) => ({
     localStorage.setItem('selectedOutletId', id);
     set({ selectedOutletId: id });
   },
+  setBrandColor: (color) => {
+    if (color) {
+      localStorage.setItem('brandColor', color);
+    } else {
+      localStorage.removeItem('brandColor');
+    }
+    set({ brandColor: color });
+  },
+  setTaxRate: (rate) => set({ taxRate: rate }),
+  setServiceChargeRate: (rate) => set({ serviceChargeRate: rate }),
 }));

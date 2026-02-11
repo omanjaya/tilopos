@@ -4,48 +4,84 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Neutral slate palette — brand color overrides via JS */
+    --background: 210 20% 98%;
+    --foreground: 210 10% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 210 10% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --popover-foreground: 210 10% 10%;
+    --primary: 210 18% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 12% 96%;
+    --secondary-foreground: 210 10% 10%;
+    --muted: 210 12% 96%;
+    --muted-foreground: 210 8% 46%;
+    --accent: 210 12% 96%;
+    --accent-foreground: 210 10% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 10% 90%;
+    --input: 210 10% 90%;
+    --ring: 210 18% 38%;
+    --radius: 0.625rem;
+
+    /* Sidebar — light theme: subtle off-white, follows mode */
+    --sidebar: 210 12% 97%;
+    --sidebar-foreground: 210 10% 15%;
+    --sidebar-muted: 210 10% 93%;
+    --sidebar-muted-foreground: 210 8% 45%;
+    --sidebar-accent: 210 10% 90%;
+    --sidebar-accent-foreground: 210 10% 10%;
+    --sidebar-border: 210 10% 90%;
+    --sidebar-primary: 210 18% 38%;
+
+    /* Semantic colors */
+    --success: 152 69% 41%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 206 100% 50%;
+    --info-foreground: 0 0% 100%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --background: 220 15% 7%;
+    --foreground: 210 12% 93%;
+    --card: 220 15% 10%;
+    --card-foreground: 210 12% 93%;
+    --popover: 220 15% 10%;
+    --popover-foreground: 210 12% 93%;
+    --primary: 210 18% 70%;
+    --primary-foreground: 210 18% 5%;
+    --secondary: 220 12% 14%;
+    --secondary-foreground: 210 12% 93%;
+    --muted: 220 12% 14%;
+    --muted-foreground: 210 8% 55%;
+    --accent: 220 12% 14%;
+    --accent-foreground: 210 12% 93%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 16%;
+    --input: 220 10% 16%;
+    --ring: 210 18% 70%;
+
+    /* Sidebar — dark theme: slightly darker than bg */
+    --sidebar: 220 15% 5%;
+    --sidebar-foreground: 210 10% 85%;
+    --sidebar-muted: 220 12% 10%;
+    --sidebar-muted-foreground: 210 8% 50%;
+    --sidebar-accent: 220 12% 13%;
+    --sidebar-accent-foreground: 210 10% 93%;
+    --sidebar-border: 220 12% 10%;
+    --sidebar-primary: 210 18% 70%;
+
+    --success: 152 69% 41%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 206 100% 50%;
+    --info-foreground: 0 0% 100%;
   }
 }
 
@@ -57,7 +93,7 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
@@ -74,6 +110,22 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Thin custom scrollbar for sidebar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-muted)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--sidebar-muted));
+    border-radius: 2px;
   }
 
   /* Touch-friendly tap highlight removal */
@@ -151,4 +203,3 @@
     font-size: 1rem;
   }
 }
-
