@@ -87,8 +87,7 @@ export class BusinessScopeGuard implements CanActivate {
     }
 
     // Extract resource ID from route params or request body
-    const resourceId =
-      request.params[options.param] || request.body?.[options.param];
+    const resourceId = request.params[options.param] || request.body?.[options.param];
 
     if (!resourceId) {
       if (options.optional) {
@@ -98,16 +97,10 @@ export class BusinessScopeGuard implements CanActivate {
     }
 
     // Validate resource ownership
-    const isOwner = await this.validateOwnership(
-      options.resource,
-      resourceId,
-      user.businessId,
-    );
+    const isOwner = await this.validateOwnership(options.resource, resourceId, user.businessId);
 
     if (!isOwner) {
-      throw new ForbiddenException(
-        `You do not have access to this ${options.resource}`,
-      );
+      throw new ForbiddenException(`You do not have access to this ${options.resource}`);
     }
 
     return true;
