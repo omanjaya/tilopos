@@ -253,8 +253,8 @@ function createMockContext(data: {
     getClass: () => ({}),
     getArgs: () => [],
     getArgByIndex: () => ({}),
-    switchToRpc: () => ({} as any),
-    switchToWs: () => ({} as any),
+    switchToRpc: () => ({}) as any,
+    switchToWs: () => ({}) as any,
     getType: () => 'http' as any,
   } as ExecutionContext;
 }
