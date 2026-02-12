@@ -14,3 +14,5 @@ export { TaxConfigurationRepository } from './tax-configuration.repository';
 export { ReceiptTemplateRepository } from './receipt-template.repository';
 export { OperatingHoursRepository } from './operating-hours.repository';
 export { PaymentMethodRepository } from './payment-method.repository';
+export { PrinterConfigRepository } from './printer-config.repository';
+export { ReportScheduleRepository } from './report-schedule.repository';

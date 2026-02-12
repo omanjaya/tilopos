@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { InventoryController } from './inventory.controller';
+import { SupplierAnalyticsController } from './controllers/supplier-analytics.controller';
 import { InventoryService } from './inventory.service';
 import { OutletProductService } from './outlet-product.service';
 import { CreateProductUseCase } from '../../application/use-cases/inventory/create-product.use-case';
@@ -11,7 +12,7 @@ import { ImportModule } from '../../infrastructure/import/import.module';
 
 @Module({
   imports: [ImportModule],
-  controllers: [InventoryController],
+  controllers: [InventoryController, SupplierAnalyticsController],
   providers: [
     InventoryService,
     OutletProductService,

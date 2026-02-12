@@ -24,16 +24,25 @@ const SOCKET_NAMESPACE = '/notifications';
 
 let sharedSocket: Socket | null = null;
 let refCount = 0;
+let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Get the shared Socket.io instance.
  * Creates a new connection if one doesn't exist.
  * Increments reference count.
+ * Returns null if not authenticated.
  */
-export function getSharedSocket(): Socket {
-  if (!sharedSocket) {
-    const token = useAuthStore.getState().token;
+export function getSharedSocket(): Socket | null {
+  const token = useAuthStore.getState().token;
+  if (!token) return null;
 
+  // Cancel pending disconnect (handles React Strict Mode double-mount)
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
+
+  if (!sharedSocket) {
     sharedSocket = io(`${SOCKET_URL}${SOCKET_NAMESPACE}`, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -41,7 +50,7 @@ export function getSharedSocket(): Socket {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10000,
-      auth: token ? { token } : undefined,
+      auth: { token },
     });
   }
 
@@ -51,15 +60,20 @@ export function getSharedSocket(): Socket {
 
 /**
  * Release the shared Socket.io instance.
- * Decrements reference count and disconnects when no hooks are using it.
+ * Decrements reference count and defers disconnect to handle React Strict Mode remount.
  */
 export function releaseSharedSocket(): void {
   refCount--;
 
-  if (refCount <= 0 && sharedSocket) {
-    sharedSocket.disconnect();
-    sharedSocket = null;
+  if (refCount <= 0) {
     refCount = 0;
+    disconnectTimer = setTimeout(() => {
+      if (refCount <= 0 && sharedSocket) {
+        sharedSocket.disconnect();
+        sharedSocket = null;
+      }
+      disconnectTimer = null;
+    }, 100);
   }
 }
 

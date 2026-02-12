@@ -11,6 +11,8 @@ import {
   ReceiptTemplateRepository,
   OperatingHoursRepository,
   PaymentMethodRepository,
+  PrinterConfigRepository,
+  ReportScheduleRepository,
 } from '../../infrastructure/repositories/settings';
 
 @Module({
@@ -25,6 +27,8 @@ import {
     ReceiptTemplateRepository,
     OperatingHoursRepository,
     PaymentMethodRepository,
+    PrinterConfigRepository,
+    ReportScheduleRepository,
     // Main facade repository
     {
       provide: REPOSITORY_TOKENS.SETTINGS,

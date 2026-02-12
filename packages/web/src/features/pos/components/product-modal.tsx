@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
     DialogFooter,
@@ -95,6 +96,8 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
                                 <img
                                     src={product.imageUrl}
                                     alt={product.name}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="h-full w-full object-cover"
                                 />
                             ) : (
@@ -117,6 +120,7 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
                             )}
                         </div>
                     </div>
+                    <DialogDescription className="sr-only">Detail dan opsi produk</DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-auto py-4 space-y-6">

@@ -3,6 +3,7 @@ import { Pin } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NavItem } from './sidebar-nav-data';
 import { exactMatchPaths } from './sidebar-nav-data';
+import { useUIStore } from '@/stores/ui.store';
 
 export function SidebarNavItem({
   item,
@@ -17,6 +18,13 @@ export function SidebarNavItem({
   onTogglePin?: (path: string) => void;
   showPinAction?: boolean;
 }) {
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+
+  const handleNavClick = () => {
+    // Close mobile sidebar after navigation
+    setMobileSidebarOpen(false);
+  };
+
   return (
     <div className="group/item relative">
       <NavLink
@@ -24,25 +32,26 @@ export function SidebarNavItem({
         end={item.to === '/app' || exactMatchPaths.has(item.to)}
         className={({ isActive }) =>
           cn(
-            'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium',
+            'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-normal',
             'transition-all duration-200 ease-out',
             isActive
-              ? 'bg-primary text-primary-foreground font-semibold shadow-sm scale-[1.01]'
+              ? 'bg-primary text-primary-foreground font-medium shadow-sm scale-[1.01]'
               : 'text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:translate-x-0.5',
             collapsed && 'justify-center px-2 hover:translate-x-0',
           )
         }
+        onClick={handleNavClick}
       >
         {({ isActive }) => (
           <>
             <div
               className={cn(
-                'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all duration-200',
+                'flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-all duration-200',
                 isActive ? 'bg-primary-foreground/15' : 'bg-transparent group-hover/item:scale-110',
                 collapsed && 'h-8 w-8',
               )}
             >
-              <item.icon className="h-4 w-4 transition-transform duration-200 group-hover/item:scale-105" />
+              <item.icon className="h-[18px] w-[18px] transition-transform duration-200 group-hover/item:scale-105" />
             </div>
             {!collapsed && <span className="truncate">{item.label}</span>}
           </>

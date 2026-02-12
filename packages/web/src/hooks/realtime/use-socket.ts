@@ -27,10 +27,18 @@ export function useSocket(): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
 
-  // Initialize socket connection
+  // Initialize socket connection only when authenticated
   useEffect(() => {
+    if (!token) {
+      setIsConnected(false);
+      return;
+    }
+
     const socket = getSharedSocket();
+    if (!socket) return;
+
     socketRef.current = socket;
 
     const handleConnect = () => setIsConnected(true);
@@ -49,7 +57,7 @@ export function useSocket(): UseSocketReturn {
       releaseSharedSocket();
       socketRef.current = null;
     };
-  }, []);
+  }, [token]);
 
   // Join a WebSocket room
   const joinRoom = useCallback(

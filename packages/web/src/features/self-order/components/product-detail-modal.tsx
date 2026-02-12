@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/format';
 import type { SelfOrderMenuItem } from '@/types/self-order.types';
 
@@ -29,6 +29,7 @@ export function ProductDetailModal({
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
+          <DialogDescription className="sr-only">Detail produk {product.name}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {product.imageUrl && (

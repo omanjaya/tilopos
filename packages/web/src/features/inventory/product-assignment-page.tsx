@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { productsApi } from '@/api/endpoints/products.api';
-import { outletsApi } from '@/api/endpoints/outlets.api';
+import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +27,7 @@ import { toast } from '@/lib/toast-utils';
 import { formatCurrency } from '@/lib/format';
 import { Store, Package, Search, CheckCircle2, XCircle } from 'lucide-react';
 import type { Product } from '@/types/product.types';
-import type { Outlet } from '@/types/outlet.types';
+import type { Outlet } from '@/types/settings.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
@@ -41,7 +41,7 @@ export function ProductAssignmentPage() {
   // Fetch outlets
   const { data: outlets = [] } = useQuery({
     queryKey: ['outlets'],
-    queryFn: outletsApi.list,
+    queryFn: settingsApi.listOutlets,
   });
 
   // Fetch all products
@@ -116,7 +116,7 @@ export function ProductAssignmentPage() {
       const matchesSearch =
         product.name.toLowerCase().includes(searchLower) ||
         product.sku?.toLowerCase().includes(searchLower) ||
-        product.category?.toLowerCase().includes(searchLower);
+        product.category?.name?.toLowerCase().includes(searchLower);
       if (!matchesSearch) return false;
     }
 
@@ -203,7 +203,6 @@ export function ProductAssignmentPage() {
       <PageHeader
         title="Manajemen Produk per Outlet"
         description="Atur produk mana saja yang tersedia di setiap outlet"
-        icon={Store}
       />
 
       {/* Outlet Selector */}
@@ -221,11 +220,6 @@ export function ProductAssignmentPage() {
                     <div className="flex items-center gap-2">
                       <Store className="h-4 w-4" />
                       {outlet.name}
-                      {outlet.outletType && (
-                        <Badge variant="outline" className="ml-2 text-xs">
-                          {outlet.outletType}
-                        </Badge>
-                      )}
                     </div>
                   </SelectItem>
                 ))}
@@ -383,7 +377,7 @@ export function ProductAssignmentPage() {
                         <TableCell>
                           <code className="text-xs text-muted-foreground">{product.sku}</code>
                         </TableCell>
-                        <TableCell>{product.category || '-'}</TableCell>
+                        <TableCell>{product.category?.name || '-'}</TableCell>
                         <TableCell>{formatCurrency(product.basePrice)}</TableCell>
                         <TableCell>
                           {isAssigned ? (

@@ -22,7 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Plus, MoreHorizontal, Pencil, Ban, Loader2 } from 'lucide-react';
 import type { Outlet, CreateOutletRequest } from '@/types/settings.types';
 import type { AxiosError } from 'axios';
@@ -48,7 +48,6 @@ const defaultForm: OutletFormData = {
 
 export function OutletsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Outlet | null>(null);
   const [form, setForm] = useState<OutletFormData>(defaultForm);
@@ -62,12 +61,11 @@ export function OutletsPage() {
     mutationFn: (data: CreateOutletRequest) => settingsApi.createOutlet(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['outlets'] });
-      toast({ title: 'Outlet berhasil ditambahkan' });
+      toast.success({ title: 'Outlet berhasil ditambahkan' });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menambahkan outlet',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -79,12 +77,11 @@ export function OutletsPage() {
       settingsApi.updateOutlet(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['outlets'] });
-      toast({ title: 'Outlet berhasil diperbarui' });
+      toast.success({ title: 'Outlet berhasil diperbarui' });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memperbarui outlet',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -96,11 +93,10 @@ export function OutletsPage() {
       settingsApi.updateOutlet(id, { name: undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['outlets'] });
-      toast({ title: 'Outlet dinonaktifkan' });
+      toast.success({ title: 'Outlet dinonaktifkan' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menonaktifkan outlet',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -302,6 +298,7 @@ export function OutletsPage() {
               <Label htmlFor="outlet-phone">Telepon</Label>
               <Input
                 id="outlet-phone"
+                type="tel"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 placeholder="Nomor telepon (opsional)"

@@ -23,7 +23,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/lib/toast-utils';
 import { Loader2, Edit } from 'lucide-react';
-import type { Product } from '@/types/product.types';
+import type { Product, UpdateProductRequest } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
@@ -61,7 +61,7 @@ export function BulkEditModal({
   const bulkUpdateMutation = useMutation({
     mutationFn: async () => {
       const updates = selectedProducts.map(async (product) => {
-        let updateData: Partial<Product> = {};
+        let updateData: UpdateProductRequest = {};
 
         switch (action) {
           case 'category':

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Search, Grid3X3, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -52,6 +52,55 @@ export function ProductGrid({
         setInternalViewMode(mode);
         onViewModeChange?.(mode);
     };
+
+    const productAreaRef = useRef<HTMLDivElement>(null);
+
+    const handleProductKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+        const area = productAreaRef.current;
+        if (!area) return;
+
+        const buttons = Array.from(area.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+        const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        if (currentIndex === -1) return;
+
+        let cols = 1;
+        if (viewMode === 'grid') {
+            const gridEl = area.querySelector<HTMLElement>('.grid');
+            if (gridEl) {
+                const templateCols = window.getComputedStyle(gridEl).getPropertyValue('grid-template-columns');
+                cols = templateCols.split(' ').filter(Boolean).length;
+            }
+        }
+
+        let nextIndex = currentIndex;
+        switch (e.key) {
+            case 'ArrowRight':
+                nextIndex = Math.min(currentIndex + 1, buttons.length - 1);
+                break;
+            case 'ArrowLeft':
+                nextIndex = Math.max(currentIndex - 1, 0);
+                break;
+            case 'ArrowDown':
+                nextIndex = Math.min(currentIndex + cols, buttons.length - 1);
+                break;
+            case 'ArrowUp':
+                nextIndex = Math.max(currentIndex - cols, 0);
+                break;
+            case 'Home':
+                nextIndex = 0;
+                break;
+            case 'End':
+                nextIndex = buttons.length - 1;
+                break;
+            default:
+                return;
+        }
+
+        if (nextIndex !== currentIndex) {
+            e.preventDefault();
+            buttons[nextIndex]?.focus();
+        }
+    }, [viewMode]);
 
     const filteredProducts = useMemo(() => {
         return products.filter((product) => {
@@ -169,7 +218,13 @@ export function ProductGrid({
             </div>
 
             {/* Products */}
-            <div className="flex-1 overflow-auto p-4">
+            <div
+                ref={productAreaRef}
+                className="flex-1 overflow-auto p-4"
+                onKeyDown={handleProductKeyDown}
+                role="region"
+                aria-label="Daftar produk"
+            >
                 {filteredProducts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                         <Search className="h-12 w-12 mb-4 opacity-50" />
@@ -253,7 +308,7 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                 isOutOfStock && 'opacity-50 cursor-not-allowed',
                 isTouchDevice && 'touch-none-highlight',
                 isTablet && 'pos-product-card-tablet min-h-[200px]',
-                justAdded && 'ring-2 ring-green-500 ring-offset-1',
+                justAdded && 'ring-2 ring-success ring-offset-1',
             )}
         >
             {/* Image */}
@@ -262,6 +317,8 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                     <img
                         src={product.imageUrl}
                         alt={product.name}
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
                     />
                 ) : (
@@ -281,7 +338,7 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                 )}
                 {cartQuantity > 0 && !isOutOfStock && (
                     <div className={cn(
-                        "absolute top-2 left-2 h-6 min-w-6 rounded-full bg-green-600 text-white",
+                        "absolute top-2 left-2 h-6 min-w-6 rounded-full bg-success text-white",
                         "flex items-center justify-center text-xs font-bold px-1.5",
                         justAdded && "animate-bounce"
                     )}>
@@ -343,6 +400,8 @@ function ProductListItem({ product, onClick, cartQuantity = 0, allowDecimalQty }
                     <img
                         src={product.imageUrl}
                         alt={product.name}
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover"
                     />
                 ) : (
@@ -353,7 +412,7 @@ function ProductListItem({ product, onClick, cartQuantity = 0, allowDecimalQty }
                     </div>
                 )}
                 {cartQuantity > 0 && !isOutOfStock && (
-                    <div className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold px-1">
+                    <div className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-success text-white flex items-center justify-center text-[10px] font-bold px-1">
                         {formatQuantity(cartQuantity, !!allowDecimalQty)}
                     </div>
                 )}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -29,6 +30,17 @@ import { useAuthStore } from '@/stores/auth.store';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { OrderTypeButtons } from './order-type-selector';
+import { ShiftEndModal } from './shift-end-modal';
+import { ShiftDurationIndicator } from './shift-duration-indicator';
+
+interface CurrentShiftData {
+    id: string;
+    startedAt: string;
+    openingCash: number;
+    totalSales: number;
+    transactions: number;
+    paymentBreakdown?: Array<{ method: string; amount: number; count: number }>;
+}
 
 interface PosHeaderProps {
     customerId?: string;
@@ -46,6 +58,8 @@ interface PosHeaderProps {
     onCartClick: () => void;
     onRefreshProducts: () => void;
     onTodayTransactionsClick: () => void;
+    onEndShift?: (shiftData: CurrentShiftData) => void;
+    currentShift?: CurrentShiftData | null;
 }
 
 export function PosHeader({
@@ -64,13 +78,18 @@ export function PosHeader({
     onCartClick,
     onRefreshProducts,
     onTodayTransactionsClick,
+    onEndShift,
+    currentShift,
 }: PosHeaderProps) {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
     const logout = useAuthStore((s) => s.logout);
     const { hasTableManagement, hasOrderTypes } = useBusinessFeatures();
 
+    const [isShiftEndModalOpen, setIsShiftEndModalOpen] = useState(false);
+
     return (
+        <>
         <header className="h-14 md:h-16 bg-card border-b flex items-center justify-between px-3 md:px-4 shrink-0">
             <div className="flex items-center gap-2 md:gap-4">
                 <Button
@@ -88,6 +107,15 @@ export function PosHeader({
                         {user?.name} {user?.outletName ? `• ${user.outletName}` : ''}
                     </p>
                 </div>
+
+                {/* Shift Duration Indicator */}
+                {currentShift?.startedAt && (
+                    <ShiftDurationIndicator
+                        startedAt={currentShift.startedAt}
+                        openingCash={currentShift.openingCash}
+                        transactionCount={currentShift.transactions}
+                    />
+                )}
             </div>
 
             <div className="flex items-center gap-1 md:gap-2">
@@ -260,6 +288,12 @@ export function PosHeader({
                             </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
+                        {onEndShift && currentShift && (
+                            <DropdownMenuItem onClick={() => setIsShiftEndModalOpen(true)}>
+                                <LogOut className="h-4 w-4 mr-2" />
+                                Tutup Shift
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={onShortcutHelpClick}>
                             <Keyboard className="h-4 w-4 mr-2" />
                             Pintasan Keyboard
@@ -277,5 +311,19 @@ export function PosHeader({
                 </DropdownMenu>
             </div>
         </header>
+
+        {/* Shift End Modal */}
+        {onEndShift && currentShift && (
+            <ShiftEndModal
+                open={isShiftEndModalOpen}
+                onClose={() => setIsShiftEndModalOpen(false)}
+                onSuccess={() => {
+                    onEndShift(currentShift);
+                    setIsShiftEndModalOpen(false);
+                }}
+                shiftData={currentShift}
+            />
+        )}
+    </>
     );
 }

@@ -46,17 +46,19 @@ export function SidebarFlyout({
       onMouseLeave={onClose}
     >
       {section.title && (
-        <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+        <div className="mb-1 px-2 py-1 text-[11px] font-semibold text-muted-foreground/60">
           {section.title}
         </div>
       )}
       <div className="space-y-0.5">
-        {section.items.map((item) => (
+        {section.items
+          .filter((item) => !pinnedPaths.has(item.to))
+          .map((item) => (
           <SidebarNavItem
             key={item.to}
             item={item}
             collapsed={false}
-            isPinned={pinnedPaths.has(item.to)}
+            isPinned={false}
             onTogglePin={onTogglePin}
             showPinAction
           />

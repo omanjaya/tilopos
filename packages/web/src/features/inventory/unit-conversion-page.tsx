@@ -9,12 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, ArrowRight, RefreshCw } from 'lucide-react';
 
 function ConversionEditor({ productId, productName }: { productId: string; productName: string }) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const { data: conversions, isLoading } = useQuery({
     queryKey: ['unit-conversions', productId],
@@ -40,21 +39,21 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['unit-conversions', productId] });
-      toast({ title: 'Konversi satuan berhasil ditambahkan' });
+      toast.success({ title: 'Konversi satuan berhasil ditambahkan' });
       setFromUnit('');
       setFromLabel('');
       setToUnit('');
       setToLabel('');
       setFactor('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal menambahkan' }),
+    onError: () => toast.error({ title: 'Gagal menambahkan' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => unitConversionApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['unit-conversions', productId] });
-      toast({ title: 'Konversi dihapus' });
+      toast.success({ title: 'Konversi dihapus' });
     },
   });
 

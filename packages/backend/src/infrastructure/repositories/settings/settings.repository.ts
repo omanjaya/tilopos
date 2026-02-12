@@ -29,6 +29,12 @@ import type {
   BusinessPaymentMethod,
   CreateBusinessPaymentMethodData,
   UpdateBusinessPaymentMethodData,
+  PrinterConfigRecord,
+  CreatePrinterConfigInput,
+  UpdatePrinterConfigInput,
+  ReportScheduleRecord,
+  CreateReportScheduleInput,
+  UpdateReportScheduleInput,
 } from '../../../domain/interfaces/repositories/settings.repository';
 import { BusinessSettingsRepository } from './business-settings.repository';
 import { OutletSettingsRepository } from './outlet-settings.repository';
@@ -38,6 +44,8 @@ import { TaxConfigurationRepository } from './tax-configuration.repository';
 import { ReceiptTemplateRepository } from './receipt-template.repository';
 import { OperatingHoursRepository } from './operating-hours.repository';
 import { PaymentMethodRepository } from './payment-method.repository';
+import { PrinterConfigRepository } from './printer-config.repository';
+import { ReportScheduleRepository } from './report-schedule.repository';
 
 /**
  * Main Settings Repository that delegates to specialized repositories.
@@ -55,6 +63,8 @@ export class SettingsRepository implements ISettingsRepository {
     private readonly receiptTemplate: ReceiptTemplateRepository,
     private readonly operatingHours: OperatingHoursRepository,
     private readonly paymentMethods: PaymentMethodRepository,
+    private readonly printerConfigs: PrinterConfigRepository,
+    private readonly reportSchedules: ReportScheduleRepository,
   ) {}
 
   // ==================== Business Settings ====================
@@ -242,5 +252,55 @@ export class SettingsRepository implements ISettingsRepository {
 
   async deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void> {
     return this.paymentMethods.deleteBusinessPaymentMethod(businessId, id);
+  }
+
+  // ==================== Printer Configs ====================
+
+  async getPrinterConfigs(businessId: string): Promise<PrinterConfigRecord[]> {
+    return this.printerConfigs.getPrinterConfigs(businessId);
+  }
+
+  async createPrinterConfig(
+    businessId: string,
+    data: CreatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord> {
+    return this.printerConfigs.createPrinterConfig(businessId, data);
+  }
+
+  async updatePrinterConfig(
+    businessId: string,
+    id: string,
+    data: UpdatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord> {
+    return this.printerConfigs.updatePrinterConfig(businessId, id, data);
+  }
+
+  async deletePrinterConfig(businessId: string, id: string): Promise<void> {
+    return this.printerConfigs.deletePrinterConfig(businessId, id);
+  }
+
+  // ==================== Report Schedules ====================
+
+  async getReportSchedules(businessId: string): Promise<ReportScheduleRecord[]> {
+    return this.reportSchedules.getReportSchedules(businessId);
+  }
+
+  async createReportSchedule(
+    businessId: string,
+    data: CreateReportScheduleInput,
+  ): Promise<ReportScheduleRecord> {
+    return this.reportSchedules.createReportSchedule(businessId, data);
+  }
+
+  async updateReportSchedule(
+    businessId: string,
+    id: string,
+    data: UpdateReportScheduleInput,
+  ): Promise<ReportScheduleRecord> {
+    return this.reportSchedules.updateReportSchedule(businessId, id, data);
+  }
+
+  async deleteReportSchedule(businessId: string, id: string): Promise<void> {
+    return this.reportSchedules.deleteReportSchedule(businessId, id);
   }
 }

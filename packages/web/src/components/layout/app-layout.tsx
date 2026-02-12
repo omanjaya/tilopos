@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
+import { X } from 'lucide-react';
 import { Sidebar } from './sidebar/index';
 import { Header } from './header/index';
 import { useUIStore } from '@/stores/ui.store';
@@ -23,7 +24,9 @@ import { cn } from '@/lib/utils';
 export function AppLayout() {
   const location = useLocation();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
+  const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const user = useAuthStore((s) => s.user);
   const { openOnboarding, completeOnboarding } = useOnboarding();
   const { completeOnboarding: apiCompleteOnboarding } = useCompleteOnboarding();
@@ -132,10 +135,50 @@ export function AppLayout() {
     <RealtimeProvider>
       <TooltipProvider>
         <div className="min-h-screen bg-background">
-          <Sidebar />
-          <div className={cn('transition-all duration-300', collapsed ? 'ml-[72px]' : 'ml-64')}>
+          {/* Mobile sidebar overlay */}
+          {mobileSidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50 md:hidden"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-hidden="true"
+            />
+          )}
+
+          {/* Sidebar - fixed position */}
+          <div
+            className={cn(
+              'fixed left-0 top-0 z-50 h-screen transition-transform duration-300 md:z-40 md:translate-x-0',
+              mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+            )}
+          >
+            <Sidebar />
+          </div>
+
+          {/* Mobile close button (only visible when sidebar is open on mobile) */}
+          {mobileSidebarOpen && (
+            <button
+              className="md:hidden fixed top-4 right-4 z-50 p-2 rounded-md bg-background shadow-lg"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="Close sidebar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
+
+          {/* Main content area - responsive margin */}
+          <div
+            className={cn(
+              'transition-all duration-300',
+              // Mobile: no margin
+              'ml-0',
+              // Tablet (md+): collapsed = 72px, expanded = 256px (64 * 4)
+              'md:ml-[72px]',
+              collapsed && 'md:ml-[72px]',
+              !collapsed && 'md:ml-64'
+            )}
+          >
             <Header />
-            <main className="px-6 py-6 md:px-8 lg:px-10">
+            <main className="px-4 py-4 md:px-6 md:py-6 lg:px-10">
               <Outlet />
             </main>
           </div>
@@ -146,7 +189,7 @@ export function AppLayout() {
               <Button
                 onClick={openOnboarding}
                 size="icon"
-                className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all"
+                className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all z-30"
               >
                 <HelpCircle className="h-5 w-5" />
               </Button>

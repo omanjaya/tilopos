@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import {
   Plus,
   Trash2,
@@ -32,7 +32,6 @@ export function TransferTemplatesModal({
   onUseTemplate,
 }: TransferTemplatesModalProps) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TransferTemplate | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -47,12 +46,11 @@ export function TransferTemplatesModal({
     mutationFn: (id: string) => inventoryApi.deleteTransferTemplate(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transfer-templates'] });
-      toast({ title: 'Template dihapus' });
+      toast.success({ title: 'Template dihapus' });
       setDeleteConfirmId(null);
     },
     onError: (error: AxiosError<any>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menghapus template',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -62,8 +60,8 @@ export function TransferTemplatesModal({
   const handleUseTemplate = (template: TransferTemplate) => {
     onUseTemplate?.(template);
     onOpenChange(false);
-    toast({
-      title: '✓ Template diterapkan',
+    toast.success({
+      title: 'Template diterapkan',
       description: `Template "${template.name}" siap digunakan`,
     });
   };
@@ -118,7 +116,7 @@ export function TransferTemplatesModal({
           ) : (
             <ScrollArea className="max-h-[500px] pr-4">
               <div className="space-y-3">
-                {templates?.map((template) => (
+                {templates?.map((template: TransferTemplate) => (
                   <div
                     key={template.id}
                     className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"

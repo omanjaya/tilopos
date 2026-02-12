@@ -16,6 +16,15 @@ import type {
   ModifierGroup,
   CreateModifierGroupRequest,
   UpdateModifierGroupRequest,
+  PaymentMethod,
+  CreatePaymentMethodRequest,
+  UpdatePaymentMethodRequest,
+  PrinterConfig,
+  CreatePrinterConfigRequest,
+  UpdatePrinterConfigRequest,
+  ReportSchedule,
+  CreateReportScheduleRequest,
+  UpdateReportScheduleRequest,
 } from '@/types/settings.types';
 
 const DAY_DEFAULTS = [
@@ -196,4 +205,43 @@ export const settingsApi = {
     }).then((r) => r.data),
   deleteModifierGroup: (id: string) =>
     apiClient.delete(`/settings/modifier-groups/${id}`).then((r) => r.data),
+
+  // Payment Methods
+  listPaymentMethods: () =>
+    apiClient.get<PaymentMethod[]>('/settings/payment-methods/list').then((r) => {
+      const raw = r.data;
+      return (Array.isArray(raw) ? raw : []) as PaymentMethod[];
+    }),
+  createPaymentMethod: (data: CreatePaymentMethodRequest) =>
+    apiClient.post<PaymentMethod>('/settings/payment-methods/create', data).then((r) => r.data),
+  updatePaymentMethod: (id: string, data: UpdatePaymentMethodRequest) =>
+    apiClient.put<PaymentMethod>(`/settings/payment-methods/${id}/update`, data).then((r) => r.data),
+  deletePaymentMethod: (id: string) =>
+    apiClient.delete(`/settings/payment-methods/${id}`).then((r) => r.data),
+
+  // Printer Configs
+  listPrinters: () =>
+    apiClient.get<PrinterConfig[]>('/settings/printers').then((r) => {
+      const raw = r.data;
+      return (Array.isArray(raw) ? raw : []) as PrinterConfig[];
+    }),
+  createPrinter: (data: CreatePrinterConfigRequest) =>
+    apiClient.post<PrinterConfig>('/settings/printers', data).then((r) => r.data),
+  updatePrinter: (id: string, data: UpdatePrinterConfigRequest) =>
+    apiClient.put<PrinterConfig>(`/settings/printers/${id}`, data).then((r) => r.data),
+  deletePrinter: (id: string) =>
+    apiClient.delete(`/settings/printers/${id}`).then((r) => r.data),
+
+  // Report Schedules
+  listReportSchedules: () =>
+    apiClient.get<ReportSchedule[]>('/settings/report-schedules').then((r) => {
+      const raw = r.data;
+      return (Array.isArray(raw) ? raw : []) as ReportSchedule[];
+    }),
+  createReportSchedule: (data: CreateReportScheduleRequest) =>
+    apiClient.post<ReportSchedule>('/settings/report-schedules', data).then((r) => r.data),
+  updateReportSchedule: (id: string, data: UpdateReportScheduleRequest) =>
+    apiClient.put<ReportSchedule>(`/settings/report-schedules/${id}`, data).then((r) => r.data),
+  deleteReportSchedule: (id: string) =>
+    apiClient.delete(`/settings/report-schedules/${id}`).then((r) => r.data),
 };

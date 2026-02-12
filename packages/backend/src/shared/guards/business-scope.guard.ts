@@ -122,7 +122,7 @@ export class BusinessScopeGuard implements CanActivate {
     const table = this.getTableName(resource);
 
     try {
-      const result = await (this.prisma[table] as any).findUnique({
+      const result = await ((this.prisma as any)[table] as any).findUnique({
         where: { id: resourceId },
         select: { businessId: true },
       });

@@ -4,7 +4,6 @@ import {
   Body,
   Headers,
   Logger,
-  BadRequestException,
   RawBodyRequest,
   Req,
   UseGuards,
@@ -64,7 +63,7 @@ export class PaymentsWebhookController {
   @ApiHeader({ name: 'x-callback-token', description: 'Xendit callback verification token' })
   async xenditWebhook(
     @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
+    @Headers('x-callback-token') _callbackToken: string,
     @Req() _req: RawBodyRequest<Request>,
   ) {
     this.logger.log(`Xendit webhook received: event=${dto.event}, id=${dto.id || dto.external_id}`);

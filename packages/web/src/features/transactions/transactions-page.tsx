@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { MoreHorizontal, Eye, XCircle, RotateCcw, Printer, Loader2 } from 'lucide-react';
 import type { Transaction, TransactionStatus } from '@/types/transaction.types';
@@ -70,7 +70,6 @@ function getPaymentMethodLabels(transaction: Transaction): string {
 export function TransactionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState('');
@@ -103,13 +102,12 @@ export function TransactionsPage() {
     mutationFn: ({ id, reason }: { id: string; reason: string }) => transactionsApi.void(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast({ title: 'Transaksi berhasil di-void' });
+      toast.success({ title: 'Transaksi berhasil di-void' });
       setVoidTarget(null);
       setVoidReason('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal void transaksi',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -121,13 +119,12 @@ export function TransactionsPage() {
       transactionsApi.refund(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast({ title: 'Refund berhasil diproses' });
+      toast.success({ title: 'Refund berhasil diproses' });
       setRefundTarget(null);
       setRefundReason('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memproses refund',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -137,10 +134,9 @@ export function TransactionsPage() {
   const handleReprint = async (id: string) => {
     try {
       await transactionsApi.reprint(id);
-      toast({ title: 'Struk berhasil dicetak ulang' });
+      toast.success({ title: 'Struk berhasil dicetak ulang' });
     } catch {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal cetak ulang',
         description: 'Terjadi kesalahan saat mencetak ulang struk',
       });

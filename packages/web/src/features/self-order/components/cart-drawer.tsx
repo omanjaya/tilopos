@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/format';
 import { AlertCircle, Check, Loader2, Plus, RefreshCw, ShoppingCart, X } from 'lucide-react';
 import type { CartItem } from '../hooks/use-cart';
@@ -44,6 +44,7 @@ export function CartDrawer({
               <X className="h-5 w-5" />
             </Button>
           </DialogTitle>
+          <DialogDescription className="sr-only">Daftar item di keranjang belanja</DialogDescription>
         </DialogHeader>
 
         {cart.length === 0 ? (

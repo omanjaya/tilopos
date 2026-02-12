@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -212,6 +213,163 @@ export class StockTransfersController {
     return updatedTransfer;
   }
 
+  @Post('direct')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  async directTransfer(
+    @Body()
+    dto: {
+      sourceOutletId: string;
+      destinationOutletId: string;
+      items: {
+        productId?: string;
+        variantId?: string;
+        itemName: string;
+        quantity: number;
+      }[];
+      notes?: string;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (dto.sourceOutletId === dto.destinationOutletId) {
+      throw new BadRequestException('Outlet asal dan tujuan tidak boleh sama');
+    }
+    if (!dto.items?.length) {
+      throw new BadRequestException('Minimal 1 item diperlukan');
+    }
+
+    const transferNumber = `TRF-D-${Date.now().toString(36).toUpperCase()}`;
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Validate stock availability at source
+      for (const item of dto.items) {
+        const stockLevel = await tx.stockLevel.findFirst({
+          where: {
+            outletId: dto.sourceOutletId,
+            productId: item.productId || null,
+            variantId: item.variantId || null,
+          },
+        });
+
+        const available = stockLevel ? Number(stockLevel.quantity) : 0;
+        if (available < item.quantity) {
+          throw new BadRequestException(
+            `Stok "${item.itemName}" tidak cukup (tersedia: ${available}, diminta: ${item.quantity})`,
+          );
+        }
+      }
+
+      // 2. Create transfer record (status = received directly)
+      const transfer = await tx.stockTransfer.create({
+        data: {
+          businessId: user.businessId,
+          transferNumber,
+          sourceOutletId: dto.sourceOutletId,
+          destinationOutletId: dto.destinationOutletId,
+          status: 'received',
+          notes: dto.notes || null,
+          requestedBy: user.employeeId,
+          approvedBy: user.employeeId,
+          receivedBy: user.employeeId,
+          approvedAt: now,
+          shippedAt: now,
+          receivedAt: now,
+          items: {
+            create: dto.items.map((item) => ({
+              productId: item.productId || null,
+              variantId: item.variantId || null,
+              itemName: item.itemName,
+              quantitySent: item.quantity,
+              quantityReceived: item.quantity,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      // 3. Update stock levels + create audit movements
+      for (const item of dto.items) {
+        // Decrement source
+        await tx.stockLevel.updateMany({
+          where: {
+            outletId: dto.sourceOutletId,
+            productId: item.productId || null,
+            variantId: item.variantId || null,
+          },
+          data: { quantity: { decrement: item.quantity } },
+        });
+
+        // Increment destination (upsert)
+        await tx.stockLevel.upsert({
+          where: {
+            outletId_productId_variantId: {
+              outletId: dto.destinationOutletId,
+              productId: item.productId || '',
+              variantId: item.variantId || '',
+            },
+          },
+          update: { quantity: { increment: item.quantity } },
+          create: {
+            outletId: dto.destinationOutletId,
+            productId: item.productId || null,
+            variantId: item.variantId || null,
+            quantity: item.quantity,
+          },
+        });
+
+        // Audit trail: transfer_out from source
+        await tx.stockMovement.create({
+          data: {
+            outletId: dto.sourceOutletId,
+            productId: item.productId || null,
+            variantId: item.variantId || null,
+            movementType: 'transfer_out',
+            quantity: -item.quantity,
+            referenceId: transfer.id,
+            referenceType: 'direct_transfer',
+            notes: `Transfer langsung ke outlet tujuan: ${transferNumber}`,
+            createdBy: user.employeeId,
+          },
+        });
+
+        // Audit trail: transfer_in to destination
+        await tx.stockMovement.create({
+          data: {
+            outletId: dto.destinationOutletId,
+            productId: item.productId || null,
+            variantId: item.variantId || null,
+            movementType: 'transfer_in',
+            quantity: item.quantity,
+            referenceId: transfer.id,
+            referenceType: 'direct_transfer',
+            notes: `Transfer langsung dari outlet asal: ${transferNumber}`,
+            createdBy: user.employeeId,
+          },
+        });
+      }
+
+      // 4. Emit event
+      this.eventBus.publish(
+        new StockTransferStatusChangedEvent(
+          transfer.id,
+          dto.sourceOutletId,
+          dto.destinationOutletId,
+          user.businessId,
+          'requested',
+          'received',
+          user.employeeId,
+        ),
+      );
+
+      return {
+        transferId: transfer.id,
+        transferNumber,
+        status: 'received',
+        itemCount: dto.items.length,
+      };
+    });
+  }
+
   @Get('discrepancies')
   async getDiscrepancies(@Query() query: DiscrepancyQueryDto, @CurrentUser() user: AuthUser) {
     if (!query.from || !query.to) {
@@ -248,13 +406,21 @@ export class StockTransfersController {
 
   @Get(':id')
   async get(@Param('id') id: string) {
-    return this.prisma.stockTransfer.findUnique({
-      where: { id },
-      include: {
-        items: true,
-        sourceOutlet: true,
-        destinationOutlet: true,
-      },
-    });
+    const transfer = await this.prisma.stockTransfer
+      .findUnique({
+        where: { id },
+        include: {
+          items: true,
+          sourceOutlet: true,
+          destinationOutlet: true,
+        },
+      })
+      .catch(() => null);
+
+    if (!transfer) {
+      throw new NotFoundException('Transfer not found');
+    }
+
+    return transfer;
   }
 }

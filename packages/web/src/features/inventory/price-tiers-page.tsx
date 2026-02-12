@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, Save, TrendingUp } from 'lucide-react';
 
 interface TierRow {
@@ -21,7 +21,6 @@ interface TierRow {
 
 function PriceTierEditor({ productId, productName }: { productId: string; productName: string }) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const { data: tiers, isLoading } = useQuery({
     queryKey: ['price-tiers', productId],
@@ -59,9 +58,9 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['price-tiers', productId] });
-      toast({ title: 'Harga bertingkat berhasil disimpan' });
+      toast.success({ title: 'Harga bertingkat berhasil disimpan' });
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal menyimpan' }),
+    onError: () => toast.error({ title: 'Gagal menyimpan' }),
   });
 
   const addRow = () => setRows([...rows, { tierName: '', minQuantity: '', maxQuantity: '', price: '' }]);

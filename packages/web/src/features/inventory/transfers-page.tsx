@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
 import { TransferTemplatesModal } from './components/transfer-templates-modal';
+import { DirectTransferModal } from './components/direct-transfer-modal';
 import {
   Select,
   SelectContent,
@@ -23,7 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatDateTime } from '@/lib/format';
 import {
   Plus,
@@ -34,24 +35,24 @@ import {
   PackageCheck,
   BarChart3,
   FileText,
+  Zap,
 } from 'lucide-react';
 import type { StockTransfer } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  requested: { label: 'Diminta', className: 'bg-blue-500 hover:bg-blue-600' },
-  approved: { label: 'Disetujui', className: 'bg-yellow-500 hover:bg-yellow-600' },
-  shipped: { label: 'Dikirim', className: 'bg-purple-500 hover:bg-purple-600' },
-  in_transit: { label: 'Dikirim', className: 'bg-purple-500 hover:bg-purple-600' },
-  received: { label: 'Diterima', className: 'bg-green-500 hover:bg-green-600' },
-  cancelled: { label: 'Dibatalkan', className: 'bg-red-500 hover:bg-red-600' },
+const STATUS_CONFIG: Record<string, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
+  requested: { label: 'Diminta', variant: 'info' },
+  approved: { label: 'Disetujui', variant: 'warning' },
+  shipped: { label: 'Dikirim', variant: 'secondary' },
+  in_transit: { label: 'Dikirim', variant: 'secondary' },
+  received: { label: 'Diterima', variant: 'success' },
+  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
 };
 
 export function TransfersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedTransfers, setSelectedTransfers] = useState<StockTransfer[]>([]);
   const [confirmAction, setConfirmAction] = useState<{
@@ -59,6 +60,7 @@ export function TransfersPage() {
     transfer?: StockTransfer;
   } | null>(null);
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
+  const [directTransferOpen, setDirectTransferOpen] = useState(false);
 
   // Real-time WebSocket updates
   const { isConnected } = useTransferSocket({
@@ -81,12 +83,11 @@ export function TransfersPage() {
     mutationFn: (id: string) => inventoryApi.approveTransfer(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
-      toast({ title: 'Transfer disetujui' });
+      toast.success({ title: 'Transfer disetujui' });
       setConfirmAction(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyetujui transfer',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -97,12 +98,11 @@ export function TransfersPage() {
     mutationFn: (id: string) => inventoryApi.shipTransfer(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
-      toast({ title: 'Transfer ditandai dikirim' });
+      toast.success({ title: 'Transfer ditandai dikirim' });
       setConfirmAction(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menandai pengiriman',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -122,8 +122,8 @@ export function TransfersPage() {
       const failed = results.filter((r) => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast({
-          title: `✅ ${successful} transfer disetujui!`,
+        toast.success({
+          title: `${successful} transfer disetujui`,
           description: failed > 0 ? `${failed} transfer gagal disetujui` : undefined,
         });
       }
@@ -132,8 +132,7 @@ export function TransfersPage() {
       setConfirmAction(null);
     },
     onError: () => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyetujui transfer',
         description: 'Terjadi kesalahan saat bulk approve',
       });
@@ -152,7 +151,7 @@ export function TransfersPage() {
     }
   }
 
-  const isAllSelected = transfers && transfers.length > 0 && selectedTransfers.length === transfers.length;
+  const isAllSelected = !!transfers && transfers.length > 0 && selectedTransfers.length === transfers.length;
   const isSomeSelected = selectedTransfers.length > 0 && selectedTransfers.length < (transfers?.length || 0);
 
   const toggleSelectAll = () => {
@@ -232,8 +231,8 @@ export function TransfersPage() {
       key: 'status',
       header: 'Status',
       cell: (row) => {
-        const config = STATUS_CONFIG[row.status] ?? { label: row.status, className: '' };
-        return <Badge className={config.className}>{config.label}</Badge>;
+        const config = STATUS_CONFIG[row.status] ?? { label: row.status, variant: 'secondary' as const };
+        return <Badge variant={config.variant}>{config.label}</Badge>;
       },
     },
     {
@@ -282,8 +281,8 @@ export function TransfersPage() {
     <div>
       <PageHeader title="Transfer Stok" description="Kelola transfer stok antar outlet">
         {isConnected && (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
-            <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse" />
+          <Badge variant="outline" className="bg-success/10 text-success border-success/30">
+            <span className="inline-block h-2 w-2 rounded-full bg-success mr-2 animate-pulse" />
             Live Updates
           </Badge>
         )}
@@ -291,7 +290,7 @@ export function TransfersPage() {
           <Button
             variant="default"
             onClick={() => setConfirmAction({ type: 'bulk-approve' })}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-primary hover:bg-primary/90"
           >
             <CheckCircle className="mr-2 h-4 w-4" /> Setujui {requestedCount} Transfer
           </Button>
@@ -301,6 +300,9 @@ export function TransfersPage() {
         </Button>
         <Button variant="outline" onClick={() => navigate('/app/inventory/transfers/dashboard')}>
           <BarChart3 className="mr-2 h-4 w-4" /> Dashboard
+        </Button>
+        <Button variant="outline" onClick={() => setDirectTransferOpen(true)}>
+          <Zap className="mr-2 h-4 w-4" /> Transfer Langsung
         </Button>
         <Button onClick={() => navigate('/app/inventory/transfers/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Buat Transfer
@@ -314,6 +316,11 @@ export function TransfersPage() {
         searchPlaceholder="Cari transfer..."
         emptyTitle="Belum ada transfer"
         emptyDescription="Buat transfer stok pertama Anda."
+        emptyAction={
+          <Button onClick={() => navigate('/app/inventory/transfers/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Buat Transfer Baru
+          </Button>
+        }
         filters={
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]">
@@ -363,6 +370,11 @@ export function TransfersPage() {
       <TransferTemplatesModal
         open={templatesModalOpen}
         onOpenChange={setTemplatesModalOpen}
+      />
+
+      <DirectTransferModal
+        open={directTransferOpen}
+        onOpenChange={setDirectTransferOpen}
       />
     </div>
   );

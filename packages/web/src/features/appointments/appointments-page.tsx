@@ -164,7 +164,7 @@ export function AppointmentsPage() {
               </div>
               <div>
                 <Label>No. Telepon</Label>
-                <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="08xxx" />
+                <Input type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="08xxx" />
               </div>
             </div>
             <div>

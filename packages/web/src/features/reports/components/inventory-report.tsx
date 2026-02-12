@@ -110,7 +110,7 @@ export function InventoryReport({ outletId, dateRange, customDateRange }: Invent
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        {reportData.topMovingProducts.length === 0 ? (
+                        {!reportData.topMovingProducts?.length ? (
                             <p className="text-sm text-muted-foreground">Belum ada data pergerakan</p>
                         ) : (
                             <div className="space-y-3">
@@ -140,7 +140,7 @@ export function InventoryReport({ outletId, dateRange, customDateRange }: Invent
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        {reportData.slowMovingProducts.length === 0 ? (
+                        {!reportData.slowMovingProducts?.length ? (
                             <p className="text-sm text-muted-foreground">Belum ada data</p>
                         ) : (
                             <div className="space-y-3">

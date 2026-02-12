@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import {
   AlertTriangle, Calendar, Package, Plus, Trash2,
 } from 'lucide-react';
@@ -33,7 +33,6 @@ function ExpiryBadge({ expiresAt }: { expiresAt: string | null }) {
 }
 
 export function BatchTrackingPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
@@ -79,14 +78,14 @@ export function BatchTrackingPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['batch-expiring'] });
-      toast({ title: 'Batch lot berhasil ditambahkan' });
+      toast.success({ title: 'Batch lot berhasil ditambahkan' });
       setBatchNumber('');
       setQuantity('');
       setCostPrice('');
       setExpiresAt('');
       setNotes('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal menambahkan batch' }),
+    onError: () => toast.error({ title: 'Gagal menambahkan batch' }),
   });
 
   const deleteMutation = useMutation({
@@ -94,7 +93,7 @@ export function BatchTrackingPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['batch-expiring'] });
       queryClient.invalidateQueries({ queryKey: ['batch-expired'] });
-      toast({ title: 'Batch dihapus' });
+      toast.success({ title: 'Batch dihapus' });
     },
   });
 

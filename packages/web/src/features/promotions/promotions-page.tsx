@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Promotion } from '@/types/promotion.types';
@@ -71,7 +71,6 @@ function formatDiscountValue(promo: Promotion): string {
 export function PromotionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Promotion | null>(null);
 
@@ -84,12 +83,11 @@ export function PromotionsPage() {
     mutationFn: (id: string) => promotionsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promotions'] });
-      toast({ title: 'Promosi dinonaktifkan' });
+      toast.success({ title: 'Promosi dinonaktifkan' });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menghapus',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

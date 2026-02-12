@@ -5,7 +5,7 @@ import { AnimatePresence } from 'framer-motion';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
 import { useFeatureStore } from '@/stores/feature.store';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { AccountStep, type AccountData } from './steps/account-step';
 import { BusinessTypeStep } from './steps/business-type-step';
@@ -41,7 +41,6 @@ export function RegisterPage() {
   const setBusinessType = useFeatureStore((s) => s.setBusinessType);
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const { data: presetsData, isLoading: presetsLoading } = useQuery({
     queryKey: ['business-type-presets-public'],
@@ -73,8 +72,7 @@ export function RegisterPage() {
       setCurrentStep(3);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Pendaftaran gagal',
         description: error.response?.data?.message || 'Terjadi kesalahan saat mendaftar',
       });

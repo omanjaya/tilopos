@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -173,6 +174,7 @@ export function TutorialLibraryPage() {
               <>
                 <DialogHeader>
                   <DialogTitle>{tutorial.title}</DialogTitle>
+                  <DialogDescription className="sr-only">Video tutorial {tutorial.title}</DialogDescription>
                 </DialogHeader>
 
                 {/* Video Player */}

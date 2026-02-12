@@ -20,6 +20,7 @@ export interface ProductVariant {
   id: string;
   name: string;
   sku: string;
+  barcode: string | null;
   price: number;
   costPrice: number;
   isActive: boolean;
@@ -57,6 +58,20 @@ export interface CreateVariantRequest {
   sku?: string;
   price: number;
   costPrice: number;
+}
+
+export interface UpdateVariantRequest {
+  name?: string;
+  sku?: string;
+  barcode?: string;
+  price?: number;
+  costPrice?: number;
+}
+
+export interface DeleteVariantResponse {
+  message: string;
+  hadTransactions: boolean;
+  transactionCount: number;
 }
 
 export interface CreateCategoryRequest {

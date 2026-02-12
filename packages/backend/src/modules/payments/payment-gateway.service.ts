@@ -520,10 +520,13 @@ export class PaymentGatewayService {
       cash: 'cash',
       qris: 'qris',
       card: 'credit_card',
+      debit_card: 'debit_card',
+      credit_card: 'credit_card',
       gopay: 'gopay',
       ovo: 'ovo',
       dana: 'dana',
       shopeepay: 'shopeepay',
+      linkaja: 'linkaja',
       bank_transfer: 'bca', // Default to BCA
       credit_note: 'credit_note',
     };

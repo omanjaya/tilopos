@@ -31,15 +31,6 @@ export interface UseTransferSocketOptions {
   autoJoinOutlet?: boolean;
 }
 
-const STATUS_LABELS: Record<TransferStatus, string> = {
-  requested: 'Diminta',
-  approved: 'Disetujui',
-  shipped: 'Dikirim',
-  in_transit: 'Dalam Pengiriman',
-  received: 'Diterima',
-  cancelled: 'Dibatalkan',
-};
-
 /**
  * Hook for real-time stock transfer updates.
  *
@@ -66,7 +57,6 @@ export function useTransferSocket(options: UseTransferSocketOptions = {}) {
 
       // Show toast notification
       if (showNotifications && user) {
-        const statusLabel = STATUS_LABELS[payload.newStatus] || payload.newStatus;
         const isSourceOutlet = user.outletId === payload.sourceOutletId;
         const isDestinationOutlet = user.outletId === payload.destinationOutletId;
 
@@ -136,7 +126,7 @@ export function useTransferSocket(options: UseTransferSocketOptions = {}) {
     if (autoJoinOutlet && user?.outletId) {
       joinRoom(`outlet:${user.outletId}`, {
         outletId: user.outletId,
-        businessId: user.businessId,
+        businessId: user.businessId ?? undefined,
       });
     }
 

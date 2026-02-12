@@ -97,7 +97,7 @@ export function SelfOrderMenu({ outletName, tableName, categories, onSubmitOrder
                         <div style={{ display: 'grid', gap: 12 }}>
                             {cat.products.map(item => (
                                 <div key={item.id} onClick={() => item.variants?.length ? setSelectedItem(item) : addToCart(item)} style={{ background: 'white', borderRadius: 16, padding: 16, display: 'flex', gap: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', cursor: 'pointer' }}>
-                                    {item.imageUrl && <img src={item.imageUrl} alt={item.name} style={{ width: 80, height: 80, borderRadius: 12, objectFit: 'cover' }} />}
+                                    {item.imageUrl && <img src={item.imageUrl} alt={item.name} loading="lazy" style={{ width: 80, height: 80, borderRadius: 12, objectFit: 'cover' }} />}
                                     <div style={{ flex: 1 }}>
                                         <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 4 }}>{item.name}</h3>
                                         {item.description && <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 8 }}>{item.description}</p>}

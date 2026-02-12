@@ -27,6 +27,10 @@ import { UpdateOperatingHoursDto } from '../../application/dtos/settings.dto';
 import {
   CreatePaymentMethodDto,
   UpdatePaymentMethodDto,
+  CreatePrinterConfigDto,
+  UpdatePrinterConfigDto,
+  CreateReportScheduleDto,
+  UpdateReportScheduleDto,
 } from '../../application/dtos/settings.dto';
 import { BusinessScoped } from '../../shared/guards/business-scope.guard';
 
@@ -511,5 +515,102 @@ export class SettingsController {
   async deleteBusinessPaymentMethod(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.settingsRepo.deleteBusinessPaymentMethod(user.businessId, id);
     return { message: 'Payment method deactivated' };
+  }
+
+  // ==================== Printer Configuration API ====================
+
+  @Get('printers')
+  @ApiOperation({ summary: 'List printer configs for business' })
+  async listPrinterConfigs(@CurrentUser() user: AuthUser) {
+    return this.settingsRepo.getPrinterConfigs(user.businessId);
+  }
+
+  @Post('printers')
+  @ApiOperation({ summary: 'Create a new printer config' })
+  async createPrinterConfig(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePrinterConfigDto,
+  ) {
+    return this.settingsRepo.createPrinterConfig(user.businessId, {
+      name: dto.name,
+      type: dto.type,
+      connection: dto.connection,
+      ipAddress: dto.ipAddress,
+      port: dto.port,
+      autoPrint: dto.autoPrint,
+      copies: dto.copies,
+      outletId: dto.outletId,
+    });
+  }
+
+  @Put('printers/:id')
+  @ApiOperation({ summary: 'Update a printer config' })
+  async updatePrinterConfig(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdatePrinterConfigDto,
+  ) {
+    return this.settingsRepo.updatePrinterConfig(user.businessId, id, {
+      name: dto.name,
+      type: dto.type,
+      connection: dto.connection,
+      ipAddress: dto.ipAddress,
+      port: dto.port,
+      isActive: dto.isActive,
+      autoPrint: dto.autoPrint,
+      copies: dto.copies,
+      outletId: dto.outletId,
+    });
+  }
+
+  @Delete('printers/:id')
+  @ApiOperation({ summary: 'Delete a printer config' })
+  async deletePrinterConfig(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.settingsRepo.deletePrinterConfig(user.businessId, id);
+    return { message: 'Printer config deleted' };
+  }
+
+  // ==================== Report Schedule API ====================
+
+  @Get('report-schedules')
+  @ApiOperation({ summary: 'List report schedules for business' })
+  async listReportSchedules(@CurrentUser() user: AuthUser) {
+    return this.settingsRepo.getReportSchedules(user.businessId);
+  }
+
+  @Post('report-schedules')
+  @ApiOperation({ summary: 'Create a new report schedule' })
+  async createReportSchedule(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateReportScheduleDto,
+  ) {
+    return this.settingsRepo.createReportSchedule(user.businessId, {
+      reportType: dto.reportType,
+      frequency: dto.frequency,
+      recipients: dto.recipients,
+      isActive: dto.isActive,
+    });
+  }
+
+  @Put('report-schedules/:id')
+  @ApiOperation({ summary: 'Update a report schedule' })
+  async updateReportSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateReportScheduleDto,
+  ) {
+    return this.settingsRepo.updateReportSchedule(user.businessId, id, {
+      reportType: dto.reportType,
+      frequency: dto.frequency,
+      recipients: dto.recipients,
+      isActive: dto.isActive,
+    });
+  }
+
+  @Delete('report-schedules/:id')
+  @ApiOperation({ summary: 'Delete a report schedule' })
+  async deleteReportSchedule(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.settingsRepo.deleteReportSchedule(user.businessId, id);
+    return { message: 'Report schedule deleted' };
   }
 }

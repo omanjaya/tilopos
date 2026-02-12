@@ -70,6 +70,17 @@ export const inventoryApi = {
   createTransfer: (data: CreateTransferRequest) =>
     apiClient.post<StockTransfer>('/stock-transfers', data).then((r) => r.data),
 
+  directTransfer: (data: {
+    sourceOutletId: string;
+    destinationOutletId: string;
+    items: { productId?: string; variantId?: string; itemName: string; quantity: number }[];
+    notes?: string;
+  }) =>
+    apiClient.post<{ transferId: string; transferNumber: string; status: string; itemCount: number }>(
+      '/stock-transfers/direct',
+      data,
+    ).then((r) => r.data),
+
   approveTransfer: (id: string) =>
     apiClient.put(`/stock-transfers/${id}/approve`).then((r) => r.data),
 
@@ -96,7 +107,7 @@ export const inventoryApi = {
     apiClient.delete(`/transfer-templates/${id}`).then((r) => r.data),
 
   // Suppliers
-  listSuppliers: (params?: { search?: string }) =>
+  listSuppliers: (params?: { search?: string; outletId?: string }) =>
     apiClient.get('/suppliers', { params }).then((r) => {
       const raw = r.data;
       const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;

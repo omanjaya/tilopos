@@ -3,6 +3,7 @@ import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.token
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
 import { RefundNotAllowedException } from '@domain/exceptions/refund-not-allowed.exception';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
 import type { IInventoryRepository } from '@domain/interfaces/repositories/inventory.repository';
@@ -118,6 +119,8 @@ export class ProcessRefundUseCase {
       updatedAt: new Date(),
     });
 
+    const stockChanges: Array<{ productId: string; variantId: string | null; previousQty: number; newQty: number }> = [];
+
     for (const item of refundItems) {
       if (item.productId) {
         const stockLevel = await this.inventoryRepo.findStockLevel(
@@ -126,10 +129,9 @@ export class ProcessRefundUseCase {
           item.variantId,
         );
         if (stockLevel) {
-          await this.inventoryRepo.updateStockLevel(
-            stockLevel.id,
-            stockLevel.quantity + item.quantity,
-          );
+          const previousQty = stockLevel.quantity;
+          const newQty = previousQty + item.quantity;
+          await this.inventoryRepo.updateStockLevel(stockLevel.id, newQty);
           await this.inventoryRepo.createStockMovement({
             id: '',
             outletId: original.outletId,
@@ -143,6 +145,7 @@ export class ProcessRefundUseCase {
             createdBy: input.employeeId,
             createdAt: new Date(),
           });
+          stockChanges.push({ productId: item.productId, variantId: item.variantId, previousQty, newQty });
         }
       }
     }
@@ -168,7 +171,12 @@ export class ProcessRefundUseCase {
       createdAt: new Date(),
     });
 
-    void this.eventBus;
+    // Publish stock change events so inventory displays update in real-time
+    for (const sc of stockChanges) {
+      this.eventBus.publish(
+        new StockLevelChangedEvent(original.outletId, sc.productId, sc.variantId, sc.previousQty, sc.newQty),
+      );
+    }
 
     return {
       refundTransactionId: refundTransaction.id,

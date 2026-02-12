@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -53,6 +54,7 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
                             </Button>
                         </div>
                     </div>
+                    <DialogDescription className="sr-only">Preview struk pembayaran</DialogDescription>
                 </DialogHeader>
 
                 {/* Receipt Content - printable area */}

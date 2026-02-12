@@ -47,6 +47,7 @@ import { SerialNumbersModule } from './modules/serial-numbers/serial-numbers.mod
 import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { CreditModule } from './modules/credit/credit.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
 
 @Module({
@@ -100,6 +101,7 @@ import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
     ItemTrackingModule,
     PricingModule,
     CreditModule,
+    OnboardingModule,
   ],
   providers: [
     {

@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatCurrency } from '@/lib/format';
 import {
   Plus,
@@ -36,6 +36,8 @@ import {
   Tags,
   Package,
 } from 'lucide-react';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -55,7 +57,9 @@ import { cn } from '@/lib/utils';
 export function ProductsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -67,9 +71,10 @@ export function ProductsPage() {
   });
 
   const { data: productsData, isLoading } = useQuery({
-    queryKey: ['products', search, categoryFilter],
+    queryKey: ['products', outletId, search, categoryFilter],
     queryFn: () =>
       productsApi.list({
+        outletId: outletId || undefined,
         search: search || undefined,
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
       }),
@@ -79,12 +84,11 @@ export function ProductsPage() {
     mutationFn: (id: string) => productsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast({ title: 'Produk dihapus' });
+      toast.success({ title: 'Produk dihapus' });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menghapus',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

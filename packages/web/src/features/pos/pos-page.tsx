@@ -1,8 +1,8 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUIStore } from '@/stores/ui.store';
 import { useCartStore } from '@/stores/cart.store';
@@ -12,8 +12,10 @@ import {
     ProductGrid, CartPanel, PaymentPanel, ReceiptPreview, HeldBillsPanel,
     ProductModal, CustomerSelector, TableSelector, DiscountModal, ShortcutsDialog,
     OrderReadyToast, PosHeader, OfflineBanner, MobileCartBar, TodayTransactionsSheet,
+    ShiftStartModal, ShiftEndModal,
 } from './components';
 import { usePOSShortcuts, usePosData, usePosTransaction, usePosModals } from './hooks';
+import { useShiftStatus } from '@/hooks/use-shift-status';
 import type { POSProduct, HeldBill } from '@/types/pos.types';
 
 export function POSPage() {
@@ -27,10 +29,21 @@ export function POSPage() {
     } = useCartStore();
 
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [showShiftStart, setShowShiftStart] = useState(false);
+    const [showShiftEnd, setShowShiftEnd] = useState(false);
+    const [shiftCheckDone, setShiftCheckDone] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const { isOffline, pendingCount, syncStatus, manualSync, queueTransaction } = useOfflinePOS();
     const { products, categories, isLoading, refetchProducts } = usePosData({ outletId });
     const modals = usePosModals();
+    const { currentShift, refetchShift, isLoading: isShiftLoading } = useShiftStatus();
+
+    // Derive shift modal state from the hook instead of a duplicate API call
+    useEffect(() => {
+        if (isShiftLoading) return;
+        setShiftCheckDone(true);
+        setShowShiftStart(!currentShift);
+    }, [currentShift, isShiftLoading]);
     const { handleCheckoutComplete, isProcessing, handleCreditCheckout, isCreditProcessing } = usePosTransaction({
         outletId,
         isOffline,
@@ -51,13 +64,13 @@ export function POSPage() {
     const handleHoldBill = useCallback(() => {
         if (items.length === 0) return;
         const bill = holdCurrentBill();
-        toast({ title: 'Pesanan Ditahan', description: `${bill.items.length} item berhasil ditahan` });
+        toast.success({ title: 'Pesanan Ditahan', description: `${bill.items.length} item berhasil ditahan` });
     }, [items.length, holdCurrentBill]);
 
     const handleResumeBill = (bill: HeldBill) => {
         resumeBill(bill);
         modals.closeHeldBills();
-        toast({ title: 'Pesanan Dilanjutkan', description: `${bill.items.length} item ditambahkan ke keranjang` });
+        toast.success({ title: 'Pesanan Dilanjutkan', description: `${bill.items.length} item ditambahkan ke keranjang` });
     };
 
     const handleProductClick = (product: POSProduct) => {
@@ -103,6 +116,14 @@ export function POSPage() {
                 onHeldBillsClick={modals.openHeldBills} onShortcutHelpClick={modals.openShortcutHelp}
                 onCartClick={modals.openCartSheet} onRefreshProducts={() => void refetchProducts()}
                 onTodayTransactionsClick={modals.openTodayTransactions}
+                currentShift={currentShift ? {
+                    id: currentShift.shiftId,
+                    startedAt: currentShift.startedAt,
+                    openingCash: 0,
+                    totalSales: currentShift.totalSales ?? 0,
+                    transactions: 0,
+                } : null}
+                onEndShift={() => setShowShiftEnd(true)}
             />
 
             <OfflineBanner
@@ -214,6 +235,33 @@ export function POSPage() {
                 onClose={modals.closeTodayTransactions}
                 outletId={outletId}
                 onPrintReceipt={() => {}}
+            />
+
+            <ShiftStartModal
+                open={showShiftStart && shiftCheckDone}
+                onClose={() => setShowShiftStart(false)}
+                onSuccess={() => {
+                    setShowShiftStart(false);
+                    void refetchShift();
+                    void refetchProducts();
+                }}
+                outletId={outletId}
+            />
+
+            <ShiftEndModal
+                open={showShiftEnd}
+                onClose={() => setShowShiftEnd(false)}
+                onSuccess={() => {
+                    setShowShiftEnd(false);
+                    void refetchShift();
+                }}
+                shiftData={currentShift ? {
+                    id: currentShift.shiftId,
+                    startedAt: currentShift.startedAt,
+                    openingCash: 0,
+                    totalSales: currentShift.totalSales ?? 0,
+                    transactions: 0,
+                } : null}
             />
 
             <OrderReadyToast />

@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { Plus, MoreHorizontal, Eye, PackageCheck } from 'lucide-react';
 import type { PurchaseOrder } from '@/types/inventory.types';
@@ -39,7 +39,6 @@ const STATUS_CONFIG: Record<POStatus, { label: string; className: string }> = {
 export function PurchaseOrdersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [receiveTarget, setReceiveTarget] = useState<PurchaseOrder | null>(null);
 
@@ -55,12 +54,11 @@ export function PurchaseOrdersPage() {
     mutationFn: (id: string) => inventoryApi.receivePurchaseOrder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-      toast({ title: 'PO berhasil diterima' });
+      toast.success({ title: 'PO berhasil diterima' });
       setReceiveTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menerima PO',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

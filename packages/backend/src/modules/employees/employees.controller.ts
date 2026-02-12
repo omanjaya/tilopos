@@ -238,8 +238,7 @@ export class EmployeesController {
   @Get('shifts/current')
   async getCurrentShift(@CurrentUser() user: AuthUser) {
     const shift = await this.shiftRepo.findOpenShift(user.employeeId);
-    if (!shift) throw new NotFoundException('No open shift found');
-    return shift;
+    return shift ?? null;
   }
 
   // ==========================================================================

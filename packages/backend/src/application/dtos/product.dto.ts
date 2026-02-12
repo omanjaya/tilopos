@@ -32,6 +32,35 @@ export class VariantDto {
   costPrice?: number;
 }
 
+export class UpdateVariantDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  costPrice?: number;
+}
+
 export class CreateProductDto {
   @ApiProperty()
   @IsString()

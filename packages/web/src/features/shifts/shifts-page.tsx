@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUIStore } from '@/stores/ui.store';
 import { formatCurrency, formatDateTime } from '@/lib/format';
@@ -48,7 +48,6 @@ function formatDuration(startedAt: string, endedAt: string | null): string {
 
 export function ShiftsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const user = useAuthStore((s) => s.user);
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
 
@@ -79,13 +78,12 @@ export function ShiftsPage() {
       shiftsApi.start(employeeId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
-      toast({ title: 'Shift berhasil dimulai' });
+      toast.success({ title: 'Shift berhasil dimulai' });
       setStartShiftOpen(false);
       setOpeningCash('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memulai shift',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -97,14 +95,13 @@ export function ShiftsPage() {
       shiftsApi.end(employeeId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
-      toast({ title: 'Shift berhasil ditutup' });
+      toast.success({ title: 'Shift berhasil ditutup' });
       setEndShiftOpen(false);
       setClosingCash('');
       setEndShiftNotes('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menutup shift',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -116,14 +113,13 @@ export function ShiftsPage() {
       shiftsApi.cashIn(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
-      toast({ title: 'Cash in berhasil dicatat' });
+      toast.success({ title: 'Cash in berhasil dicatat' });
       setCashInOpen(false);
       setCashInAmount('');
       setCashInNotes('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal mencatat cash in',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -135,14 +131,13 @@ export function ShiftsPage() {
       shiftsApi.cashOut(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
-      toast({ title: 'Cash out berhasil dicatat' });
+      toast.success({ title: 'Cash out berhasil dicatat' });
       setCashOutOpen(false);
       setCashOutAmount('');
       setCashOutNotes('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal mencatat cash out',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -333,8 +328,7 @@ export function ShiftsPage() {
             <Button
               onClick={() => {
                 if (!selectedOutletId) {
-                  toast({
-                    variant: 'destructive',
+                  toast.error({
                     title: 'Pilih outlet terlebih dahulu',
                   });
                   return;

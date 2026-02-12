@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -41,6 +42,7 @@ export function HeldBillsPanel({
                             {bills.length} pesanan
                         </Badge>
                     </DialogTitle>
+                    <DialogDescription className="sr-only">Daftar pesanan yang ditahan</DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-auto -mx-6 px-6">

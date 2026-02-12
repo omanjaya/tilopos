@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Plus, Pencil, Check, X, Loader2 } from 'lucide-react';
 import type { Category } from '@/types/product.types';
 import type { AxiosError } from 'axios';
@@ -24,7 +24,6 @@ interface CategoryManagerProps {
 
 export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -40,10 +39,10 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setNewName('');
-      toast({ title: 'Kategori ditambahkan' });
+      toast.success({ title: 'Kategori ditambahkan' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({ variant: 'destructive', title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
+      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
     },
   });
 
@@ -53,10 +52,10 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setEditingId(null);
-      toast({ title: 'Kategori diperbarui' });
+      toast.success({ title: 'Kategori diperbarui' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({ variant: 'destructive', title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
+      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
     },
   });
 

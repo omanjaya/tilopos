@@ -125,6 +125,16 @@ export interface ISettingsRepository {
     data: UpdateBusinessPaymentMethodData,
   ): Promise<BusinessPaymentMethod>;
   deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void>;
+  // Printer Configs
+  getPrinterConfigs(businessId: string): Promise<PrinterConfigRecord[]>;
+  createPrinterConfig(businessId: string, data: CreatePrinterConfigInput): Promise<PrinterConfigRecord>;
+  updatePrinterConfig(businessId: string, id: string, data: UpdatePrinterConfigInput): Promise<PrinterConfigRecord>;
+  deletePrinterConfig(businessId: string, id: string): Promise<void>;
+  // Report Schedules
+  getReportSchedules(businessId: string): Promise<ReportScheduleRecord[]>;
+  createReportSchedule(businessId: string, data: CreateReportScheduleInput): Promise<ReportScheduleRecord>;
+  updateReportSchedule(businessId: string, id: string, data: UpdateReportScheduleInput): Promise<ReportScheduleRecord>;
+  deleteReportSchedule(businessId: string, id: string): Promise<void>;
 }
 
 export interface UpdateBusinessData {
@@ -351,4 +361,68 @@ export interface UpdateBusinessPaymentMethodData {
   isActive?: boolean;
   processingFee?: number;
   settings?: Record<string, unknown>;
+}
+
+// ==================== Printer Configs ====================
+
+export interface PrinterConfigRecord {
+  id: string;
+  name: string;
+  type: 'receipt' | 'kitchen' | 'label';
+  connection: 'usb' | 'network' | 'bluetooth';
+  ipAddress: string | null;
+  port: number | null;
+  isActive: boolean;
+  autoPrint: boolean;
+  copies: number;
+  outletId: string;
+}
+
+export interface CreatePrinterConfigInput {
+  name: string;
+  type: 'receipt' | 'kitchen' | 'label';
+  connection: 'usb' | 'network' | 'bluetooth';
+  ipAddress?: string;
+  port?: number;
+  autoPrint?: boolean;
+  copies?: number;
+  outletId: string;
+}
+
+export interface UpdatePrinterConfigInput {
+  name?: string;
+  type?: 'receipt' | 'kitchen' | 'label';
+  connection?: 'usb' | 'network' | 'bluetooth';
+  ipAddress?: string;
+  port?: number;
+  isActive?: boolean;
+  autoPrint?: boolean;
+  copies?: number;
+  outletId?: string;
+}
+
+// ==================== Report Schedules ====================
+
+export interface ReportScheduleRecord {
+  id: string;
+  reportType: 'sales' | 'financial' | 'inventory';
+  frequency: 'daily' | 'weekly' | 'monthly';
+  recipients: string[];
+  isActive: boolean;
+  nextSendAt: string | null;
+  lastSentAt: string | null;
+}
+
+export interface CreateReportScheduleInput {
+  reportType: 'sales' | 'financial' | 'inventory';
+  frequency: 'daily' | 'weekly' | 'monthly';
+  recipients: string[];
+  isActive?: boolean;
+}
+
+export interface UpdateReportScheduleInput {
+  reportType?: 'sales' | 'financial' | 'inventory';
+  frequency?: 'daily' | 'weekly' | 'monthly';
+  recipients?: string[];
+  isActive?: boolean;
 }

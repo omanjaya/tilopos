@@ -5,6 +5,7 @@ import {
   BusinessSettingsPage, OutletsPage, DevicesPage, NotificationsPage,
   TaxSettingsPage, ReceiptTemplatePage, OperatingHoursPage,
   ModifierGroupsPage, FeaturesPage, BusinessTypePage, AppearanceSettingsPage,
+  PaymentSettingsPage, PrinterSettingsPage, ReportSchedulePage,
 } from './lazy-imports';
 
 export const settingsRoutes: RouteObject[] = [
@@ -19,4 +20,7 @@ export const settingsRoutes: RouteObject[] = [
   { path: 'features', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><FeaturesPage /></RoleGuard></LazyRoute> },
   { path: 'business-type', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><BusinessTypePage /></RoleGuard></LazyRoute> },
   { path: 'appearance', element: <LazyRoute><AppearanceSettingsPage /></LazyRoute> },
+  { path: 'payments', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><PaymentSettingsPage /></RoleGuard></LazyRoute> },
+  { path: 'printers', element: <LazyRoute><PrinterSettingsPage /></LazyRoute> },
+  { path: 'report-schedule', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><ReportSchedulePage /></RoleGuard></LazyRoute> },
 ];

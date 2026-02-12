@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,15 +10,26 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { FormFieldError } from '@/components/shared/form-field-error';
+import { toast } from '@/lib/toast-utils';
 import { Loader2, Save, Plus, Trash2 } from 'lucide-react';
 import type { UpdateTaxConfigRequest, TaxExemptionRule } from '@/types/settings.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
+// Zod schema for tax settings validation
+const taxSettingsSchema = z.object({
+  taxRate: z.number().min(0, 'Tarif pajak tidak boleh negatif').max(100, 'Tarif pajak maksimal 100%'),
+  serviceChargeRate: z
+    .number()
+    .min(0, 'Tarif biaya layanan tidak boleh negatif')
+    .max(100, 'Tarif biaya layanan maksimal 100%'),
+});
+
+type TaxSettingsFormData = z.infer<typeof taxSettingsSchema>;
+
 export function TaxSettingsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [taxRate, setTaxRate] = useState(11);
   const [serviceChargeRate, setServiceChargeRate] = useState(0);
@@ -25,6 +37,10 @@ export function TaxSettingsPage() {
   const [exemptionRules, setExemptionRules] = useState<Omit<TaxExemptionRule, 'id'>[]>([]);
   const [newRuleName, setNewRuleName] = useState('');
   const [newRuleDescription, setNewRuleDescription] = useState('');
+
+  // Form validation states
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const { data: taxConfig, isLoading } = useQuery({
     queryKey: ['taxConfig'],
@@ -46,15 +62,75 @@ export function TaxSettingsPage() {
     }
   }, [taxConfig]);
 
+  // Validate a single field
+  const validateField = (fieldName: keyof TaxSettingsFormData, value: number) => {
+    try {
+      // Create a partial schema for single field validation
+      const fieldSchema = taxSettingsSchema.shape[fieldName];
+      const result = fieldSchema.safeParse(value);
+
+      if (!result.success) {
+        const errorMessage = result.error.errors[0]?.message || 'Nilai tidak valid';
+        setFieldErrors((prev) => ({ ...prev, [fieldName]: errorMessage }));
+      } else {
+        setFieldErrors((prev) => {
+          const newErrors = { ...prev };
+          delete newErrors[fieldName];
+          return newErrors;
+        });
+      }
+    } catch {
+      // If validation fails, clear the error
+      setFieldErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[fieldName];
+        return newErrors;
+      });
+    }
+  };
+
+  // Handle field blur - mark as touched and validate
+  const handleFieldBlur = (fieldName: keyof TaxSettingsFormData, value: number) => {
+    setTouched((prev) => ({ ...prev, [fieldName]: true }));
+    validateField(fieldName, value);
+  };
+
+  // Validate all fields on submit
+  const validateForm = (): boolean => {
+    const formData: TaxSettingsFormData = { taxRate, serviceChargeRate };
+    const result = taxSettingsSchema.safeParse(formData);
+
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.errors.forEach((error) => {
+        if (error.path[0]) {
+          errors[error.path[0] as string] = error.message;
+        }
+      });
+      setFieldErrors(errors);
+
+      // Mark all fields with errors as touched
+      const touchedFields: Record<string, boolean> = {};
+      Object.keys(errors).forEach((key) => {
+        touchedFields[key] = true;
+      });
+      setTouched((prev) => ({ ...prev, ...touchedFields }));
+
+      return false;
+    }
+
+    setFieldErrors({});
+    return true;
+  };
+
   const updateMutation = useMutation({
     mutationFn: (data: UpdateTaxConfigRequest) => settingsApi.updateTaxConfig(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['taxConfig'] });
-      toast({ title: 'Pengaturan pajak berhasil disimpan' });
+      toast.success({ title: 'Pengaturan pajak berhasil disimpan' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyimpan',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -63,6 +139,12 @@ export function TaxSettingsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate form before submit
+    if (!validateForm()) {
+      return;
+    }
+
     updateMutation.mutate({
       taxRate,
       serviceChargeRate,
@@ -132,8 +214,12 @@ export function TaxSettingsPage() {
                   step={0.1}
                   value={taxRate}
                   onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                  onBlur={() => handleFieldBlur('taxRate', taxRate)}
                   placeholder="Contoh: 11"
+                  aria-invalid={!!fieldErrors.taxRate && touched.taxRate}
+                  aria-describedby={fieldErrors.taxRate && touched.taxRate ? 'taxRate-error' : undefined}
                 />
+                <FormFieldError error={fieldErrors.taxRate} touched={touched.taxRate} id="taxRate-error" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="serviceCharge">Biaya Layanan (%)</Label>
@@ -145,7 +231,19 @@ export function TaxSettingsPage() {
                   step={0.1}
                   value={serviceChargeRate}
                   onChange={(e) => setServiceChargeRate(parseFloat(e.target.value) || 0)}
+                  onBlur={() => handleFieldBlur('serviceChargeRate', serviceChargeRate)}
                   placeholder="Contoh: 5"
+                  aria-invalid={!!fieldErrors.serviceChargeRate && touched.serviceChargeRate}
+                  aria-describedby={
+                    fieldErrors.serviceChargeRate && touched.serviceChargeRate
+                      ? 'serviceChargeRate-error'
+                      : undefined
+                  }
+                />
+                <FormFieldError
+                  error={fieldErrors.serviceChargeRate}
+                  touched={touched.serviceChargeRate}
+                  id="serviceChargeRate-error"
                 />
               </div>
             </div>

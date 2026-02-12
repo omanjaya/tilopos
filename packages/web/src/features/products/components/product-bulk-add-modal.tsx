@@ -108,7 +108,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
           .map((r, i) => (r.status === 'rejected' ? i : -1))
           .filter((i) => i !== -1);
 
-        setRows((prev) => failedIndices.map((i) => prev[i]));
+        setRows((prev) => failedIndices.map((i) => prev[i]).filter((row): row is BulkProductRow => row !== undefined));
 
         toast.error({
           title: 'Beberapa produk gagal',

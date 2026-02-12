@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRealtimeInventory } from '@/hooks/use-realtime';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,6 @@ import { RefreshCw } from 'lucide-react';
 
 export function StockRealtimeBadge() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId || user?.outletId || '';
@@ -22,7 +21,7 @@ export function StockRealtimeBadge() {
       // Only count updates for the current outlet
       if (event.outletId === outletId) {
         setPendingUpdates((prev) => prev + 1);
-        toast({
+        toast.info({
           title: 'Stok diperbarui',
           description: `Stok produk telah diperbarui dari sumber lain.`,
         });
@@ -53,7 +52,7 @@ export function StockRealtimeBadge() {
               : event.newStatus === 'approved'
                 ? 'disetujui'
                 : event.newStatus;
-        toast({
+        toast.info({
           title: 'Transfer stok diperbarui',
           description: `Transfer #${event.transferId.slice(0, 8)} status: ${statusLabel}`,
         });
@@ -80,7 +79,7 @@ export function StockRealtimeBadge() {
         <span
           className={cn(
             'h-2 w-2 rounded-full',
-            isConnected ? 'bg-green-500' : 'bg-gray-400',
+            isConnected ? 'bg-success' : 'bg-muted-foreground',
           )}
         />
       </div>
@@ -90,7 +89,7 @@ export function StockRealtimeBadge() {
   return (
     <button
       onClick={handleDismiss}
-      className="flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-xs text-blue-600 transition-colors hover:bg-blue-500/20 dark:text-blue-400"
+      className="flex items-center gap-1.5 rounded-md bg-info/10 px-2 py-1 text-xs text-info transition-colors hover:bg-info/20"
       title="Klik untuk menghapus badge"
     >
       <RefreshCw className="h-3 w-3" />

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Hash, Search, Plus, Shield, AlertTriangle } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,7 +35,6 @@ function formatDate(date: string | null) {
 }
 
 export function SerialNumbersPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
@@ -87,13 +86,13 @@ export function SerialNumbersPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serial'] });
-      toast({ title: 'Serial number berhasil didaftarkan' });
+      toast.success({ title: 'Serial number berhasil didaftarkan' });
       setSerialNumber('');
       setCostPrice('');
       setWarrantyExpiry('');
       setRegNotes('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal mendaftarkan serial number' }),
+    onError: () => toast.error({ title: 'Gagal mendaftarkan serial number' }),
   });
 
   const statusMutation = useMutation({
@@ -107,7 +106,7 @@ export function SerialNumbersPage() {
       }
     },
     onSuccess: () => {
-      toast({ title: 'Status diperbarui' });
+      toast.success({ title: 'Status diperbarui' });
       if (lookupResult) lookupMutation.mutate(lookupResult.serialNumber);
     },
   });

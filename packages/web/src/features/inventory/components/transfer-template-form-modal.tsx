@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import type { TransferTemplate } from '@/types/transfer-template.types';
 import type { AxiosError } from 'axios';
@@ -39,7 +39,6 @@ export function TransferTemplateFormModal({
   template,
 }: TransferTemplateFormModalProps) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -94,14 +93,13 @@ export function TransferTemplateFormModal({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transfer-templates'] });
-      toast({
+      toast.success({
         title: template ? 'Template diperbarui' : 'Template dibuat',
       });
       onOpenChange(false);
     },
     onError: (error: AxiosError<any>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyimpan template',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -147,24 +145,21 @@ export function TransferTemplateFormModal({
 
   const handleSubmit = () => {
     if (!name.trim()) {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Nama template wajib diisi',
       });
       return;
     }
 
     if (!sourceOutletId || !destinationOutletId) {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Pilih outlet asal dan tujuan',
       });
       return;
     }
 
     if (sourceOutletId === destinationOutletId) {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Outlet asal dan tujuan harus berbeda',
       });
       return;
@@ -173,8 +168,7 @@ export function TransferTemplateFormModal({
     const validItems = items.filter((item) => item.productId && Number(item.defaultQuantity) > 0);
 
     if (validItems.length === 0) {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Tambahkan minimal 1 produk',
       });
       return;

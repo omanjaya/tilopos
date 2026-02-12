@@ -10,6 +10,8 @@ import { CategoryManager } from './components/category-manager';
 import { ProductQuickAddModal } from './components/product-quick-add-modal';
 import { ProductBulkAddModal } from './components/product-bulk-add-modal';
 import { BulkEditModal } from './components/bulk-edit-modal';
+import { ProductTemplatesModal } from './components/product-templates-modal';
+import { BarcodePrintModal } from './components/barcode-generator';
 import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -30,7 +32,9 @@ import {
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2 } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2, LayoutTemplate, Printer } from 'lucide-react';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { Product } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -38,6 +42,9 @@ import type { ApiErrorResponse } from '@/types/api.types';
 export function ProductsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -46,6 +53,8 @@ export function ProductsPage() {
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
 
   // Feature checks for dynamic UI
   const { hasBarcodeScanning } = useBusinessFeatures();
@@ -56,9 +65,10 @@ export function ProductsPage() {
   });
 
   const { data: productsData, isLoading } = useQuery({
-    queryKey: ['products', search, categoryFilter],
+    queryKey: ['products', outletId, search, categoryFilter],
     queryFn: () =>
       productsApi.list({
+        outletId: outletId || undefined,
         search: search || undefined,
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
       }),
@@ -87,12 +97,12 @@ export function ProductsPage() {
       const duplicatedData = {
         name: `${product.name} (Copy)`,
         sku: `${product.sku}-COPY-${Date.now().toString(36).toUpperCase()}`,
-        description: product.description,
-        categoryId: product.categoryId,
+        description: product.description ?? undefined,
+        categoryId: product.categoryId ?? undefined,
         basePrice: product.basePrice,
         costPrice: product.costPrice,
         trackStock: product.trackStock,
-        imageUrl: product.imageUrl,
+        imageUrl: product.imageUrl ?? undefined,
       };
       return productsApi.create(duplicatedData);
     },
@@ -154,7 +164,7 @@ export function ProductsPage() {
       header: '',
       cell: (row) =>
         row.imageUrl ? (
-          <img src={row.imageUrl} alt={row.name} className="h-10 w-10 rounded-md object-cover" />
+          <img src={row.imageUrl} alt={row.name} loading="lazy" className="h-10 w-10 rounded-md object-cover" />
         ) : (
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
             N/A
@@ -262,16 +272,27 @@ export function ProductsPage() {
       <PageHeader title="Produk" description="Kelola daftar produk Anda">
         <HelpSidebar page="products" />
         {selectedProducts.length > 0 && (
-          <Button
-            variant="default"
-            onClick={() => setBulkEditOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Edit2 className="mr-2 h-4 w-4" /> Bulk Edit ({selectedProducts.length})
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setBarcodePrintOpen(true)}
+              disabled={!selectedProducts.some((p) => p.sku)}
+            >
+              <Printer className="mr-2 h-4 w-4" /> Cetak Barcode ({selectedProducts.filter((p) => p.sku).length})
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => setBulkEditOpen(true)}
+            >
+              <Edit2 className="mr-2 h-4 w-4" /> Bulk Edit ({selectedProducts.length})
+            </Button>
+          </>
         )}
         <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
           <Tags className="mr-2 h-4 w-4" /> Kategori
+        </Button>
+        <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
+          <LayoutTemplate className="mr-2 h-4 w-4" /> Template
         </Button>
         <Button variant="outline" onClick={() => navigate('/app/import?type=products')}>
           <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
@@ -299,11 +320,14 @@ export function ProductsPage() {
         emptyDescription="Mulai dengan menambahkan produk pertama Anda untuk mulai berjualan."
         emptyAction={
           <div className="flex flex-col gap-3 items-center">
+            <Button onClick={() => setTemplatesOpen(true)}>
+              <LayoutTemplate className="mr-2 h-4 w-4" /> Gunakan Template
+            </Button>
             <div className="flex gap-2">
-              <Button onClick={() => setQuickAddOpen(true)}>
+              <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(true)}>
                 <Zap className="mr-2 h-4 w-4" /> Quick Add
               </Button>
-              <Button variant="outline" onClick={() => setBulkAddOpen(true)}>
+              <Button variant="outline" size="sm" onClick={() => setBulkAddOpen(true)}>
                 <FileStack className="mr-2 h-4 w-4" /> Bulk Add
               </Button>
             </div>
@@ -352,6 +376,14 @@ export function ProductsPage() {
         onOpenChange={setBulkEditOpen}
         selectedProducts={selectedProducts}
         onComplete={() => setSelectedProducts([])}
+      />
+      <ProductTemplatesModal open={templatesOpen} onOpenChange={setTemplatesOpen} />
+      <BarcodePrintModal
+        open={barcodePrintOpen}
+        onOpenChange={setBarcodePrintOpen}
+        items={selectedProducts
+          .filter((p) => p.sku)
+          .map((p) => ({ name: p.name, barcode: p.sku!, sku: p.sku ?? undefined }))}
       />
     </div>
   );

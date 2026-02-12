@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -61,6 +62,7 @@ export function OrderTypeSelector({ open, onClose }: OrderTypeSelectorProps) {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Pilih Tipe Pesanan</DialogTitle>
+                    <DialogDescription className="sr-only">Pilih tipe pesanan untuk transaksi</DialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-3">

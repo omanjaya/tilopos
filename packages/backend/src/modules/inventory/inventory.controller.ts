@@ -26,7 +26,7 @@ import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { CreateProductUseCase } from '../../application/use-cases/inventory/create-product.use-case';
 import { UpdateStockUseCase } from '../../application/use-cases/inventory/update-stock.use-case';
-import { CreateProductDto } from '../../application/dtos/product.dto';
+import { CreateProductDto, VariantDto, UpdateVariantDto } from '../../application/dtos/product.dto';
 import { UpdateStockDto } from '../../application/dtos/stock.dto';
 import { CreateCategoryDto, UpdateCategoryDto } from '../../application/dtos/category.dto';
 import {
@@ -195,6 +195,114 @@ export class InventoryController {
   async deleteProduct(@Param('id') id: string) {
     await this.productRepo.delete(id);
     return { message: 'Product deactivated' };
+  }
+
+  // ==================== Variant Endpoints ====================
+
+  @Post('products/:id/variants')
+  @BusinessScoped({ resource: 'product', param: 'id' })
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @ApiOperation({ summary: 'Add a variant to an existing product' })
+  async addVariant(
+    @Param('id') productId: string,
+    @Body() dto: VariantDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Validate SKU uniqueness within business
+    if (dto.sku) {
+      const existing = await this.prisma.productVariant.findFirst({
+        where: {
+          sku: dto.sku,
+          isActive: true,
+          product: { businessId: user.businessId },
+        },
+      });
+      if (existing) {
+        throw new BadRequestException(`SKU "${dto.sku}" sudah digunakan`);
+      }
+    }
+
+    return this.prisma.productVariant.create({
+      data: {
+        productId,
+        name: dto.name,
+        sku: dto.sku,
+        price: dto.price,
+        costPrice: dto.costPrice,
+      },
+    });
+  }
+
+  @Put('products/:id/variants/:variantId')
+  @BusinessScoped({ resource: 'product', param: 'id' })
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @ApiOperation({ summary: 'Update a product variant' })
+  async updateVariant(
+    @Param('id') productId: string,
+    @Param('variantId') variantId: string,
+    @Body() dto: UpdateVariantDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { id: variantId, productId },
+    });
+    if (!variant) throw new NotFoundException('Variant not found');
+
+    // Validate SKU uniqueness if changed
+    if (dto.sku && dto.sku !== variant.sku) {
+      const existing = await this.prisma.productVariant.findFirst({
+        where: {
+          sku: dto.sku,
+          isActive: true,
+          product: { businessId: user.businessId },
+          NOT: { id: variantId },
+        },
+      });
+      if (existing) {
+        throw new BadRequestException(`SKU "${dto.sku}" sudah digunakan`);
+      }
+    }
+
+    return this.prisma.productVariant.update({
+      where: { id: variantId },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.sku !== undefined && { sku: dto.sku }),
+        ...(dto.barcode !== undefined && { barcode: dto.barcode }),
+        ...(dto.price !== undefined && { price: dto.price }),
+        ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
+      },
+    });
+  }
+
+  @Delete('products/:id/variants/:variantId')
+  @BusinessScoped({ resource: 'product', param: 'id' })
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Soft delete (deactivate) a product variant' })
+  async deleteVariant(
+    @Param('id') productId: string,
+    @Param('variantId') variantId: string,
+  ) {
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { id: variantId, productId },
+    });
+    if (!variant) throw new NotFoundException('Variant not found');
+
+    // Count historical transactions using this variant
+    const txCount = await this.prisma.transactionItem.count({
+      where: { variantId },
+    });
+
+    await this.prisma.productVariant.update({
+      where: { id: variantId },
+      data: { isActive: false },
+    });
+
+    return {
+      message: 'Variant deactivated',
+      hadTransactions: txCount > 0,
+      transactionCount: txCount,
+    };
   }
 
   @Get('categories')

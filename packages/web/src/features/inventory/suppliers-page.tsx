@@ -23,8 +23,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
-import { Plus, MoreHorizontal, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { toast } from '@/lib/toast-utils';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { Plus, MoreHorizontal, Pencil, Trash2, Loader2, BarChart3, AlertCircle, Eye } from 'lucide-react';
+import { SupplierDetailModal } from './components/supplier-detail-modal';
+import { SupplierComparisonModal } from './components/supplier-comparison-modal';
+import { ReorderAlertsModal } from './components/reorder-alerts-modal';
 import type { Supplier, CreateSupplierRequest } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -39,28 +44,32 @@ const EMPTY_FORM: CreateSupplierRequest = {
 
 export function SuppliersPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
   const [form, setForm] = useState<CreateSupplierRequest>(EMPTY_FORM);
+  const [detailTarget, setDetailTarget] = useState<Supplier | null>(null);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [reorderAlertsOpen, setReorderAlertsOpen] = useState(false);
 
   const { data: suppliers, isLoading } = useQuery({
-    queryKey: ['suppliers', search],
-    queryFn: () => inventoryApi.listSuppliers({ search: search || undefined }),
+    queryKey: ['suppliers', outletId, search],
+    queryFn: () => inventoryApi.listSuppliers({ outletId: outletId || undefined, search: search || undefined }),
   });
 
   const createMutation = useMutation({
     mutationFn: inventoryApi.createSupplier,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-      toast({ title: 'Supplier berhasil ditambahkan' });
+      toast.success({ title: 'Supplier berhasil ditambahkan' });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menambahkan supplier',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -72,12 +81,11 @@ export function SuppliersPage() {
       inventoryApi.updateSupplier(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-      toast({ title: 'Supplier berhasil diperbarui' });
+      toast.success({ title: 'Supplier berhasil diperbarui' });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memperbarui supplier',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -88,12 +96,11 @@ export function SuppliersPage() {
     mutationFn: (id: string) => inventoryApi.deleteSupplier(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-      toast({ title: 'Supplier berhasil dihapus' });
+      toast.success({ title: 'Supplier berhasil dihapus' });
       setDeleteTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menghapus supplier',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -197,6 +204,9 @@ export function SuppliersPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setDetailTarget(row)}>
+              <Eye className="mr-2 h-4 w-4" /> View Details
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openEditDialog(row)}>
               <Pencil className="mr-2 h-4 w-4" /> Edit
             </DropdownMenuItem>
@@ -215,6 +225,12 @@ export function SuppliersPage() {
   return (
     <div>
       <PageHeader title="Supplier" description="Kelola data supplier">
+        <Button variant="outline" onClick={() => setReorderAlertsOpen(true)}>
+          <AlertCircle className="mr-2 h-4 w-4" /> Reorder Alerts
+        </Button>
+        <Button variant="outline" onClick={() => setComparisonOpen(true)}>
+          <BarChart3 className="mr-2 h-4 w-4" /> Compare Prices
+        </Button>
         <Button onClick={openCreateDialog} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
         </Button>
@@ -228,6 +244,11 @@ export function SuppliersPage() {
         onSearch={setSearch}
         emptyTitle="Belum ada supplier"
         emptyDescription="Tambahkan supplier pertama Anda."
+        emptyAction={
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
+          </Button>
+        }
       />
 
       {/* Create / Edit Dialog */}
@@ -269,6 +290,7 @@ export function SuppliersPage() {
             <div>
               <Label>Telepon</Label>
               <Input
+                type="tel"
                 value={form.phone || ''}
                 onChange={(e) => updateForm('phone', e.target.value)}
                 placeholder="Nomor telepon"
@@ -310,6 +332,25 @@ export function SuppliersPage() {
         confirmLabel="Hapus"
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         isLoading={deleteMutation.isPending}
+      />
+
+      {/* Supplier Detail Modal */}
+      <SupplierDetailModal
+        supplier={detailTarget}
+        open={!!detailTarget}
+        onOpenChange={(open) => !open && setDetailTarget(null)}
+      />
+
+      {/* Supplier Comparison Modal */}
+      <SupplierComparisonModal
+        open={comparisonOpen}
+        onOpenChange={setComparisonOpen}
+      />
+
+      {/* Reorder Alerts Modal */}
+      <ReorderAlertsModal
+        open={reorderAlertsOpen}
+        onOpenChange={setReorderAlertsOpen}
       />
     </div>
   );

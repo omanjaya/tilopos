@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { ShiftEndedEvent } from '@domain/events/shift-ended.event';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
 import { PrismaService } from '@infrastructure/database/prisma.service';
@@ -25,6 +27,7 @@ export class EndShiftUseCase {
     @Inject(REPOSITORY_TOKENS.SHIFT)
     private readonly shiftRepo: IShiftRepository,
     private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
   ) {}
 
   async execute(input: EndShiftInput): Promise<EndShiftOutput> {
@@ -68,12 +71,37 @@ export class EndShiftUseCase {
     const difference = input.closingCash - expectedCash;
     const endedAt = new Date();
 
+    // Calculate total sales for shift summary
+    const salesAgg = await this.prisma.transaction.aggregate({
+      where: { shiftId: input.shiftId, transactionType: 'sale', status: 'completed' },
+      _sum: { grandTotal: true },
+    });
+    const totalSales = salesAgg._sum.grandTotal?.toNumber() || 0;
+
     await this.shiftRepo.close(input.shiftId, {
       closingCash: input.closingCash,
       expectedCash,
       cashDifference: difference,
       endedAt,
     });
+
+    // Get employee name for event
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: input.employeeId },
+      select: { name: true, businessId: true },
+    });
+
+    this.eventBus.publish(
+      new ShiftEndedEvent(
+        input.shiftId,
+        input.employeeId,
+        employee?.name ?? '',
+        shift.outletId,
+        employee?.businessId ?? '',
+        totalSales,
+        input.closingCash,
+      ),
+    );
 
     return {
       shiftId: input.shiftId,

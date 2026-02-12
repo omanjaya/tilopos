@@ -3,6 +3,7 @@ import { EventBusService } from './event-bus.service';
 import { TransactionCreatedEvent } from '../../domain/events/transaction-created.event';
 import { TransactionVoidedEvent } from '../../domain/events/transaction-voided.event';
 import { PrismaService } from '../database/prisma.service';
+import { RedisService } from '../cache/redis.service';
 
 @Injectable()
 export class TransactionEventListener implements OnModuleInit {
@@ -11,6 +12,7 @@ export class TransactionEventListener implements OnModuleInit {
   constructor(
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {}
 
   onModuleInit() {
@@ -29,6 +31,7 @@ export class TransactionEventListener implements OnModuleInit {
       this.deductIngredients(event),
       this.addLoyaltyPoints(event),
       this.logAudit(event),
+      this.invalidateReportCache(event.outletId),
     ]);
 
     for (const result of results) {
@@ -191,6 +194,7 @@ export class TransactionEventListener implements OnModuleInit {
     const results = await Promise.allSettled([
       this.restoreIngredients(event),
       this.reverseLoyaltyPoints(event),
+      this.invalidateReportCache(event.outletId),
     ]);
 
     for (const result of results) {
@@ -337,5 +341,30 @@ export class TransactionEventListener implements OnModuleInit {
         break;
       }
     }
+  }
+
+  /**
+   * Invalidate all report caches for the outlet (and business-level reports).
+   * This ensures dashboards and reports reflect the latest transaction data.
+   */
+  private async invalidateReportCache(outletId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { businessId: true },
+    });
+    const businessId = outlet?.businessId;
+
+    await Promise.all([
+      this.redis.invalidatePattern(`report:*:${outletId}:*`),
+      this.redis.invalidatePattern(`report:dashboard:*:${outletId}:*`),
+      this.redis.invalidatePattern(`staff:leaderboard:*`),
+      ...(businessId
+        ? [
+            this.redis.invalidatePattern(`report:dashboard:outlet-comparison:${businessId}:*`),
+            this.redis.invalidatePattern(`owner:analytics:*:${businessId}:*`),
+            this.redis.invalidatePattern(`financial:*:${businessId}:*`),
+          ]
+        : []),
+    ]);
   }
 }

@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Store, Plus, ExternalLink, Globe, Loader2 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { onlineStoreApi } from '@/api/endpoints/online-store.api';
 import type { OnlineStore } from '@/types/online-store.types';
@@ -100,7 +100,6 @@ function LoadingCards() {
 
 export function OnlineStorePage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const user = useAuthStore((s) => s.user);
   const businessId = user?.businessId || '';
 
@@ -122,12 +121,11 @@ export function OnlineStorePage() {
     mutationFn: onlineStoreApi.createStore,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['online-stores'] });
-      toast({ title: 'Toko berhasil dibuat' });
+      toast.success({ title: 'Toko berhasil dibuat' });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal membuat toko',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

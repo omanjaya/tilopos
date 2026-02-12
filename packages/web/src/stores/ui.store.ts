@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 interface UIState {
   sidebarCollapsed: boolean;
+  mobileSidebarOpen: boolean;
   theme: 'light' | 'dark';
   selectedOutletId: string | null;
   brandColor: string | null;
@@ -9,6 +10,8 @@ interface UIState {
   serviceChargeRate: number;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleMobileSidebar: () => void;
+  setMobileSidebarOpen: (open: boolean) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
   setSelectedOutletId: (id: string) => void;
@@ -27,6 +30,7 @@ const savedSidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true
 
 export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: savedSidebarCollapsed,
+  mobileSidebarOpen: false,
   theme: savedTheme,
   selectedOutletId: localStorage.getItem('selectedOutletId'),
   brandColor: localStorage.getItem('brandColor'),
@@ -41,6 +45,8 @@ export const useUIStore = create<UIState>((set) => ({
     localStorage.setItem('sidebarCollapsed', String(collapsed));
     set({ sidebarCollapsed: collapsed });
   },
+  toggleMobileSidebar: () => set((s) => ({ mobileSidebarOpen: !s.mobileSidebarOpen })),
+  setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');

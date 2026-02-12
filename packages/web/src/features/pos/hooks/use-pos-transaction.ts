@@ -3,7 +3,7 @@ import { posApi } from '@/api/endpoints/pos.api';
 import { creditApi } from '@/api/endpoints/credit.api';
 import type { CreateCreditTransactionRequest } from '@/api/endpoints/credit.api';
 import { apiClient } from '@/api/client';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { useCartStore } from '@/stores/cart.store';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CreateTransactionResponse, Transaction, ReceiptData } from '@/types/pos.types';
@@ -36,13 +36,13 @@ export function usePosTransaction({
     onSuccess,
 }: UsePosTransactionProps) {
     const user = useAuthStore((s) => s.user);
-    const { items, payments, clearCart, clearPayments } = useCartStore();
+    const { clearCart, clearPayments } = useCartStore();
 
     // Create transaction mutation
     const createTransaction = useMutation({
         mutationFn: posApi.createTransaction,
         onSuccess: async (response: CreateTransactionResponse) => {
-            toast({
+            toast.success({
                 title: 'Transaksi Berhasil',
                 description: `No. ${response.receiptNumber}`,
             });
@@ -61,32 +61,41 @@ export function usePosTransaction({
             clearPayments();
         },
         onError: (error: Error) => {
-            toast({
+            toast.error({
                 title: 'Gagal Membuat Transaksi',
                 description: error.message,
-                variant: 'destructive',
             });
         },
     });
 
     // Handle checkout complete
     const handleCheckoutComplete = async () => {
+        // Read fresh state at checkout time to avoid stale closures
+        const { items, payments, orderType, customerId, tableId, notes } = useCartStore.getState();
+
         if (items.length === 0) return;
+
+        if (payments.length === 0) {
+            toast.error({
+                title: 'Belum Ada Pembayaran',
+                description: 'Tambahkan metode pembayaran terlebih dahulu.',
+            });
+            return;
+        }
 
         // Fetch current active shift from backend
         let shiftId: string | null = null;
         try {
             const res = await apiClient.get('/employees/shifts/current');
-            shiftId = (res.data as { id: string })?.id ?? null;
+            shiftId = (res.data as { id: string } | null)?.id ?? null;
         } catch {
             // No active shift
         }
 
         if (!shiftId) {
-            toast({
+            toast.error({
                 title: 'Tidak Ada Shift Aktif',
                 description: 'Silakan mulai shift terlebih dahulu sebelum membuat transaksi.',
-                variant: 'destructive',
             });
             return;
         }
@@ -96,7 +105,7 @@ export function usePosTransaction({
             outletId,
             employeeId: user?.employeeId ?? '',
             shiftId,
-            orderType: useCartStore.getState().orderType,
+            orderType,
             items: items.map((item) => ({
                 productId: item.productId,
                 variantId: item.variantId,
@@ -110,15 +119,15 @@ export function usePosTransaction({
                 amount: p.amount,
                 referenceNumber: p.referenceNumber,
             })),
-            customerId: useCartStore.getState().customerId,
-            tableId: useCartStore.getState().tableId,
-            notes: useCartStore.getState().notes,
+            customerId,
+            tableId,
+            notes,
         };
 
         if (isOffline) {
             // Queue transaction locally when offline
             void queueTransaction(request).then(() => {
-                toast({
+                toast.info({
                     title: 'Transaksi Disimpan Offline',
                     description: 'Akan otomatis disinkronkan saat koneksi pulih.',
                 });
@@ -135,7 +144,7 @@ export function usePosTransaction({
     const createCreditTransaction = useMutation({
         mutationFn: (data: CreateCreditTransactionRequest) => creditApi.create(data),
         onSuccess: () => {
-            toast({
+            toast.success({
                 title: 'BON Berhasil Dibuat',
                 description: 'Transaksi piutang berhasil dicatat.',
             });
@@ -145,32 +154,32 @@ export function usePosTransaction({
             clearPayments();
         },
         onError: (error: Error) => {
-            toast({
+            toast.error({
                 title: 'Gagal Membuat BON',
                 description: error.message,
-                variant: 'destructive',
             });
         },
     });
 
     // Handle credit/BON checkout
     const handleCreditCheckout = async (creditData: CreditCheckoutParams) => {
+        const { items, orderType, tableId, notes } = useCartStore.getState();
+
         if (items.length === 0) return;
 
         // Fetch current active shift
         let shiftId: string | null = null;
         try {
             const res = await apiClient.get('/employees/shifts/current');
-            shiftId = (res.data as { id: string })?.id ?? null;
+            shiftId = (res.data as { id: string } | null)?.id ?? null;
         } catch {
             // No active shift
         }
 
         if (!shiftId) {
-            toast({
+            toast.error({
                 title: 'Tidak Ada Shift Aktif',
                 description: 'Silakan mulai shift terlebih dahulu sebelum membuat transaksi.',
-                variant: 'destructive',
             });
             return;
         }
@@ -181,8 +190,8 @@ export function usePosTransaction({
             employeeId: user?.employeeId ?? '',
             customerId: creditData.customerId,
             shiftId,
-            orderType: useCartStore.getState().orderType,
-            tableId: useCartStore.getState().tableId,
+            orderType,
+            tableId,
             items: items.map((item) => ({
                 productId: item.productId,
                 variantId: item.variantId,
@@ -191,7 +200,7 @@ export function usePosTransaction({
                 notes: item.notes,
                 unitPrice: item.originalPrice ? item.price : undefined,
             })),
-            notes: useCartStore.getState().notes,
+            notes,
             dueDate: creditData.dueDate,
             creditNotes: creditData.creditNotes,
         };

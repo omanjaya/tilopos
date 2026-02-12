@@ -205,3 +205,122 @@ export interface PopularService {
   bookings: number;
 }
 
+// Dashboard Summary (Moka-style)
+export interface DayOfWeekSales {
+  day: number;
+  dayName: string;
+  grossSales: number;
+  numSales: number;
+}
+
+export interface HourlySales {
+  hour: number;
+  grossSales: number;
+  numSales: number;
+}
+
+export interface DashboardSummary {
+  grossSales: number;
+  netSales: number;
+  grossProfit: number;
+  transactions: number;
+  averageSalePerTransaction: number;
+  grossMargin: number;
+  salesByDayOfWeek: DayOfWeekSales[];
+  salesByHour: HourlySales[];
+}
+
+// Dashboard Item Summary
+export interface TopItemSales {
+  productId: string;
+  name: string;
+  category: string;
+  quantitySold: number;
+  grossSales: number;
+}
+
+export interface CategoryBreakdown {
+  category: string;
+  totalQuantity?: number;
+  totalSales?: number;
+  percentage: number;
+}
+
+export interface CategoryTopItems {
+  category: string;
+  items: { name: string; quantitySold: number; grossSales: number }[];
+}
+
+export interface DashboardItemSummary {
+  topItems: TopItemSales[];
+  categoryByVolume: CategoryBreakdown[];
+  categoryBySales: CategoryBreakdown[];
+  topItemsByCategory: CategoryTopItems[];
+}
+
+// Outlet Comparison
+export interface OutletTopItem {
+  name: string;
+  grossSales: number;
+  quantity: number;
+}
+
+export interface OutletComparisonItem {
+  outletId: string;
+  outletName: string;
+  grossSales: number;
+  netSales: number;
+  transactions: number;
+  averageSale: number;
+  grossProfit: number;
+  grossMargin: number;
+  topItems: OutletTopItem[];
+}
+
+export interface OutletComparison {
+  outlets: OutletComparisonItem[];
+  totals: { grossSales: number; netSales: number; transactions: number };
+}
+
+// Sales Report Detail Types
+export interface SalesSummaryReport {
+  grossSales: number;
+  discountAmount: number;
+  refundAmount: number;
+  netSales: number;
+  taxAmount: number;
+  serviceCharge: number;
+  roundingAmount: number;
+  totalCollected: number;
+  totalTransactions: number;
+  refundTransactions: number;
+  averageOrderValue: number;
+}
+
+export interface DiscountBreakdownReport {
+  totalDiscount: number;
+  transactionLevelDiscount: number;
+  itemLevelDiscount: number;
+  transactionsWithDiscount: number;
+  transactionsWithoutDiscount: number;
+  promotionBreakdown: { promotionId: string; name: string; usedCount: number; totalDiscount: number }[];
+}
+
+export interface EmployeeSalesReport {
+  period: { start: string; end: string };
+  employees: {
+    employeeId: string;
+    employeeName: string;
+    role: string;
+    totalSales: number;
+    transactionCount: number;
+    averageTransaction: number;
+    voidCount: number;
+    refundCount: number;
+    averageItemsPerTransaction: number;
+  }[];
+  summary: { totalEmployees: number; totalSales: number; totalTransactions: number; totalVoids: number; totalRefunds: number };
+}
+
+export type SalesReportTab = 'summary' | 'gross-profit' | 'payment-methods' | 'item-sales' | 'category-sales' | 'discounts' | 'taxes' | 'collected-by';
+

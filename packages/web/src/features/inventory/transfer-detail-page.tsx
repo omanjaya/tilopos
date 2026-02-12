@@ -20,39 +20,27 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatDateTime } from '@/lib/format';
 import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2, AlertTriangle } from 'lucide-react';
 import type { TransferStatus } from '@/types/inventory.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
-const STATUS_CONFIG: Record<TransferStatus, { label: string; className: string }> = {
-  requested: { label: 'Diminta', className: 'bg-blue-500 hover:bg-blue-600' },
-  approved: { label: 'Disetujui', className: 'bg-yellow-500 hover:bg-yellow-600' },
-  shipped: { label: 'Dikirim', className: 'bg-purple-500 hover:bg-purple-600' },
-  in_transit: { label: 'Dikirim', className: 'bg-purple-500 hover:bg-purple-600' },
-  received: { label: 'Diterima', className: 'bg-green-500 hover:bg-green-600' },
-  cancelled: { label: 'Dibatalkan', className: 'bg-red-500 hover:bg-red-600' },
+const STATUS_CONFIG: Record<TransferStatus, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
+  requested: { label: 'Diminta', variant: 'info' },
+  approved: { label: 'Disetujui', variant: 'warning' },
+  shipped: { label: 'Dikirim', variant: 'secondary' },
+  in_transit: { label: 'Dikirim', variant: 'secondary' },
+  received: { label: 'Diterima', variant: 'success' },
+  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
 };
 
-const WORKFLOW_STEPS: { status: TransferStatus; label: string }[] = [
-  { status: 'requested', label: 'Diminta' },
-  { status: 'approved', label: 'Disetujui' },
-  { status: 'shipped', label: 'Dikirim' },
-  { status: 'received', label: 'Diterima' },
-];
-
-function getStepIndex(status: TransferStatus): number {
-  const idx = WORKFLOW_STEPS.findIndex((s) => s.status === status);
-  return idx >= 0 ? idx : -1;
-}
 
 export function TransferDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [receivedQuantities, setReceivedQuantities] = useState<Record<string, string>>({});
 
@@ -71,7 +59,7 @@ export function TransferDetailPage() {
   const { data: transfer, isLoading } = useQuery({
     queryKey: ['stock-transfer', id],
     queryFn: () => inventoryApi.getTransfer(id!),
-    enabled: !!id,
+    enabled: !!id && id !== 'new',
   });
 
   const approveMutation = useMutation({
@@ -79,11 +67,10 @@ export function TransferDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
-      toast({ title: 'Transfer disetujui' });
+      toast.success({ title: 'Transfer disetujui' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyetujui transfer',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -95,11 +82,10 @@ export function TransferDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
-      toast({ title: 'Transfer ditandai dikirim' });
+      toast.success({ title: 'Transfer ditandai dikirim' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menandai pengiriman',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -117,11 +103,10 @@ export function TransferDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
-      toast({ title: 'Transfer diterima' });
+      toast.success({ title: 'Transfer diterima' });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menerima transfer',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -129,7 +114,6 @@ export function TransferDetailPage() {
   });
 
   const isMutating = approveMutation.isPending || shipMutation.isPending || receiveMutation.isPending;
-  const currentStepIndex = transfer ? getStepIndex(transfer.status) : -1;
 
   // Calculate discrepancies
   const discrepancies = useMemo(() => {
@@ -143,7 +127,7 @@ export function TransferDetailPage() {
 
         if (diff !== 0) {
           return {
-            itemName: item.itemName,
+            itemName: item.productName,
             sent: sentQty,
             received: receivedQty,
             difference: diff,
@@ -201,7 +185,7 @@ export function TransferDetailPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Status Transfer</CardTitle>
-            <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
+            <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -209,11 +193,11 @@ export function TransferDetailPage() {
             currentStatus={transfer.status}
             requestedAt={transfer.createdAt}
             requestedBy={transfer.requestedBy}
-            approvedAt={transfer.approvedAt}
+            approvedAt={(transfer as any).approvedAt}
             approvedBy={transfer.approvedBy}
-            shippedAt={transfer.shippedAt}
-            receivedAt={transfer.receivedAt}
-            receivedBy={transfer.receivedBy}
+            shippedAt={(transfer as any).shippedAt}
+            receivedAt={(transfer as any).receivedAt}
+            receivedBy={(transfer as any).receivedBy}
           />
         </CardContent>
       </Card>

@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import type { CreatePromotionRequest, DiscountType } from '@/types/promotion.types';
 import type { AxiosError } from 'axios';
@@ -26,7 +26,6 @@ export function PromotionFormPage() {
   const isEdit = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -62,12 +61,11 @@ export function PromotionFormPage() {
     mutationFn: (data: CreatePromotionRequest) => promotionsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promotions'] });
-      toast({ title: 'Promosi berhasil dibuat' });
+      toast.success({ title: 'Promosi berhasil dibuat' });
       navigate('/app/promotions');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -78,12 +76,11 @@ export function PromotionFormPage() {
     mutationFn: (data: Partial<CreatePromotionRequest>) => promotionsApi.update(id!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promotions'] });
-      toast({ title: 'Promosi berhasil diperbarui' });
+      toast.success({ title: 'Promosi berhasil diperbarui' });
       navigate('/app/promotions');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

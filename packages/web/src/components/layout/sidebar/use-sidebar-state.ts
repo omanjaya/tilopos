@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useUIStore } from '@/stores/ui.store';
 import { useFeatureStore } from '@/stores/feature.store';
 import { useAuthStore } from '@/stores/auth.store';
+import { toast } from '@/lib/toast-utils';
 import {
   navSections,
   settingsItems,
@@ -35,10 +36,21 @@ export function useSidebarState() {
       if (prev.includes(path)) {
         next = prev.filter((p) => p !== path);
       } else if (prev.length >= MAX_PINS) {
+        toast.warning({ title: `Maksimal ${MAX_PINS} pin`, description: 'Hapus pin lain untuk menambah yang baru' });
         return prev;
       } else {
         next = [...prev, path];
       }
+      savePinnedItems(next);
+      return next;
+    });
+  }, []);
+
+  const reorderPins = useCallback((fromIndex: number, toIndex: number) => {
+    setPinnedPaths((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      if (moved !== undefined) next.splice(toIndex, 0, moved);
       savePinnedItems(next);
       return next;
     });
@@ -55,11 +67,14 @@ export function useSidebarState() {
         ...section,
         items: section.items.filter((item) => {
           if (hasRoleFilter && !allowedPaths.includes(item.to)) return false;
-          return isPathVisible(item.to);
+          if (!isPathVisible(item.to)) return false;
+          // Hide pinned items from their original section (they appear in Favorit)
+          if (pinnedSet.has(item.to)) return false;
+          return true;
         }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [isPathVisible, userRole]);
+  }, [isPathVisible, userRole, pinnedSet]);
 
   const pinnedNavItems = useMemo(() => {
     const allowedPaths = ROLE_ALLOWED_PATHS[userRole];
@@ -80,10 +95,14 @@ export function useSidebarState() {
     const saved = localStorage.getItem('sidebarExpandedSections_v2');
     if (saved) {
       try {
-        return new Set(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Accordion: only keep at most one section expanded
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return new Set([parsed[0]]);
+        }
       } catch { /* ignore */ }
     }
-    return new Set(navSections.map((s) => s.id));
+    return new Set<string>();
   });
 
   useEffect(() => {
@@ -92,10 +111,14 @@ export function useSidebarState() {
 
   const toggleSection = useCallback((id: string) => {
     setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      if (prev.has(id)) {
+        // Closing: just remove it
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }
+      // Opening: accordion — only keep this one open
+      return new Set([id]);
     });
   }, []);
 
@@ -130,14 +153,12 @@ export function useSidebarState() {
     return null;
   }, [location.pathname]);
 
-  // Auto-expand active section
+  // Auto-expand active section (accordion: only this one stays open)
   useEffect(() => {
     if (activeSectionId && activeSectionId !== 'settings') {
       setExpandedSections((prev) => {
-        if (prev.has(activeSectionId)) return prev;
-        const next = new Set(prev);
-        next.add(activeSectionId);
-        return next;
+        if (prev.size === 1 && prev.has(activeSectionId)) return prev;
+        return new Set([activeSectionId]);
       });
     }
   }, [activeSectionId]);
@@ -169,6 +190,7 @@ export function useSidebarState() {
     pinnedSet,
     pinnedNavItems,
     togglePin,
+    reorderPins,
     // Sections
     filteredSections,
     expandedSections,

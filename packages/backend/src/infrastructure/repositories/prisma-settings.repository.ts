@@ -27,6 +27,12 @@ import type {
   BusinessPaymentMethod,
   CreateBusinessPaymentMethodData,
   UpdateBusinessPaymentMethodData,
+  PrinterConfigRecord,
+  CreatePrinterConfigInput,
+  UpdatePrinterConfigInput,
+  ReportScheduleRecord,
+  CreateReportScheduleInput,
+  UpdateReportScheduleInput,
   BusinessRecord,
   OutletRecord,
   ModifierGroupRecord,
@@ -901,5 +907,143 @@ export class PrismaSettingsRepository implements ISettingsRepository {
         } as never,
       },
     });
+  }
+
+  // ==================== Printer Configs (JSONB in Business.settings) ====================
+
+  private generateId(): string {
+    return randomBytes(16).toString('hex');
+  }
+
+  private async getBusinessSettings(businessId: string): Promise<Record<string, unknown>> {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { settings: true },
+    });
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+    return (business.settings as Record<string, unknown>) || {};
+  }
+
+  private async saveBusinessSettings(businessId: string, settings: Record<string, unknown>): Promise<void> {
+    await this.prisma.business.update({
+      where: { id: businessId },
+      data: { settings: settings as never },
+    });
+  }
+
+  async getPrinterConfigs(businessId: string): Promise<PrinterConfigRecord[]> {
+    const settings = await this.getBusinessSettings(businessId);
+    const configs = settings.printerConfigs as PrinterConfigRecord[] | undefined;
+    return Array.isArray(configs) ? configs : [];
+  }
+
+  async createPrinterConfig(businessId: string, data: CreatePrinterConfigInput): Promise<PrinterConfigRecord> {
+    const settings = await this.getBusinessSettings(businessId);
+    const configs = (settings.printerConfigs as PrinterConfigRecord[] | undefined) || [];
+    const newConfig: PrinterConfigRecord = {
+      id: this.generateId(),
+      name: data.name,
+      type: data.type,
+      connection: data.connection,
+      ipAddress: data.ipAddress ?? null,
+      port: data.port ?? null,
+      isActive: true,
+      autoPrint: data.autoPrint ?? true,
+      copies: data.copies ?? 1,
+      outletId: data.outletId,
+    };
+    configs.push(newConfig);
+    await this.saveBusinessSettings(businessId, { ...settings, printerConfigs: configs });
+    return newConfig;
+  }
+
+  async updatePrinterConfig(businessId: string, id: string, data: UpdatePrinterConfigInput): Promise<PrinterConfigRecord> {
+    const settings = await this.getBusinessSettings(businessId);
+    const configs = (settings.printerConfigs as PrinterConfigRecord[] | undefined) || [];
+    const index = configs.findIndex((c) => c.id === id);
+    if (index === -1) {
+      throw new NotFoundException('Printer config not found');
+    }
+    const updated: PrinterConfigRecord = {
+      ...configs[index],
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.type !== undefined && { type: data.type }),
+      ...(data.connection !== undefined && { connection: data.connection }),
+      ...(data.ipAddress !== undefined && { ipAddress: data.ipAddress ?? null }),
+      ...(data.port !== undefined && { port: data.port ?? null }),
+      ...(data.isActive !== undefined && { isActive: data.isActive }),
+      ...(data.autoPrint !== undefined && { autoPrint: data.autoPrint }),
+      ...(data.copies !== undefined && { copies: data.copies }),
+      ...(data.outletId !== undefined && { outletId: data.outletId }),
+    };
+    configs[index] = updated;
+    await this.saveBusinessSettings(businessId, { ...settings, printerConfigs: configs });
+    return updated;
+  }
+
+  async deletePrinterConfig(businessId: string, id: string): Promise<void> {
+    const settings = await this.getBusinessSettings(businessId);
+    const configs = (settings.printerConfigs as PrinterConfigRecord[] | undefined) || [];
+    const filtered = configs.filter((c) => c.id !== id);
+    if (filtered.length === configs.length) {
+      throw new NotFoundException('Printer config not found');
+    }
+    await this.saveBusinessSettings(businessId, { ...settings, printerConfigs: filtered });
+  }
+
+  // ==================== Report Schedules (JSONB in Business.settings) ====================
+
+  async getReportSchedules(businessId: string): Promise<ReportScheduleRecord[]> {
+    const settings = await this.getBusinessSettings(businessId);
+    const schedules = settings.reportSchedules as ReportScheduleRecord[] | undefined;
+    return Array.isArray(schedules) ? schedules : [];
+  }
+
+  async createReportSchedule(businessId: string, data: CreateReportScheduleInput): Promise<ReportScheduleRecord> {
+    const settings = await this.getBusinessSettings(businessId);
+    const schedules = (settings.reportSchedules as ReportScheduleRecord[] | undefined) || [];
+    const newSchedule: ReportScheduleRecord = {
+      id: this.generateId(),
+      reportType: data.reportType,
+      frequency: data.frequency,
+      recipients: data.recipients,
+      isActive: data.isActive ?? true,
+      nextSendAt: null,
+      lastSentAt: null,
+    };
+    schedules.push(newSchedule);
+    await this.saveBusinessSettings(businessId, { ...settings, reportSchedules: schedules });
+    return newSchedule;
+  }
+
+  async updateReportSchedule(businessId: string, id: string, data: UpdateReportScheduleInput): Promise<ReportScheduleRecord> {
+    const settings = await this.getBusinessSettings(businessId);
+    const schedules = (settings.reportSchedules as ReportScheduleRecord[] | undefined) || [];
+    const index = schedules.findIndex((s) => s.id === id);
+    if (index === -1) {
+      throw new NotFoundException('Report schedule not found');
+    }
+    const updated: ReportScheduleRecord = {
+      ...schedules[index],
+      ...(data.reportType !== undefined && { reportType: data.reportType }),
+      ...(data.frequency !== undefined && { frequency: data.frequency }),
+      ...(data.recipients !== undefined && { recipients: data.recipients }),
+      ...(data.isActive !== undefined && { isActive: data.isActive }),
+    };
+    schedules[index] = updated;
+    await this.saveBusinessSettings(businessId, { ...settings, reportSchedules: schedules });
+    return updated;
+  }
+
+  async deleteReportSchedule(businessId: string, id: string): Promise<void> {
+    const settings = await this.getBusinessSettings(businessId);
+    const schedules = (settings.reportSchedules as ReportScheduleRecord[] | undefined) || [];
+    const filtered = schedules.filter((s) => s.id !== id);
+    if (filtered.length === schedules.length) {
+      throw new NotFoundException('Report schedule not found');
+    }
+    await this.saveBusinessSettings(businessId, { ...settings, reportSchedules: filtered });
   }
 }

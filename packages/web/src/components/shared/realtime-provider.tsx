@@ -19,31 +19,44 @@ interface RealtimeProviderProps {
 
 export function RealtimeProvider({ children }: RealtimeProviderProps) {
   const { isConnected } = useRealtimeSync();
-  const prevConnected = useRef<boolean | null>(null);
+  const hasConnectedOnce = useRef(false);
+  const wasDisconnected = useRef(false);
+  const disconnectToastRef = useRef<{ dismiss: () => void } | null>(null);
 
   useEffect(() => {
-    // Only show toasts after the initial connection has been established at least once
-    if (prevConnected.current === null) {
-      prevConnected.current = isConnected;
+    // Track first successful connection — never show toast for the initial connect
+    if (!hasConnectedOnce.current) {
+      if (isConnected) {
+        hasConnectedOnce.current = true;
+      }
       return;
     }
 
-    if (prevConnected.current && !isConnected) {
-      toast({
+    // After the first connection, track disconnect → reconnect
+    if (!isConnected && !wasDisconnected.current) {
+      wasDisconnected.current = true;
+      disconnectToastRef.current?.dismiss();
+      const t = toast({
         title: 'Koneksi terputus',
         description: 'Mencoba menghubungkan kembali...',
         variant: 'destructive',
+        className: 'py-3 px-4',
       });
+      disconnectToastRef.current = t;
     }
 
-    if (!prevConnected.current && isConnected) {
-      toast({
+    if (isConnected && wasDisconnected.current) {
+      wasDisconnected.current = false;
+      disconnectToastRef.current?.dismiss();
+      disconnectToastRef.current = null;
+
+      const t = toast({
         title: 'Terhubung kembali',
         description: 'Koneksi real-time berhasil dipulihkan.',
+        className: 'py-3 px-4 border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100',
       });
+      setTimeout(() => t.dismiss(), 3000);
     }
-
-    prevConnected.current = isConnected;
   }, [isConnected]);
 
   return (

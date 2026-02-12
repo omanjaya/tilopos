@@ -175,3 +175,78 @@ export interface CreateModifierGroupRequest {
 
 export type UpdateModifierGroupRequest = Partial<CreateModifierGroupRequest>;
 
+// Payment Methods
+export type PaymentMethodType = 'cash' | 'card' | 'ewallet' | 'qris' | 'bank_transfer';
+
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  type: PaymentMethodType;
+  isActive: boolean;
+  processingFee: number;
+  settings: Record<string, unknown>;
+}
+
+export interface CreatePaymentMethodRequest {
+  name: string;
+  type: PaymentMethodType;
+  isActive?: boolean;
+  processingFee?: number;
+  settings?: Record<string, unknown>;
+}
+
+export type UpdatePaymentMethodRequest = Partial<CreatePaymentMethodRequest>;
+
+// Printer Configuration
+export type PrinterType = 'receipt' | 'kitchen' | 'label';
+export type PrinterConnection = 'usb' | 'network' | 'bluetooth';
+
+export interface PrinterConfig {
+  id: string;
+  name: string;
+  type: PrinterType;
+  connection: PrinterConnection;
+  ipAddress: string | null;
+  port: number | null;
+  isActive: boolean;
+  autoPrint: boolean;
+  copies: number;
+  outletId: string;
+}
+
+export interface CreatePrinterConfigRequest {
+  name: string;
+  type: PrinterType;
+  connection: PrinterConnection;
+  ipAddress?: string;
+  port?: number;
+  autoPrint?: boolean;
+  copies?: number;
+  outletId: string;
+}
+
+export type UpdatePrinterConfigRequest = Partial<CreatePrinterConfigRequest> & { isActive?: boolean };
+
+// Report Schedule
+export type ReportFrequency = 'daily' | 'weekly' | 'monthly';
+export type ReportType = 'sales' | 'financial' | 'inventory';
+
+export interface ReportSchedule {
+  id: string;
+  reportType: ReportType;
+  frequency: ReportFrequency;
+  recipients: string[];
+  isActive: boolean;
+  nextSendAt: string | null;
+  lastSentAt: string | null;
+}
+
+export interface CreateReportScheduleRequest {
+  reportType: ReportType;
+  frequency: ReportFrequency;
+  recipients: string[];
+  isActive?: boolean;
+}
+
+export type UpdateReportScheduleRequest = Partial<CreateReportScheduleRequest>;
+

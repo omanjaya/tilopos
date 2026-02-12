@@ -231,3 +231,145 @@ export interface PaymentMethodResponse {
   processingFee: number;
   settings: Record<string, unknown>;
 }
+
+// ==================== Printer Configuration DTOs ====================
+
+export type PrinterTypeEnum = 'receipt' | 'kitchen' | 'label';
+export type PrinterConnectionEnum = 'usb' | 'network' | 'bluetooth';
+
+export class CreatePrinterConfigDto {
+  @ApiProperty()
+  @IsString()
+  name!: string;
+
+  @ApiProperty({ enum: ['receipt', 'kitchen', 'label'] })
+  @IsEnum(['receipt', 'kitchen', 'label'] as const)
+  type!: PrinterTypeEnum;
+
+  @ApiProperty({ enum: ['usb', 'network', 'bluetooth'] })
+  @IsEnum(['usb', 'network', 'bluetooth'] as const)
+  connection!: PrinterConnectionEnum;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ipAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  port?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  autoPrint?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  copies?: number;
+
+  @ApiProperty()
+  @IsString()
+  outletId!: string;
+}
+
+export class UpdatePrinterConfigDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ enum: ['receipt', 'kitchen', 'label'] })
+  @IsOptional()
+  @IsEnum(['receipt', 'kitchen', 'label'] as const)
+  type?: PrinterTypeEnum;
+
+  @ApiPropertyOptional({ enum: ['usb', 'network', 'bluetooth'] })
+  @IsOptional()
+  @IsEnum(['usb', 'network', 'bluetooth'] as const)
+  connection?: PrinterConnectionEnum;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ipAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  port?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  autoPrint?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  copies?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  outletId?: string;
+}
+
+// ==================== Report Schedule DTOs ====================
+
+export type ReportTypeEnum = 'sales' | 'financial' | 'inventory';
+export type ReportFrequencyEnum = 'daily' | 'weekly' | 'monthly';
+
+export class CreateReportScheduleDto {
+  @ApiProperty({ enum: ['sales', 'financial', 'inventory'] })
+  @IsEnum(['sales', 'financial', 'inventory'] as const)
+  reportType!: ReportTypeEnum;
+
+  @ApiProperty({ enum: ['daily', 'weekly', 'monthly'] })
+  @IsEnum(['daily', 'weekly', 'monthly'] as const)
+  frequency!: ReportFrequencyEnum;
+
+  @ApiProperty()
+  @IsArray()
+  @IsString({ each: true })
+  recipients!: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdateReportScheduleDto {
+  @ApiPropertyOptional({ enum: ['sales', 'financial', 'inventory'] })
+  @IsOptional()
+  @IsEnum(['sales', 'financial', 'inventory'] as const)
+  reportType?: ReportTypeEnum;
+
+  @ApiPropertyOptional({ enum: ['daily', 'weekly', 'monthly'] })
+  @IsOptional()
+  @IsEnum(['daily', 'weekly', 'monthly'] as const)
+  frequency?: ReportFrequencyEnum;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  recipients?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}

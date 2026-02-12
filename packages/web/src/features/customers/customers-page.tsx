@@ -17,7 +17,7 @@ import {
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Star } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileSpreadsheet } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
@@ -133,6 +133,9 @@ export function CustomersPage() {
     <div>
       <PageHeader title="Pelanggan" description="Kelola data pelanggan Anda">
         <HelpSidebar page="customers" />
+        <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+        </Button>
         <Button onClick={() => navigate('/app/customers/new')} aria-keyshortcuts="N">
           <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
         </Button>
@@ -149,9 +152,14 @@ export function CustomersPage() {
         emptyTitle="Belum ada pelanggan"
         emptyDescription="Mulai membangun database pelanggan Anda untuk tracking loyalitas dan riwayat pembelian."
         emptyAction={
-          <Button onClick={() => navigate('/app/customers/new')}>
-            <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan Pertama
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => navigate('/app/customers/new')}>
+              <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+            </Button>
+          </div>
         }
       />
 

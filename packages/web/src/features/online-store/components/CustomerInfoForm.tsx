@@ -33,6 +33,7 @@ export function CustomerInfoForm({
         <div>
           <label className="block mb-1 font-medium">Nomor HP *</label>
           <Input
+            type="tel"
             value={customerInfo.phone}
             onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
             placeholder="08xx-xxxx-xxxx"

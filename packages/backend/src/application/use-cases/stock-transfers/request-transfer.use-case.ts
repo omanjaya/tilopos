@@ -42,7 +42,7 @@ export class RequestTransferUseCase {
         transferNumber,
         sourceOutletId: input.sourceOutletId,
         destinationOutletId: input.destinationOutletId,
-        status: 'requested',
+        status: 'pending',
         notes: input.notes || null,
         requestedBy: input.requestedBy,
         items: {

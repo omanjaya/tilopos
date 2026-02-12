@@ -17,3 +17,6 @@ export { OfflineBanner } from './offline-banner';
 export { MobileCartBar } from './mobile-cart-bar';
 export { TodayTransactionsSheet } from './today-transactions-sheet';
 export { CreditCheckoutModal, type CreditCheckoutData } from './credit-checkout-modal';
+export { ShiftStartModal } from './shift-start-modal';
+export { ShiftEndModal } from './shift-end-modal';
+export { ShiftDurationIndicator } from './shift-duration-indicator';

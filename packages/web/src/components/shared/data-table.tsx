@@ -151,9 +151,9 @@ export function DataTable<T>({
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-64">
                   <EmptyState
-                    title={emptyTitle}
-                    description={emptyDescription}
-                    action={emptyAction}
+                    title={searchQuery ? `Tidak ada hasil untuk "${searchQuery}"` : emptyTitle}
+                    description={searchQuery ? 'Coba kata kunci lain atau hapus filter pencarian' : emptyDescription}
+                    action={searchQuery ? undefined : emptyAction}
                   />
                 </TableCell>
               </TableRow>

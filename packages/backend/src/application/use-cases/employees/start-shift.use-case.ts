@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { ShiftStartedEvent } from '@domain/events/shift-started.event';
 import { BusinessError } from '@shared/errors/business-error';
 import { AppError } from '@shared/errors/app-error';
 import { ErrorCode } from '@shared/constants/error-codes';
@@ -24,6 +26,7 @@ export class StartShiftUseCase {
     private readonly shiftRepo: IShiftRepository,
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
+    private readonly eventBus: EventBusService,
   ) {}
 
   async execute(input: StartShiftInput): Promise<StartShiftOutput> {
@@ -43,6 +46,10 @@ export class StartShiftUseCase {
       openingCash: input.openingCash,
       startedAt: new Date(),
     });
+
+    this.eventBus.publish(
+      new ShiftStartedEvent(shift.id, input.employeeId, employee.name, input.outletId, employee.businessId),
+    );
 
     return {
       shiftId: shift.id,

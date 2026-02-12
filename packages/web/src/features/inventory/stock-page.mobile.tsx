@@ -25,7 +25,7 @@ import {
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { cn } from '@/lib/utils';
 import {
   Search,
@@ -60,7 +60,6 @@ function getStockStatus(item: StockLevel): 'normal' | 'low' | 'out' {
 
 export function StockPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId || user?.outletId || '';
@@ -83,12 +82,11 @@ export function StockPage() {
     mutationFn: inventoryApi.adjustStock,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
-      toast({ title: 'Stok berhasil disesuaikan' });
+      toast.success({ title: 'Stok berhasil disesuaikan' });
       closeAdjustDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyesuaikan stok',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

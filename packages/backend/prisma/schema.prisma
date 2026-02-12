@@ -81,10 +81,13 @@ enum TransactionStatus {
 enum PaymentMethod {
   cash
   card
+  debit_card
+  credit_card
   gopay
   ovo
   dana
   shopeepay
+  linkaja
   qris
   bank_transfer
   credit_note

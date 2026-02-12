@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsArray,
   IsEnum,
+  IsIn,
   ValidateNested,
   Min,
   Max,
@@ -46,8 +47,8 @@ export class TransactionItemDto {
 }
 
 export class PaymentDto {
-  @ApiProperty()
-  @IsString()
+  @ApiProperty({ enum: ['cash', 'card', 'debit_card', 'credit_card', 'gopay', 'ovo', 'dana', 'shopeepay', 'linkaja', 'qris', 'bank_transfer', 'credit_note'] })
+  @IsIn(['cash', 'card', 'debit_card', 'credit_card', 'gopay', 'ovo', 'dana', 'shopeepay', 'linkaja', 'qris', 'bank_transfer', 'credit_note'])
   method!: string;
 
   @ApiProperty()

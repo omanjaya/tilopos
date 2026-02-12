@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -237,6 +239,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0 shadow-lg">
+        <DialogTitle className="sr-only">Command Palette</DialogTitle>
+        <DialogDescription className="sr-only">Cari dan jalankan perintah</DialogDescription>
         <div className="flex flex-col">
           {/* Search Input */}
           <div className="flex items-center border-b px-3">

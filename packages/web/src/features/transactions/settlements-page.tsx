@@ -30,7 +30,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format';
 import { Banknote, CheckCircle2, Clock, XCircle, Eye, Loader2 } from 'lucide-react';
 import type { Settlement } from '@/types/settlement.types';
@@ -61,16 +63,19 @@ function getPaymentMethodLabel(method: string): string {
 
 export function SettlementsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [detailTarget, setDetailTarget] = useState<Settlement | null>(null);
 
   const { data: settlements, isLoading } = useQuery({
-    queryKey: ['settlements', statusFilter, startDate, endDate],
+    queryKey: ['settlements', outletId, statusFilter, startDate, endDate],
     queryFn: () =>
       settlementsApi.list({
+        outletId: outletId || undefined,
         status: statusFilter !== 'all' ? (statusFilter as Settlement['status']) : undefined,
         dateFrom: startDate || undefined,
         dateTo: endDate || undefined,
@@ -81,12 +86,11 @@ export function SettlementsPage() {
     mutationFn: (id: string) => settlementsApi.settle(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settlements'] });
-      toast({ title: 'Penyelesaian berhasil dikonfirmasi' });
+      toast.success({ title: 'Penyelesaian berhasil dikonfirmasi' });
       setDetailTarget(null);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal menyelesaikan',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });

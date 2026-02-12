@@ -35,17 +35,17 @@ export function SidebarSection({
   const isActiveSection = activeSectionId === section.id;
 
   return (
-    <div className={cn('mt-3 first:mt-0')}>
+    <div className={cn('mt-2 first:mt-0')}>
       {/* Section header */}
       {hasTitle && !collapsed && (
         <button
           onClick={onToggleExpand}
           className={cn(
-            'mb-1 flex w-full items-center justify-between rounded-md px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider',
+            'mb-0.5 flex w-full items-center justify-between rounded-md px-2.5 py-1 text-[13px] font-semibold',
             'transition-all duration-200 hover:pl-3',
             isActiveSection
               ? 'text-primary'
-              : 'text-sidebar-muted-foreground/60 hover:text-sidebar-muted-foreground',
+              : 'text-sidebar-muted-foreground/70 hover:text-sidebar-muted-foreground',
           )}
         >
           <span>{section.title}</span>
@@ -123,7 +123,7 @@ export function SidebarSection({
             onClick={onToggleExpandItems}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-sidebar-muted-foreground/60 transition-all duration-200 hover:text-sidebar-primary hover:translate-x-0.5"
           >
-            <ChevronDown className={cn('h-3 w-3 transition-transform', expandedItems && 'rotate-180')} />
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expandedItems && 'rotate-180')} />
             <span>{expandedItems ? 'Sembunyikan' : `Lihat semua (${hiddenCount} lagi)`}</span>
           </button>
         )}

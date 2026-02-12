@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   ArrowLeft,
@@ -71,7 +71,6 @@ export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
@@ -89,13 +88,12 @@ export function TransactionDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transaction', id] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast({ title: 'Transaksi berhasil di-void' });
+      toast.success({ title: 'Transaksi berhasil di-void' });
       setVoidDialogOpen(false);
       setVoidReason('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal void transaksi',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -108,13 +106,12 @@ export function TransactionDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transaction', id] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast({ title: 'Refund berhasil diproses' });
+      toast.success({ title: 'Refund berhasil diproses' });
       setRefundDialogOpen(false);
       setRefundReason('');
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal memproses refund',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
@@ -125,10 +122,9 @@ export function TransactionDetailPage() {
     if (!id) return;
     try {
       await transactionsApi.reprint(id);
-      toast({ title: 'Struk berhasil dicetak ulang' });
+      toast.success({ title: 'Struk berhasil dicetak ulang' });
     } catch {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal cetak ulang',
         description: 'Terjadi kesalahan saat mencetak ulang struk',
       });

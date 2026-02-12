@@ -124,7 +124,7 @@ export function ImageCropperModal({
               </div>
               <Slider
                 value={[zoom]}
-                onValueChange={(value) => setZoom(value[0])}
+                onValueChange={(value) => setZoom(value[0] ?? 1)}
                 min={0.5}
                 max={3}
                 step={0.1}
@@ -144,7 +144,7 @@ export function ImageCropperModal({
               <div className="flex gap-2">
                 <Slider
                   value={[rotation]}
-                  onValueChange={(value) => setRotation(value[0])}
+                  onValueChange={(value) => setRotation(value[0] ?? 0)}
                   min={0}
                   max={360}
                   step={15}

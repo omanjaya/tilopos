@@ -26,21 +26,27 @@ import { toast } from '@/lib/toast-utils';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Employee } from '@/types/employee.types';
 import type { EmployeeRole } from '@/types/auth.types';
+import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
 export function EmployeesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const user = useAuthStore((s) => s.user);
+  const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
 
   const { data: employeesData, isLoading } = useQuery({
-    queryKey: ['employees', search, roleFilter, statusFilter],
+    queryKey: ['employees', outletId, search, roleFilter, statusFilter],
     queryFn: () =>
       employeesApi.list({
+        outletId: outletId || undefined,
         search: search || undefined,
         role: roleFilter !== 'all' ? (roleFilter as EmployeeRole) : undefined,
         isActive: statusFilter !== 'all' ? statusFilter === 'true' : undefined,

@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -11,7 +10,6 @@ import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
 import { formatDateTime } from '@/lib/format';
 import {
   ArrowLeft,
-  Package,
   Clock,
   CheckCircle,
   Truck,
@@ -43,9 +41,10 @@ export function TransfersDashboardPage() {
     inTransit: allTransfers?.filter((t) => t.status === 'in_transit' || t.status === 'shipped').length || 0,
     pendingApproval: allTransfers?.filter((t) => t.status === 'requested').length || 0,
     completedToday: allTransfers?.filter((t) => {
-      if (t.status !== 'received' || !t.receivedAt) return false;
+      const receivedAt = (t as any).receivedAt;
+      if (t.status !== 'received' || !receivedAt) return false;
       const today = new Date();
-      const receivedDate = new Date(t.receivedAt);
+      const receivedDate = new Date(receivedAt);
       return receivedDate.toDateString() === today.toDateString();
     }).length || 0,
     totalThisMonth: allTransfers?.filter((t) => {
@@ -57,8 +56,9 @@ export function TransfersDashboardPage() {
 
   // Get stuck transfers (approved > 24 hours ago but not shipped)
   const stuckTransfers = allTransfers?.filter((t) => {
-    if (t.status !== 'approved' || !t.approvedAt) return false;
-    const approvedDate = new Date(t.approvedAt);
+    const approvedAt = (t as any).approvedAt;
+    if (t.status !== 'approved' || !approvedAt) return false;
+    const approvedDate = new Date(approvedAt);
     const hoursSinceApproved = (Date.now() - approvedDate.getTime()) / (1000 * 60 * 60);
     return hoursSinceApproved > 24;
   }) || [];
@@ -300,7 +300,7 @@ export function TransfersDashboardPage() {
                         {transfer.sourceOutletName} → {transfer.destinationOutletName}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Dikirim: {transfer.shippedAt ? formatDateTime(transfer.shippedAt) : '-'}
+                        Dikirim: {(transfer as any).shippedAt ? formatDateTime((transfer as any).shippedAt) : '-'}
                       </p>
                     </div>
                     <Badge variant="outline" className="bg-purple-50 text-purple-700">

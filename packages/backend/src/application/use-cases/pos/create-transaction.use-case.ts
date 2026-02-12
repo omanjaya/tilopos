@@ -4,6 +4,7 @@ import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { PaymentMethod } from '@prisma/client';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
+import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
 import { BusinessError } from '@shared/errors/business-error';
@@ -209,7 +210,27 @@ export class CreateTransactionUseCase {
         });
       }
 
-      // 4. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
+      // 4. Track promotion & voucher usage
+      if (input.discounts) {
+        for (const discount of input.discounts) {
+          if (discount.promotionId) {
+            await tx.promotion.update({
+              where: { id: discount.promotionId },
+              data: { usedCount: { increment: 1 } },
+            });
+          }
+          if (discount.voucherCode) {
+            await tx.voucher.updateMany({
+              where: { code: discount.voucherCode, usedAt: null },
+              data: { usedAt: new Date(), usedBy: input.customerId || input.employeeId },
+            });
+          }
+        }
+      }
+
+      // 5. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
+      const stockChanges: Array<{ productId: string; variantId: string | null; previousQty: number; newQty: number }> = [];
+
       for (const item of itemDetails) {
         const product = await tx.product.findUnique({
           where: { id: item.productId },
@@ -257,26 +278,35 @@ export class CreateTransactionUseCase {
             createdAt: new Date(),
           },
         });
+
+        stockChanges.push({ productId: item.productId, variantId: item.variantId, previousQty: currentQty, newQty });
       }
 
-      return txn;
+      return { txn, stockChanges };
     });
 
     this.eventBus.publish(
       new TransactionCreatedEvent(
-        transactionRecord.id,
+        transactionRecord.txn.id,
         input.outletId,
         grandTotal,
         input.customerId || null,
       ),
     );
 
+    // Publish stock change events so inventory displays update in real-time
+    for (const sc of transactionRecord.stockChanges) {
+      this.eventBus.publish(
+        new StockLevelChangedEvent(input.outletId, sc.productId, sc.variantId, sc.previousQty, sc.newQty),
+      );
+    }
+
     // Note: Order creation for KDS is handled by TransactionToOrderHandler
     // which listens to TransactionCreatedEvent and creates the order using
     // CreateOrderUseCase for proper event emission and KDS notification
 
     return {
-      transactionId: transactionRecord.id,
+      transactionId: transactionRecord.txn.id,
       receiptNumber,
       grandTotal,
       change,

@@ -322,7 +322,7 @@ export function ItemTrackingPage() {
               </div>
               <div>
                 <Label>No. Telepon</Label>
-                <Input value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="08xxx" />
+                <Input type="tel" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="08xxx" />
               </div>
             </div>
             <div>

@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AuthGuard } from '@/features/auth/auth-guard';
+import { FeatureGuard } from '@/components/shared/feature-guard';
 import { AppLayout } from '@/components/layout/app-layout';
 import { RouteErrorPage } from './routes/route-error';
 import { LazyRoute } from './routes/shared';
@@ -26,7 +27,7 @@ export const router = createBrowserRouter([
   {
     path: '/kds',
     errorElement: <RouteErrorPage />,
-    element: <AuthGuard><LazyRoute><KDSPage /></LazyRoute></AuthGuard>,
+    element: <AuthGuard><FeatureGuard path="/kds"><LazyRoute><KDSPage /></LazyRoute></FeatureGuard></AuthGuard>,
   },
 
   // Backoffice (with sidebar layout)

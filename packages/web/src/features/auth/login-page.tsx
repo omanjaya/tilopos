@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +18,6 @@ export function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
@@ -39,8 +38,7 @@ export function LoginPage() {
       navigate('/app', { replace: true });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Login gagal',
         description: error.response?.data?.message || 'Email atau PIN salah',
       });
@@ -69,6 +67,7 @@ export function LoginPage() {
                 placeholder="nama@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoFocus
                 required
                 autoComplete="email"
               />

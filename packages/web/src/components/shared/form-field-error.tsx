@@ -5,22 +5,30 @@ interface FormFieldErrorProps {
   error?: string;
   touched?: boolean;
   className?: string;
+  id?: string;
 }
 
 /**
  * Form field error message component with icon
  * Only shows when field is touched and has error
+ *
+ * @example
+ * ```tsx
+ * <FormFieldError error="Name is required" touched id="name-error" />
+ * ```
  */
-export function FormFieldError({ error, touched, className }: FormFieldErrorProps) {
+export function FormFieldError({ error, touched, className, id }: FormFieldErrorProps) {
   if (!error || !touched) return null;
 
   return (
     <div
+      id={id}
       className={cn(
         'flex items-center gap-1.5 text-sm text-destructive animate-in slide-in-from-top-1 duration-200',
         className
       )}
       role="alert"
+      aria-live="polite"
     >
       <AlertCircle className="h-4 w-4 shrink-0" />
       <span>{error}</span>
@@ -32,13 +40,15 @@ interface FormFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
   touched?: boolean;
   label?: string;
+  errorId?: string;
 }
 
 /**
  * Enhanced input wrapper with error styling
  */
-export function FormField({ error, touched, label, className, ...props }: FormFieldProps) {
+export function FormField({ error, touched, label, className, errorId, ...props }: FormFieldProps) {
   const hasError = error && touched;
+  const describedBy = props['aria-describedby'] || (hasError && errorId ? `${errorId}` : undefined);
 
   return (
     <div className="space-y-2">
@@ -54,9 +64,10 @@ export function FormField({ error, touched, label, className, ...props }: FormFi
           className
         )}
         aria-invalid={hasError ? 'true' : 'false'}
+        aria-describedby={describedBy}
         {...props}
       />
-      <FormFieldError error={error} touched={touched} />
+      <FormFieldError error={error} touched={touched} id={errorId} />
     </div>
   );
 }

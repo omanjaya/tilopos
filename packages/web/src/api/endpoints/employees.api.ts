@@ -4,7 +4,7 @@ import type { Employee, CreateEmployeeRequest, UpdateEmployeeRequest } from '@/t
 import type { EmployeeRole } from '@/types/auth.types';
 
 export const employeesApi = {
-  list: (params?: PaginationParams & { role?: EmployeeRole; isActive?: boolean }) =>
+  list: (params?: PaginationParams & { role?: EmployeeRole; isActive?: boolean; outletId?: string }) =>
     apiClient.get<Employee[]>('/employees', { params }).then((r) => r.data),
 
   get: (id: string) =>
