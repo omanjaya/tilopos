@@ -18,11 +18,17 @@ import { CustomReportsController } from './controllers/custom-reports.controller
 import { TableReportsController } from './controllers/table-reports.controller';
 import { StaffReportsController } from './controllers/staff-reports.controller';
 import { AppointmentReportsController } from './controllers/appointment-reports.controller';
+import { OwnerAnalyticsController } from './controllers/owner-analytics.controller';
+import { FinancialCommandController } from './controllers/financial-command.controller';
+import { StaffPerformanceController } from './controllers/staff-performance.controller';
+import { DashboardReportsController } from './controllers/dashboard-reports.controller';
+import { InvoiceReportsController } from './controllers/invoice-reports.controller';
 
 @Module({
   imports: [ExportModule],
   controllers: [
     SalesReportsController,
+    DashboardReportsController,
     InventoryReportsController,
     CustomerReportsController,
     FinancialReportsController,
@@ -35,6 +41,10 @@ import { AppointmentReportsController } from './controllers/appointment-reports.
     TableReportsController,
     StaffReportsController,
     AppointmentReportsController,
+    OwnerAnalyticsController,
+    FinancialCommandController,
+    StaffPerformanceController,
+    InvoiceReportsController,
   ],
   providers: [GenerateSalesReportUseCase, GenerateInventoryReportUseCase, ReportsService],
   exports: [ReportsService],

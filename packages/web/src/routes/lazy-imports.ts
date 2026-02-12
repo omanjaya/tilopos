@@ -3,6 +3,7 @@ import { lazy } from 'react';
 // ── Dashboard ────────────────────────────────────────────────────────────────
 export const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then(m => ({ default: m.DashboardPage })));
 export const DashboardPageMobile = lazy(() => import('@/features/dashboard/dashboard-page.mobile').then(m => ({ default: m.DashboardPage })));
+export const OwnerDashboardPage = lazy(() => import('@/features/dashboard/owner-dashboard-page').then(m => ({ default: m.OwnerDashboardPage })));
 
 // ── Products ─────────────────────────────────────────────────────────────────
 export const ProductsPage = lazy(() => import('@/features/products/products-page').then(m => ({ default: m.ProductsPage })));
@@ -26,6 +27,11 @@ export const KDSPage = lazy(() => import('@/features/kds/kds-page').then(m => ({
 // ── Reports ──────────────────────────────────────────────────────────────────
 export const ReportsPage = lazy(() => import('@/features/reports/reports-page').then(m => ({ default: m.ReportsPage })));
 export const ReportsPageMobile = lazy(() => import('@/features/reports/reports-page.mobile').then(m => ({ default: m.ReportsPage })));
+export const SalesReportPage = lazy(() => import('@/features/reports/sales-report-page').then(m => ({ default: m.SalesReportPage })));
+export const SalesReportPageMobile = lazy(() => import('@/features/reports/sales-report-page.mobile').then(m => ({ default: m.SalesReportPage })));
+
+// ── Invoices ────────────────────────────────────────────────────────────────
+export const InvoicePage = lazy(() => import('@/features/invoices/invoice-page').then(m => ({ default: m.InvoicePage })));
 
 // ── Transactions ─────────────────────────────────────────────────────────────
 export const TransactionsPage = lazy(() => import('@/features/transactions/transactions-page').then(m => ({ default: m.TransactionsPage })));
@@ -76,6 +82,9 @@ export const ModifierGroupsPage = lazy(() => import('@/features/settings/modifie
 export const FeaturesPage = lazy(() => import('@/features/settings/features-page').then(m => ({ default: m.FeaturesPage })));
 export const BusinessTypePage = lazy(() => import('@/features/settings/business-type-page').then(m => ({ default: m.BusinessTypePage })));
 export const AppearanceSettingsPage = lazy(() => import('@/features/settings/appearance-settings-page').then(m => ({ default: m.AppearanceSettingsPage })));
+export const PaymentSettingsPage = lazy(() => import('@/features/settings/payment-settings-page').then(m => ({ default: m.PaymentSettingsPage })));
+export const PrinterSettingsPage = lazy(() => import('@/features/settings/printer-settings-page').then(m => ({ default: m.PrinterSettingsPage })));
+export const ReportSchedulePage = lazy(() => import('@/features/settings/report-schedule-page').then(m => ({ default: m.ReportSchedulePage })));
 
 // ── Registration ─────────────────────────────────────────────────────────────
 export const RegisterPage = lazy(() => import('@/features/auth/register/register-page').then(m => ({ default: m.RegisterPage })));

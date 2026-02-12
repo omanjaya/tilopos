@@ -5,7 +5,7 @@ import {
   FlaskConical, Globe, QrCode, ScrollText, Settings, Building2, Monitor, Bell,
   Banknote, Ticket, Filter, Calculator, Printer, ListPlus,
   ToggleLeft, Store, TrendingUp, RefreshCw, Calendar, Wrench, Hash,
-  Palette,
+  Palette, FileText,
   type LucideIcon,
 } from 'lucide-react';
 import type { EmployeeRole } from '@/types/auth.types';
@@ -46,7 +46,8 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
     '/app/inventory/serial-numbers', '/app/inventory/product-assignment',
     '/app/customers', '/app/customers/segments',
     '/app/promotions', '/app/promotions/vouchers', '/app/loyalty',
-    '/app/reports', '/app/employees',
+    '/app/invoices',
+    '/app/reports', '/app/reports/sales', '/app/employees',
     '/app/appointments', '/app/work-orders', '/app/item-tracking',
   ],
   cashier: [
@@ -70,39 +71,46 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
 // ── Navigation structure ─────────────────────────────────────────────────────
 
 export const navSections: NavSection[] = [
+  // ── Dashboard (no section title) ──
   {
     id: 'quick',
     items: [
       { to: '/app', label: 'Dashboard', icon: LayoutDashboard },
-      { to: '/pos', label: 'POS Terminal', icon: ShoppingCart, external: true },
-      { to: '/kds', label: 'Kitchen Display', icon: MonitorPlay, external: true },
     ],
   },
+  // ── Laporan ──
   {
-    id: 'sales',
-    title: 'Penjualan',
-    icon: Receipt,
-    maxVisible: 4,
+    id: 'reports',
+    title: 'Laporan',
+    icon: BarChart3,
     items: [
+      { to: '/app/reports/sales', label: 'Penjualan', icon: TrendingUp },
+      { to: '/app/invoices', label: 'Invoice', icon: FileText },
       { to: '/app/transactions', label: 'Transaksi', icon: Receipt },
-      { to: '/app/orders', label: 'Pesanan', icon: UtensilsCrossed },
-      { to: '/app/tables', label: 'Meja', icon: CalendarDays },
-      { to: '/app/shifts', label: 'Shift', icon: Clock },
-      { to: '/app/waiting-list', label: 'Daftar Tunggu', icon: ListPlus },
       { to: '/app/settlements', label: 'Penyelesaian', icon: Banknote },
+      { to: '/app/reports', label: 'Semua Laporan', icon: BarChart3 },
     ],
   },
+  // ── Produk ──
   {
-    id: 'catalog',
-    title: 'Produk & Inventori',
+    id: 'products',
+    title: 'Produk',
     icon: Package,
+    items: [
+      { to: '/app/products', label: 'Daftar Produk', icon: Package },
+      { to: '/app/ingredients', label: 'Bahan Baku', icon: FlaskConical },
+    ],
+  },
+  // ── Inventori ──
+  {
+    id: 'inventory',
+    title: 'Inventori',
+    icon: Warehouse,
     maxVisible: 4,
     items: [
-      { to: '/app/products', label: 'Produk', icon: Package },
       { to: '/app/inventory/stock', label: 'Stok', icon: Warehouse },
-      { to: '/app/inventory/transfers', label: 'Transfer', icon: ArrowLeftRight },
+      { to: '/app/inventory/transfers', label: 'Transfer Stok', icon: ArrowLeftRight },
       { to: '/app/inventory/suppliers', label: 'Supplier', icon: Truck },
-      { to: '/app/ingredients', label: 'Bahan Baku', icon: FlaskConical },
       { to: '/app/inventory/purchase-orders', label: 'Purchase Order', icon: ClipboardList },
       { to: '/app/inventory/price-tiers', label: 'Harga Bertingkat', icon: TrendingUp },
       { to: '/app/inventory/unit-conversion', label: 'Konversi Satuan', icon: RefreshCw },
@@ -111,40 +119,88 @@ export const navSections: NavSection[] = [
       { to: '/app/inventory/product-assignment', label: 'Produk per Outlet', icon: Store },
     ],
   },
+  // ── Saluran Online ──
+  {
+    id: 'online',
+    title: 'Saluran Online',
+    icon: Globe,
+    items: [
+      { to: '/app/online-store', label: 'Toko Online', icon: Globe },
+      { to: '/app/self-order', label: 'Self Order', icon: QrCode },
+    ],
+  },
+  // ── Pelanggan ──
   {
     id: 'customers',
     title: 'Pelanggan',
     icon: UserRound,
-    maxVisible: 4,
     items: [
-      { to: '/app/customers', label: 'Pelanggan', icon: UserRound },
-      { to: '/app/promotions', label: 'Promosi', icon: Tag },
-      { to: '/app/loyalty', label: 'Loyalty', icon: Heart },
-      { to: '/app/online-store', label: 'Toko Online', icon: Globe },
+      { to: '/app/customers', label: 'Daftar Pelanggan', icon: UserRound },
       { to: '/app/customers/segments', label: 'Segmen', icon: Filter },
+    ],
+  },
+  // ── Karyawan ──
+  {
+    id: 'employees',
+    title: 'Karyawan',
+    icon: Users,
+    items: [
+      { to: '/app/employees', label: 'Daftar Karyawan', icon: Users },
+      { to: '/app/shifts', label: 'Manajemen Shift', icon: Clock },
+    ],
+  },
+  // ── Promosi ──
+  {
+    id: 'promotions',
+    title: 'Promosi',
+    icon: Tag,
+    items: [
+      { to: '/app/promotions', label: 'Promosi', icon: Tag },
       { to: '/app/promotions/vouchers', label: 'Voucher', icon: Ticket },
-      { to: '/app/self-order', label: 'Self Order', icon: QrCode },
+      { to: '/app/loyalty', label: 'Loyalty', icon: Heart },
+      { to: '/app/credit-sales', label: 'Penjualan Kredit', icon: Banknote },
+    ],
+  },
+  // ── Manajemen Meja ──
+  {
+    id: 'tables',
+    title: 'Manajemen Meja',
+    icon: CalendarDays,
+    items: [
+      { to: '/app/tables', label: 'Meja', icon: CalendarDays },
+      { to: '/app/orders', label: 'Pesanan', icon: UtensilsCrossed },
+      { to: '/app/waiting-list', label: 'Daftar Tunggu', icon: ListPlus },
+    ],
+  },
+  // ── Layanan ──
+  {
+    id: 'services',
+    title: 'Layanan',
+    icon: Wrench,
+    items: [
       { to: '/app/appointments', label: 'Appointment', icon: CalendarDays },
       { to: '/app/work-orders', label: 'Work Order', icon: Wrench },
       { to: '/app/item-tracking', label: 'Item Tracking', icon: Package },
     ],
   },
-  {
-    id: 'reports',
-    title: 'Laporan & Tim',
-    icon: BarChart3,
-    items: [
-      { to: '/app/reports', label: 'Laporan', icon: BarChart3 },
-      { to: '/app/employees', label: 'Karyawan', icon: Users },
-      { to: '/app/audit', label: 'Audit Log', icon: ScrollText },
-    ],
-  },
+  // ── Pengaturan ──
   {
     id: 'settings',
     title: 'Pengaturan',
     icon: Settings,
     items: [
       { to: '/app/settings/business', label: 'Pengaturan', icon: Settings },
+      { to: '/app/audit', label: 'Audit Log', icon: ScrollText },
+    ],
+  },
+  // ── Akses Cepat (external links) ──
+  {
+    id: 'external',
+    title: 'Akses Cepat',
+    icon: ShoppingCart,
+    items: [
+      { to: '/pos', label: 'POS Terminal', icon: ShoppingCart, external: true },
+      { to: '/kds', label: 'Kitchen Display', icon: MonitorPlay, external: true },
     ],
   },
 ];
@@ -156,11 +212,14 @@ export const settingsItems: NavItem[] = [
   { to: '/app/settings/notifications', label: 'Notifikasi', icon: Bell },
   { to: '/app/settings/tax', label: 'Pajak', icon: Calculator },
   { to: '/app/settings/receipt', label: 'Struk', icon: Printer },
+  { to: '/app/settings/payments', label: 'Pembayaran', icon: Banknote },
+  { to: '/app/settings/printers', label: 'Printer', icon: Printer },
   { to: '/app/settings/hours', label: 'Jam Operasional', icon: Clock },
   { to: '/app/settings/modifiers', label: 'Modifier', icon: ListPlus },
   { to: '/app/settings/business-type', label: 'Tipe Bisnis', icon: Store },
   { to: '/app/settings/features', label: 'Fitur', icon: ToggleLeft },
   { to: '/app/settings/appearance', label: 'Tampilan', icon: Palette },
+  { to: '/app/settings/report-schedule', label: 'Jadwal Laporan', icon: Calendar },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -202,10 +261,10 @@ export const DEFAULT_PINS_BY_ROLE: Partial<Record<EmployeeRole, string[]>> = {
   cashier: ['/pos', '/app/transactions'],
   kitchen: ['/kds'],
   inventory: ['/app/products', '/app/inventory/stock'],
-  supervisor: ['/app', '/app/reports', '/app/products'],
-  manager: ['/app', '/app/reports', '/app/products'],
-  owner: ['/app', '/app/reports', '/app/employees'],
-  super_admin: ['/app', '/app/reports', '/app/employees'],
+  supervisor: ['/app', '/app/reports/sales', '/app/products'],
+  manager: ['/app', '/app/reports/sales', '/app/products'],
+  owner: ['/app', '/app/reports/sales', '/app/employees'],
+  super_admin: ['/app', '/app/reports/sales', '/app/employees'],
 };
 
 export function loadPinnedItems(role: EmployeeRole): string[] {
