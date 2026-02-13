@@ -48,6 +48,7 @@ import { ItemTrackingModule } from './modules/item-tracking/item-tracking.module
 import { PricingModule } from './modules/pricing/pricing.module';
 import { CreditModule } from './modules/credit/credit.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { BundlePackagesModule } from './modules/bundle-packages/bundle-packages.module';
 import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
 
 @Module({
@@ -102,6 +103,7 @@ import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
     PricingModule,
     CreditModule,
     OnboardingModule,
+    BundlePackagesModule,
   ],
   providers: [
     {

@@ -6,6 +6,7 @@ export { ReceiptPreview, ThermalReceipt } from './receipt-preview';
 export { HeldBillsPanel } from './held-bills-panel';
 export { OrderTypeSelector, OrderTypeButtons } from './order-type-selector';
 export { ProductModal } from './product-modal';
+export { BundleModal } from './bundle-modal';
 export { CustomerSelector } from './customer-selector';
 export { TableSelector, type Table } from './table-selector';
 export { DiscountModal } from './discount-modal';

@@ -20,7 +20,8 @@ export interface CreateCreditTransactionInput {
   orderType: 'dine_in' | 'takeaway' | 'delivery';
   tableId?: string;
   items: Array<{
-    productId: string;
+    productId?: string;
+    bundleId?: string;
     variantId?: string;
     quantity: number;
     modifierIds?: string[];
@@ -76,7 +77,8 @@ export class CreateCreditTransactionUseCase {
 
     // Validate items and build details (same pattern as create-transaction)
     const itemDetails: Array<{
-      productId: string;
+      productId: string | null;
+      bundleId: string | null;
       variantId: string | null;
       productName: string;
       variantName: string | null;
@@ -87,37 +89,63 @@ export class CreateCreditTransactionUseCase {
     }> = [];
 
     for (const item of input.items) {
-      const product = await this.productRepo.findById(item.productId);
-      if (!product || !product.isActive) {
-        throw new AppError(
-          ErrorCode.PRODUCT_NOT_FOUND,
-          `Product ${item.productId} not found or inactive`,
-        );
-      }
+      if (item.bundleId) {
+        // Bundle path
+        const bundle = await this.prisma.bundlePackage.findFirst({
+          where: { id: item.bundleId, isActive: true },
+          include: { items: { include: { product: true, variant: true } } },
+        });
+        if (!bundle) {
+          throw new AppError(ErrorCode.PRODUCT_NOT_FOUND, `Bundle ${item.bundleId} not found or inactive`);
+        }
+        const unitPrice = item.unitPrice ?? Number(bundle.price);
+        const itemSubtotal = unitPrice * item.quantity;
+        itemDetails.push({
+          productId: null,
+          bundleId: item.bundleId,
+          variantId: null,
+          productName: bundle.name,
+          variantName: null,
+          unitPrice,
+          quantity: item.quantity,
+          subtotal: itemSubtotal,
+          notes: item.notes || null,
+        });
+      } else {
+        // Product path
+        const product = await this.productRepo.findById(item.productId!);
+        if (!product || !product.isActive) {
+          throw new AppError(
+            ErrorCode.PRODUCT_NOT_FOUND,
+            `Product ${item.productId} not found or inactive`,
+          );
+        }
 
-      const unitPrice = item.unitPrice ?? product.basePrice;
-      const itemSubtotal = unitPrice * item.quantity;
+        const unitPrice = item.unitPrice ?? product.basePrice;
+        const itemSubtotal = unitPrice * item.quantity;
 
-      itemDetails.push({
-        productId: item.productId,
-        variantId: item.variantId || null,
-        productName: product.name,
-        variantName: null,
-        unitPrice,
-        quantity: item.quantity,
-        subtotal: itemSubtotal,
-        notes: item.notes || null,
-      });
+        itemDetails.push({
+          productId: item.productId!,
+          bundleId: null,
+          variantId: item.variantId || null,
+          productName: product.name,
+          variantName: null,
+          unitPrice,
+          quantity: item.quantity,
+          subtotal: itemSubtotal,
+          notes: item.notes || null,
+        });
 
-      // Stock validation
-      if (product.trackStock) {
-        const stockLevel = await this.inventoryRepo.findStockLevel(
-          input.outletId,
-          item.productId,
-          item.variantId || null,
-        );
-        if (stockLevel && stockLevel.quantity < item.quantity) {
-          throw new InsufficientStockException(item.productId, stockLevel.quantity, item.quantity);
+        // Stock validation
+        if (product.trackStock) {
+          const stockLevel = await this.inventoryRepo.findStockLevel(
+            input.outletId,
+            item.productId!,
+            item.variantId || null,
+          );
+          if (stockLevel && stockLevel.quantity < item.quantity) {
+            throw new InsufficientStockException(item.productId!, stockLevel.quantity, item.quantity);
+          }
         }
       }
     }
@@ -169,6 +197,7 @@ export class CreateCreditTransactionUseCase {
           data: {
             transactionId,
             productId: item.productId,
+            bundleId: item.bundleId,
             variantId: item.variantId,
             productName: item.productName,
             variantName: item.variantName,
@@ -195,6 +224,9 @@ export class CreateCreditTransactionUseCase {
 
       // 4. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
       for (const item of itemDetails) {
+        // Skip bundle items — bundle component stock is handled separately
+        if (!item.productId) continue;
+
         const product = await tx.product.findUnique({
           where: { id: item.productId },
         });

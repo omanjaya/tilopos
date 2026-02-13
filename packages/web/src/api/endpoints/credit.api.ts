@@ -55,7 +55,8 @@ export interface CreateCreditTransactionRequest {
   orderType: 'dine_in' | 'takeaway' | 'delivery';
   tableId?: string;
   items: {
-    productId: string;
+    productId?: string;
+    bundleId?: string;
     variantId?: string;
     quantity: number;
     modifierIds?: string[];

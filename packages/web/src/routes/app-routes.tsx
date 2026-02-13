@@ -9,6 +9,7 @@ import { settingsRoutes } from './settings-routes';
 import {
   DashboardPage, DashboardPageMobile, OwnerDashboardPage,
   ProductsPage, ProductsPageMobile, ProductFormPage,
+  BundlePackagesPage, BundleFormPage,
   EmployeesPage, EmployeeFormPage,
   CustomersPage, CustomersPageMobile, CustomerFormPage, CustomerSegmentsPage,
   InvoicePage,
@@ -52,6 +53,9 @@ export const appRoutes: RouteObject[] = [
   { path: 'products', element: <LazyRoute><DeviceRoute desktop={ProductsPage} mobile={ProductsPageMobile} /></LazyRoute> },
   { path: 'products/new', element: <LazyRoute><ProductFormPage /></LazyRoute> },
   { path: 'products/:id/edit', element: <LazyRoute><ProductFormPage /></LazyRoute> },
+  { path: 'bundle-packages', element: <LazyRoute><BundlePackagesPage /></LazyRoute> },
+  { path: 'bundle-packages/new', element: <LazyRoute><BundleFormPage /></LazyRoute> },
+  { path: 'bundle-packages/:id/edit', element: <LazyRoute><BundleFormPage /></LazyRoute> },
   { path: 'ingredients', element: <LazyRoute><FG path="/app/ingredients"><IngredientsPage /></FG></LazyRoute> },
 
   // Employees

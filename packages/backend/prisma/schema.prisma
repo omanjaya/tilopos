@@ -379,6 +379,7 @@ model Business {
   reportTemplates       ReportTemplate[]
   features              BusinessFeature[]
   pricingRules          PricingRule[]
+  bundlePackages        BundlePackage[]
 
   @@map("businesses")
 }
@@ -465,6 +466,7 @@ model Outlet {
   creditSales           CreditSale[]
   outletFeatures        OutletFeature[]
   outletProducts        OutletProduct[]
+  bundlePackageOutlets  BundlePackageOutlet[]
 
   @@index([businessId], map: "idx_outlets_business")
   @@map("outlets")
@@ -691,6 +693,7 @@ model Product {
   batchLots             BatchLot[]
   serialNumbers         SerialNumber[]
   outletProducts        OutletProduct[]
+  bundlePackageItems    BundlePackageItem[]
 
   @@unique([businessId, sku], map: "uq_products_business_sku")
   @@unique([businessId, barcode], map: "uq_products_business_barcode")
@@ -728,6 +731,7 @@ model ProductVariant {
   stockTransferItems    StockTransferItem[]
   selfOrderItems        SelfOrderItem[]
   storeOrderItems       StoreOrderItem[]
+  bundlePackageItems    BundlePackageItem[]
 
   @@index([productId], map: "idx_variants_product")
   @@map("product_variants")
@@ -847,6 +851,7 @@ model TransactionItem {
   unitPrice         Decimal                   @map("unit_price") @db.Decimal(15, 2)
   discountAmount    Decimal                   @default(0) @map("discount_amount") @db.Decimal(15, 2)
   subtotal          Decimal                   @db.Decimal(15, 2)
+  bundleId          String?                   @map("bundle_id") @db.Uuid
   notes             String?                   @db.Text
   createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
 
@@ -854,6 +859,7 @@ model TransactionItem {
   transaction       Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   product           Product?                  @relation(fields: [productId], references: [id])
   variant           ProductVariant?           @relation(fields: [variantId], references: [id])
+  bundle            BundlePackage?            @relation(fields: [bundleId], references: [id])
   modifiers         TransactionItemModifier[]
 
   @@index([transactionId], map: "idx_trans_items_transaction")
@@ -2381,4 +2387,65 @@ model CreditPayment {
 
   @@index([creditSaleId], map: "idx_credit_payments_credit_sale")
   @@map("credit_payments")
+}
+
+// ============================================================================
+// BUNDLE PACKAGES (Product Bundles / Combo Packages)
+// ============================================================================
+
+model BundlePackage {
+  id              String              @id @default(uuid()) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  name            String              @db.VarChar(255)
+  description     String?             @db.Text
+  imageUrl        String?             @map("image_url") @db.VarChar(500)
+  price           Decimal             @db.Decimal(15, 2)
+  costPrice       Decimal?            @map("cost_price") @db.Decimal(15, 2)
+  isActive        Boolean             @default(true) @map("is_active")
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  business        Business            @relation(fields: [businessId], references: [id])
+  items           BundlePackageItem[]
+  outlets         BundlePackageOutlet[]
+  transactionItems TransactionItem[]
+
+  @@index([businessId], map: "idx_bundle_packages_business")
+  @@index([businessId, isActive], map: "idx_bundle_packages_business_active")
+  @@map("bundle_packages")
+}
+
+model BundlePackageItem {
+  id              String          @id @default(uuid()) @db.Uuid
+  bundleId        String          @map("bundle_id") @db.Uuid
+  productId       String          @map("product_id") @db.Uuid
+  variantId       String?         @map("variant_id") @db.Uuid
+  quantity        Decimal         @default(1) @db.Decimal(10, 3)
+  sortOrder       Int             @default(0) @map("sort_order")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  bundle          BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([bundleId], map: "idx_bundle_items_bundle")
+  @@map("bundle_package_items")
+}
+
+model BundlePackageOutlet {
+  id              String          @id @default(uuid()) @db.Uuid
+  bundleId        String          @map("bundle_id") @db.Uuid
+  outletId        String          @map("outlet_id") @db.Uuid
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  bundle          BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  outlet          Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, outletId])
+  @@index([outletId], map: "idx_bundle_outlets_outlet")
+  @@map("bundle_package_outlets")
 }

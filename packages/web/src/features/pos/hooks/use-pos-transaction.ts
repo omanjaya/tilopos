@@ -107,8 +107,9 @@ export function usePosTransaction({
             shiftId,
             orderType,
             items: items.map((item) => ({
-                productId: item.productId,
+                productId: item.bundleId ? undefined : item.productId,
                 variantId: item.variantId,
+                bundleId: item.bundleId,
                 quantity: item.quantity,
                 modifierIds: item.modifiers.map((m) => m.id),
                 notes: item.notes,
@@ -193,8 +194,9 @@ export function usePosTransaction({
             orderType,
             tableId,
             items: items.map((item) => ({
-                productId: item.productId,
+                productId: item.bundleId ? undefined : item.productId,
                 variantId: item.variantId,
+                bundleId: item.bundleId,
                 quantity: item.quantity,
                 modifierIds: item.modifiers.map((m) => m.id),
                 notes: item.notes,

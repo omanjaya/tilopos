@@ -11,6 +11,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/app/shifts': 'Shift',
   '/app/products': 'Produk',
   '/app/products/new': 'Tambah Produk',
+  '/app/bundle-packages': 'Paket Bundle',
+  '/app/bundle-packages/new': 'Tambah Paket Bundle',
   '/app/ingredients': 'Bahan Baku',
   '/app/inventory/stock': 'Stok',
   '/app/inventory/transfers': 'Transfer Stok',
@@ -68,6 +70,7 @@ export function getPageTitle(pathname: string): string {
   // Dynamic route patterns (e.g., /app/products/123/edit → "Edit Produk")
   const dynamicPatterns: [RegExp, string][] = [
     [/^\/app\/products\/[^/]+\/edit$/, 'Edit Produk'],
+    [/^\/app\/bundle-packages\/[^/]+\/edit$/, 'Edit Paket Bundle'],
     [/^\/app\/employees\/[^/]+\/edit$/, 'Edit Karyawan'],
     [/^\/app\/customers\/[^/]+\/edit$/, 'Edit Pelanggan'],
     [/^\/app\/transactions\/[^/]+$/, 'Detail Transaksi'],

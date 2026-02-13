@@ -5,7 +5,7 @@ import {
   FlaskConical, Globe, QrCode, ScrollText, Settings, Building2, Monitor, Bell,
   Banknote, Ticket, Filter, Calculator, Printer, ListPlus,
   ToggleLeft, Store, TrendingUp, RefreshCw, Calendar, Wrench, Hash,
-  Palette, FileText,
+  Palette, FileText, Layers,
   type LucideIcon,
 } from 'lucide-react';
 import type { EmployeeRole } from '@/types/auth.types';
@@ -39,7 +39,7 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
     '/app', '/pos', '/kds',
     '/app/transactions', '/app/orders', '/app/tables', '/app/waiting-list',
     '/app/shifts', '/app/settlements',
-    '/app/products', '/app/ingredients',
+    '/app/products', '/app/bundle-packages', '/app/ingredients',
     '/app/inventory/stock', '/app/inventory/transfers', '/app/inventory/suppliers',
     '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
     '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
@@ -60,7 +60,7 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
   ],
   inventory: [
     '/app',
-    '/app/products', '/app/ingredients',
+    '/app/products', '/app/bundle-packages', '/app/ingredients',
     '/app/inventory/stock', '/app/inventory/transfers', '/app/inventory/suppliers',
     '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
     '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
@@ -98,6 +98,7 @@ export const navSections: NavSection[] = [
     icon: Package,
     items: [
       { to: '/app/products', label: 'Daftar Produk', icon: Package },
+      { to: '/app/bundle-packages', label: 'Paket Bundle', icon: Layers },
       { to: '/app/ingredients', label: 'Bahan Baku', icon: FlaskConical },
     ],
   },

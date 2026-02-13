@@ -10,6 +10,10 @@ export const ProductsPage = lazy(() => import('@/features/products/products-page
 export const ProductsPageMobile = lazy(() => import('@/features/products/products-page.mobile').then(m => ({ default: m.ProductsPage })));
 export const ProductFormPage = lazy(() => import('@/features/products/product-form-page').then(m => ({ default: m.ProductFormPage })));
 
+// ── Bundle Packages ─────────────────────────────────────────────────────────
+export const BundlePackagesPage = lazy(() => import('@/features/bundle-packages/bundle-packages-page').then(m => ({ default: m.BundlePackagesPage })));
+export const BundleFormPage = lazy(() => import('@/features/bundle-packages/bundle-form-page').then(m => ({ default: m.BundleFormPage })));
+
 // ── Employees ────────────────────────────────────────────────────────────────
 export const EmployeesPage = lazy(() => import('@/features/employees/employees-page').then(m => ({ default: m.EmployeesPage })));
 export const EmployeeFormPage = lazy(() => import('@/features/employees/employee-form-page').then(m => ({ default: m.EmployeeFormPage })));

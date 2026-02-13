@@ -1,13 +1,12 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
 import { transactionsApi } from '@/api/endpoints/transactions.api';
-import { useUIStore } from '@/stores/ui.store';
-import { useAuthStore } from '@/stores/auth.store';
-import { PageHeader } from '@/components/shared/page-header';
+import { settingsApi } from '@/api/endpoints/settings.api';
 import { DataTable, type Column } from '@/components/shared/data-table';
+import { ExportButtons } from '@/components/shared/export-buttons';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -33,70 +32,138 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/lib/toast-utils';
-import { formatCurrency, formatDateTime } from '@/lib/format';
-import { MoreHorizontal, Eye, XCircle, RotateCcw, Printer, Loader2 } from 'lucide-react';
-import type { Transaction, TransactionStatus } from '@/types/transaction.types';
+import { formatCurrency, formatTime } from '@/lib/format';
+import { generateFilename } from '@/lib/export-utils';
+import {
+  MoreHorizontal, Eye, XCircle, RotateCcw, Printer, Loader2,
+  Receipt, TrendingUp, ShoppingCart, Ban, Package,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { Transaction } from '@/types/transaction.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
-const STATUS_MAP: Record<TransactionStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
-  completed: { label: 'Selesai', variant: 'default' },
-  voided: { label: 'Void', variant: 'destructive' },
-  refunded: { label: 'Refund', variant: 'outline' },
-  held: { label: 'Ditahan', variant: 'secondary' },
-  partial_refund: { label: 'Refund Sebagian', variant: 'secondary' },
-};
+// ── Types ────────────────────────────────────────────────────────────────────
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: 'Tunai',
-  qris: 'QRIS',
-  debit_card: 'Kartu Debit',
-  credit_card: 'Kartu Kredit',
-  gopay: 'GoPay',
-  ovo: 'OVO',
-  dana: 'DANA',
-  shopeepay: 'ShopeePay',
-  linkaja: 'LinkAja',
-};
-
-function getPaymentMethodLabels(transaction: Transaction): string {
-  const payments = transaction.payments ?? [];
-  if (payments.length === 0) return '-';
-  return payments
-    .map((p) => PAYMENT_METHOD_LABELS[p.method] || p.method)
-    .join(', ');
+interface VoidItemRow {
+  id: string;
+  voidTime: string;
+  orderId: string;
+  itemName: string;
+  quantity: number;
+  voidReason: string;
+  voidedBy: string;
+  totalPrice: number;
 }
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+type TabId = 'all' | 'completed' | 'cancelled' | 'voided';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'all', label: 'Transaksi' },
+  { id: 'completed', label: 'Pesanan Sukses' },
+  { id: 'cancelled', label: 'Pesanan Batal' },
+  { id: 'voided', label: 'Item Void' },
+];
+
+// ── Component ────────────────────────────────────────────────────────────────
 
 export function TransactionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Filters
+  const [activeTab, setActiveTab] = useState<TabId>('all');
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [outletFilter, setOutletFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+
+  // Dialogs
   const [voidTarget, setVoidTarget] = useState<Transaction | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [refundTarget, setRefundTarget] = useState<Transaction | null>(null);
   const [refundReason, setRefundReason] = useState('');
 
-  // Get outlet context - fixes data inconsistency issue
-  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
-  const user = useAuthStore((s) => s.user);
-  const outletId = selectedOutletId ?? user?.outletId;
+  // ── Queries ──────────────────────────────────────────────────────────────
 
-  const { data: transactionsData, isLoading } = useQuery({
-    queryKey: ['transactions', outletId, search, statusFilter, startDate, endDate],
-    queryFn: () =>
-      transactionsApi.list({
-        outletId: outletId || undefined, // Convert null to undefined for type safety
-        search: search || undefined,
-        status: statusFilter !== 'all' ? (statusFilter as TransactionStatus) : undefined,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-      }),
-    enabled: !!outletId, // Only fetch when outletId is available
+  const { data: outlets } = useQuery({
+    queryKey: ['outlets'],
+    queryFn: () => settingsApi.getOutlets(),
   });
 
+  // Map status tab → API param
+  const statusParam =
+    activeTab === 'all' ? undefined
+      : activeTab === 'cancelled' ? ('refunded' as const)
+        : activeTab;
+
+  const { data: transactionsData, isLoading } = useQuery({
+    queryKey: ['transactions', outletFilter, search, activeTab, selectedDate],
+    queryFn: () =>
+      transactionsApi.list({
+        outletId: outletFilter !== 'all' ? outletFilter : undefined,
+        search: search || undefined,
+        status: statusParam,
+        startDate: selectedDate,
+        endDate: selectedDate,
+      }),
+  });
+
+  // ── Computed ─────────────────────────────────────────────────────────────
+
+  const outletMap = useMemo(() => {
+    const map = new Map<string, string>();
+    outlets?.forEach((o) => map.set(o.id, o.name));
+    return map;
+  }, [outlets]);
+
+  const transactions = transactionsData ?? [];
+
+  // For "cancelled" tab, include both refunded and partial_refund
+  const filtered = activeTab === 'cancelled'
+    ? transactions.filter((t) => t.status === 'refunded' || t.status === 'partial_refund')
+    : transactions;
+
+  // Flatten voided transaction items for "Item Void" tab
+  const voidItems = useMemo<VoidItemRow[]>(() => {
+    if (activeTab !== 'voided') return [];
+    const rows: VoidItemRow[] = [];
+    for (const tx of filtered) {
+      for (const item of tx.items ?? []) {
+        rows.push({
+          id: `${tx.id}-${item.id}`,
+          voidTime: tx.voidedAt ?? tx.updatedAt,
+          orderId: tx.transactionNumber,
+          itemName: item.variantName
+            ? `${item.productName} (${item.variantName})`
+            : item.productName,
+          quantity: item.quantity,
+          voidReason: tx.voidReason || '-',
+          voidedBy: tx.voidedBy ?? tx.employeeName,
+          totalPrice: item.totalPrice,
+        });
+      }
+    }
+    return rows;
+  }, [activeTab, filtered]);
+
+  const summary = useMemo(() => {
+    if (activeTab === 'voided') {
+      return {
+        count: voidItems.length,
+        totalCollected: voidItems.reduce((s, item) => s + item.totalPrice, 0),
+        netSales: 0,
+      };
+    }
+    return {
+      count: filtered.length,
+      totalCollected: filtered.reduce((s, t) => s + t.totalAmount, 0),
+      netSales: filtered.reduce((s, t) => s + t.totalAmount - t.discountAmount, 0),
+    };
+  }, [activeTab, filtered, voidItems]);
+
+  // ── Mutations ────────────────────────────────────────────────────────────
 
   const voidMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => transactionsApi.void(id, reason),
@@ -143,122 +210,320 @@ export function TransactionsPage() {
     }
   };
 
-  const columns: Column<Transaction>[] = [
+  // ── Action Column (shared for transaction tabs) ─────────────────────────
+
+  const actionColumn: Column<Transaction> = {
+    key: 'actions',
+    header: '',
+    cell: (row) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi transaksi">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => navigate(`/app/transactions/${row.id}`)}>
+            <Eye className="mr-2 h-4 w-4" /> Lihat Detail
+          </DropdownMenuItem>
+          {row.status === 'completed' && (
+            <DropdownMenuItem
+              onClick={() => setVoidTarget(row)}
+              className="text-destructive"
+            >
+              <XCircle className="mr-2 h-4 w-4" /> Void
+            </DropdownMenuItem>
+          )}
+          {row.status === 'completed' && (
+            <DropdownMenuItem onClick={() => setRefundTarget(row)}>
+              <RotateCcw className="mr-2 h-4 w-4" /> Refund
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={() => handleReprint(row.id)}>
+            <Printer className="mr-2 h-4 w-4" /> Cetak Ulang
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ),
+  };
+
+  // ── Per-Tab Columns ────────────────────────────────────────────────────
+
+  const defaultColumns: Column<Transaction>[] = [
     {
-      key: 'transactionNumber',
-      header: 'No. Transaksi',
-      cell: (row) => <span className="font-medium">{row.transactionNumber}</span>,
+      key: 'outlet',
+      header: 'Outlet',
+      cell: (row) => outletMap.get(row.outletId) || '-',
     },
     {
-      key: 'createdAt',
-      header: 'Tanggal',
-      cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span>,
+      key: 'time',
+      header: 'Waktu',
+      cell: (row) => <span className="text-muted-foreground">{formatTime(row.createdAt)}</span>,
     },
     {
       key: 'employeeName',
-      header: 'Kasir',
+      header: 'Diproses Oleh',
       cell: (row) => row.employeeName,
     },
     {
+      key: 'items',
+      header: 'Item',
+      cell: (row) => row.items?.length ?? 0,
+    },
+    {
       key: 'totalAmount',
-      header: 'Total',
+      header: 'Total Harga',
       cell: (row) => <span className="font-medium">{formatCurrency(row.totalAmount)}</span>,
     },
+    actionColumn,
+  ];
+
+  const cancelledColumns: Column<Transaction>[] = [
     {
-      key: 'paymentMethod',
-      header: 'Metode Bayar',
+      key: 'outlet',
+      header: 'Outlet',
+      cell: (row) => outletMap.get(row.outletId) || '-',
+    },
+    {
+      key: 'cancelledTime',
+      header: 'Waktu Batal',
       cell: (row) => (
-        <span className="text-muted-foreground">{getPaymentMethodLabels(row)}</span>
+        <span className="text-muted-foreground">
+          {formatTime(row.voidedAt ?? row.updatedAt)}
+        </span>
       ),
     },
     {
-      key: 'status',
-      header: 'Status',
-      cell: (row) => {
-        const status = STATUS_MAP[row.status] ?? { label: row.status, variant: 'secondary' as const };
-        return <Badge variant={status.variant}>{status.label}</Badge>;
-      },
+      key: 'cancelledBy',
+      header: 'Dibatalkan Oleh',
+      cell: (row) => row.voidedBy ?? row.employeeName,
     },
     {
-      key: 'actions',
-      header: '',
+      key: 'cancelReason',
+      header: 'Alasan Batal',
       cell: (row) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi transaksi">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => navigate(`/app/transactions/${row.id}`)}>
-              <Eye className="mr-2 h-4 w-4" /> Lihat Detail
-            </DropdownMenuItem>
-            {row.status === 'completed' && (
-              <DropdownMenuItem
-                onClick={() => setVoidTarget(row)}
-                className="text-destructive"
-              >
-                <XCircle className="mr-2 h-4 w-4" /> Void
-              </DropdownMenuItem>
-            )}
-            {row.status === 'completed' && (
-              <DropdownMenuItem onClick={() => setRefundTarget(row)}>
-                <RotateCcw className="mr-2 h-4 w-4" /> Refund
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => handleReprint(row.id)}>
-              <Printer className="mr-2 h-4 w-4" /> Cetak Ulang
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <span className="text-muted-foreground text-sm">
+          {row.voidReason || '-'}
+        </span>
       ),
+    },
+    {
+      key: 'totalAmount',
+      header: 'Total Harga',
+      cell: (row) => <span className="font-medium">{formatCurrency(row.totalAmount)}</span>,
+    },
+    actionColumn,
+  ];
+
+  const voidItemColumns: Column<VoidItemRow>[] = [
+    {
+      key: 'voidTime',
+      header: 'Waktu Void',
+      cell: (row) => <span className="text-muted-foreground">{formatTime(row.voidTime)}</span>,
+    },
+    {
+      key: 'orderId',
+      header: 'Order ID',
+      cell: (row) => <span className="font-medium">{row.orderId}</span>,
+    },
+    {
+      key: 'itemName',
+      header: 'Nama Item',
+      cell: (row) => row.itemName,
+    },
+    {
+      key: 'quantity',
+      header: 'Qty',
+      cell: (row) => row.quantity,
+    },
+    {
+      key: 'voidReason',
+      header: 'Alasan Void',
+      cell: (row) => (
+        <span className="text-muted-foreground text-sm">{row.voidReason}</span>
+      ),
+    },
+    {
+      key: 'voidedBy',
+      header: 'Di-void Oleh',
+      cell: (row) => row.voidedBy,
+    },
+    {
+      key: 'totalPrice',
+      header: 'Total Harga',
+      cell: (row) => <span className="font-medium">{formatCurrency(row.totalPrice)}</span>,
     },
   ];
 
-  return (
-    <div>
-      <PageHeader title="Riwayat Transaksi" description="Lihat semua transaksi" />
+  // ── Per-Tab Summary Cards ──────────────────────────────────────────────
 
-      <DataTable
-        columns={columns}
-        data={transactionsData ?? []}
-        isLoading={isLoading}
-        searchPlaceholder="Cari no. transaksi atau nama pelanggan..."
-        onSearch={setSearch}
-        emptyTitle="Belum ada transaksi"
-        emptyDescription="Transaksi akan muncul di sini setelah Anda melakukan penjualan."
-        filters={
-          <div className="flex items-center gap-4">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Semua Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Status</SelectItem>
-                <SelectItem value="completed">Selesai</SelectItem>
-                <SelectItem value="voided">Void</SelectItem>
-                <SelectItem value="refunded">Refund</SelectItem>
-                <SelectItem value="partial_refund">Refund Sebagian</SelectItem>
-                <SelectItem value="held">Ditahan</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-[160px]"
-              placeholder="Dari tanggal"
-            />
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-[160px]"
-              placeholder="Sampai tanggal"
-            />
-          </div>
-        }
-      />
+  function renderSummaryCards() {
+    if (activeTab === 'cancelled') {
+      return (
+        <div className="grid grid-cols-2 gap-4">
+          <SummaryCard icon={Receipt} label="TRANSAKSI" value={summary.count.toString()} />
+          <SummaryCard icon={Ban} label="TOTAL DIBATALKAN" value={formatCurrency(summary.totalCollected)} />
+        </div>
+      );
+    }
+    if (activeTab === 'voided') {
+      return (
+        <div className="grid grid-cols-2 gap-4">
+          <SummaryCard icon={Package} label="TOTAL ITEM VOID" value={summary.count.toString()} />
+          <SummaryCard icon={XCircle} label="TOTAL HARGA VOID" value={formatCurrency(summary.totalCollected)} />
+        </div>
+      );
+    }
+    // "all" and "completed" tabs
+    return (
+      <div className="grid grid-cols-3 gap-4">
+        <SummaryCard icon={Receipt} label="TRANSAKSI" value={summary.count.toString()} />
+        <SummaryCard icon={ShoppingCart} label="TOTAL TERKUMPUL" value={formatCurrency(summary.totalCollected)} />
+        <SummaryCard icon={TrendingUp} label="PENJUALAN BERSIH" value={formatCurrency(summary.netSales)} />
+      </div>
+    );
+  }
+
+  // ── Export Data ──────────────────────────────────────────────────────────
+
+  const exportFilename = generateFilename('transaksi', selectedDate);
+
+  function getExportProps() {
+    if (activeTab === 'voided') {
+      return {
+        headers: ['Waktu Void', 'Order ID', 'Nama Item', 'Qty', 'Alasan Void', 'Di-void Oleh', 'Total Harga'],
+        data: voidItems.map((r) => [
+          formatTime(r.voidTime),
+          r.orderId,
+          r.itemName,
+          r.quantity,
+          r.voidReason,
+          r.voidedBy,
+          formatCurrency(r.totalPrice),
+        ]),
+        summary: [
+          { label: 'Total Item Void', value: summary.count },
+          { label: 'Total Harga Void', value: formatCurrency(summary.totalCollected) },
+        ],
+      };
+    }
+    if (activeTab === 'cancelled') {
+      return {
+        headers: ['Outlet', 'Waktu Batal', 'Dibatalkan Oleh', 'Alasan Batal', 'Total Harga'],
+        data: filtered.map((t) => [
+          outletMap.get(t.outletId) || '-',
+          formatTime(t.voidedAt ?? t.updatedAt),
+          t.voidedBy ?? t.employeeName,
+          t.voidReason || '-',
+          formatCurrency(t.totalAmount),
+        ]),
+        summary: [
+          { label: 'Transaksi', value: summary.count },
+          { label: 'Total Dibatalkan', value: formatCurrency(summary.totalCollected) },
+        ],
+      };
+    }
+    return {
+      headers: ['Outlet', 'Waktu', 'No. Transaksi', 'Diproses Oleh', 'Item', 'Total Harga'],
+      data: filtered.map((t) => [
+        outletMap.get(t.outletId) || '-',
+        formatTime(t.createdAt),
+        t.transactionNumber,
+        t.employeeName,
+        t.items?.length ?? 0,
+        formatCurrency(t.totalAmount),
+      ]),
+      summary: [
+        { label: 'Transaksi', value: summary.count },
+        { label: 'Total Terkumpul', value: formatCurrency(summary.totalCollected) },
+        { label: 'Penjualan Bersih', value: formatCurrency(summary.netSales) },
+      ],
+    };
+  }
+
+  const exportProps = getExportProps();
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-4">
+      {/* Filter Bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={outletFilter} onValueChange={setOutletFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Semua Outlet" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua Outlet</SelectItem>
+            {outlets?.map((outlet) => (
+              <SelectItem key={outlet.id} value={outlet.id}>
+                {outlet.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="w-[160px]"
+        />
+
+        <div className="ml-auto">
+          <ExportButtons
+            title="Laporan Transaksi"
+            headers={exportProps.headers}
+            data={exportProps.data}
+            filename={exportFilename}
+            summary={exportProps.summary}
+          />
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
+              activeTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Summary Cards */}
+      {renderSummaryCards()}
+
+      {/* Data Table — void tab uses different data type */}
+      {activeTab === 'voided' ? (
+        <DataTable
+          columns={voidItemColumns}
+          data={voidItems}
+          isLoading={isLoading}
+          searchPlaceholder="Cari nama item..."
+          onSearch={setSearch}
+          emptyTitle="Data Tidak Ditemukan"
+          emptyDescription="Item void akan muncul di sini."
+        />
+      ) : (
+        <DataTable
+          columns={activeTab === 'cancelled' ? cancelledColumns : defaultColumns}
+          data={filtered}
+          isLoading={isLoading}
+          searchPlaceholder="Cari no. receipt..."
+          onSearch={setSearch}
+          emptyTitle="Data Tidak Ditemukan"
+          emptyDescription="Transaksi akan muncul di sini setelah ada penjualan."
+        />
+      )}
 
       {/* Void Dialog */}
       <Dialog open={!!voidTarget} onOpenChange={(open) => { if (!open) { setVoidTarget(null); setVoidReason(''); } }}>
@@ -266,7 +531,7 @@ export function TransactionsPage() {
           <DialogHeader>
             <DialogTitle>Void Transaksi</DialogTitle>
             <DialogDescription>
-              Apakah Anda yakin ingin void transaksi "{voidTarget?.transactionNumber}"? Tindakan ini tidak dapat dibatalkan.
+              Apakah Anda yakin ingin void transaksi &quot;{voidTarget?.transactionNumber}&quot;? Tindakan ini tidak dapat dibatalkan.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -306,7 +571,7 @@ export function TransactionsPage() {
           <DialogHeader>
             <DialogTitle>Refund Transaksi</DialogTitle>
             <DialogDescription>
-              Refund seluruh item dari transaksi "{refundTarget?.transactionNumber}".
+              Refund seluruh item dari transaksi &quot;{refundTarget?.transactionNumber}&quot;.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -349,6 +614,20 @@ export function TransactionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Summary Card ─────────────────────────────────────────────────────────────
+
+function SummaryCard({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="h-4 w-4" />
+        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+      </div>
+      <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );
 }

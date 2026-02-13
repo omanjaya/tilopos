@@ -17,6 +17,9 @@ export interface Transaction {
   outletId: string;
   items: TransactionItem[];
   payments: TransactionPayment[];
+  voidedAt?: string | null;
+  voidedBy?: string | null;
+  voidReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

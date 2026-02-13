@@ -17,6 +17,7 @@ export interface CartItem {
     id: string; // unique cart item id
     productId: string;
     variantId?: string;
+    bundleId?: string;
     name: string;
     variantName?: string;
     price: number;
@@ -77,8 +78,9 @@ export interface CreateTransactionRequest {
 }
 
 export interface TransactionItemRequest {
-    productId: string;
+    productId?: string;
     variantId?: string;
+    bundleId?: string;
     quantity: number;
     modifierIds?: string[];
     notes?: string;
@@ -234,4 +236,21 @@ export interface POSModifier {
     id: string;
     name: string;
     price: number;
+}
+
+export interface POSBundle {
+    id: string;
+    name: string;
+    price: number;
+    imageUrl?: string | null;
+    items: POSBundleItem[];
+}
+
+export interface POSBundleItem {
+    productId: string;
+    variantId?: string | null;
+    productName: string;
+    variantName?: string | null;
+    quantity: number;
+    modifierGroups: POSModifierGroup[];
 }

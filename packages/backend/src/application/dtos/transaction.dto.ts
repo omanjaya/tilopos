@@ -14,9 +14,15 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class TransactionItemDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  productId!: string;
+  productId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bundleId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

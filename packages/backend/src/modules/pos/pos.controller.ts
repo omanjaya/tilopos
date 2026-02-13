@@ -149,6 +149,7 @@ export class PosController {
         payments: true,
         employee: { select: { name: true } },
         customer: { select: { name: true } },
+        voidedByEmployee: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -190,6 +191,9 @@ export class PosController {
           reference: p.referenceNumber,
           createdAt: p.createdAt.toISOString(),
         })),
+        voidedAt: tx.voidedAt?.toISOString() ?? null,
+        voidedBy: tx.voidedByEmployee?.name ?? null,
+        voidReason: tx.voidReason ?? null,
         createdAt: tx.createdAt.toISOString(),
         updatedAt: tx.updatedAt.toISOString(),
       };

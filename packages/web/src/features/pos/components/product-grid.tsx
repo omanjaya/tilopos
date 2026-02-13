@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Search, Grid3X3, List } from 'lucide-react';
+import { Search, Grid3X3, List, Layers } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,12 +10,15 @@ import { useTouchDevice } from '@/hooks/use-touch-device';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { useCartStore } from '@/stores/cart.store';
 import type { POSProduct, POSCategory } from '@/types/pos.types';
+import type { BundlePackage } from '@/types/bundle.types';
 
 interface ProductGridProps {
     products: POSProduct[];
     categories: POSCategory[];
+    bundles?: BundlePackage[];
     isLoading?: boolean;
     onProductClick: (product: POSProduct) => void;
+    onBundleClick?: (bundle: BundlePackage) => void;
     searchInputRef?: React.Ref<HTMLInputElement>;
     /** Externally controlled view mode. Falls back to internal state when omitted. */
     viewMode?: 'grid' | 'list';
@@ -23,11 +26,15 @@ interface ProductGridProps {
     onViewModeChange?: (mode: 'grid' | 'list') => void;
 }
 
+const BUNDLE_CATEGORY_ID = '__bundles__';
+
 export function ProductGrid({
     products,
     categories,
+    bundles = [],
     isLoading = false,
     onProductClick,
+    onBundleClick,
     searchInputRef,
     viewMode: controlledViewMode,
     onViewModeChange,
@@ -42,7 +49,8 @@ export function ProductGrid({
     const cartQuantityMap = useMemo(() => {
         const map = new Map<string, number>();
         for (const item of cartItems) {
-            map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity);
+            const key = item.bundleId ? `bundle-${item.bundleId}` : item.productId;
+            map.set(key, (map.get(key) ?? 0) + item.quantity);
         }
         return map;
     }, [cartItems]);
@@ -102,7 +110,10 @@ export function ProductGrid({
         }
     }, [viewMode]);
 
+    const isBundleCategory = selectedCategoryId === BUNDLE_CATEGORY_ID;
+
     const filteredProducts = useMemo(() => {
+        if (isBundleCategory) return [];
         return products.filter((product) => {
             const matchesSearch =
                 search === '' ||
@@ -114,7 +125,14 @@ export function ProductGrid({
 
             return matchesSearch && matchesCategory;
         });
-    }, [products, search, selectedCategoryId]);
+    }, [products, search, selectedCategoryId, isBundleCategory]);
+
+    const filteredBundles = useMemo(() => {
+        if (!isBundleCategory && selectedCategoryId !== null) return [];
+        if (search === '') return bundles;
+        const q = search.toLowerCase();
+        return bundles.filter((b) => b.name.toLowerCase().includes(q));
+    }, [bundles, search, selectedCategoryId, isBundleCategory]);
 
     if (isLoading) {
         return (
@@ -215,6 +233,24 @@ export function ProductGrid({
                         </Badge>
                     </Button>
                 ))}
+                {bundles.length > 0 && (
+                    <Button
+                        variant={isBundleCategory ? 'default' : 'outline'}
+                        size="sm"
+                        className={cn(
+                            'shrink-0',
+                            isTouchDevice && 'min-h-[44px]',
+                            isTablet && 'text-[0.9375rem] px-4',
+                        )}
+                        onClick={() => setSelectedCategoryId(BUNDLE_CATEGORY_ID)}
+                    >
+                        <Layers className="h-4 w-4 mr-1" />
+                        Paket Bundle
+                        <Badge variant="secondary" className="ml-2">
+                            {bundles.length}
+                        </Badge>
+                    </Button>
+                )}
             </div>
 
             {/* Products */}
@@ -225,7 +261,7 @@ export function ProductGrid({
                 role="region"
                 aria-label="Daftar produk"
             >
-                {filteredProducts.length === 0 ? (
+                {filteredProducts.length === 0 && filteredBundles.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                         <Search className="h-12 w-12 mb-4 opacity-50" />
                         <p className="text-lg font-medium">Produk tidak ditemukan</p>
@@ -238,6 +274,16 @@ export function ProductGrid({
                             isTablet && 'pos-product-grid-tablet',
                         )}
                     >
+                        {filteredBundles.map((bundle) => (
+                            <BundleCard
+                                key={`bundle-${bundle.id}`}
+                                bundle={bundle}
+                                onClick={() => onBundleClick?.(bundle)}
+                                isTablet={isTablet}
+                                isTouchDevice={isTouchDevice}
+                                cartQuantity={cartQuantityMap.get(`bundle-${bundle.id}`) ?? 0}
+                            />
+                        ))}
                         {filteredProducts.map((product) => (
                             <ProductCard
                                 key={product.id}
@@ -252,6 +298,14 @@ export function ProductGrid({
                     </div>
                 ) : (
                     <div className="space-y-2">
+                        {filteredBundles.map((bundle) => (
+                            <BundleListItem
+                                key={`bundle-${bundle.id}`}
+                                bundle={bundle}
+                                onClick={() => onBundleClick?.(bundle)}
+                                cartQuantity={cartQuantityMap.get(`bundle-${bundle.id}`) ?? 0}
+                            />
+                        ))}
                         {filteredProducts.map((product) => (
                             <ProductListItem
                                 key={product.id}
@@ -372,6 +426,123 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
                         Rp {price.toLocaleString('id-ID')}
                     </p>
                 </div>
+            </div>
+        </button>
+    );
+}
+
+interface BundleCardProps {
+    bundle: BundlePackage;
+    onClick: () => void;
+    isTablet?: boolean;
+    isTouchDevice?: boolean;
+    cartQuantity?: number;
+}
+
+function BundleCard({ bundle, onClick, isTablet = false, isTouchDevice = false, cartQuantity = 0 }: BundleCardProps) {
+    const [justAdded, setJustAdded] = useState(false);
+    const prevQuantity = useRef(cartQuantity);
+
+    useEffect(() => {
+        if (cartQuantity > prevQuantity.current) {
+            setJustAdded(true);
+            const timer = setTimeout(() => setJustAdded(false), 400);
+            return () => clearTimeout(timer);
+        }
+        prevQuantity.current = cartQuantity;
+    }, [cartQuantity]);
+
+    return (
+        <button
+            onClick={onClick}
+            className={cn(
+                'group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-all duration-200',
+                'hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5',
+                'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
+                'active:scale-[0.97]',
+                isTouchDevice && 'touch-none-highlight',
+                isTablet && 'pos-product-card-tablet min-h-[200px]',
+                justAdded && 'ring-2 ring-success ring-offset-1',
+            )}
+        >
+            <div className="relative aspect-square bg-muted/50 overflow-hidden">
+                {bundle.imageUrl ? (
+                    <img
+                        src={bundle.imageUrl}
+                        alt={bundle.name}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+                    />
+                ) : (
+                    <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+                        <Layers className={cn('h-8 w-8 text-primary/30', isTablet && 'h-10 w-10')} />
+                    </div>
+                )}
+                {cartQuantity > 0 && (
+                    <div className={cn(
+                        "absolute top-2 left-2 h-6 min-w-6 rounded-full bg-success text-white",
+                        "flex items-center justify-center text-xs font-bold px-1.5",
+                        justAdded && "animate-bounce"
+                    )}>
+                        {cartQuantity}
+                    </div>
+                )}
+                <Badge className="absolute top-2 right-2 bg-primary/90">
+                    <Layers className="h-3 w-3 mr-1" />
+                    {bundle.items.length} item
+                </Badge>
+            </div>
+            <div className={cn('flex flex-col flex-1 p-3 product-card-info', isTablet && 'p-4')}>
+                <h3 className={cn(
+                    'font-medium text-sm line-clamp-2 text-left leading-tight product-card-name',
+                    isTablet && 'text-[0.9375rem]',
+                )}>
+                    {bundle.name}
+                </h3>
+                <div className="mt-auto pt-2">
+                    <p className={cn('font-bold text-primary product-card-price', isTablet && 'text-base')}>
+                        Rp {bundle.price.toLocaleString('id-ID')}
+                    </p>
+                </div>
+            </div>
+        </button>
+    );
+}
+
+function BundleListItem({ bundle, onClick, cartQuantity = 0 }: BundleCardProps) {
+    return (
+        <button
+            onClick={onClick}
+            className={cn(
+                'w-full flex items-center gap-4 p-3 rounded-lg border bg-card transition-all',
+                'hover:shadow-md hover:border-primary/50',
+            )}
+        >
+            <div className="relative h-14 w-14 shrink-0 rounded-lg overflow-hidden bg-muted/50">
+                {bundle.imageUrl ? (
+                    <img src={bundle.imageUrl} alt={bundle.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                ) : (
+                    <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+                        <Layers className="h-5 w-5 text-primary/30" />
+                    </div>
+                )}
+                {cartQuantity > 0 && (
+                    <div className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-success text-white flex items-center justify-center text-[10px] font-bold px-1">
+                        {cartQuantity}
+                    </div>
+                )}
+            </div>
+            <div className="flex-1 text-left">
+                <h3 className="font-medium text-sm">{bundle.name}</h3>
+                <p className="text-xs text-muted-foreground">{bundle.items.length} item dalam paket</p>
+            </div>
+            <div className="text-right">
+                <p className="font-bold text-primary">Rp {bundle.price.toLocaleString('id-ID')}</p>
+                <Badge variant="secondary" className="mt-1">
+                    <Layers className="h-3 w-3 mr-1" />
+                    Paket
+                </Badge>
             </div>
         </button>
     );

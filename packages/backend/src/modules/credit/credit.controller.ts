@@ -43,6 +43,7 @@ export class CreditController {
       tableId: dto.tableId,
       items: dto.items.map((i) => ({
         productId: i.productId,
+        bundleId: i.bundleId,
         variantId: i.variantId,
         quantity: i.quantity,
         modifierIds: i.modifierIds,

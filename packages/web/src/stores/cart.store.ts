@@ -93,11 +93,12 @@ export const useCartStore = create<CartState>()(
             addItem: (item) => {
                 if (item.quantity > MAX_ITEM_QUANTITY) return;
                 set((state) => {
-                    // Check if same product/variant exists
+                    // Check if same product/variant/bundle exists
                     const existingIndex = state.items.findIndex(
                         (i) =>
                             i.productId === item.productId &&
                             i.variantId === item.variantId &&
+                            i.bundleId === item.bundleId &&
                             JSON.stringify(i.modifiers) === JSON.stringify(item.modifiers),
                     );
 
@@ -118,6 +119,7 @@ export const useCartStore = create<CartState>()(
                             id: generateCartItemId(),
                             productId: item.productId,
                             variantId: item.variantId,
+                            bundleId: item.bundleId,
                             name: item.name,
                             variantName: item.variantName,
                             price: item.price,

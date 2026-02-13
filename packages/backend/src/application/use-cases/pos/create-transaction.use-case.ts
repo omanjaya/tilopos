@@ -14,7 +14,8 @@ import type { IProductRepository } from '@domain/interfaces/repositories/product
 import type { IInventoryRepository } from '@domain/interfaces/repositories/inventory.repository';
 
 export interface TransactionItemInput {
-  productId: string;
+  productId?: string;
+  bundleId?: string;
   variantId?: string;
   quantity: number;
   modifierIds?: string[];
@@ -76,8 +77,9 @@ export class CreateTransactionUseCase {
     }
 
     const itemDetails: Array<{
-      productId: string;
+      productId: string | null;
       variantId: string | null;
+      bundleId: string | null;
       productName: string;
       variantName: string | null;
       unitPrice: number;
@@ -86,37 +88,109 @@ export class CreateTransactionUseCase {
       notes: string | null;
     }> = [];
 
+    // Track bundle component stock deductions separately
+    const bundleStockDeductions: Array<{
+      productId: string;
+      variantId: string | null;
+      quantity: number;
+    }> = [];
+
     for (const item of input.items) {
-      const product = await this.productRepo.findById(item.productId);
-      if (!product || !product.isActive) {
-        throw new AppError(
-          ErrorCode.PRODUCT_NOT_FOUND,
-          `Product ${item.productId} not found or inactive`,
-        );
-      }
+      if (item.bundleId) {
+        // === BUNDLE PATH ===
+        const bundle = await this.prisma.bundlePackage.findFirst({
+          where: { id: item.bundleId, isActive: true },
+          include: {
+            items: {
+              include: {
+                product: { select: { id: true, name: true, trackStock: true } },
+                variant: { select: { id: true, name: true } },
+              },
+            },
+          },
+        });
 
-      const unitPrice = item.unitPrice ?? product.basePrice;
-      const itemSubtotal = unitPrice * item.quantity;
+        if (!bundle) {
+          throw new AppError(
+            ErrorCode.PRODUCT_NOT_FOUND,
+            `Bundle ${item.bundleId} not found or inactive`,
+          );
+        }
 
-      itemDetails.push({
-        productId: item.productId,
-        variantId: item.variantId || null,
-        productName: product.name,
-        variantName: null,
-        unitPrice,
-        quantity: item.quantity,
-        subtotal: itemSubtotal,
-        notes: item.notes || null,
-      });
+        const unitPrice = item.unitPrice ?? Number(bundle.price);
+        const itemSubtotal = unitPrice * item.quantity;
 
-      if (product.trackStock) {
-        const stockLevel = await this.inventoryRepo.findStockLevel(
-          input.outletId,
-          item.productId,
-          item.variantId || null,
-        );
-        if (stockLevel && stockLevel.quantity < item.quantity) {
-          throw new InsufficientStockException(item.productId, stockLevel.quantity, item.quantity);
+        itemDetails.push({
+          productId: null,
+          variantId: null,
+          bundleId: item.bundleId,
+          productName: bundle.name,
+          variantName: null,
+          unitPrice,
+          quantity: item.quantity,
+          subtotal: itemSubtotal,
+          notes: item.notes || null,
+        });
+
+        // Check stock and prepare deductions for each bundle component
+        for (const component of bundle.items) {
+          const deductQty = Number(component.quantity) * item.quantity;
+
+          if (component.product.trackStock) {
+            const stockLevel = await this.inventoryRepo.findStockLevel(
+              input.outletId,
+              component.productId,
+              component.variantId || null,
+            );
+            if (stockLevel && stockLevel.quantity < deductQty) {
+              throw new InsufficientStockException(
+                component.productId,
+                stockLevel.quantity,
+                deductQty,
+              );
+            }
+          }
+
+          bundleStockDeductions.push({
+            productId: component.productId,
+            variantId: component.variantId || null,
+            quantity: deductQty,
+          });
+        }
+      } else {
+        // === EXISTING PRODUCT PATH ===
+        const product = await this.productRepo.findById(item.productId!);
+        if (!product || !product.isActive) {
+          throw new AppError(
+            ErrorCode.PRODUCT_NOT_FOUND,
+            `Product ${item.productId} not found or inactive`,
+          );
+        }
+
+        const unitPrice = item.unitPrice ?? product.basePrice;
+        const itemSubtotal = unitPrice * item.quantity;
+
+        itemDetails.push({
+          productId: item.productId!,
+          variantId: item.variantId || null,
+          bundleId: null,
+          productName: product.name,
+          variantName: null,
+          unitPrice,
+          quantity: item.quantity,
+          subtotal: itemSubtotal,
+          notes: item.notes || null,
+        });
+
+        if (product.trackStock) {
+          const stockLevel = await this.inventoryRepo.findStockLevel(
+            input.outletId,
+            item.productId!,
+            item.variantId || null,
+          );
+          if (stockLevel && stockLevel.quantity < item.quantity) {
+            throw new InsufficientStockException(item.productId!, stockLevel.quantity, item.quantity);
+          }
         }
       }
     }
@@ -187,6 +261,7 @@ export class CreateTransactionUseCase {
             transactionId: txn.id,
             productId: item.productId,
             variantId: item.variantId,
+            bundleId: item.bundleId,
             productName: item.productName,
             variantName: item.variantName,
             quantity: item.quantity,
@@ -231,9 +306,53 @@ export class CreateTransactionUseCase {
       // 5. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
       const stockChanges: Array<{ productId: string; variantId: string | null; previousQty: number; newQty: number }> = [];
 
+      // 5a. Deduct stock for bundle components
+      for (const deduction of bundleStockDeductions) {
+        const stockLevel = await tx.stockLevel.findFirst({
+          where: {
+            outletId: input.outletId,
+            productId: deduction.productId,
+            variantId: deduction.variantId,
+          },
+        });
+
+        if (!stockLevel) continue;
+
+        const currentQty = Number(stockLevel.quantity);
+        const newQty = currentQty - deduction.quantity;
+        if (newQty < 0) {
+          throw new InsufficientStockException(deduction.productId, currentQty, deduction.quantity);
+        }
+
+        await tx.stockLevel.update({
+          where: { id: stockLevel.id },
+          data: { quantity: newQty },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            outletId: input.outletId,
+            productId: deduction.productId,
+            variantId: deduction.variantId,
+            movementType: 'sale',
+            quantity: -deduction.quantity,
+            referenceId: txn.id,
+            referenceType: 'transaction',
+            notes: `Bundle sale component`,
+            createdBy: input.employeeId,
+            createdAt: new Date(),
+          },
+        });
+
+        stockChanges.push({ productId: deduction.productId, variantId: deduction.variantId, previousQty: currentQty, newQty });
+      }
+
+      // 5b. Deduct stock for regular product items (skip bundle items)
       for (const item of itemDetails) {
+        if (item.bundleId) continue; // Bundle stock already handled above
+
         const product = await tx.product.findUnique({
-          where: { id: item.productId },
+          where: { id: item.productId! },
         });
 
         if (!product?.trackStock) continue;
@@ -242,19 +361,19 @@ export class CreateTransactionUseCase {
         const stockLevel = await tx.stockLevel.findFirst({
           where: {
             outletId: input.outletId,
-            productId: item.productId,
+            productId: item.productId!,
             variantId: item.variantId || null,
           },
         });
 
         if (!stockLevel) {
-          throw new InsufficientStockException(item.productId, 0, item.quantity);
+          throw new InsufficientStockException(item.productId!, 0, item.quantity);
         }
 
         const currentQty = Number(stockLevel.quantity);
         const newQty = currentQty - item.quantity;
         if (newQty < 0) {
-          throw new InsufficientStockException(item.productId, currentQty, item.quantity);
+          throw new InsufficientStockException(item.productId!, currentQty, item.quantity);
         }
 
         // Update stock level atomically
@@ -267,7 +386,7 @@ export class CreateTransactionUseCase {
         await tx.stockMovement.create({
           data: {
             outletId: input.outletId,
-            productId: item.productId,
+            productId: item.productId!,
             variantId: item.variantId || null,
             movementType: 'sale',
             quantity: -item.quantity,
@@ -279,7 +398,7 @@ export class CreateTransactionUseCase {
           },
         });
 
-        stockChanges.push({ productId: item.productId, variantId: item.variantId, previousQty: currentQty, newQty });
+        stockChanges.push({ productId: item.productId!, variantId: item.variantId, previousQty: currentQty, newQty });
       }
 
       return { txn, stockChanges };

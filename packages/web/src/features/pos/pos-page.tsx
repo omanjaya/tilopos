@@ -10,13 +10,14 @@ import { useOfflinePOS } from '@/hooks/use-offline-pos';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import {
     ProductGrid, CartPanel, PaymentPanel, ReceiptPreview, HeldBillsPanel,
-    ProductModal, CustomerSelector, TableSelector, DiscountModal, ShortcutsDialog,
+    ProductModal, BundleModal, CustomerSelector, TableSelector, DiscountModal, ShortcutsDialog,
     OrderReadyToast, PosHeader, OfflineBanner, MobileCartBar, TodayTransactionsSheet,
     ShiftStartModal, ShiftEndModal,
 } from './components';
 import { usePOSShortcuts, usePosData, usePosTransaction, usePosModals } from './hooks';
 import { useShiftStatus } from '@/hooks/use-shift-status';
 import type { POSProduct, HeldBill } from '@/types/pos.types';
+import type { BundlePackage } from '@/types/bundle.types';
 
 export function POSPage() {
     const user = useAuthStore((s) => s.user);
@@ -29,12 +30,13 @@ export function POSPage() {
     } = useCartStore();
 
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [selectedBundle, setSelectedBundle] = useState<BundlePackage | null>(null);
     const [showShiftStart, setShowShiftStart] = useState(false);
     const [showShiftEnd, setShowShiftEnd] = useState(false);
     const [shiftCheckDone, setShiftCheckDone] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const { isOffline, pendingCount, syncStatus, manualSync, queueTransaction } = useOfflinePOS();
-    const { products, categories, isLoading, refetchProducts } = usePosData({ outletId });
+    const { products, categories, bundles, isLoading, refetchProducts } = usePosData({ outletId });
     const modals = usePosModals();
     const { currentShift, refetchShift, isLoading: isShiftLoading } = useShiftStatus();
 
@@ -82,6 +84,10 @@ export function POSPage() {
                 quantity: 1, modifiers: [], imageUrl: product.imageUrl,
             });
         }
+    };
+
+    const handleBundleClick = (bundle: BundlePackage) => {
+        setSelectedBundle(bundle);
     };
 
     const handleToggleViewMode = useCallback(() => {
@@ -134,8 +140,10 @@ export function POSPage() {
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 <div className="flex-1 lg:w-[65%] overflow-hidden">
                     <ProductGrid
-                        products={products} categories={categories} isLoading={isLoading}
-                        onProductClick={handleProductClick} searchInputRef={searchInputRef}
+                        products={products} categories={categories} bundles={bundles}
+                        isLoading={isLoading}
+                        onProductClick={handleProductClick} onBundleClick={handleBundleClick}
+                        searchInputRef={searchInputRef}
                         viewMode={viewMode} onViewModeChange={setViewMode}
                     />
                 </div>
@@ -207,6 +215,9 @@ export function POSPage() {
 
             <ProductModal product={modals.selectedProduct} open={!!modals.selectedProduct}
                 onClose={modals.closeProductModal} />
+
+            <BundleModal bundle={selectedBundle} open={!!selectedBundle}
+                onClose={() => setSelectedBundle(null)} />
 
             <CustomerSelector open={modals.showCustomerSelector}
                 onClose={modals.closeCustomerSelector}
