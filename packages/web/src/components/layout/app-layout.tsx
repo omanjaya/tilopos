@@ -126,9 +126,13 @@ export function AppLayout() {
   }, [user, openOnboarding]);
 
   const handleOnboardingComplete = async () => {
-    await apiCompleteOnboarding();
+    // Always close the modal first to prevent stuck overlay
     completeOnboarding();
-    // Update user state will be handled by API response
+    try {
+      await apiCompleteOnboarding();
+    } catch {
+      // API failure is non-critical — localStorage already persisted
+    }
   };
 
   return (

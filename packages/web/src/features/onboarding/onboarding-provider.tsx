@@ -85,6 +85,7 @@ export function OnboardingProvider({
       skipped: true,
       completed: true, // Mark as completed when skipped
     }));
+    localStorage.setItem('tilo_onboarding_completed', 'true');
     onSkipped?.();
     onCompletedChange?.(true);
   }, [onSkipped, onCompletedChange]);
@@ -96,6 +97,7 @@ export function OnboardingProvider({
       completed: true,
       currentStep: 1,
     }));
+    localStorage.setItem('tilo_onboarding_completed', 'true');
     onCompletedChange?.(true);
   }, [onCompletedChange]);
 
