@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
+import { templatesApi, type TemplateSummary } from '@/api/endpoints/templates.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,10 +25,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast-utils';
-import { Plus, MoreHorizontal, Pencil, Ban, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import {
+  Plus, MoreHorizontal, Pencil, Ban, Loader2,
+  UtensilsCrossed, Coffee, Flame, ShoppingBasket, Shirt, Hammer,
+  Smartphone, Scissors, WashingMachine, Wrench, Warehouse,
+} from 'lucide-react';
 import type { Outlet, CreateOutletRequest } from '@/types/settings.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
+
+const iconMap: Record<string, React.ElementType> = {
+  UtensilsCrossed, Coffee, Flame, ShoppingBasket, Shirt, Hammer,
+  Smartphone, Scissors, WashingMachine, Wrench, Warehouse,
+};
 
 interface OutletFormData {
   name: string;
@@ -35,6 +47,8 @@ interface OutletFormData {
   phone: string;
   taxRate: number;
   serviceCharge: number;
+  templateType: string | null;
+  applyTemplate: boolean;
 }
 
 const defaultForm: OutletFormData = {
@@ -44,6 +58,8 @@ const defaultForm: OutletFormData = {
   phone: '',
   taxRate: 11,
   serviceCharge: 0,
+  templateType: null,
+  applyTemplate: true,
 };
 
 export function OutletsPage() {
@@ -57,11 +73,47 @@ export function OutletsPage() {
     queryFn: settingsApi.listOutlets,
   });
 
+  const { data: templates } = useQuery({
+    queryKey: ['templates'],
+    queryFn: () => templatesApi.list(),
+  });
+
+  const applyTemplateMutation = useMutation({
+    mutationFn: (params: { outletId: string; typeCode: string }) =>
+      templatesApi.apply({
+        outletId: params.outletId,
+        typeCode: params.typeCode,
+        sections: { categories: true, products: true, modifiers: true, tables: true, units: true },
+      }),
+  });
+
   const createMutation = useMutation({
     mutationFn: (data: CreateOutletRequest) => settingsApi.createOutlet(data),
-    onSuccess: () => {
+    onSuccess: async (newOutlet) => {
+      // Apply template if selected
+      if (form.applyTemplate && form.templateType && newOutlet?.id) {
+        try {
+          const result = await applyTemplateMutation.mutateAsync({
+            outletId: newOutlet.id,
+            typeCode: form.templateType,
+          });
+          toast.success({
+            title: 'Outlet berhasil ditambahkan',
+            description: `Template diterapkan: ${result.categories} kategori, ${result.products} produk.`,
+          });
+        } catch {
+          toast.success({
+            title: 'Outlet berhasil ditambahkan',
+            description: 'Namun template gagal diterapkan. Anda bisa apply template nanti.',
+          });
+        }
+      } else {
+        toast.success({ title: 'Outlet berhasil ditambahkan' });
+      }
       queryClient.invalidateQueries({ queryKey: ['outlets'] });
-      toast.success({ title: 'Outlet berhasil ditambahkan' });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
       closeDialog();
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
@@ -118,6 +170,8 @@ export function OutletsPage() {
       phone: outlet.phone ?? '',
       taxRate: outlet.taxRate,
       serviceCharge: outlet.serviceCharge,
+      templateType: null,
+      applyTemplate: false,
     });
     setDialogOpen(true);
   };
@@ -146,7 +200,7 @@ export function OutletsPage() {
     }
   };
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isSaving = createMutation.isPending || updateMutation.isPending || applyTemplateMutation.isPending;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -252,7 +306,7 @@ export function OutletsPage() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editTarget ? 'Edit Outlet' : 'Tambah Outlet'}</DialogTitle>
             <DialogDescription>
@@ -333,6 +387,53 @@ export function OutletsPage() {
                 />
               </div>
             </div>
+
+            {/* Template Selection - only for new outlets */}
+            {!editTarget && templates && templates.length > 0 && (
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="apply-template"
+                    checked={form.applyTemplate}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, applyTemplate: !!checked, templateType: checked ? form.templateType : null })
+                    }
+                  />
+                  <Label htmlFor="apply-template" className="text-sm font-medium">
+                    Terapkan template bisnis
+                  </Label>
+                </div>
+
+                {form.applyTemplate && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {templates.map((t: TemplateSummary) => {
+                      const Icon = iconMap[t.icon] || ShoppingBasket;
+                      const isSelected = form.templateType === t.type;
+                      return (
+                        <button
+                          key={t.type}
+                          type="button"
+                          onClick={() => setForm({ ...form, templateType: t.type })}
+                          className={cn(
+                            'flex flex-col items-center gap-1 rounded-md border p-2 text-center transition-all hover:border-primary/50',
+                            isSelected && 'border-primary bg-primary/5 ring-2 ring-primary/20',
+                          )}
+                        >
+                          <Icon className={cn('h-4 w-4', isSelected ? 'text-primary' : 'text-muted-foreground')} />
+                          <span className="text-xs font-medium">{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {form.applyTemplate && form.templateType && (
+                  <p className="text-xs text-muted-foreground">
+                    Kategori, produk, modifier, dan meja dari template akan ditambahkan ke outlet baru ini.
+                  </p>
+                )}
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
