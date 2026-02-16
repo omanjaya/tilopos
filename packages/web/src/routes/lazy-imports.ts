@@ -89,6 +89,7 @@ export const AppearanceSettingsPage = lazy(() => import('@/features/settings/app
 export const PaymentSettingsPage = lazy(() => import('@/features/settings/payment-settings-page').then(m => ({ default: m.PaymentSettingsPage })));
 export const PrinterSettingsPage = lazy(() => import('@/features/settings/printer-settings-page').then(m => ({ default: m.PrinterSettingsPage })));
 export const ReportSchedulePage = lazy(() => import('@/features/settings/report-schedule-page').then(m => ({ default: m.ReportSchedulePage })));
+export const BillingPage = lazy(() => import('@/features/settings/billing-page').then(m => ({ default: m.BillingPage })));
 
 // ── Registration ─────────────────────────────────────────────────────────────
 export const RegisterPage = lazy(() => import('@/features/auth/register/register-page').then(m => ({ default: m.RegisterPage })));

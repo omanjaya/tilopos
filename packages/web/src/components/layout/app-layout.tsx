@@ -47,6 +47,7 @@ export function AppLayout() {
 
   // Fetch enabled features — per outlet when available, fallback to business-level
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
+  const setRestrictedFeatures = useFeatureStore((s) => s.setRestrictedFeatures);
   const setBusinessType = useFeatureStore((s) => s.setBusinessType);
   const setOutletType = useFeatureStore((s) => s.setOutletType);
   const setCurrentOutletId = useFeatureStore((s) => s.setCurrentOutletId);
@@ -81,6 +82,12 @@ export function AppLayout() {
       }).catch(() => { });
     }
 
+    // Load restricted features (plan-gated)
+    featuresApi.getFeatures().then((features) => {
+      const restricted = features.filter((f) => f.restrictedByPlan).map((f) => f.key);
+      setRestrictedFeatures(restricted);
+    }).catch(() => { });
+
     // Sync brand color from server
     import('@/api/endpoints/settings.api').then(({ settingsApi }) => {
       settingsApi.getBusiness().then((biz) => {
@@ -88,7 +95,7 @@ export function AppLayout() {
         if (color) setBrandColor(color);
       }).catch(() => { });
     });
-  }, [activeOutletId, setEnabledFeatures, setBusinessType, setOutletType, setCurrentOutletId, setBrandColor]);
+  }, [activeOutletId, setEnabledFeatures, setRestrictedFeatures, setBusinessType, setOutletType, setCurrentOutletId, setBrandColor]);
 
   // Auto-collapse sidebar on POS and KDS pages for maximum screen space
   useEffect(() => {

@@ -24,10 +24,12 @@ export type BusinessCategory = 'fnb' | 'retail' | 'service' | 'wholesale' | 'cus
  */
 export function useBusinessFeatures() {
     const enabledFeatures = useFeatureStore((s) => s.enabledFeatures);
+    const restrictedFeatures = useFeatureStore((s) => s.restrictedFeatures);
     const businessType = useFeatureStore((s) => s.businessType);
     const outletType = useFeatureStore((s) => s.outletType);
     const isLoaded = useFeatureStore((s) => s.isLoaded);
     const isFeatureEnabled = useFeatureStore((s) => s.isFeatureEnabled);
+    const isFeatureRestricted = useFeatureStore((s) => s.isFeatureRestricted);
 
     return useMemo(() => {
         // Use outlet type if available, fallback to business type
@@ -121,13 +123,24 @@ export function useBusinessFeatures() {
             hasExcelImport: isEnabled(FEATURES.EXCEL_IMPORT),
         };
 
+        // Subscription helpers
+        const isPremium = restrictedFeatures.length === 0;
+        const needsUpgrade = (feature: FeatureKey | string): boolean => {
+            return isFeatureRestricted(feature);
+        };
+
         return {
             // State
             enabledFeatures,
+            restrictedFeatures,
             businessType: activeType,
             outletType,
             isLoaded,
             category: getCategory(),
+
+            // Subscription
+            isPremium,
+            needsUpgrade,
 
             // Business/outlet type checks
             isFnB,
@@ -144,7 +157,7 @@ export function useBusinessFeatures() {
             // Pre-computed common features
             ...commonFeatures,
         };
-    }, [enabledFeatures, businessType, outletType, isLoaded, isFeatureEnabled]);
+    }, [enabledFeatures, restrictedFeatures, businessType, outletType, isLoaded, isFeatureEnabled, isFeatureRestricted]);
 }
 
 /**

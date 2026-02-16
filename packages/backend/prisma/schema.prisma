@@ -25,12 +25,28 @@ enum BusinessStatus {
 }
 
 enum SubscriptionPlan {
-  basic
-  standard
+  free
   premium
-  enterprise
 
   @@map("subscription_plan")
+}
+
+enum SubscriptionStatus {
+  active
+  trial
+  expired
+  cancelled
+
+  @@map("subscription_status")
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  failed
+  expired
+
+  @@map("invoice_status")
 }
 
 enum EmployeeRole {
@@ -257,6 +273,10 @@ enum NotificationType {
   shift_reminder
   system_error
   birthday
+  subscription_trial_expiring
+  subscription_expired
+  subscription_payment_success
+  subscription_payment_failed
 
   @@map("notification_type")
 }
@@ -346,7 +366,7 @@ model Business {
   email                 String?           @db.VarChar(255)
   address               String?           @db.Text
   logoUrl               String?           @map("logo_url") @db.VarChar(500)
-  subscriptionPlan      SubscriptionPlan  @default(basic) @map("subscription_plan")
+  subscriptionPlan      SubscriptionPlan  @default(free) @map("subscription_plan")
   subscriptionExpiresAt DateTime?         @map("subscription_expires_at") @db.Timestamptz()
   settings              Json              @default("{}") @db.JsonB
   status                BusinessStatus    @default(active)
@@ -381,6 +401,8 @@ model Business {
   features              BusinessFeature[]
   pricingRules          PricingRule[]
   bundlePackages        BundlePackage[]
+  subscriptions         Subscription[]
+  invoices              Invoice[]
 
   @@map("businesses")
 }
@@ -2449,4 +2471,53 @@ model BundlePackageOutlet {
   @@unique([bundleId, outletId])
   @@index([outletId], map: "idx_bundle_outlets_outlet")
   @@map("bundle_package_outlets")
+}
+
+// ============================================================================
+// SUBSCRIPTION & BILLING
+// ============================================================================
+
+model Subscription {
+  id              String             @id @default(uuid()) @db.Uuid
+  businessId      String             @map("business_id") @db.Uuid
+  plan            SubscriptionPlan
+  status          SubscriptionStatus @default(active)
+  billingCycle    String             @default("monthly") @map("billing_cycle") @db.VarChar(20)
+  startDate       DateTime           @map("start_date") @db.Timestamptz()
+  endDate         DateTime           @map("end_date") @db.Timestamptz()
+  trialEndsAt     DateTime?          @map("trial_ends_at") @db.Timestamptz()
+  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz()
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+
+  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoices        Invoice[]
+
+  @@index([businessId], map: "idx_subscriptions_business")
+  @@index([status], map: "idx_subscriptions_status")
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id              String             @id @default(uuid()) @db.Uuid
+  businessId      String             @map("business_id") @db.Uuid
+  subscriptionId  String?            @map("subscription_id") @db.Uuid
+  invoiceNumber   String             @unique @map("invoice_number") @db.VarChar(50)
+  amount          Decimal            @db.Decimal(15, 2)
+  status          InvoiceStatus      @default(pending)
+  dueDate         DateTime           @map("due_date") @db.Timestamptz()
+  paidAt          DateTime?          @map("paid_at") @db.Timestamptz()
+  paymentMethod   String?            @map("payment_method") @db.VarChar(50)
+  paymentRef      String?            @map("payment_ref") @db.VarChar(255)
+  paymentUrl      String?            @map("payment_url") @db.VarChar(500)
+  provider        String?            @db.VarChar(20)
+  metadata        Json               @default("{}") @db.JsonB
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+
+  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subscription    Subscription?      @relation(fields: [subscriptionId], references: [id])
+
+  @@index([businessId], map: "idx_invoices_business")
+  @@index([status], map: "idx_invoices_status")
+  @@index([invoiceNumber], map: "idx_invoices_number")
+  @@map("invoices")
 }

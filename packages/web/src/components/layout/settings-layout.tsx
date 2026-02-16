@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import {
   Settings, Building2, Monitor, Bell, Calculator, Printer,
-  Clock, ListPlus, Store, ToggleLeft, Palette, CreditCard, CalendarClock,
+  Clock, ListPlus, Store, ToggleLeft, Palette, CreditCard, CalendarClock, Crown,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -52,6 +52,7 @@ const settingsGroups: SettingsNavGroup[] = [
       { to: '/app/settings/notifications', label: 'Notifikasi', icon: Bell },
       { to: '/app/settings/appearance', label: 'Tampilan', icon: Palette },
       { to: '/app/settings/report-schedule', label: 'Jadwal Laporan', icon: CalendarClock, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/billing', label: 'Langganan', icon: Crown, roles: ['owner', 'super_admin'] },
     ],
   },
 ];

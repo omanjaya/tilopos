@@ -2,15 +2,18 @@ import { create } from 'zustand';
 
 interface FeatureState {
   enabledFeatures: string[];
+  restrictedFeatures: string[];
   isLoaded: boolean;
   businessType: string | null;
   outletType: string | null;
   currentOutletId: string | null;
   setEnabledFeatures: (features: string[]) => void;
+  setRestrictedFeatures: (features: string[]) => void;
   setBusinessType: (type: string | null) => void;
   setOutletType: (type: string | null) => void;
   setCurrentOutletId: (id: string | null) => void;
   isFeatureEnabled: (featureKey: string) => boolean;
+  isFeatureRestricted: (featureKey: string) => boolean;
   isPathVisible: (path: string) => boolean;
 }
 
@@ -60,12 +63,15 @@ for (const [feature, paths] of Object.entries(FEATURE_PATH_MAP)) {
 
 export const useFeatureStore = create<FeatureState>((set, get) => ({
   enabledFeatures: [],
+  restrictedFeatures: [],
   isLoaded: false,
   businessType: null,
   outletType: null,
   currentOutletId: null,
 
   setEnabledFeatures: (features) => set({ enabledFeatures: features, isLoaded: true }),
+
+  setRestrictedFeatures: (features) => set({ restrictedFeatures: features }),
 
   setBusinessType: (type) => set({ businessType: type }),
 
@@ -75,6 +81,10 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
 
   isFeatureEnabled: (featureKey) => {
     return get().enabledFeatures.includes(featureKey);
+  },
+
+  isFeatureRestricted: (featureKey) => {
+    return get().restrictedFeatures.includes(featureKey);
   },
 
   isPathVisible: (path) => {

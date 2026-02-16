@@ -16,6 +16,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaEmployeeRepository } from '../../infrastructure/repositories/prisma-employee.repository';
 import { BusinessModule } from '../business/business.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { BusinessModule } from '../business/business.module';
       inject: [ConfigService],
     }),
     BusinessModule,
+    SubscriptionModule,
   ],
   controllers: [AuthController, MfaController],
   providers: [

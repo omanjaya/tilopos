@@ -8,6 +8,7 @@ export interface BusinessFeatureDto {
   isEnabled: boolean;
   dependencies?: string[];
   icon?: string;
+  restrictedByPlan?: boolean;
 }
 
 export interface BusinessTypePreset {

@@ -4,6 +4,19 @@ import { cn } from '@/lib/utils';
 import type { NavItem } from './sidebar-nav-data';
 import { exactMatchPaths } from './sidebar-nav-data';
 import { useUIStore } from '@/stores/ui.store';
+import { useFeatureStore } from '@/stores/feature.store';
+
+// Maps paths to their controlling feature keys for PRO badge display
+const PATH_TO_FEATURE: Record<string, string> = {
+  '/app/settings/outlets': 'multi_outlet',
+  '/app/online-store': 'online_store',
+  '/app/loyalty': 'customer_loyalty',
+  '/app/promotions': 'promotions',
+  '/app/promotions/vouchers': 'vouchers',
+  '/app/customers/segments': 'customer_segments',
+  '/app/self-order': 'self_order_qr',
+  '/app/audit': 'audit_log',
+};
 
 export function SidebarNavItem({
   item,
@@ -19,6 +32,10 @@ export function SidebarNavItem({
   showPinAction?: boolean;
 }) {
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+  const isFeatureRestricted = useFeatureStore((s) => s.isFeatureRestricted);
+
+  const featureKey = PATH_TO_FEATURE[item.to];
+  const isRestricted = featureKey ? isFeatureRestricted(featureKey) : false;
 
   const handleNavClick = () => {
     // Close mobile sidebar after navigation
@@ -53,7 +70,16 @@ export function SidebarNavItem({
             >
               <item.icon className="h-[18px] w-[18px] transition-transform duration-200 group-hover/item:scale-105" />
             </div>
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {!collapsed && (
+              <span className="flex items-center gap-1 truncate">
+                {item.label}
+                {isRestricted && (
+                  <span className="ml-auto shrink-0 rounded bg-gradient-to-r from-amber-500 to-orange-500 px-1 py-0 text-[8px] font-bold leading-tight text-white">
+                    PRO
+                  </span>
+                )}
+              </span>
+            )}
           </>
         )}
       </NavLink>

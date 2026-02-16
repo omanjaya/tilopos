@@ -8,6 +8,7 @@ import {
   type FeatureCategory,
 } from '@config/features.config';
 import { getBusinessTypePreset, isValidBusinessType } from '@config/business-types.config';
+import { isFeatureRestrictedByPlan } from '@config/subscription-plans.config';
 
 export interface BusinessFeatureDto {
   key: string;
@@ -17,6 +18,7 @@ export interface BusinessFeatureDto {
   isEnabled: boolean;
   dependencies?: string[];
   icon?: string;
+  restrictedByPlan?: boolean;
 }
 
 export interface ToggleFeatureResult {
@@ -37,22 +39,33 @@ export class FeatureService {
    * Get all features for a business with their current status
    */
   async getBusinessFeatures(businessId: string): Promise<BusinessFeatureDto[]> {
-    const enabledFeatures = await this.prisma.businessFeature.findMany({
-      where: { businessId, isEnabled: true },
-      select: { featureKey: true },
-    });
+    const [enabledFeatures, business] = await Promise.all([
+      this.prisma.businessFeature.findMany({
+        where: { businessId, isEnabled: true },
+        select: { featureKey: true },
+      }),
+      this.prisma.business.findUnique({
+        where: { id: businessId },
+        select: { subscriptionPlan: true },
+      }),
+    ]);
 
     const enabledKeys = new Set(enabledFeatures.map((f) => f.featureKey));
+    const plan = (business?.subscriptionPlan as 'free' | 'premium') ?? 'free';
 
-    return FEATURE_REGISTRY.map((feature) => ({
-      key: feature.key,
-      label: feature.label,
-      description: feature.description,
-      category: feature.category,
-      isEnabled: enabledKeys.has(feature.key),
-      dependencies: feature.dependencies,
-      icon: feature.icon,
-    }));
+    return FEATURE_REGISTRY.map((feature) => {
+      const restrictedByPlan = isFeatureRestrictedByPlan(plan, feature.key);
+      return {
+        key: feature.key,
+        label: feature.label,
+        description: feature.description,
+        category: feature.category,
+        isEnabled: restrictedByPlan ? false : enabledKeys.has(feature.key),
+        dependencies: feature.dependencies,
+        icon: feature.icon,
+        restrictedByPlan,
+      };
+    });
   }
 
   /**
@@ -67,9 +80,23 @@ export class FeatureService {
   }
 
   /**
-   * Check if a specific feature is enabled for a business
+   * Check if a specific feature is enabled for a business.
+   * Also checks subscription plan restrictions.
    */
   async isFeatureEnabled(businessId: string, featureKey: string): Promise<boolean> {
+    // Check subscription plan restriction first
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { subscriptionPlan: true },
+    });
+
+    if (business) {
+      const plan = business.subscriptionPlan as 'free' | 'premium';
+      if (isFeatureRestrictedByPlan(plan, featureKey)) {
+        return false;
+      }
+    }
+
     const feature = await this.prisma.businessFeature.findUnique({
       where: {
         businessId_featureKey: { businessId, featureKey },

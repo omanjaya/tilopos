@@ -1,8 +1,9 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { FeatureService } from '../../../modules/business/services/feature.service';
+import { SubscriptionService } from '../../../modules/subscription/subscription.service';
 import { isValidBusinessType } from '@config/business-types.config';
 import type { RegisterDto } from '../../dtos/register.dto';
 
@@ -20,10 +21,13 @@ export interface RegisterOutput {
 
 @Injectable()
 export class RegisterUseCase {
+  private readonly logger = new Logger(RegisterUseCase.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly featureService: FeatureService,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   async execute(dto: RegisterDto): Promise<RegisterOutput> {
@@ -87,6 +91,13 @@ export class RegisterUseCase {
       result.business.id,
       dto.businessType,
     );
+
+    // Start 14-day premium trial for new businesses
+    try {
+      await this.subscriptionService.startTrial(result.business.id);
+    } catch (error) {
+      this.logger.warn(`Failed to start trial for business ${result.business.id}`, error);
+    }
 
     const enabledFeatures = await this.featureService.getEnabledFeatureKeys(result.business.id);
 
