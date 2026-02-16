@@ -289,6 +289,7 @@ class SyncEngine {
    * Get queue status
    */
   async getQueueStatus(): Promise<SyncQueueStatus> {
+    if (!this.queueService) return { pending: 0, failed: 0, conflicts: 0 };
     return this.queueService.getQueueStatus();
   }
 

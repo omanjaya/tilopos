@@ -119,11 +119,6 @@ export function useSync(): UseSyncReturn {
       void refreshQueueStatus();
     };
 
-    const handleSyncStart = () => {
-      isSyncingRef.current = true;
-      setState(prev => ({ ...prev, syncStatus: 'syncing' }));
-    };
-
     const handleSyncComplete = () => {
       isSyncingRef.current = false;
       setState(prev => ({
@@ -133,12 +128,14 @@ export function useSync(): UseSyncReturn {
       void refreshQueueStatus();
     };
 
+    // Note: Don't listen to 'online' as handleSyncStart — it sets syncing=true
+    // but if syncEngine is not initialized, processQueue does nothing and
+    // the status is never cleared. Let triggerSync handle the syncing state.
     syncEngine.on('queued', handleEvent);
     syncEngine.on('queueProcessed', handleSyncComplete);
     syncEngine.on('syncError', handleEvent);
     syncEngine.on('conflict', handleEvent);
     syncEngine.on('pulled', handleSyncComplete);
-    syncEngine.on('online', handleSyncStart);
     syncEngine.on('offline', handleEvent);
 
     return () => {
@@ -147,7 +144,6 @@ export function useSync(): UseSyncReturn {
       syncEngine.off('syncError', handleEvent);
       syncEngine.off('conflict', handleEvent);
       syncEngine.off('pulled', handleSyncComplete);
-      syncEngine.off('online', handleSyncStart);
       syncEngine.off('offline', handleEvent);
     };
   }, [refreshQueueStatus]);
