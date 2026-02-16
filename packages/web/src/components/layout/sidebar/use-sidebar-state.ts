@@ -20,6 +20,7 @@ export function useSidebarState() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const isPathVisible = useFeatureStore((s) => s.isPathVisible);
+  const enabledFeatures = useFeatureStore((s) => s.enabledFeatures);
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
 
@@ -74,7 +75,7 @@ export function useSidebarState() {
         }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [isPathVisible, userRole, pinnedSet]);
+  }, [isPathVisible, userRole, pinnedSet, enabledFeatures]);
 
   const pinnedNavItems = useMemo(() => {
     const allowedPaths = ROLE_ALLOWED_PATHS[userRole];
@@ -87,7 +88,7 @@ export function useSidebarState() {
         if (hasRoleFilter && !allowedPaths.includes(item.to)) return false;
         return isPathVisible(item.to);
       });
-  }, [pinnedPaths, isPathVisible, userRole]);
+  }, [pinnedPaths, isPathVisible, userRole, enabledFeatures]);
 
   // ── Section expand/collapse ────────────────────────────────────────────────
 
