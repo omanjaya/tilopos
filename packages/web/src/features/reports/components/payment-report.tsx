@@ -160,7 +160,7 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
                         description="Total nilai pembayaran yang diterima dari semua metode pembayaran."
                       />
                     </div>
-                    <p className="text-2xl font-bold">{formatCurrency(paymentReport?.totalAmount ?? 0)}</p>
+                    <p className="text-lg font-bold sm:text-2xl">{formatCurrency(paymentReport?.totalAmount ?? 0)}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -183,10 +183,11 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
                   nameKey="method"
                   cx="50%"
                   cy="50%"
-                  outerRadius={150}
-                  label={({ method, percentage }: { method: string; percentage: number }) =>
-                    `${method} (${Number(percentage ?? 0).toFixed(1)}%)`
+                  outerRadius={120}
+                  label={({ percentage }: { percentage: number }) =>
+                    `${Number(percentage ?? 0).toFixed(1)}%`
                   }
+                  labelLine={{ strokeWidth: 1 }}
                 >
                   {methods.map((_, index) => (
                     <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
@@ -200,7 +201,9 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
                     borderRadius: '8px',
                   }}
                 />
-                <Legend />
+                <Legend
+                  formatter={(value: string) => <span className="text-xs">{value}</span>}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}

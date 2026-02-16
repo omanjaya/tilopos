@@ -205,6 +205,34 @@ export function formatRupiah(amount: number | null | undefined): string {
 }
 
 /**
+ * Format currency in compact form for chart axes
+ * Uses abbreviations: rb (ribu), jt (juta), M (miliar)
+ *
+ * @example
+ * formatCurrencyCompact(1500000) // "1,5jt"
+ * formatCurrencyCompact(500000)  // "500rb"
+ * formatCurrencyCompact(25000)   // "25rb"
+ */
+export function formatCurrencyCompact(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || !isFinite(amount)) return 'Rp0';
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) {
+    const v = abs / 1_000_000_000;
+    return `${sign}${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}M`;
+  }
+  if (abs >= 1_000_000) {
+    const v = abs / 1_000_000;
+    return `${sign}${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}jt`;
+  }
+  if (abs >= 1_000) {
+    const v = abs / 1_000;
+    return `${sign}${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}rb`;
+  }
+  return `${sign}${abs}`;
+}
+
+/**
  * Format duration in minutes to human readable format
  * 
  * @param minutes - Duration in minutes

@@ -25,7 +25,7 @@ type TransactionWithRelations = PrismaTransaction & {
 
 @Injectable()
 export class PrismaTransactionRepository implements ITransactionRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findById(id: string): Promise<TransactionRecord | null> {
     const transaction = await this.prisma.transaction.findUnique({
@@ -108,7 +108,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
           serviceCharge: transaction.serviceCharge,
           grandTotal: transaction.grandTotal,
           notes: transaction.notes,
-          status: transaction.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded',
+          status: transaction.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded' | 'credit' | 'partially_paid',
         },
         include: {
           items: {
@@ -130,28 +130,28 @@ export class PrismaTransactionRepository implements ITransactionRepository {
     const updated = await this.prisma.transaction.update({
       where: { id },
       data: {
-        ...(data.employeeId !== undefined && { employeeId: data.employeeId }),
-        ...(data.customerId !== undefined && { customerId: data.customerId }),
-        ...(data.shiftId !== undefined && { shiftId: data.shiftId }),
+        ...(data.employeeId !== undefined && { employeeId: data.employeeId ?? undefined }),
+        ...(data.customerId !== undefined && { customerId: data.customerId ?? undefined }),
+        ...(data.shiftId !== undefined && { shiftId: data.shiftId ?? undefined }),
         ...(data.transactionType !== undefined && {
           transactionType: data.transactionType as 'sale' | 'refund',
         }),
         ...(data.orderType !== undefined && {
           orderType: data.orderType as 'dine_in' | 'takeaway' | 'delivery',
         }),
-        ...(data.tableId !== undefined && { tableId: data.tableId }),
+        ...(data.tableId !== undefined && { tableId: data.tableId ?? undefined }),
         ...(data.subtotal !== undefined && { subtotal: data.subtotal }),
         ...(data.discountAmount !== undefined && { discountAmount: data.discountAmount }),
         ...(data.taxAmount !== undefined && { taxAmount: data.taxAmount }),
         ...(data.serviceCharge !== undefined && { serviceCharge: data.serviceCharge }),
         ...(data.grandTotal !== undefined && { grandTotal: data.grandTotal }),
-        ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.notes !== undefined && { notes: data.notes ?? undefined }),
         ...(data.status !== undefined && {
-          status: data.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded',
+          status: data.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded' | 'credit' | 'partially_paid',
         }),
-        ...(data.voidedAt !== undefined && { voidedAt: data.voidedAt }),
-        ...(data.voidedBy !== undefined && { voidedBy: data.voidedBy }),
-        ...(data.voidReason !== undefined && { voidReason: data.voidReason }),
+        ...(data.voidedAt !== undefined && { voidedAt: data.voidedAt ?? undefined }),
+        ...(data.voidedBy !== undefined && { voidedBy: data.voidedBy ?? undefined }),
+        ...(data.voidReason !== undefined && { voidReason: data.voidReason ?? undefined }),
       },
       include: {
         items: {

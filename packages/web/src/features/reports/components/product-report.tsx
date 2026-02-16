@@ -10,7 +10,7 @@ import { DataTimestamp } from '@/components/shared/data-timestamp';
 import { ReportErrorState } from '@/components/shared/report-error-state';
 import { ReportEmptyState } from '@/components/shared/report-empty-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/format';
 import { formatProductDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { Package } from 'lucide-react';
@@ -152,7 +152,7 @@ export function ProductReport({ outletId, dateRange, customDateRange }: ProductR
                         description="Jumlah jenis produk yang berbeda yang terjual pada periode ini."
                       />
                     </div>
-                    <p className="text-2xl font-bold">{String(productReport?.totalProducts ?? 0)}</p>
+                    <p className="text-lg font-bold sm:text-2xl">{String(productReport?.totalProducts ?? 0)}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -174,14 +174,14 @@ export function ProductReport({ outletId, dateRange, customDateRange }: ProductR
                   type="number"
                   className="text-xs"
                   tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickFormatter={(v: number) => formatCurrency(v)}
+                  tickFormatter={(v: number) => formatCurrencyCompact(v)}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
                   className="text-xs"
                   tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  width={150}
+                  width={120}
                 />
                 <Tooltip
                   formatter={(value: number) => [formatCurrency(value), 'Pendapatan']}

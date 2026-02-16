@@ -8,7 +8,7 @@ import { DataTimestamp } from '@/components/shared/data-timestamp';
 import { ReportErrorState } from '@/components/shared/report-error-state';
 import { ReportEmptyState } from '@/components/shared/report-empty-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/format';
 import { formatSalesDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { DollarSign, ShoppingCart, TrendingUp, Users } from 'lucide-react';
@@ -136,7 +136,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                       description="Total nilai dari semua transaksi penjualan yang telah selesai."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(salesReport?.totalSales ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{formatCurrency(salesReport?.totalSales ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -154,7 +154,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                       description="Jumlah total transaksi penjualan yang telah diselesaikan."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{String(salesReport?.totalTransactions ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{String(salesReport?.totalTransactions ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -172,7 +172,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                       description="Rata-rata nilai per transaksi, menunjukkan berapa banyak customer menghabiskan per pembelian."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(salesReport?.averageOrderValue ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{formatCurrency(salesReport?.averageOrderValue ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -190,7 +190,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                       description="Jumlah pelanggan unik yang melakukan transaksi pada periode ini."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{String(customerReport?.totalCustomers ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{String(customerReport?.totalCustomers ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -218,7 +218,8 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                 <YAxis
                   className="text-xs"
                   tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickFormatter={(v: number) => formatCurrency(v)}
+                  tickFormatter={(v: number) => formatCurrencyCompact(v)}
+                  width={70}
                 />
                 <Tooltip
                   formatter={(value: number) => [formatCurrency(value), 'Penjualan']}

@@ -109,7 +109,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
                       description="Total pendapatan dari semua transaksi penjualan setelah dikurangi refund."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(financialReport?.totalRevenue ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{formatCurrency(financialReport?.totalRevenue ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -127,7 +127,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
                       description="Total biaya produk yang terjual berdasarkan harga pokok per item."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(financialReport?.totalCost ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{formatCurrency(financialReport?.totalCost ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -145,7 +145,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
                       description="Keuntungan sebelum dikurangi biaya operasional lainnya."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(financialReport?.grossProfit ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{formatCurrency(financialReport?.grossProfit ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -163,7 +163,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
                       description="Persentase keuntungan dari setiap rupiah penjualan."
                     />
                   </div>
-                  <p className="text-2xl font-bold">{Number(financialReport?.grossMargin ?? 0).toFixed(1)}%</p>
+                  <p className="text-lg font-bold sm:text-2xl">{Number(financialReport?.grossMargin ?? 0).toFixed(1)}%</p>
                 </div>
               </CardContent>
             </Card>
