@@ -1,15 +1,33 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { TemplatesService } from '../templates/templates.service';
+import { BusinessTypeService } from '../business/services/business-type.service';
+import { randomBytes } from 'crypto';
 import type {
   OnboardingProgressResponse,
   OnboardingStepStatus,
 } from './dto/onboarding.dto';
+import type { GuidedSetupDto } from './dto/guided-setup.dto';
+
+export interface GuidedSetupResult {
+  business: { updated: boolean };
+  businessType: { set: boolean; type: string | null; featuresEnabled: number };
+  template: { applied: boolean; categories: number; products: number; modifierGroups: number; modifiers: number; tables: number };
+  paymentMethods: { configured: boolean; count: number };
+  employee: { created: boolean; id: string | null };
+  onboarding: { completed: boolean };
+}
 
 @Injectable()
 export class OnboardingService {
+  private readonly logger = new Logger(OnboardingService.name);
   private readonly PRODUCTS_TARGET = 5;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly templatesService: TemplatesService,
+    private readonly businessTypeService: BusinessTypeService,
+  ) {}
 
   /**
    * Get onboarding progress for a business
@@ -113,6 +131,172 @@ export class OnboardingService {
       dismissed: true,
       dismissedAt,
     };
+  }
+
+  /**
+   * All-in-one guided setup: business profile, type, template, payments, employee
+   */
+  async guidedSetup(
+    businessId: string,
+    employeeId: string,
+    outletId: string | null,
+    dto: GuidedSetupDto,
+  ): Promise<GuidedSetupResult> {
+    const result: GuidedSetupResult = {
+      business: { updated: false },
+      businessType: { set: false, type: null, featuresEnabled: 0 },
+      template: { applied: false, categories: 0, products: 0, modifierGroups: 0, modifiers: 0, tables: 0 },
+      paymentMethods: { configured: false, count: 0 },
+      employee: { created: false, id: null },
+      onboarding: { completed: false },
+    };
+
+    // 1. Update business profile
+    if (dto.business) {
+      const updateData: Record<string, string> = {};
+      if (dto.business.name) updateData.name = dto.business.name;
+      if (dto.business.phone) updateData.phone = dto.business.phone;
+      if (dto.business.address) updateData.address = dto.business.address;
+
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.business.update({
+          where: { id: businessId },
+          data: updateData,
+        });
+        result.business.updated = true;
+      }
+    }
+
+    // 2. Set business type + enable features
+    if (dto.businessType) {
+      const typeResult = await this.businessTypeService.changeBusinessType(businessId, dto.businessType);
+      result.businessType = {
+        set: typeResult.success,
+        type: dto.businessType,
+        featuresEnabled: typeResult.featuresEnabled,
+      };
+    }
+
+    // 3. Apply template
+    const resolvedOutletId = outletId ?? await this.getFirstOutletId(businessId);
+    if (dto.businessType && dto.template?.sections && resolvedOutletId) {
+      const templateResult = await this.templatesService.applyTemplate(
+        businessId,
+        resolvedOutletId,
+        dto.businessType,
+        dto.template.sections,
+      );
+      result.template = { applied: true, ...templateResult };
+    }
+
+    // 4. Set payment methods
+    if (dto.paymentMethods && dto.paymentMethods.length > 0) {
+      await this.configurePaymentMethods(businessId, dto.paymentMethods);
+      result.paymentMethods = { configured: true, count: dto.paymentMethods.length };
+    }
+
+    // 5. Set tax rate on outlet
+    if (dto.taxRate !== undefined && resolvedOutletId) {
+      await this.prisma.outlet.update({
+        where: { id: resolvedOutletId },
+        data: { taxRate: dto.taxRate },
+      });
+    }
+
+    // 6. Create employee (cashier)
+    if (dto.employee) {
+      const newEmployee = await this.prisma.employee.create({
+        data: {
+          businessId,
+          outletId: resolvedOutletId,
+          name: dto.employee.name,
+          email: dto.employee.email || null,
+          pin: dto.employee.pin,
+          role: 'cashier',
+        },
+      });
+      result.employee = { created: true, id: newEmployee.id };
+    }
+
+    // 7. Mark onboarding completed
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { onboardingCompleted: true },
+    });
+
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { settings: true },
+    });
+    const existingSettings = (business?.settings as Record<string, unknown>) ?? {};
+    await this.prisma.business.update({
+      where: { id: businessId },
+      data: {
+        settings: {
+          ...existingSettings,
+          guidedSetupCompleted: true,
+          guidedSetupCompletedAt: new Date().toISOString(),
+        } as never,
+      },
+    });
+
+    result.onboarding.completed = true;
+    this.logger.log(`Guided setup completed for business ${businessId}`);
+
+    return result;
+  }
+
+  private async getFirstOutletId(businessId: string): Promise<string | null> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { businessId, isActive: true },
+      select: { id: true },
+    });
+    return outlet?.id ?? null;
+  }
+
+  private async configurePaymentMethods(businessId: string, methods: string[]): Promise<void> {
+    const typeMap: Record<string, string> = {
+      cash: 'cash',
+      qris: 'qris',
+      debit: 'card',
+      credit: 'card',
+      transfer: 'bank_transfer',
+      ewallet: 'ewallet',
+    };
+
+    const nameMap: Record<string, string> = {
+      cash: 'Tunai',
+      qris: 'QRIS',
+      debit: 'Kartu Debit',
+      credit: 'Kartu Kredit',
+      transfer: 'Transfer Bank',
+      ewallet: 'E-Wallet',
+    };
+
+    const paymentMethods = methods.map((m) => ({
+      id: randomBytes(16).toString('hex'),
+      name: nameMap[m] || m,
+      type: typeMap[m] || m,
+      isActive: true,
+      processingFee: 0,
+      settings: {},
+    }));
+
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { settings: true },
+    });
+    const existingSettings = (business?.settings as Record<string, unknown>) ?? {};
+
+    await this.prisma.business.update({
+      where: { id: businessId },
+      data: {
+        settings: {
+          ...existingSettings,
+          businessPaymentMethods: paymentMethods,
+        } as never,
+      },
+    });
   }
 
   /**
