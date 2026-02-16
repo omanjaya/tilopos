@@ -1,0 +1,27 @@
+{
+  "type": "service_laundry",
+  "label": "Laundry",
+  "description": "Template untuk laundry kiloan, satuan, dry cleaning",
+  "icon": "WashingMachine",
+  "categories": [
+    { "name": "Cuci Kiloan", "sortOrder": 1 },
+    { "name": "Cuci Satuan", "sortOrder": 2 },
+    { "name": "Dry Cleaning", "sortOrder": 3 },
+    { "name": "Setrika", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Cuci Kering Kiloan", "category": "Cuci Kiloan", "price": 7000, "unit": "kg", "type": "service" },
+    { "name": "Cuci Basah Kiloan", "category": "Cuci Kiloan", "price": 5000, "unit": "kg", "type": "service" },
+    { "name": "Cuci Setrika Kiloan", "category": "Cuci Kiloan", "price": 8000, "unit": "kg", "type": "service" },
+    { "name": "Jas/Blazer", "category": "Cuci Satuan", "price": 25000, "unit": "pcs", "type": "service" },
+    { "name": "Gaun/Dress", "category": "Cuci Satuan", "price": 30000, "unit": "pcs", "type": "service" },
+    { "name": "Bed Cover", "category": "Cuci Satuan", "price": 35000, "unit": "pcs", "type": "service" },
+    { "name": "Dry Clean Jas", "category": "Dry Cleaning", "price": 45000, "unit": "pcs", "type": "service" },
+    { "name": "Setrika Kiloan", "category": "Setrika", "price": 5000, "unit": "kg", "type": "service" }
+  ],
+  "modifierGroups": [],
+  "units": ["kg", "pcs"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

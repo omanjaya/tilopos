@@ -1,0 +1,28 @@
+{
+  "type": "service_workshop",
+  "label": "Bengkel",
+  "description": "Template untuk bengkel motor, mobil, las, service elektronik",
+  "icon": "Wrench",
+  "categories": [
+    { "name": "Service Rutin", "sortOrder": 1 },
+    { "name": "Ganti Sparepart", "sortOrder": 2 },
+    { "name": "Perbaikan", "sortOrder": 3 }
+  ],
+  "products": [
+    { "name": "Ganti Oli Motor", "category": "Service Rutin", "price": 50000, "unit": "layanan", "type": "service" },
+    { "name": "Ganti Oli Mobil", "category": "Service Rutin", "price": 150000, "unit": "layanan", "type": "service" },
+    { "name": "Service Ringan Motor", "category": "Service Rutin", "price": 75000, "unit": "layanan", "type": "service" },
+    { "name": "Tune Up Mobil", "category": "Service Rutin", "price": 250000, "unit": "layanan", "type": "service" },
+    { "name": "Ban Motor", "category": "Ganti Sparepart", "price": 150000, "unit": "pcs", "type": "product" },
+    { "name": "Aki Motor", "category": "Ganti Sparepart", "price": 180000, "unit": "pcs", "type": "product" },
+    { "name": "Kampas Rem", "category": "Ganti Sparepart", "price": 60000, "unit": "set", "type": "product" },
+    { "name": "Busi", "category": "Ganti Sparepart", "price": 25000, "unit": "pcs", "type": "product" },
+    { "name": "Tambal Ban", "category": "Perbaikan", "price": 15000, "unit": "layanan", "type": "service" },
+    { "name": "Las Knalpot", "category": "Perbaikan", "price": 50000, "unit": "layanan", "type": "service" }
+  ],
+  "modifierGroups": [],
+  "units": ["layanan", "pcs"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

@@ -1,0 +1,32 @@
+{
+  "type": "retail_hardware",
+  "label": "Toko Bangunan",
+  "description": "Template untuk toko bangunan, material, perkakas",
+  "icon": "Hammer",
+  "categories": [
+    { "name": "Semen & Pasir", "sortOrder": 1 },
+    { "name": "Cat & Finishing", "sortOrder": 2 },
+    { "name": "Besi & Baja", "sortOrder": 3 },
+    { "name": "Pipa & Sanitasi", "sortOrder": 4 },
+    { "name": "Perkakas", "sortOrder": 5 }
+  ],
+  "products": [
+    { "name": "Semen 50kg", "category": "Semen & Pasir", "price": 65000, "unit": "sak", "type": "product" },
+    { "name": "Pasir 1 Kubik", "category": "Semen & Pasir", "price": 350000, "unit": "kubik", "type": "product" },
+    { "name": "Cat Tembok 5kg", "category": "Cat & Finishing", "price": 85000, "unit": "kaleng", "type": "product" },
+    { "name": "Cat Kayu 1kg", "category": "Cat & Finishing", "price": 45000, "unit": "kaleng", "type": "product" },
+    { "name": "Kuas Cat 3 inch", "category": "Cat & Finishing", "price": 15000, "unit": "pcs", "type": "product" },
+    { "name": "Besi Beton 10mm", "category": "Besi & Baja", "price": 75000, "unit": "batang", "type": "product" },
+    { "name": "Kawat Ikat", "category": "Besi & Baja", "price": 25000, "unit": "kg", "type": "product" },
+    { "name": "Paku 5cm 1kg", "category": "Besi & Baja", "price": 20000, "unit": "kg", "type": "product" },
+    { "name": "Pipa PVC 3/4 inch", "category": "Pipa & Sanitasi", "price": 25000, "unit": "batang", "type": "product" },
+    { "name": "Kran Air", "category": "Pipa & Sanitasi", "price": 35000, "unit": "pcs", "type": "product" },
+    { "name": "Palu", "category": "Perkakas", "price": 35000, "unit": "pcs", "type": "product" },
+    { "name": "Obeng Set", "category": "Perkakas", "price": 45000, "unit": "set", "type": "product" }
+  ],
+  "modifierGroups": [],
+  "units": ["pcs", "kg", "sak"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

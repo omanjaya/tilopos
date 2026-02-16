@@ -1,0 +1,29 @@
+{
+  "type": "service_salon",
+  "label": "Salon & Barbershop",
+  "description": "Template untuk salon kecantikan, barbershop, spa",
+  "icon": "Scissors",
+  "categories": [
+    { "name": "Potong Rambut", "sortOrder": 1 },
+    { "name": "Perawatan Rambut", "sortOrder": 2 },
+    { "name": "Perawatan Wajah", "sortOrder": 3 },
+    { "name": "Perawatan Kuku", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Potong Rambut Pria", "category": "Potong Rambut", "price": 35000, "unit": "layanan", "type": "service" },
+    { "name": "Potong Rambut Wanita", "category": "Potong Rambut", "price": 50000, "unit": "layanan", "type": "service" },
+    { "name": "Potong Anak", "category": "Potong Rambut", "price": 25000, "unit": "layanan", "type": "service" },
+    { "name": "Creambath", "category": "Perawatan Rambut", "price": 75000, "unit": "layanan", "type": "service" },
+    { "name": "Hair Coloring", "category": "Perawatan Rambut", "price": 150000, "unit": "layanan", "type": "service" },
+    { "name": "Smoothing", "category": "Perawatan Rambut", "price": 200000, "unit": "layanan", "type": "service" },
+    { "name": "Facial Basic", "category": "Perawatan Wajah", "price": 100000, "unit": "layanan", "type": "service" },
+    { "name": "Facial Premium", "category": "Perawatan Wajah", "price": 175000, "unit": "layanan", "type": "service" },
+    { "name": "Manicure", "category": "Perawatan Kuku", "price": 50000, "unit": "layanan", "type": "service" },
+    { "name": "Pedicure", "category": "Perawatan Kuku", "price": 60000, "unit": "layanan", "type": "service" }
+  ],
+  "modifierGroups": [],
+  "units": ["layanan"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

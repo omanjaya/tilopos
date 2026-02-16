@@ -1,0 +1,54 @@
+{
+  "type": "retail_fashion",
+  "label": "Toko Fashion",
+  "description": "Template untuk toko baju, butik, distro, toko sepatu",
+  "icon": "Shirt",
+  "categories": [
+    { "name": "Atasan", "sortOrder": 1 },
+    { "name": "Bawahan", "sortOrder": 2 },
+    { "name": "Outerwear", "sortOrder": 3 },
+    { "name": "Sepatu & Sandal", "sortOrder": 4 },
+    { "name": "Aksesoris", "sortOrder": 5 }
+  ],
+  "products": [
+    { "name": "Kaos Polos", "category": "Atasan", "price": 75000, "unit": "pcs", "type": "product" },
+    { "name": "Kemeja Flannel", "category": "Atasan", "price": 150000, "unit": "pcs", "type": "product" },
+    { "name": "Polo Shirt", "category": "Atasan", "price": 120000, "unit": "pcs", "type": "product" },
+    { "name": "Celana Jeans", "category": "Bawahan", "price": 200000, "unit": "pcs", "type": "product" },
+    { "name": "Celana Chino", "category": "Bawahan", "price": 180000, "unit": "pcs", "type": "product" },
+    { "name": "Rok", "category": "Bawahan", "price": 120000, "unit": "pcs", "type": "product" },
+    { "name": "Hoodie", "category": "Outerwear", "price": 200000, "unit": "pcs", "type": "product" },
+    { "name": "Jaket Denim", "category": "Outerwear", "price": 250000, "unit": "pcs", "type": "product" },
+    { "name": "Sneakers", "category": "Sepatu & Sandal", "price": 350000, "unit": "pcs", "type": "product" },
+    { "name": "Sandal Casual", "category": "Sepatu & Sandal", "price": 80000, "unit": "pcs", "type": "product" },
+    { "name": "Topi", "category": "Aksesoris", "price": 50000, "unit": "pcs", "type": "product" },
+    { "name": "Ikat Pinggang", "category": "Aksesoris", "price": 60000, "unit": "pcs", "type": "product" }
+  ],
+  "modifierGroups": [
+    {
+      "name": "Ukuran",
+      "required": true,
+      "maxSelect": 1,
+      "options": [
+        { "name": "S", "price": 0 },
+        { "name": "M", "price": 0 },
+        { "name": "L", "price": 0 },
+        { "name": "XL", "price": 10000 }
+      ]
+    },
+    {
+      "name": "Warna",
+      "required": true,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Hitam", "price": 0 },
+        { "name": "Putih", "price": 0 },
+        { "name": "Navy", "price": 0 }
+      ]
+    }
+  ],
+  "units": ["pcs"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

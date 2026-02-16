@@ -1,0 +1,59 @@
+{
+  "type": "fnb_fastfood",
+  "label": "Fast Food",
+  "description": "Template untuk restoran cepat saji, fried chicken, burger",
+  "icon": "Flame",
+  "categories": [
+    { "name": "Paket Hemat", "sortOrder": 1 },
+    { "name": "Menu Utama", "sortOrder": 2 },
+    { "name": "Minuman", "sortOrder": 3 }
+  ],
+  "products": [
+    { "name": "Paket Ayam 1", "category": "Paket Hemat", "price": 25000, "unit": "paket", "type": "product" },
+    { "name": "Paket Ayam 2", "category": "Paket Hemat", "price": 35000, "unit": "paket", "type": "product" },
+    { "name": "Paket Burger", "category": "Paket Hemat", "price": 30000, "unit": "paket", "type": "product" },
+    { "name": "Ayam Goreng Original", "category": "Menu Utama", "price": 18000, "unit": "pcs", "type": "product" },
+    { "name": "Ayam Goreng Pedas", "category": "Menu Utama", "price": 18000, "unit": "pcs", "type": "product" },
+    { "name": "Burger Ayam", "category": "Menu Utama", "price": 20000, "unit": "pcs", "type": "product" },
+    { "name": "Burger Beef", "category": "Menu Utama", "price": 25000, "unit": "pcs", "type": "product" },
+    { "name": "French Fries", "category": "Menu Utama", "price": 12000, "unit": "porsi", "type": "product" },
+    { "name": "Nasi Putih", "category": "Menu Utama", "price": 5000, "unit": "porsi", "type": "product" },
+    { "name": "Cola", "category": "Minuman", "price": 8000, "unit": "gelas", "type": "product" },
+    { "name": "Es Teh", "category": "Minuman", "price": 5000, "unit": "gelas", "type": "product" },
+    { "name": "Air Mineral", "category": "Minuman", "price": 4000, "unit": "gelas", "type": "product" }
+  ],
+  "modifierGroups": [
+    {
+      "name": "Level Pedas",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Original", "price": 0 },
+        { "name": "Pedas", "price": 0 },
+        { "name": "Extra Pedas", "price": 2000 }
+      ]
+    },
+    {
+      "name": "Ukuran",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Regular", "price": 0 },
+        { "name": "Large", "price": 5000 }
+      ]
+    },
+    {
+      "name": "Tambahan",
+      "required": false,
+      "maxSelect": 3,
+      "options": [
+        { "name": "Extra Cheese", "price": 5000 },
+        { "name": "Extra Sauce", "price": 3000 }
+      ]
+    }
+  ],
+  "units": ["pcs", "porsi"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

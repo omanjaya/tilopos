@@ -1,0 +1,85 @@
+{
+  "type": "fnb_restaurant",
+  "label": "Restoran",
+  "description": "Template untuk restoran, rumah makan, warung",
+  "icon": "UtensilsCrossed",
+  "categories": [
+    { "name": "Makanan Utama", "sortOrder": 1 },
+    { "name": "Minuman", "sortOrder": 2 },
+    { "name": "Appetizer", "sortOrder": 3 },
+    { "name": "Dessert", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Nasi Goreng", "category": "Makanan Utama", "price": 25000, "unit": "porsi", "type": "product" },
+    { "name": "Mie Goreng", "category": "Makanan Utama", "price": 23000, "unit": "porsi", "type": "product" },
+    { "name": "Ayam Goreng", "category": "Makanan Utama", "price": 28000, "unit": "porsi", "type": "product" },
+    { "name": "Ayam Bakar", "category": "Makanan Utama", "price": 30000, "unit": "porsi", "type": "product" },
+    { "name": "Ikan Goreng", "category": "Makanan Utama", "price": 32000, "unit": "porsi", "type": "product" },
+    { "name": "Sop Ayam", "category": "Makanan Utama", "price": 22000, "unit": "porsi", "type": "product" },
+    { "name": "Es Teh Manis", "category": "Minuman", "price": 5000, "unit": "gelas", "type": "product" },
+    { "name": "Es Jeruk", "category": "Minuman", "price": 7000, "unit": "gelas", "type": "product" },
+    { "name": "Jus Alpukat", "category": "Minuman", "price": 15000, "unit": "gelas", "type": "product" },
+    { "name": "Air Mineral", "category": "Minuman", "price": 4000, "unit": "gelas", "type": "product" },
+    { "name": "Tahu Goreng", "category": "Appetizer", "price": 10000, "unit": "porsi", "type": "product" },
+    { "name": "Tempe Goreng", "category": "Appetizer", "price": 8000, "unit": "porsi", "type": "product" },
+    { "name": "Kerupuk", "category": "Appetizer", "price": 5000, "unit": "porsi", "type": "product" },
+    { "name": "Es Campur", "category": "Dessert", "price": 12000, "unit": "porsi", "type": "product" },
+    { "name": "Pisang Goreng", "category": "Dessert", "price": 10000, "unit": "porsi", "type": "product" }
+  ],
+  "modifierGroups": [
+    {
+      "name": "Level Pedas",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Tidak Pedas", "price": 0 },
+        { "name": "Pedas Sedang", "price": 0 },
+        { "name": "Pedas Banget", "price": 0 }
+      ]
+    },
+    {
+      "name": "Tambahan Lauk",
+      "required": false,
+      "maxSelect": 3,
+      "options": [
+        { "name": "Telur Ceplok", "price": 5000 },
+        { "name": "Telur Dadar", "price": 5000 },
+        { "name": "Bakso", "price": 7000 }
+      ]
+    },
+    {
+      "name": "Ukuran Nasi",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Nasi Biasa", "price": 0 },
+        { "name": "Nasi Jumbo", "price": 5000 }
+      ]
+    },
+    {
+      "name": "Pilihan Es",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Dingin", "price": 0 },
+        { "name": "Hangat", "price": 0 },
+        { "name": "Tanpa Es", "price": 0 }
+      ]
+    }
+  ],
+  "units": ["porsi", "gelas", "pcs", "mangkok"],
+  "tables": [
+    { "name": "Meja 1", "capacity": 4 },
+    { "name": "Meja 2", "capacity": 4 },
+    { "name": "Meja 3", "capacity": 4 },
+    { "name": "Meja 4", "capacity": 2 },
+    { "name": "Meja 5", "capacity": 2 },
+    { "name": "Meja 6", "capacity": 6 },
+    { "name": "Meja 7", "capacity": 6 },
+    { "name": "Meja 8", "capacity": 8 },
+    { "name": "Meja 9", "capacity": 4 },
+    { "name": "Meja 10", "capacity": 4 }
+  ],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

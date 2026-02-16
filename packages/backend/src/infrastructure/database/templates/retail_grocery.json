@@ -1,0 +1,35 @@
+{
+  "type": "retail_grocery",
+  "label": "Toko Kelontong",
+  "description": "Template untuk toko kelontong, minimarket, warung sembako",
+  "icon": "ShoppingBasket",
+  "categories": [
+    { "name": "Sembako", "sortOrder": 1 },
+    { "name": "Minuman Kemasan", "sortOrder": 2 },
+    { "name": "Snack & Makanan Ringan", "sortOrder": 3 },
+    { "name": "Kebutuhan Rumah Tangga", "sortOrder": 4 },
+    { "name": "Rokok & Lainnya", "sortOrder": 5 }
+  ],
+  "products": [
+    { "name": "Beras 5kg", "category": "Sembako", "price": 65000, "unit": "karung", "type": "product" },
+    { "name": "Minyak Goreng 1L", "category": "Sembako", "price": 18000, "unit": "botol", "type": "product" },
+    { "name": "Gula Pasir 1kg", "category": "Sembako", "price": 16000, "unit": "kg", "type": "product" },
+    { "name": "Telur 1kg", "category": "Sembako", "price": 28000, "unit": "kg", "type": "product" },
+    { "name": "Mie Instan", "category": "Sembako", "price": 3500, "unit": "pcs", "type": "product" },
+    { "name": "Air Mineral 600ml", "category": "Minuman Kemasan", "price": 4000, "unit": "botol", "type": "product" },
+    { "name": "Teh Kotak", "category": "Minuman Kemasan", "price": 4500, "unit": "pcs", "type": "product" },
+    { "name": "Susu UHT 250ml", "category": "Minuman Kemasan", "price": 6000, "unit": "pcs", "type": "product" },
+    { "name": "Keripik Singkong", "category": "Snack & Makanan Ringan", "price": 5000, "unit": "pcs", "type": "product" },
+    { "name": "Biskuit", "category": "Snack & Makanan Ringan", "price": 8000, "unit": "pcs", "type": "product" },
+    { "name": "Cokelat Batang", "category": "Snack & Makanan Ringan", "price": 10000, "unit": "pcs", "type": "product" },
+    { "name": "Sabun Mandi", "category": "Kebutuhan Rumah Tangga", "price": 5000, "unit": "pcs", "type": "product" },
+    { "name": "Deterjen Sachet", "category": "Kebutuhan Rumah Tangga", "price": 2000, "unit": "pcs", "type": "product" },
+    { "name": "Tissue", "category": "Kebutuhan Rumah Tangga", "price": 8000, "unit": "pcs", "type": "product" },
+    { "name": "Rokok Filter", "category": "Rokok & Lainnya", "price": 28000, "unit": "bungkus", "type": "product" }
+  ],
+  "modifierGroups": [],
+  "units": ["pcs", "kg", "botol", "karung"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

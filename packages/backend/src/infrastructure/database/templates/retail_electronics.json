@@ -1,0 +1,29 @@
+{
+  "type": "retail_electronics",
+  "label": "Toko Elektronik",
+  "description": "Template untuk toko elektronik, HP, aksesoris gadget",
+  "icon": "Smartphone",
+  "categories": [
+    { "name": "Handphone & Tablet", "sortOrder": 1 },
+    { "name": "Aksesoris HP", "sortOrder": 2 },
+    { "name": "Audio", "sortOrder": 3 },
+    { "name": "Komputer & Laptop", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Smartphone Entry Level", "category": "Handphone & Tablet", "price": 1500000, "unit": "unit", "type": "product" },
+    { "name": "Smartphone Mid Range", "category": "Handphone & Tablet", "price": 3000000, "unit": "unit", "type": "product" },
+    { "name": "Tablet 10 inch", "category": "Handphone & Tablet", "price": 2500000, "unit": "unit", "type": "product" },
+    { "name": "Case HP", "category": "Aksesoris HP", "price": 50000, "unit": "pcs", "type": "product" },
+    { "name": "Tempered Glass", "category": "Aksesoris HP", "price": 30000, "unit": "pcs", "type": "product" },
+    { "name": "Charger Fast Charging", "category": "Aksesoris HP", "price": 80000, "unit": "pcs", "type": "product" },
+    { "name": "Kabel Data USB-C", "category": "Aksesoris HP", "price": 25000, "unit": "pcs", "type": "product" },
+    { "name": "TWS Earbuds", "category": "Audio", "price": 150000, "unit": "pcs", "type": "product" },
+    { "name": "Speaker Bluetooth", "category": "Audio", "price": 200000, "unit": "pcs", "type": "product" },
+    { "name": "Mouse Wireless", "category": "Komputer & Laptop", "price": 80000, "unit": "pcs", "type": "product" }
+  ],
+  "modifierGroups": [],
+  "units": ["unit"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

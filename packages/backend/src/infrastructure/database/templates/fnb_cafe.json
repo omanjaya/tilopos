@@ -1,0 +1,83 @@
+{
+  "type": "fnb_cafe",
+  "label": "Kafe & Coffee Shop",
+  "description": "Template untuk kafe, coffee shop, kedai kopi",
+  "icon": "Coffee",
+  "categories": [
+    { "name": "Coffee", "sortOrder": 1 },
+    { "name": "Non-Coffee", "sortOrder": 2 },
+    { "name": "Makanan Ringan", "sortOrder": 3 },
+    { "name": "Pastry & Cake", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Americano", "category": "Coffee", "price": 22000, "unit": "gelas", "type": "product" },
+    { "name": "Caffe Latte", "category": "Coffee", "price": 28000, "unit": "gelas", "type": "product" },
+    { "name": "Cappuccino", "category": "Coffee", "price": 28000, "unit": "gelas", "type": "product" },
+    { "name": "Espresso", "category": "Coffee", "price": 18000, "unit": "gelas", "type": "product" },
+    { "name": "Kopi Susu Gula Aren", "category": "Coffee", "price": 25000, "unit": "gelas", "type": "product" },
+    { "name": "Mocha Latte", "category": "Coffee", "price": 30000, "unit": "gelas", "type": "product" },
+    { "name": "Matcha Latte", "category": "Non-Coffee", "price": 28000, "unit": "gelas", "type": "product" },
+    { "name": "Coklat Panas", "category": "Non-Coffee", "price": 25000, "unit": "gelas", "type": "product" },
+    { "name": "Teh Tarik", "category": "Non-Coffee", "price": 18000, "unit": "gelas", "type": "product" },
+    { "name": "Lemon Tea", "category": "Non-Coffee", "price": 15000, "unit": "gelas", "type": "product" },
+    { "name": "French Fries", "category": "Makanan Ringan", "price": 20000, "unit": "porsi", "type": "product" },
+    { "name": "Roti Bakar", "category": "Makanan Ringan", "price": 18000, "unit": "porsi", "type": "product" },
+    { "name": "Croissant", "category": "Pastry & Cake", "price": 22000, "unit": "pcs", "type": "product" },
+    { "name": "Cheesecake", "category": "Pastry & Cake", "price": 30000, "unit": "pcs", "type": "product" },
+    { "name": "Brownies", "category": "Pastry & Cake", "price": 25000, "unit": "pcs", "type": "product" }
+  ],
+  "modifierGroups": [
+    {
+      "name": "Pilihan Susu",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Fresh Milk", "price": 0 },
+        { "name": "Oat Milk", "price": 8000 },
+        { "name": "Almond Milk", "price": 8000 }
+      ]
+    },
+    {
+      "name": "Level Gula",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Normal", "price": 0 },
+        { "name": "Less Sugar", "price": 0 },
+        { "name": "No Sugar", "price": 0 }
+      ]
+    },
+    {
+      "name": "Ukuran",
+      "required": false,
+      "maxSelect": 1,
+      "options": [
+        { "name": "Regular", "price": 0 },
+        { "name": "Large", "price": 6000 }
+      ]
+    },
+    {
+      "name": "Topping",
+      "required": false,
+      "maxSelect": 3,
+      "options": [
+        { "name": "Whipped Cream", "price": 5000 },
+        { "name": "Boba", "price": 5000 },
+        { "name": "Jelly", "price": 3000 }
+      ]
+    }
+  ],
+  "units": ["gelas", "porsi"],
+  "tables": [
+    { "name": "Meja 1", "capacity": 2 },
+    { "name": "Meja 2", "capacity": 2 },
+    { "name": "Meja 3", "capacity": 4 },
+    { "name": "Meja 4", "capacity": 4 },
+    { "name": "Meja 5", "capacity": 4 },
+    { "name": "Meja 6", "capacity": 6 },
+    { "name": "Meja 7", "capacity": 2 },
+    { "name": "Meja 8", "capacity": 4 }
+  ],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}

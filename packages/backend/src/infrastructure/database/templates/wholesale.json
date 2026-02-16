@@ -1,0 +1,31 @@
+{
+  "type": "wholesale",
+  "label": "Grosir",
+  "description": "Template untuk toko grosir, agen, distributor",
+  "icon": "Warehouse",
+  "categories": [
+    { "name": "Makanan & Minuman", "sortOrder": 1 },
+    { "name": "Kebutuhan Pokok", "sortOrder": 2 },
+    { "name": "Perlengkapan Rumah", "sortOrder": 3 },
+    { "name": "Snack & Camilan", "sortOrder": 4 }
+  ],
+  "products": [
+    { "name": "Mie Instan (1 Dus)", "category": "Makanan & Minuman", "price": 105000, "unit": "dus", "type": "product" },
+    { "name": "Air Mineral (1 Dus)", "category": "Makanan & Minuman", "price": 48000, "unit": "dus", "type": "product" },
+    { "name": "Susu UHT (1 Dus)", "category": "Makanan & Minuman", "price": 65000, "unit": "dus", "type": "product" },
+    { "name": "Beras 25kg", "category": "Kebutuhan Pokok", "price": 300000, "unit": "karung", "type": "product" },
+    { "name": "Gula 50kg", "category": "Kebutuhan Pokok", "price": 700000, "unit": "karung", "type": "product" },
+    { "name": "Minyak Goreng (1 Dus)", "category": "Kebutuhan Pokok", "price": 200000, "unit": "dus", "type": "product" },
+    { "name": "Sabun Mandi (1 Dus)", "category": "Perlengkapan Rumah", "price": 120000, "unit": "dus", "type": "product" },
+    { "name": "Deterjen (1 Dus)", "category": "Perlengkapan Rumah", "price": 85000, "unit": "dus", "type": "product" },
+    { "name": "Tissue (1 Dus)", "category": "Perlengkapan Rumah", "price": 90000, "unit": "dus", "type": "product" },
+    { "name": "Keripik (1 Dus)", "category": "Snack & Camilan", "price": 72000, "unit": "dus", "type": "product" },
+    { "name": "Biskuit (1 Dus)", "category": "Snack & Camilan", "price": 96000, "unit": "dus", "type": "product" },
+    { "name": "Permen (1 Toples)", "category": "Snack & Camilan", "price": 45000, "unit": "toples", "type": "product" }
+  ],
+  "modifierGroups": [],
+  "units": ["dus", "karung", "toples"],
+  "tables": [],
+  "paymentMethods": ["cash", "qris"],
+  "taxRate": 11
+}
