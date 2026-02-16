@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
-import { X } from 'lucide-react';
 import { Sidebar } from './sidebar/index';
+import { MobileSidebar } from './sidebar/mobile-sidebar';
 import { Header } from './header/index';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
@@ -104,12 +104,6 @@ export function AppLayout() {
     }
   }, [location.pathname, collapsed, setSidebarCollapsed]);
 
-  // Auto-collapse sidebar on tablet devices for better spacing
-  useEffect(() => {
-    if (isTablet && !collapsed) {
-      setSidebarCollapsed(true);
-    }
-  }, [isTablet, collapsed, setSidebarCollapsed]);
 
   // Sync server onboarding status to localStorage on login
   useEffect(() => {
@@ -159,35 +153,23 @@ export function AppLayout() {
     <RealtimeProvider>
       <TooltipProvider>
         <div className="min-h-screen bg-background">
-          {/* Mobile sidebar overlay */}
-          {mobileSidebarOpen && (
-            <div
-              className="fixed inset-0 z-[51] bg-black/50 md:hidden"
-              onClick={() => setMobileSidebarOpen(false)}
-              aria-hidden="true"
-            />
-          )}
-
-          {/* Sidebar - fixed position */}
-          <div
-            className={cn(
-              'fixed left-0 top-0 z-[52] h-screen transition-transform duration-300 md:z-40',
-              mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
-              'md:translate-x-0'
-            )}
-          >
+          {/* Desktop sidebar - always visible on lg+ */}
+          <div className="hidden lg:block fixed left-0 top-0 z-40 h-screen">
             <Sidebar />
           </div>
 
-          {/* Mobile close button (only visible when sidebar is open on mobile) */}
+          {/* Mobile/Tablet sidebar - overlay */}
           {mobileSidebarOpen && (
-            <button
-              className="md:hidden fixed top-4 right-4 z-[53] p-2 rounded-md bg-background shadow-lg"
-              onClick={() => setMobileSidebarOpen(false)}
-              aria-label="Close sidebar"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <>
+              <div
+                className="fixed inset-0 z-[51] bg-black/50 lg:hidden"
+                onClick={() => setMobileSidebarOpen(false)}
+                aria-hidden="true"
+              />
+              <div className="fixed left-0 top-0 z-[52] h-screen lg:hidden animate-in slide-in-from-left duration-200">
+                <MobileSidebar onClose={() => setMobileSidebarOpen(false)} />
+              </div>
+            </>
           )}
 
           {/* Main content area - responsive margin */}
@@ -196,22 +178,22 @@ export function AppLayout() {
               'transition-all duration-300',
               // Mobile: no margin (sidebar is off-screen)
               'ml-0',
-              // Tablet/Desktop (md+): margin based on sidebar state
-              collapsed ? 'md:ml-[72px]' : 'md:ml-64'
+              // Desktop (lg+): margin based on sidebar state
+              collapsed ? 'lg:ml-[72px]' : 'lg:ml-64'
             )}
           >
             <Header />
             <main className={cn(
-              "px-4 py-4 md:px-6 md:py-6 lg:px-10",
-              // Add bottom padding on mobile for MobileNav
-              "pb-24 md:pb-6"
+              "px-4 py-4 lg:px-6 lg:py-6",
+              // Add bottom padding on mobile/tablet for MobileNav
+              "pb-24 lg:pb-6"
             )}>
               <Outlet />
             </main>
           </div>
 
           {/* Mobile Bottom Navigation */}
-          {isMobile && <MobileNav />}
+          {(isMobile || isTablet) && <MobileNav />}
 
           {/* Floating Help Button - Re-open Onboarding */}
           <Tooltip>

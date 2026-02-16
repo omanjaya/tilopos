@@ -42,7 +42,13 @@ export function LoginPage() {
         localStorage.setItem('tilo_onboarding_completed', 'true');
       }
 
-      navigate('/app', { replace: true });
+      // Role-based redirect: cashier → POS, kitchen → KDS, others → backoffice
+      const redirectMap: Record<string, string> = {
+        cashier: '/pos',
+        kitchen: '/kds',
+      };
+      const redirectTo = redirectMap[data.role] ?? '/app';
+      navigate(redirectTo, { replace: true });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
       toast.error({

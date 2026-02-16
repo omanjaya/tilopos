@@ -28,7 +28,7 @@ export function Header() {
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden flex-shrink-0"
+          className="lg:hidden flex-shrink-0"
           onClick={toggleMobileSidebar}
           aria-label="Toggle sidebar"
         >
