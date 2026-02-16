@@ -78,9 +78,17 @@ export const settingsApi = {
   updateNotificationSetting: (id: string, data: Partial<NotificationSetting>) =>
     apiClient.put<NotificationSetting>(`/notifications/settings/${id}`, data).then((r) => r.data),
   getNotificationLogs: (_recipientId: string) =>
-    apiClient.get<NotificationLog[]>('/notifications/logs').then((r) => {
+    apiClient.get('/notifications/logs').then((r) => {
       const raw = r.data;
-      return Array.isArray(raw) ? raw : [];
+      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
+      // Backend returns notificationType/body/status/sentAt; frontend expects type/message/isRead/createdAt
+      return arr.map((log) => ({
+        id: (log.id as string) ?? '',
+        type: ((log.type ?? log.notificationType ?? 'system_alert') as string),
+        message: ((log.message ?? log.body ?? log.title ?? '') as string),
+        isRead: log.isRead === true || log.status === 'read',
+        createdAt: ((log.createdAt ?? log.sentAt ?? '') as string),
+      })) as NotificationLog[];
     }),
   markNotificationRead: (id: string) =>
     apiClient.put(`/notifications/logs/${id}/read`).then((r) => r.data),
