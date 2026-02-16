@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -35,6 +36,7 @@ import {
   StockDiscrepancyQueryDto,
   AutoRequestTransferDto,
 } from '../../application/dtos/inventory-import-export.dto';
+import { BulkUpdateProductsDto, BulkDeleteProductsDto } from '../../application/dtos/bulk-product.dto';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { IProductRepository } from '../../domain/interfaces/repositories/product.repository';
 import type { IInventoryRepository } from '../../domain/interfaces/repositories/inventory.repository';
@@ -164,6 +166,29 @@ export class InventoryController {
       variants: dto.variants,
       modifierGroupIds: dto.modifierGroupIds,
     });
+  }
+
+  // ==================== Bulk Operations ====================
+  // Must be defined before products/:id to avoid route conflicts
+
+  @Patch('products/bulk')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @ApiOperation({ summary: 'Bulk update products (category, price, status, etc.)' })
+  async bulkUpdateProducts(
+    @Body() dto: BulkUpdateProductsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.inventoryService.bulkUpdateProducts(user.businessId, dto);
+  }
+
+  @Delete('products/bulk')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Bulk delete products (soft or hard delete)' })
+  async bulkDeleteProducts(
+    @Body() dto: BulkDeleteProductsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.inventoryService.bulkDeleteProducts(user.businessId, dto);
   }
 
   @Get('products/:id')

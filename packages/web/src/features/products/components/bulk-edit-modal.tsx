@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,7 +24,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/lib/toast-utils';
 import { Loader2, Edit } from 'lucide-react';
-import type { Product, UpdateProductRequest } from '@/types/product.types';
+import type { Product, BulkUpdateProductsRequest } from '@/types/product.types';
 import type { AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@/types/api.types';
 
@@ -34,7 +35,7 @@ interface BulkEditModalProps {
   onComplete: () => void;
 }
 
-type EditAction = 'category' | 'price' | 'status';
+type EditAction = 'category' | 'price' | 'costPrice' | 'status' | 'trackStock' | 'delete';
 
 export function BulkEditModal({
   open,
@@ -53,73 +54,84 @@ export function BulkEditModal({
   const [priceType, setPriceType] = useState<'percentage' | 'fixed'>('percentage');
   const [priceValue, setPriceValue] = useState('');
 
+  // Cost price action
+  const [costPriceOperation, setCostPriceOperation] = useState<'increase' | 'decrease'>('increase');
+  const [costPriceType, setCostPriceType] = useState<'percentage' | 'fixed'>('percentage');
+  const [costPriceValue, setCostPriceValue] = useState('');
+
+  // Status action
+  const [newStatus, setNewStatus] = useState<'active' | 'inactive'>('active');
+
+  // Track stock action
+  const [newTrackStock, setNewTrackStock] = useState<'true' | 'false'>('true');
+
+  // Delete action
+  const [hardDelete, setHardDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: categoriesApi.list,
   });
 
-  const bulkUpdateMutation = useMutation({
+  const bulkMutation = useMutation({
     mutationFn: async () => {
-      const updates = selectedProducts.map(async (product) => {
-        let updateData: UpdateProductRequest = {};
-
-        switch (action) {
-          case 'category':
-            updateData = { categoryId: newCategoryId === '__none__' ? undefined : newCategoryId };
-            break;
-
-          case 'price': {
-            const value = Number(priceValue);
-            let newPrice = product.basePrice;
-
-            if (priceType === 'percentage') {
-              const change = (product.basePrice * value) / 100;
-              newPrice = priceOperation === 'increase'
-                ? product.basePrice + change
-                : product.basePrice - change;
-            } else {
-              newPrice = priceOperation === 'increase'
-                ? product.basePrice + value
-                : product.basePrice - value;
-            }
-
-            // Ensure price doesn't go below 0
-            newPrice = Math.max(0, Math.round(newPrice));
-            updateData = { basePrice: newPrice };
-            break;
-          }
-
-          case 'status':
-            updateData = { isActive: !product.isActive };
-            break;
-        }
-
-        return productsApi.update(product.id, updateData);
-      });
-
-      return Promise.allSettled(updates);
-    },
-    onSuccess: (results) => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-
-      const successful = results.filter((r) => r.status === 'fulfilled').length;
-      const failed = results.filter((r) => r.status === 'rejected').length;
-
-      if (successful > 0) {
-        toast.success({
-          title: `✅ ${successful} produk berhasil diupdate!`,
-          description: failed > 0 ? `${failed} produk gagal diupdate` : undefined,
+      if (action === 'delete') {
+        return productsApi.bulkDelete({
+          productIds: selectedProducts.map((p) => p.id),
+          hardDelete,
         });
       }
 
-      if (failed === 0) {
-        onComplete();
-        onOpenChange(false);
+      const payload: BulkUpdateProductsRequest = {
+        productIds: selectedProducts.map((p) => p.id),
+        action: action as BulkUpdateProductsRequest['action'],
+      };
+
+      switch (action) {
+        case 'category':
+          payload.categoryId = newCategoryId === '__none__' ? null : newCategoryId;
+          break;
+        case 'price':
+          payload.operation = priceOperation;
+          payload.priceType = priceType;
+          payload.value = Number(priceValue);
+          break;
+        case 'costPrice':
+          payload.operation = costPriceOperation;
+          payload.priceType = costPriceType;
+          payload.value = Number(costPriceValue);
+          break;
+        case 'status':
+          payload.isActive = newStatus === 'active';
+          break;
+        case 'trackStock':
+          payload.trackStock = newTrackStock === 'true';
+          break;
       }
+
+      return productsApi.bulkUpdate(payload);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+
+      if ('deleted' in result) {
+        toast.success({
+          title: `${result.deleted} produk berhasil dihapus`,
+        });
+      } else {
+        toast.success({
+          title: `${result.updated} produk berhasil diupdate`,
+          description: result.failed > 0 ? `${result.failed} produk gagal diupdate` : undefined,
+        });
+      }
+
+      onComplete();
+      onOpenChange(false);
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {
       toast.error({
-        title: 'Gagal mengupdate produk',
+        title: action === 'delete' ? 'Gagal menghapus produk' : 'Gagal mengupdate produk',
         description: error.response?.data?.message || 'Terjadi kesalahan',
       });
     },
@@ -128,7 +140,6 @@ export function BulkEditModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate inputs
     if (action === 'category' && !newCategoryId) {
       toast.error({ title: 'Pilih kategori baru' });
       return;
@@ -139,12 +150,53 @@ export function BulkEditModal({
       return;
     }
 
-    bulkUpdateMutation.mutate();
+    if (action === 'costPrice' && (!costPriceValue || Number(costPriceValue) <= 0)) {
+      toast.error({ title: 'Masukkan nilai HPP yang valid' });
+      return;
+    }
+
+    if (action === 'delete' && hardDelete && deleteConfirmText !== 'HAPUS') {
+      toast.error({ title: 'Ketik "HAPUS" untuk konfirmasi penghapusan permanen' });
+      return;
+    }
+
+    bulkMutation.mutate();
+  };
+
+  const getSummaryText = () => {
+    const count = selectedProducts.length;
+    switch (action) {
+      case 'category':
+        return `Ubah kategori ${count} produk`;
+      case 'price':
+        return `${priceOperation === 'increase' ? 'Naikkan' : 'Turunkan'} harga ${count} produk sebesar ${priceValue || '...'}${priceType === 'percentage' ? '%' : ' Rp'}`;
+      case 'costPrice':
+        return `${costPriceOperation === 'increase' ? 'Naikkan' : 'Turunkan'} HPP ${count} produk sebesar ${costPriceValue || '...'}${costPriceType === 'percentage' ? '%' : ' Rp'}`;
+      case 'status':
+        return `${newStatus === 'active' ? 'Aktifkan' : 'Nonaktifkan'} ${count} produk`;
+      case 'trackStock':
+        return `${newTrackStock === 'true' ? 'Aktifkan' : 'Nonaktifkan'} pelacakan stok ${count} produk`;
+      case 'delete':
+        return `Hapus ${count} produk${hardDelete ? ' secara permanen' : ''}`;
+    }
+  };
+
+  const priceExample = (base: number, op: 'increase' | 'decrease', type: 'percentage' | 'fixed', val: string) => {
+    const v = Number(val);
+    if (!v || v <= 0) return null;
+    const result = Math.round(
+      type === 'percentage'
+        ? base * (op === 'increase' ? 1 + v / 100 : 1 - v / 100)
+        : op === 'increase'
+          ? base + v
+          : base - v,
+    );
+    return Math.max(0, result).toLocaleString('id-ID');
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Edit className="h-5 w-5" />
@@ -173,9 +225,27 @@ export function BulkEditModal({
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
+                <RadioGroupItem value="costPrice" id="costPrice" />
+                <Label htmlFor="costPrice" className="font-normal cursor-pointer">
+                  Ubah Harga Pokok (HPP)
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
                 <RadioGroupItem value="status" id="status" />
                 <Label htmlFor="status" className="font-normal cursor-pointer">
-                  Toggle Status Aktif/Nonaktif
+                  Ubah Status Aktif/Nonaktif
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="trackStock" id="trackStock" />
+                <Label htmlFor="trackStock" className="font-normal cursor-pointer">
+                  Ubah Pelacakan Stok
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="delete" id="delete" />
+                <Label htmlFor="delete" className="font-normal cursor-pointer text-destructive">
+                  Hapus Produk
                 </Label>
               </div>
             </RadioGroup>
@@ -217,7 +287,6 @@ export function BulkEditModal({
                     </SelectContent>
                   </Select>
                 </div>
-
                 <div className="space-y-2">
                   <Label>Tipe</Label>
                   <Select value={priceType} onValueChange={(v) => setPriceType(v as 'percentage' | 'fixed')}>
@@ -231,7 +300,6 @@ export function BulkEditModal({
                   </Select>
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label>Nilai</Label>
                 <Input
@@ -240,32 +308,139 @@ export function BulkEditModal({
                   value={priceValue}
                   onChange={(e) => setPriceValue(e.target.value)}
                 />
-                {priceValue && Number(priceValue) > 0 && (
+                {priceExample(25000, priceOperation, priceType, priceValue) && (
                   <p className="text-xs text-muted-foreground">
-                    Contoh: Rp 25,000 → Rp{' '}
-                    {Math.round(
-                      priceType === 'percentage'
-                        ? 25000 * (priceOperation === 'increase' ? 1 + Number(priceValue) / 100 : 1 - Number(priceValue) / 100)
-                        : priceOperation === 'increase'
-                          ? 25000 + Number(priceValue)
-                          : 25000 - Number(priceValue),
-                    ).toLocaleString('id-ID')}
+                    Contoh: Rp 25.000 → Rp {priceExample(25000, priceOperation, priceType, priceValue)}
                   </p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Status Action Info */}
-          {action === 'status' && (
-            <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-              Status produk yang dipilih akan di-toggle:
-              <ul className="mt-2 space-y-1 list-disc list-inside">
-                <li>Produk aktif → akan dinonaktifkan</li>
-                <li>Produk nonaktif → akan diaktifkan</li>
-              </ul>
+          {/* Cost Price Action */}
+          {action === 'costPrice' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Operasi</Label>
+                  <Select value={costPriceOperation} onValueChange={(v) => setCostPriceOperation(v as 'increase' | 'decrease')}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="increase">Naikkan</SelectItem>
+                      <SelectItem value="decrease">Turunkan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipe</Label>
+                  <Select value={costPriceType} onValueChange={(v) => setCostPriceType(v as 'percentage' | 'fixed')}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">Persentase (%)</SelectItem>
+                      <SelectItem value="fixed">Nominal (Rp)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Nilai</Label>
+                <Input
+                  type="number"
+                  placeholder={costPriceType === 'percentage' ? '10' : '5000'}
+                  value={costPriceValue}
+                  onChange={(e) => setCostPriceValue(e.target.value)}
+                />
+                {priceExample(15000, costPriceOperation, costPriceType, costPriceValue) && (
+                  <p className="text-xs text-muted-foreground">
+                    Contoh: Rp 15.000 → Rp {priceExample(15000, costPriceOperation, costPriceType, costPriceValue)}
+                  </p>
+                )}
+              </div>
             </div>
           )}
+
+          {/* Status Action */}
+          {action === 'status' && (
+            <div className="space-y-2">
+              <Label>Status Baru</Label>
+              <Select value={newStatus} onValueChange={(v) => setNewStatus(v as 'active' | 'inactive')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Aktifkan Semua</SelectItem>
+                  <SelectItem value="inactive">Nonaktifkan Semua</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {selectedProducts.filter((p) => p.isActive).length} produk aktif, {selectedProducts.filter((p) => !p.isActive).length} produk nonaktif dipilih
+              </p>
+            </div>
+          )}
+
+          {/* Track Stock Action */}
+          {action === 'trackStock' && (
+            <div className="space-y-2">
+              <Label>Pelacakan Stok</Label>
+              <Select value={newTrackStock} onValueChange={(v) => setNewTrackStock(v as 'true' | 'false')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">Aktifkan Pelacakan Stok</SelectItem>
+                  <SelectItem value="false">Nonaktifkan Pelacakan Stok</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {selectedProducts.filter((p) => p.trackStock).length} produk dengan stok aktif, {selectedProducts.filter((p) => !p.trackStock).length} tanpa pelacakan stok
+              </p>
+            </div>
+          )}
+
+          {/* Delete Action */}
+          {action === 'delete' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm">
+                <p className="font-medium text-destructive">Peringatan!</p>
+                <p className="mt-1 text-muted-foreground">
+                  {selectedProducts.length} produk akan dihapus. Secara default, produk akan dinonaktifkan (soft delete).
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  checked={hardDelete}
+                  onCheckedChange={(v) => {
+                    setHardDelete(!!v);
+                    setDeleteConfirmText('');
+                  }}
+                  id="hardDelete"
+                />
+                <Label htmlFor="hardDelete" className="font-normal cursor-pointer text-sm text-muted-foreground">
+                  Hapus permanen (tidak bisa dikembalikan)
+                </Label>
+              </div>
+              {hardDelete && (
+                <div className="space-y-2">
+                  <Label>Ketik &quot;HAPUS&quot; untuk konfirmasi</Label>
+                  <Input
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="HAPUS"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Summary */}
+          <div className="rounded-lg bg-muted/50 p-3 text-sm">
+            <p className="font-medium mb-1">Ringkasan:</p>
+            <p className="text-muted-foreground">{getSummaryText()}</p>
+          </div>
         </form>
 
         <DialogFooter>
@@ -273,18 +448,28 @@ export function BulkEditModal({
             type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={bulkUpdateMutation.isPending}
+            disabled={bulkMutation.isPending}
           >
             Batal
           </Button>
-          <Button
-            type="submit"
-            onClick={handleSubmit}
-            disabled={bulkUpdateMutation.isPending}
-          >
-            {bulkUpdateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {bulkUpdateMutation.isPending ? 'Mengupdate...' : `Update ${selectedProducts.length} Produk`}
-          </Button>
+          {action === 'delete' ? (
+            <Button
+              variant="destructive"
+              onClick={handleSubmit}
+              disabled={bulkMutation.isPending}
+            >
+              {bulkMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {bulkMutation.isPending ? 'Menghapus...' : `Hapus ${selectedProducts.length} Produk`}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={bulkMutation.isPending}
+            >
+              {bulkMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {bulkMutation.isPending ? 'Mengupdate...' : `Update ${selectedProducts.length} Produk`}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

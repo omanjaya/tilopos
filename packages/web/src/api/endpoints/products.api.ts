@@ -8,6 +8,10 @@ import type {
   CreateVariantRequest,
   UpdateVariantRequest,
   DeleteVariantResponse,
+  BulkUpdateProductsRequest,
+  BulkUpdateProductsResponse,
+  BulkDeleteProductsRequest,
+  BulkDeleteProductsResponse,
 } from '@/types/product.types';
 
 export const productsApi = {
@@ -42,4 +46,11 @@ export const productsApi = {
 
   deleteVariant: (productId: string, variantId: string) =>
     apiClient.delete<DeleteVariantResponse>(`/inventory/products/${productId}/variants/${variantId}`).then((r) => r.data),
+
+  // Bulk Operations
+  bulkUpdate: (data: BulkUpdateProductsRequest) =>
+    apiClient.patch<BulkUpdateProductsResponse>('/inventory/products/bulk', data).then((r) => r.data),
+
+  bulkDelete: (data: BulkDeleteProductsRequest) =>
+    apiClient.delete<BulkDeleteProductsResponse>('/inventory/products/bulk', { data }).then((r) => r.data),
 };

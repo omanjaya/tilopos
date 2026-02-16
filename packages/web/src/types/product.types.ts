@@ -74,6 +74,32 @@ export interface DeleteVariantResponse {
   transactionCount: number;
 }
 
+// Bulk Operations
+export interface BulkUpdateProductsRequest {
+  productIds: string[];
+  action: 'category' | 'price' | 'costPrice' | 'status' | 'trackStock';
+  categoryId?: string | null;
+  operation?: 'increase' | 'decrease';
+  priceType?: 'percentage' | 'fixed';
+  value?: number;
+  isActive?: boolean;
+  trackStock?: boolean;
+}
+
+export interface BulkUpdateProductsResponse {
+  updated: number;
+  failed: number;
+}
+
+export interface BulkDeleteProductsRequest {
+  productIds: string[];
+  hardDelete?: boolean;
+}
+
+export interface BulkDeleteProductsResponse {
+  deleted: number;
+}
+
 export interface CreateCategoryRequest {
   name: string;
   description?: string;

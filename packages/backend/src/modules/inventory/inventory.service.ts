@@ -7,6 +7,8 @@ import type {
   StockDiscrepancyItem,
   AutoRequestTransferResult,
 } from '../../application/dtos/inventory-import-export.dto';
+import { BulkUpdateAction } from '../../application/dtos/bulk-product.dto';
+import type { BulkUpdateProductsDto, BulkDeleteProductsDto } from '../../application/dtos/bulk-product.dto';
 
 @Injectable()
 export class InventoryService {
@@ -335,6 +337,125 @@ export class InventoryService {
       transferId: transfer.id,
       itemCount: itemsToTransfer.length,
     };
+  }
+
+  /**
+   * Bulk update products in a single transaction.
+   */
+  async bulkUpdateProducts(
+    businessId: string,
+    dto: BulkUpdateProductsDto,
+  ): Promise<{ updated: number; failed: number }> {
+    const { productIds, action } = dto;
+
+    // For simple field updates, use updateMany (single query)
+    if (action === BulkUpdateAction.CATEGORY) {
+      const result = await this.prisma.product.updateMany({
+        where: { id: { in: productIds }, businessId },
+        data: { categoryId: dto.categoryId || null },
+      });
+      return { updated: result.count, failed: productIds.length - result.count };
+    }
+
+    if (action === BulkUpdateAction.STATUS) {
+      const result = await this.prisma.product.updateMany({
+        where: { id: { in: productIds }, businessId },
+        data: { isActive: dto.isActive ?? true },
+      });
+      return { updated: result.count, failed: productIds.length - result.count };
+    }
+
+    if (action === BulkUpdateAction.TRACK_STOCK) {
+      const result = await this.prisma.product.updateMany({
+        where: { id: { in: productIds }, businessId },
+        data: { trackStock: dto.trackStock ?? true },
+      });
+      return { updated: result.count, failed: productIds.length - result.count };
+    }
+
+    // For price/costPrice, compute new values per product in a transaction
+    if (action === BulkUpdateAction.PRICE || action === BulkUpdateAction.COST_PRICE) {
+      const { operation, priceType, value } = dto;
+      if (!operation || !priceType || value === undefined) {
+        throw new BadRequestException('operation, priceType, and value are required for price updates');
+      }
+
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds }, businessId },
+        select: { id: true, basePrice: true, costPrice: true },
+      });
+
+      let updated = 0;
+
+      await this.prisma.$transaction(async (tx) => {
+        for (const product of products) {
+          const currentPrice = action === BulkUpdateAction.PRICE
+            ? Number(product.basePrice)
+            : Number(product.costPrice ?? 0);
+
+          let newPrice: number;
+          if (priceType === 'percentage') {
+            const change = (currentPrice * value) / 100;
+            newPrice = operation === 'increase' ? currentPrice + change : currentPrice - change;
+          } else {
+            newPrice = operation === 'increase' ? currentPrice + value : currentPrice - value;
+          }
+
+          newPrice = Math.max(0, Math.round(newPrice));
+
+          const data = action === BulkUpdateAction.PRICE
+            ? { basePrice: newPrice }
+            : { costPrice: newPrice };
+
+          await tx.product.update({ where: { id: product.id }, data });
+          updated++;
+        }
+      });
+
+      return { updated, failed: productIds.length - updated };
+    }
+
+    throw new BadRequestException(`Unknown bulk action: ${action}`);
+  }
+
+  /**
+   * Bulk delete (soft or hard) products.
+   */
+  async bulkDeleteProducts(
+    businessId: string,
+    dto: BulkDeleteProductsDto,
+  ): Promise<{ deleted: number }> {
+    const { productIds, hardDelete } = dto;
+
+    if (!hardDelete) {
+      // Soft delete: set isActive = false
+      const result = await this.prisma.product.updateMany({
+        where: { id: { in: productIds }, businessId },
+        data: { isActive: false },
+      });
+      return { deleted: result.count };
+    }
+
+    // Hard delete: check for transaction history first
+    const productsWithTx = await this.prisma.transactionItem.findMany({
+      where: { productId: { in: productIds } },
+      select: { productId: true },
+      distinct: ['productId'],
+    });
+
+    const protectedIds = new Set(productsWithTx.map((t) => t.productId).filter(Boolean));
+
+    if (protectedIds.size > 0) {
+      throw new BadRequestException(
+        `${protectedIds.size} produk memiliki riwayat transaksi dan tidak bisa dihapus permanen. Gunakan soft delete.`,
+      );
+    }
+
+    const result = await this.prisma.product.deleteMany({
+      where: { id: { in: productIds }, businessId },
+    });
+
+    return { deleted: result.count };
   }
 
   private async fetchProductsForExport(
