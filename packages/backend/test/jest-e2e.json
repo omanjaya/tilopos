@@ -3,6 +3,11 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 30000,
+  "maxWorkers": 1,
+  "testSequencer": "<rootDir>/integration/alphabetical-sequencer.js",
+  "globalSetup": "<rootDir>/integration/helpers/global-setup.js",
+  "setupFiles": ["<rootDir>/integration/helpers/setup-env.js"],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
@@ -12,6 +17,8 @@
     "^@infrastructure/(.*)$": "<rootDir>/../src/infrastructure/$1",
     "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
     "^@shared/(.*)$": "<rootDir>/../src/shared/$1",
-    "^@presentation/(.*)$": "<rootDir>/../src/presentation/$1"
+    "^@presentation/(.*)$": "<rootDir>/../src/presentation/$1",
+    "^@config/(.*)$": "<rootDir>/../src/config/$1",
+    "^@common/(.*)$": "<rootDir>/../src/common/$1"
   }
 }

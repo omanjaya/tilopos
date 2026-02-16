@@ -300,22 +300,32 @@ export class StockTransfersController {
         });
 
         // Increment destination (upsert)
-        await tx.stockLevel.upsert({
+        // Use findFirst + update/create instead of upsert because
+        // the composite unique key has nullable columns (productId, variantId)
+        // and Prisma's upsert fails with empty string UUIDs.
+        const existingDestStock = await tx.stockLevel.findFirst({
           where: {
-            outletId_productId_variantId: {
-              outletId: dto.destinationOutletId,
-              productId: item.productId || '',
-              variantId: item.variantId || '',
-            },
-          },
-          update: { quantity: { increment: item.quantity } },
-          create: {
             outletId: dto.destinationOutletId,
             productId: item.productId || null,
             variantId: item.variantId || null,
-            quantity: item.quantity,
           },
         });
+
+        if (existingDestStock) {
+          await tx.stockLevel.update({
+            where: { id: existingDestStock.id },
+            data: { quantity: { increment: item.quantity } },
+          });
+        } else {
+          await tx.stockLevel.create({
+            data: {
+              outletId: dto.destinationOutletId,
+              productId: item.productId || null,
+              variantId: item.variantId || null,
+              quantity: item.quantity,
+            },
+          });
+        }
 
         // Audit trail: transfer_out from source
         await tx.stockMovement.create({
