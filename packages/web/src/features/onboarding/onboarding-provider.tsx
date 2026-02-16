@@ -7,6 +7,9 @@ export interface OnboardingState {
   completed: boolean;
 }
 
+export const ONBOARDING_TOTAL_STEPS = 6; // 0=welcome, 1=business-type, 2=template, 3=payment, 4=employee, 5=complete
+export const ONBOARDING_MAX_STEP = ONBOARDING_TOTAL_STEPS - 1;
+
 interface OnboardingContextValue {
   state: OnboardingState;
   openOnboarding: () => void;
@@ -60,7 +63,7 @@ export function OnboardingProvider({
   const nextStep = useCallback(() => {
     setState((prev) => ({
       ...prev,
-      currentStep: Math.min(prev.currentStep + 1, 1), // 2 steps: 0-1
+      currentStep: Math.min(prev.currentStep + 1, ONBOARDING_MAX_STEP),
     }));
   }, []);
 
@@ -74,7 +77,7 @@ export function OnboardingProvider({
   const goToStep = useCallback((step: number) => {
     setState((prev) => ({
       ...prev,
-      currentStep: Math.max(0, Math.min(step, 1)),
+      currentStep: Math.max(0, Math.min(step, ONBOARDING_MAX_STEP)),
     }));
   }, []);
 
