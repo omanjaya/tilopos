@@ -32,9 +32,16 @@ export function LoginPage() {
           businessId: data.businessId,
           outletId: data.outletId,
           employeeId: data.employeeId,
+          onboardingCompleted: data.onboardingCompleted ?? false,
         },
         data.accessToken,
       );
+
+      // Sync onboarding status to localStorage so the provider doesn't re-show
+      if (data.onboardingCompleted) {
+        localStorage.setItem('tilo_onboarding_completed', 'true');
+      }
+
       navigate('/app', { replace: true });
     },
     onError: (error: AxiosError<ApiErrorResponse>) => {

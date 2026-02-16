@@ -10,6 +10,7 @@ export interface LoginResponse {
   role: EmployeeRole;
   businessId: string;
   outletId: string | null;
+  onboardingCompleted: boolean;
 }
 
 export interface AuthUser {

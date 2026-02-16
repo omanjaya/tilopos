@@ -43,7 +43,7 @@ export function OnboardingProvider({
   onSkipped,
 }: OnboardingProviderProps) {
   const [state, setState] = useState<OnboardingState>({
-    isOpen: !initialCompleted,
+    isOpen: false, // Never auto-open on mount; app-layout useEffect handles this
     currentStep: 0,
     skipped: false,
     completed: initialCompleted,

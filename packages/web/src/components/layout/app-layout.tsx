@@ -111,11 +111,21 @@ export function AppLayout() {
     }
   }, [isTablet, collapsed, setSidebarCollapsed]);
 
+  // Sync server onboarding status to localStorage on login
+  useEffect(() => {
+    if (user?.onboardingCompleted) {
+      localStorage.setItem('tilo_onboarding_completed', 'true');
+    }
+  }, [user?.onboardingCompleted]);
+
   // Check if user needs onboarding
   useEffect(() => {
     // Check if already completed via localStorage (client-side persistence)
     const localCompleted = localStorage.getItem('tilo_onboarding_completed') === 'true';
     if (localCompleted) return;
+
+    // Check if already completed via server state
+    if (user?.onboardingCompleted) return;
 
     // Allow disabling auto-show via localStorage for development
     const disableAutoShow = localStorage.getItem('tilo-disable-onboarding-autoshow') === 'true';
@@ -123,7 +133,6 @@ export function AppLayout() {
 
     const shouldShowOnboarding =
       user &&
-      !user.onboardingCompleted &&
       user.role !== 'cashier' &&
       user.role !== 'kitchen';
 

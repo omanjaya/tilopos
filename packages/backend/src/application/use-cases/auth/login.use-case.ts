@@ -17,6 +17,7 @@ export interface LoginOutput {
   role: string;
   businessId: string;
   outletId: string | null;
+  onboardingCompleted: boolean;
 }
 
 export interface MfaRequiredOutput {
@@ -81,6 +82,7 @@ export class LoginUseCase {
       role: employee.role,
       businessId: employee.businessId,
       outletId,
+      onboardingCompleted: employee.onboardingCompleted ?? false,
     };
   }
 }
