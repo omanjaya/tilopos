@@ -72,19 +72,18 @@ export class CustomersController {
     @Body() dto: { name: string; email?: string; phone?: string },
     @CurrentUser() user: AuthUser,
   ) {
-    return this.customerRepo.save({
-      id: '',
-      businessId: user.businessId,
-      name: dto.name,
-      email: dto.email || null,
-      phone: dto.phone || null,
-      loyaltyPoints: 0,
-      loyaltyTier: 'regular',
-      totalSpent: 0,
-      visitCount: 0,
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    return this.prisma.customer.create({
+      data: {
+        businessId: user.businessId,
+        name: dto.name,
+        email: dto.email || null,
+        phone: dto.phone || null,
+        loyaltyPoints: 0,
+        loyaltyTier: 'regular',
+        totalSpent: 0,
+        visitCount: 0,
+        isActive: true,
+      },
     });
   }
 

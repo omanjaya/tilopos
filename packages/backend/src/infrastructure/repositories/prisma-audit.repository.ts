@@ -13,7 +13,7 @@ export class PrismaAuditRepository implements IAuditLogRepository {
   async create(data: AuditLogRecord): Promise<AuditLogRecord> {
     const created = await this.prisma.auditLog.create({
       data: {
-        id: data.id,
+        id: data.id || crypto.randomUUID(),
         businessId: data.businessId,
         outletId: data.outletId,
         employeeId: data.employeeId,

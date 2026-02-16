@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MobileNav } from '@/components/shared/mobile-nav';
+import { useMediaQuery, BREAKPOINTS } from '@/hooks/use-media-query';
 
 export function AppLayout() {
   const location = useLocation();
@@ -31,6 +33,8 @@ export function AppLayout() {
   const { openOnboarding, completeOnboarding } = useOnboarding();
   const { completeOnboarding: apiCompleteOnboarding } = useCompleteOnboarding();
   const { open: commandPaletteOpen, setOpen: setCommandPaletteOpen } = useCommandPalette();
+  const isTablet = useMediaQuery(BREAKPOINTS.tablet);
+  const isMobile = useMediaQuery(BREAKPOINTS.mobile);
 
   // Business type migration for existing users
   const { shouldShowPrompt: showMigrationModal, setPrompted: setMigrationPrompted } = useBusinessTypeMigration();
@@ -100,6 +104,13 @@ export function AppLayout() {
     }
   }, [location.pathname, collapsed, setSidebarCollapsed]);
 
+  // Auto-collapse sidebar on tablet devices for better spacing
+  useEffect(() => {
+    if (isTablet && !collapsed) {
+      setSidebarCollapsed(true);
+    }
+  }, [isTablet, collapsed, setSidebarCollapsed]);
+
   // Check if user needs onboarding
   useEffect(() => {
     // Check if already completed via localStorage (client-side persistence)
@@ -142,7 +153,7 @@ export function AppLayout() {
           {/* Mobile sidebar overlay */}
           {mobileSidebarOpen && (
             <div
-              className="fixed inset-0 z-40 bg-black/50 md:hidden"
+              className="fixed inset-0 z-[51] bg-black/50 md:hidden"
               onClick={() => setMobileSidebarOpen(false)}
               aria-hidden="true"
             />
@@ -151,8 +162,9 @@ export function AppLayout() {
           {/* Sidebar - fixed position */}
           <div
             className={cn(
-              'fixed left-0 top-0 z-50 h-screen transition-transform duration-300 md:z-40 md:translate-x-0',
-              mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+              'fixed left-0 top-0 z-[52] h-screen transition-transform duration-300 md:z-40',
+              mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+              'md:translate-x-0'
             )}
           >
             <Sidebar />
@@ -161,7 +173,7 @@ export function AppLayout() {
           {/* Mobile close button (only visible when sidebar is open on mobile) */}
           {mobileSidebarOpen && (
             <button
-              className="md:hidden fixed top-4 right-4 z-50 p-2 rounded-md bg-background shadow-lg"
+              className="md:hidden fixed top-4 right-4 z-[53] p-2 rounded-md bg-background shadow-lg"
               onClick={() => setMobileSidebarOpen(false)}
               aria-label="Close sidebar"
             >
@@ -173,19 +185,24 @@ export function AppLayout() {
           <div
             className={cn(
               'transition-all duration-300',
-              // Mobile: no margin
+              // Mobile: no margin (sidebar is off-screen)
               'ml-0',
-              // Tablet (md+): collapsed = 72px, expanded = 256px (64 * 4)
-              'md:ml-[72px]',
-              collapsed && 'md:ml-[72px]',
-              !collapsed && 'md:ml-64'
+              // Tablet/Desktop (md+): margin based on sidebar state
+              collapsed ? 'md:ml-[72px]' : 'md:ml-64'
             )}
           >
             <Header />
-            <main className="px-4 py-4 md:px-6 md:py-6 lg:px-10">
+            <main className={cn(
+              "px-4 py-4 md:px-6 md:py-6 lg:px-10",
+              // Add bottom padding on mobile for MobileNav
+              "pb-24 md:pb-6"
+            )}>
               <Outlet />
             </main>
           </div>
+
+          {/* Mobile Bottom Navigation */}
+          {isMobile && <MobileNav />}
 
           {/* Floating Help Button - Re-open Onboarding */}
           <Tooltip>

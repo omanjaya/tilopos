@@ -94,7 +94,7 @@ export class PrismaInventoryRepository implements IInventoryRepository {
   async createStockMovement(movement: StockMovementRecord): Promise<StockMovementRecord> {
     const created = await this.prisma.stockMovement.create({
       data: {
-        id: movement.id,
+        id: movement.id || crypto.randomUUID(),
         outletId: movement.outletId,
         productId: movement.productId,
         variantId: movement.variantId,

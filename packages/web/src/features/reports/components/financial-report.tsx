@@ -8,7 +8,8 @@ import { DataTimestamp } from '@/components/shared/data-timestamp';
 import { ReportErrorState } from '@/components/shared/report-error-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
 import { formatCurrency } from '@/lib/format';
-import { formatFinancialDataForExport, generateFilename } from '@/lib/export-utils';
+import { formatFinancialDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
+import { useAuthStore } from '@/stores/auth.store';
 import { DollarSign, TrendingUp, TrendingDown, Percent } from 'lucide-react';
 import type { DateRange } from '@/types/report.types';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
@@ -20,6 +21,9 @@ interface FinancialReportProps {
 }
 
 export function FinancialReport({ outletId, dateRange, customDateRange }: FinancialReportProps) {
+  const outletName = useAuthStore((s) => s.user?.outletName);
+  const period = getPeriodLabel(dateRange, customDateRange?.from, customDateRange?.to);
+
   // Format custom date range for API
   const startDate = customDateRange?.from
     ? format(customDateRange.from, 'yyyy-MM-dd')
@@ -47,7 +51,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
         grossProfit: financialReport.grossProfit ?? 0,
         grossMargin: financialReport.grossMargin ?? 0,
       })
-    : { headers: [], data: [], summary: [] };
+    : { headers: [], data: [], summary: [], columnStyles: {} };
 
   const filename = generateFilename('laporan_keuangan', dateRange, outletId);
 
@@ -73,6 +77,9 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
             data={exportData.data}
             filename={filename}
             summary={exportData.summary}
+            outletName={outletName}
+            period={period}
+            columnStyles={exportData.columnStyles}
           />
         </div>
       )}

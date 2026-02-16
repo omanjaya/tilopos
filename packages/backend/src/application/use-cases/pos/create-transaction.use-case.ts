@@ -297,7 +297,7 @@ export class CreateTransactionUseCase {
           if (discount.voucherCode) {
             await tx.voucher.updateMany({
               where: { code: discount.voucherCode, usedAt: null },
-              data: { usedAt: new Date(), usedBy: input.customerId || input.employeeId },
+              data: { usedAt: new Date(), usedBy: input.customerId || null },
             });
           }
         }

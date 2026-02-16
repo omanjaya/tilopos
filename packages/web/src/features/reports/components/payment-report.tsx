@@ -11,7 +11,8 @@ import { ReportErrorState } from '@/components/shared/report-error-state';
 import { ReportEmptyState } from '@/components/shared/report-empty-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
 import { formatCurrency } from '@/lib/format';
-import { formatPaymentDataForExport, generateFilename } from '@/lib/export-utils';
+import { formatPaymentDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
+import { useAuthStore } from '@/stores/auth.store';
 import { CreditCard } from 'lucide-react';
 import {
   PieChart,
@@ -64,6 +65,9 @@ const columns: Column<PaymentMethodBreakdown>[] = [
 ];
 
 export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentReportProps) {
+  const outletName = useAuthStore((s) => s.user?.outletName);
+  const period = getPeriodLabel(dateRange, customDateRange?.from, customDateRange?.to);
+
   // Format custom date range for API
   const startDate = customDateRange?.from
     ? format(customDateRange.from, 'yyyy-MM-dd')
@@ -93,7 +97,7 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
         totalAmount: paymentReport.totalAmount,
         totalTransactions: paymentReport.totalTransactions,
       })
-    : { headers: [], data: [], summary: [] };
+    : { headers: [], data: [], summary: [], columnStyles: {} };
 
   const filename = generateFilename('laporan_pembayaran', dateRange, outletId);
   const hasData = paymentReport && paymentReport.methods.length > 0;
@@ -120,6 +124,9 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
             data={exportData.data}
             filename={filename}
             summary={exportData.summary}
+            outletName={outletName}
+            period={period}
+            columnStyles={exportData.columnStyles}
           />
         </div>
       )}

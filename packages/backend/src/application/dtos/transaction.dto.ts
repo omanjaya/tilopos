@@ -60,7 +60,7 @@ export class PaymentDto {
   @ApiProperty()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  @Max(999999999)
+  @Max(99999999999)
   amount!: number;
 
   @ApiPropertyOptional()
@@ -74,9 +74,10 @@ export class CreateTransactionDto {
   @IsString()
   outletId!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  employeeId!: string;
+  employeeId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -111,6 +112,34 @@ export class CreateTransactionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DiscountDto)
+  discounts?: DiscountDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class DiscountDto {
+  @ApiProperty({ enum: ['percentage', 'fixed'] })
+  @IsIn(['percentage', 'fixed'])
+  type!: 'percentage' | 'fixed';
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  value!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  promotionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
 }

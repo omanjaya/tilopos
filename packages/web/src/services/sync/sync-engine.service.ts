@@ -186,7 +186,7 @@ class SyncEngine {
    * Process sync queue
    */
   async processQueue(): Promise<void> {
-    if (!this.isOnline) return;
+    if (!this.isOnline || !this.queueService) return;
 
     const pendingItems = await this.queueService.getPendingItems();
 

@@ -12,6 +12,9 @@ interface ExportButtonsProps {
   data: (string | number)[][];
   filename: string;
   summary?: { label: string; value: string | number }[];
+  outletName?: string;
+  period?: string;
+  columnStyles?: Record<number, { halign?: 'left' | 'center' | 'right' }>;
   onExport?: () => void;
 }
 
@@ -21,10 +24,18 @@ export function ExportButtons({
   data,
   filename,
   summary,
+  outletName,
+  period,
+  columnStyles,
   onExport,
 }: ExportButtonsProps) {
   const handleExportPDF = () => {
-    exportToPDF(title, headers, data, filename, summary);
+    exportToPDF(title, headers, data, filename, {
+      summary,
+      outletName,
+      period,
+      columnStyles,
+    });
     onExport?.();
   };
 

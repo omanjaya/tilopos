@@ -82,6 +82,7 @@ export class PosController {
       tableId: dto.tableId,
       items: dto.items,
       payments: dto.payments,
+      discounts: dto.discounts,
       notes: dto.notes,
     });
   }

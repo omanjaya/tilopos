@@ -93,7 +93,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
     const created = await this.prisma.$transaction(async (tx) => {
       const newTransaction = await tx.transaction.create({
         data: {
-          id: transaction.id,
+          id: transaction.id || crypto.randomUUID(),
           outletId: transaction.outletId,
           employeeId: transaction.employeeId,
           customerId: transaction.customerId,
@@ -108,7 +108,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
           serviceCharge: transaction.serviceCharge,
           grandTotal: transaction.grandTotal,
           notes: transaction.notes,
-          status: transaction.status as 'pending' | 'completed' | 'voided' | 'refunded',
+          status: transaction.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded',
         },
         include: {
           items: {
@@ -147,7 +147,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         ...(data.grandTotal !== undefined && { grandTotal: data.grandTotal }),
         ...(data.notes !== undefined && { notes: data.notes }),
         ...(data.status !== undefined && {
-          status: data.status as 'pending' | 'completed' | 'voided' | 'refunded',
+          status: data.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded',
         }),
         ...(data.voidedAt !== undefined && { voidedAt: data.voidedAt }),
         ...(data.voidedBy !== undefined && { voidedBy: data.voidedBy }),

@@ -11,7 +11,8 @@ import { ReportErrorState } from '@/components/shared/report-error-state';
 import { ReportEmptyState } from '@/components/shared/report-empty-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
 import { formatCurrency } from '@/lib/format';
-import { formatProductDataForExport, generateFilename } from '@/lib/export-utils';
+import { formatProductDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
+import { useAuthStore } from '@/stores/auth.store';
 import { Package } from 'lucide-react';
 import {
   BarChart,
@@ -55,6 +56,9 @@ const columns: Column<ProductSales>[] = [
 ];
 
 export function ProductReport({ outletId, dateRange, customDateRange }: ProductReportProps) {
+  const outletName = useAuthStore((s) => s.user?.outletName);
+  const period = getPeriodLabel(dateRange, customDateRange?.from, customDateRange?.to);
+
   // Format custom date range for API
   const startDate = customDateRange?.from
     ? format(customDateRange.from, 'yyyy-MM-dd')
@@ -85,7 +89,7 @@ export function ProductReport({ outletId, dateRange, customDateRange }: ProductR
         totalProducts: productReport.totalProducts,
         totalQuantitySold: productReport.totalQuantitySold,
       })
-    : { headers: [], data: [], summary: [] };
+    : { headers: [], data: [], summary: [], columnStyles: {} };
 
   const filename = generateFilename('laporan_produk', dateRange, outletId);
   const hasData = productReport && productReport.totalProducts > 0;
@@ -112,6 +116,9 @@ export function ProductReport({ outletId, dateRange, customDateRange }: ProductR
             data={exportData.data}
             filename={filename}
             summary={exportData.summary}
+            outletName={outletName}
+            period={period}
+            columnStyles={exportData.columnStyles}
           />
         </div>
       )}

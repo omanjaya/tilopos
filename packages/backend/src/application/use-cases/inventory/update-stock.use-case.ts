@@ -79,18 +79,18 @@ export class UpdateStockUseCase {
 
     await this.inventoryRepo.updateStockLevel(stockLevel.id, newQuantity);
 
-    await this.inventoryRepo.createStockMovement({
-      id: '',
-      outletId: input.outletId,
-      productId: input.productId,
-      variantId: input.variantId || null,
-      movementType: 'adjustment',
-      quantity: newQuantity - previousQuantity,
-      referenceId: null,
-      referenceType: 'stock_adjustment',
-      notes: input.reason,
-      createdBy: input.employeeId,
-      createdAt: new Date(),
+    await this.prisma.stockMovement.create({
+      data: {
+        outletId: input.outletId,
+        productId: input.productId,
+        variantId: input.variantId || null,
+        movementType: 'adjustment',
+        quantity: newQuantity - previousQuantity,
+        referenceId: null,
+        referenceType: 'stock_adjustment',
+        notes: input.reason,
+        createdBy: input.employeeId,
+      },
     });
 
     this.eventBus.publish(

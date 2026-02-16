@@ -6,6 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 
@@ -66,6 +67,7 @@ export class BusinessScopeGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -80,7 +82,33 @@ export class BusinessScopeGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const user: AuthUser = request.user;
+    let user: AuthUser = request.user;
+
+    // When registered as APP_GUARD, this guard may run before JwtAuthGuard.
+    // If user is not yet set, try to extract businessId from the JWT token.
+    if (!user) {
+      const authHeader = request.headers?.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.slice(7);
+          const payload = this.jwtService.verify(token);
+          user = {
+            employeeId: payload.sub,
+            businessId: payload.businessId,
+            outletId: payload.outletId,
+            role: payload.role,
+          };
+          // Populate request.user so downstream guards/decorators can use it
+          request.user = user;
+        } catch {
+          // Invalid/expired token — let JwtAuthGuard handle the 401
+          return true;
+        }
+      } else {
+        // No Authorization header — let JwtAuthGuard handle the 401
+        return true;
+      }
+    }
 
     if (!user?.businessId) {
       throw new ForbiddenException('Authentication required');
@@ -122,6 +150,19 @@ export class BusinessScopeGuard implements CanActivate {
     const table = this.getTableName(resource);
 
     try {
+      // Some resources (order, table) don't have businessId directly;
+      // they belong to an outlet which has the businessId.
+      const needsOutletJoin = ['order', 'table'].includes(resource);
+
+      if (needsOutletJoin) {
+        const result = await ((this.prisma as any)[table] as any).findUnique({
+          where: { id: resourceId },
+          select: { outlet: { select: { businessId: true } } },
+        });
+        if (!result?.outlet) return false;
+        return result.outlet.businessId === businessId;
+      }
+
       const result = await ((this.prisma as any)[table] as any).findUnique({
         where: { id: resourceId },
         select: { businessId: true },

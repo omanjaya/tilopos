@@ -39,7 +39,7 @@ export class VoidTransactionUseCase {
       throw new VoidNotAllowedException('Transaction is already voided');
     }
 
-    if (transaction.status === 'refunded') {
+    if (transaction.status === 'refunded' || transaction.status === 'partially_refunded') {
       throw new VoidNotAllowedException('Cannot void a refunded transaction');
     }
 

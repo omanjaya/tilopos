@@ -19,6 +19,7 @@ import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { EmployeeRole as PrismaEmployeeRole } from '@prisma/client';
 import { StartShiftUseCase } from '../../application/use-cases/employees/start-shift.use-case';
 import { EndShiftUseCase } from '../../application/use-cases/employees/end-shift.use-case';
 import {
@@ -110,30 +111,38 @@ export class EmployeesController {
       hashedPin = await bcrypt.hash(dto.pin, 10);
     }
 
-    return this.employeeRepo.save({
-      id: '',
-      businessId: user.businessId,
-      outletId: dto.outletId || null,
-      name: dto.name,
-      email: dto.email || null,
-      phone: dto.phone || null,
-      pin: hashedPin,
-      role: dto.role,
-      permissions: [],
-      hourlyRate: dto.hourlyRate || null,
-      isActive: true,
-      mfaSecret: null,
-      mfaEnabled: false,
-      googleId: null,
-      authProvider: 'local',
-      profilePhotoUrl: null,
-      preferences: null,
-      onboardingCompleted: false,
-      lastLoginAt: null,
-      lastLoginIp: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const created = await this.prisma.employee.create({
+      data: {
+        businessId: user.businessId,
+        outletId: dto.outletId || null,
+        name: dto.name,
+        email: dto.email || null,
+        phone: dto.phone || null,
+        pin: hashedPin,
+        role: dto.role as PrismaEmployeeRole,
+        permissions: [],
+        hourlyRate: dto.hourlyRate || null,
+        isActive: true,
+        mfaSecret: null,
+        mfaEnabled: false,
+        googleId: null,
+        authProvider: 'local',
+      },
     });
+
+    return {
+      id: created.id,
+      name: created.name,
+      email: created.email,
+      phone: created.phone,
+      role: created.role,
+      outletId: created.outletId,
+      hourlyRate: created.hourlyRate?.toNumber() ?? null,
+      isActive: created.isActive,
+      businessId: created.businessId,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+    };
   }
 
   @Get(':id')

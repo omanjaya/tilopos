@@ -34,6 +34,7 @@ import {
 import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatTime } from '@/lib/format';
 import { generateFilename } from '@/lib/export-utils';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   MoreHorizontal, Eye, XCircle, RotateCcw, Printer, Loader2,
   Receipt, TrendingUp, ShoppingCart, Ban, Package,
@@ -72,6 +73,7 @@ const TABS: { id: TabId; label: string }[] = [
 export function TransactionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const outletName = useAuthStore((s) => s.user?.outletName);
 
   // Filters
   const [activeTab, setActiveTab] = useState<TabId>('all');
@@ -477,6 +479,9 @@ export function TransactionsPage() {
             data={exportProps.data}
             filename={exportFilename}
             summary={exportProps.summary}
+            outletName={outletName}
+            period={selectedDate}
+            columnStyles={{ [exportProps.headers.length - 1]: { halign: 'right' } }}
           />
         </div>
       </div>

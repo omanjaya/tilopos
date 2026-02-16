@@ -72,6 +72,7 @@ enum TransactionStatus {
   completed
   voided
   refunded
+  partially_refunded
   credit
   partially_paid
 

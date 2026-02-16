@@ -2,49 +2,199 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrency, formatDate } from './format';
 
+// Brand colors
+const BRAND_BLUE: [number, number, number] = [37, 99, 235];
+const LIGHT_GRAY: [number, number, number] = [248, 250, 252];
+const MEDIUM_GRAY: [number, number, number] = [226, 232, 240];
+const DARK_TEXT: [number, number, number] = [15, 23, 42];
+const MUTED_TEXT: [number, number, number] = [100, 116, 139];
+
+interface ExportPDFOptions {
+  summary?: { label: string; value: string | number }[];
+  outletName?: string;
+  period?: string;
+  columnStyles?: Record<number, { halign?: 'left' | 'center' | 'right' }>;
+}
+
 /**
- * Export data to PDF
+ * Export data to PDF with professional layout
  */
 export function exportToPDF(
   title: string,
   headers: string[],
   data: (string | number)[][],
   filename: string,
-  summary?: { label: string; value: string | number }[]
+  summaryOrOptions?: { label: string; value: string | number }[] | ExportPDFOptions
 ) {
-  const doc = new jsPDF();
-
-  // Add title
-  doc.setFontSize(18);
-  doc.text(title, 14, 20);
-
-  // Add export date
-  doc.setFontSize(10);
-  doc.text(`Dicetak: ${formatDate(new Date())}`, 14, 28);
-
-  // Add summary if provided
-  let startY = 35;
-  if (summary && summary.length > 0) {
-    doc.setFontSize(12);
-    summary.forEach((item, index) => {
-      const yPos = startY + (index * 8);
-      doc.text(`${item.label}:`, 14, yPos);
-      doc.text(String(item.value), 80, yPos);
-    });
-    startY = startY + (summary.length * 8) + 5;
+  // Support both legacy (array) and new (object) signatures
+  let options: ExportPDFOptions = {};
+  if (Array.isArray(summaryOrOptions)) {
+    options = { summary: summaryOrOptions };
+  } else if (summaryOrOptions) {
+    options = summaryOrOptions;
   }
 
-  // Add table
+  const { summary, outletName, period, columnStyles } = options;
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2;
+
+  // ── HEADER ──────────────────────────────────────────────
+  let y = 16;
+
+  // Outlet name (top left)
+  if (outletName) {
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...DARK_TEXT);
+    doc.text(outletName, margin, y);
+  }
+
+  // Print date (top right)
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...MUTED_TEXT);
+  const printDate = `Dicetak: ${formatDate(new Date())}`;
+  doc.text(printDate, pageWidth - margin, y, { align: 'right' });
+
+  y += outletName ? 8 : 2;
+
+  // Report title (center)
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...DARK_TEXT);
+  doc.text(title, pageWidth / 2, y, { align: 'center' });
+  y += 6;
+
+  // Period (center, below title)
+  if (period) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED_TEXT);
+    doc.text(`Periode: ${period}`, pageWidth / 2, y, { align: 'center' });
+    y += 4;
+  }
+
+  // Separator line
+  y += 2;
+  doc.setDrawColor(...MEDIUM_GRAY);
+  doc.setLineWidth(0.5);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 6;
+
+  // ── SUMMARY SECTION ─────────────────────────────────────
+  if (summary && summary.length > 0) {
+    const cols = Math.min(summary.length, 3);
+    const colWidth = contentWidth / cols;
+    const boxHeight = Math.ceil(summary.length / cols) * 18 + 8;
+
+    // Background box
+    doc.setFillColor(...LIGHT_GRAY);
+    doc.setDrawColor(...MEDIUM_GRAY);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, 'FD');
+
+    const boxStartY = y + 10;
+
+    summary.forEach((item, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const x = margin + col * colWidth + 8;
+      const itemY = boxStartY + row * 18;
+
+      // Label
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...MUTED_TEXT);
+      doc.text(item.label, x, itemY);
+
+      // Value
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...DARK_TEXT);
+      doc.text(String(item.value), x, itemY + 6);
+    });
+
+    y += boxHeight + 8;
+  }
+
+  // ── TABLE SECTION ───────────────────────────────────────
+  const tableColumnStyles: Record<number, { halign?: 'left' | 'center' | 'right' }> = {};
+  if (columnStyles) {
+    Object.entries(columnStyles).forEach(([key, val]) => {
+      tableColumnStyles[Number(key)] = val;
+    });
+  }
+
   autoTable(doc, {
     head: [headers],
     body: data,
-    startY,
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [37, 99, 235], textColor: 255 },
-    alternateRowStyles: { fillColor: [245, 245, 245] },
+    startY: y,
+    margin: { left: margin, right: margin },
+    styles: {
+      fontSize: 8.5,
+      cellPadding: { top: 3, bottom: 3, left: 4, right: 4 },
+      textColor: DARK_TEXT,
+      lineColor: MEDIUM_GRAY,
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: BRAND_BLUE,
+      textColor: [255, 255, 255],
+      fontSize: 8.5,
+      fontStyle: 'bold',
+      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: tableColumnStyles,
+    tableLineColor: MEDIUM_GRAY,
+    tableLineWidth: 0.2,
+    didDrawPage: (hookData) => {
+      // ── FOOTER (every page) ─────────────────────────────
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const footerY = pageHeight - 10;
+
+      // Separator line
+      doc.setDrawColor(...MEDIUM_GRAY);
+      doc.setLineWidth(0.3);
+      doc.line(margin, footerY - 3, pageWidth - margin, footerY - 3);
+
+      // App name (left)
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...MUTED_TEXT);
+      doc.text('TiloPOS', margin, footerY);
+
+      // Page number (right)
+      const pageNumber = (hookData.pageNumber ?? 1).toString();
+      const totalPages = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+      doc.text(
+        `Halaman ${pageNumber} dari ${totalPages}`,
+        pageWidth - margin,
+        footerY,
+        { align: 'right' }
+      );
+    },
   });
 
-  // Save the PDF
+  // Update total pages on all pages (deferred because total is known only after rendering)
+  const totalPages = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const footerY = pageHeight - 10;
+    // Overwrite page number area
+    doc.setFillColor(255, 255, 255);
+    doc.rect(pageWidth - margin - 50, footerY - 4, 50, 6, 'F');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED_TEXT);
+    doc.text(`Halaman ${i} dari ${totalPages}`, pageWidth - margin, footerY, { align: 'right' });
+  }
+
   doc.save(`${filename}.pdf`);
 }
 
@@ -58,10 +208,8 @@ export async function exportToExcel(
   filename: string,
   summary?: { label: string; value: string | number }[]
 ) {
-  // Dynamic import ExcelJS (lazy load for better performance)
   const ExcelJS = await import('exceljs');
 
-  // Create workbook and worksheet
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Laporan');
 
@@ -94,7 +242,7 @@ export async function exportToExcel(
       row.getCell(1).font = { bold: true };
       currentRow++;
     });
-    currentRow++; // Empty row
+    currentRow++;
   }
 
   // Add headers
@@ -145,6 +293,28 @@ export function printReport() {
 }
 
 /**
+ * Get human-readable period label for PDF export header
+ */
+export function getPeriodLabel(
+  dateRange: string,
+  customFrom?: Date,
+  customTo?: Date
+): string {
+  const labels: Record<string, string> = {
+    today: 'Hari Ini',
+    this_week: 'Minggu Ini',
+    this_month: 'Bulan Ini',
+    this_year: 'Tahun Ini',
+  };
+  if (dateRange === 'custom' && customFrom) {
+    const fromStr = formatDate(customFrom);
+    const toStr = customTo ? formatDate(customTo) : fromStr;
+    return `${fromStr} - ${toStr}`;
+  }
+  return labels[dateRange] || dateRange;
+}
+
+/**
  * Generate filename based on report type and date range
  */
 export function generateFilename(
@@ -179,7 +349,9 @@ export function formatSalesDataForExport(salesReport: {
     { label: 'Rata-rata Order', value: formatCurrency(salesReport.averageOrderValue) },
   ];
 
-  return { headers, data, summary };
+  const columnStyles = { 1: { halign: 'right' as const } };
+
+  return { headers, data, summary, columnStyles };
 }
 
 /**
@@ -190,7 +362,7 @@ export function formatProductDataForExport(productReport: {
   totalProducts: number;
   totalQuantitySold: number;
 }) {
-  const headers = ['Produk', 'Quantity', 'Revenue'];
+  const headers = ['Produk', 'Qty Terjual', 'Pendapatan'];
   const data = productReport.topProducts.map((item) => [
     item.productName,
     item.quantity,
@@ -202,7 +374,12 @@ export function formatProductDataForExport(productReport: {
     { label: 'Total Quantity', value: productReport.totalQuantitySold },
   ];
 
-  return { headers, data, summary };
+  const columnStyles = {
+    1: { halign: 'right' as const },
+    2: { halign: 'right' as const },
+  };
+
+  return { headers, data, summary, columnStyles };
 }
 
 /**
@@ -222,7 +399,9 @@ export function formatFinancialDataForExport(financialReport: {
     ['Margin', `${financialReport.grossMargin.toFixed(2)}%`],
   ];
 
-  return { headers, data, summary: [] };
+  const columnStyles = { 1: { halign: 'right' as const } };
+
+  return { headers, data, summary: [], columnStyles };
 }
 
 /**
@@ -233,7 +412,7 @@ export function formatPaymentDataForExport(paymentReport: {
   totalAmount: number;
   totalTransactions: number;
 }) {
-  const headers = ['Metode Pembayaran', 'Jumlah', 'Count'];
+  const headers = ['Metode Pembayaran', 'Jumlah', 'Transaksi'];
   const data = paymentReport.paymentBreakdown.map((item) => [
     item.method,
     formatCurrency(item.amount),
@@ -241,9 +420,14 @@ export function formatPaymentDataForExport(paymentReport: {
   ]);
 
   const summary = [
-    { label: 'Total Amount', value: formatCurrency(paymentReport.totalAmount) },
+    { label: 'Total Pembayaran', value: formatCurrency(paymentReport.totalAmount) },
     { label: 'Total Transaksi', value: paymentReport.totalTransactions },
   ];
 
-  return { headers, data, summary };
+  const columnStyles = {
+    1: { halign: 'right' as const },
+    2: { halign: 'right' as const },
+  };
+
+  return { headers, data, summary, columnStyles };
 }

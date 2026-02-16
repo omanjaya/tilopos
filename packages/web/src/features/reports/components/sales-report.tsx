@@ -9,7 +9,8 @@ import { ReportErrorState } from '@/components/shared/report-error-state';
 import { ReportEmptyState } from '@/components/shared/report-empty-state';
 import { CalculationHelp } from '@/components/shared/calculation-help';
 import { formatCurrency } from '@/lib/format';
-import { formatSalesDataForExport, generateFilename } from '@/lib/export-utils';
+import { formatSalesDataForExport, generateFilename, getPeriodLabel } from '@/lib/export-utils';
+import { useAuthStore } from '@/stores/auth.store';
 import { DollarSign, ShoppingCart, TrendingUp, Users } from 'lucide-react';
 import {
   BarChart,
@@ -30,6 +31,9 @@ interface SalesReportProps {
 }
 
 export function SalesReport({ outletId, dateRange, customDateRange }: SalesReportProps) {
+  const outletName = useAuthStore((s) => s.user?.outletName);
+  const period = getPeriodLabel(dateRange, customDateRange?.from, customDateRange?.to);
+
   // Format custom date range for API
   const startDate = customDateRange?.from
     ? format(customDateRange.from, 'yyyy-MM-dd')
@@ -62,7 +66,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
   // Prepare export data
   const exportData = salesReport
     ? formatSalesDataForExport(salesReport)
-    : { headers: [], data: [], summary: [] };
+    : { headers: [], data: [], summary: [], columnStyles: {} };
 
   const filename = generateFilename('laporan_penjualan', dateRange, outletId);
 
@@ -93,6 +97,9 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
             data={exportData.data}
             filename={filename}
             summary={exportData.summary}
+            outletName={outletName}
+            period={period}
+            columnStyles={exportData.columnStyles}
           />
         </div>
       )}
