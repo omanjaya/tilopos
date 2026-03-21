@@ -23,6 +23,12 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
     return this.mapToRecord(employee);
   }
 
+  /**
+   * Find employee by email without businessId filter.
+   * This is intentional: during login, businessId is not yet known.
+   * The login use-case validates businessId after authentication by
+   * deriving it from the matched employee record.
+   */
   async findByEmail(email: string): Promise<EmployeeRecord | null> {
     const employee = await this.prisma.employee.findFirst({
       where: { email, isActive: true },
@@ -124,6 +130,18 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
     if (data.authProvider !== undefined) {
       updateData.authProvider = data.authProvider;
     }
+    if (data.profilePhotoUrl !== undefined) {
+      updateData.profilePhotoUrl = data.profilePhotoUrl;
+    }
+    if (data.preferences !== undefined) {
+      updateData.preferences = data.preferences as Prisma.InputJsonValue;
+    }
+    if (data.emailVerified !== undefined) {
+      updateData.emailVerified = data.emailVerified;
+    }
+    if (data.onboardingCompleted !== undefined) {
+      updateData.onboardingCompleted = data.onboardingCompleted;
+    }
 
     const updated = await this.prisma.employee.update({
       where: { id },
@@ -151,6 +169,7 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
     authProvider: string;
     profilePhotoUrl?: string | null;
     preferences?: Prisma.JsonValue | null;
+    emailVerified?: boolean;
     onboardingCompleted?: boolean;
     lastLoginAt?: Date | null;
     lastLoginIp?: string | null;
@@ -175,6 +194,7 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
       authProvider: employee.authProvider,
       profilePhotoUrl: employee.profilePhotoUrl ?? null,
       preferences: (employee.preferences as Record<string, unknown> | null) ?? null,
+      emailVerified: employee.emailVerified ?? false,
       onboardingCompleted: employee.onboardingCompleted ?? false,
       lastLoginAt: employee.lastLoginAt ?? null,
       lastLoginIp: employee.lastLoginIp ?? null,

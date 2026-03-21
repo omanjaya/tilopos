@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import type { Promotion } from '@prisma/client';
 
@@ -36,6 +36,8 @@ export interface PromotionResult {
 
 @Injectable()
 export class PromotionRulesEngine {
+  private readonly logger = new Logger(PromotionRulesEngine.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findApplicablePromotions(context: PromotionRuleContext): Promise<PromotionResult> {
@@ -150,7 +152,13 @@ export class PromotionRulesEngine {
     // Check customer filter
     const customerSegments = applicableTo.customerSegments as string[] | undefined;
     if (customerSegments && customerSegments.length > 0) {
-      // TODO: Implement customer segment checking
+      // TODO(promotions): Implement customer segment checking.
+      // This should look up the customer's segment (e.g. 'new', 'vip', 'returning')
+      // from the Customer model and verify it matches one of the required segments.
+      // Until implemented, promotions with customerSegments filters are applied to ALL customers.
+      this.logger.warn(
+        `Promotion has customerSegments filter ${JSON.stringify(customerSegments)} but segment checking is not implemented \u2014 filter is being skipped`,
+      );
     }
 
     // Check product filter
@@ -162,7 +170,15 @@ export class PromotionRulesEngine {
         if (productIds && productIds.includes(item.productId)) {
           return true;
         }
-        // TODO: Check category IDs
+        // TODO(promotions): Check category IDs by looking up each item's product
+        // category from the database (or a cached product->category map) and
+        // comparing against the categoryIds filter. Until implemented, promotions
+        // filtered by categoryIds alone (without matching productIds) will not match.
+        if (categoryIds && categoryIds.length > 0) {
+          this.logger.warn(
+            `Promotion has categoryIds filter ${JSON.stringify(categoryIds)} but category checking is not implemented \u2014 only productIds matching is applied`,
+          );
+        }
         return false;
       });
 

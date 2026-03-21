@@ -926,7 +926,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return (business.settings as Record<string, unknown>) || {};
   }
 
-  private async saveBusinessSettings(businessId: string, settings: Record<string, unknown>): Promise<void> {
+  private async saveBusinessSettings(
+    businessId: string,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
     await this.prisma.business.update({
       where: { id: businessId },
       data: { settings: settings as never },
@@ -939,7 +942,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return Array.isArray(configs) ? configs : [];
   }
 
-  async createPrinterConfig(businessId: string, data: CreatePrinterConfigInput): Promise<PrinterConfigRecord> {
+  async createPrinterConfig(
+    businessId: string,
+    data: CreatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord> {
     const settings = await this.getBusinessSettings(businessId);
     const configs = (settings.printerConfigs as PrinterConfigRecord[] | undefined) || [];
     const newConfig: PrinterConfigRecord = {
@@ -959,7 +965,11 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return newConfig;
   }
 
-  async updatePrinterConfig(businessId: string, id: string, data: UpdatePrinterConfigInput): Promise<PrinterConfigRecord> {
+  async updatePrinterConfig(
+    businessId: string,
+    id: string,
+    data: UpdatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord> {
     const settings = await this.getBusinessSettings(businessId);
     const configs = (settings.printerConfigs as PrinterConfigRecord[] | undefined) || [];
     const index = configs.findIndex((c) => c.id === id);
@@ -1001,7 +1011,10 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return Array.isArray(schedules) ? schedules : [];
   }
 
-  async createReportSchedule(businessId: string, data: CreateReportScheduleInput): Promise<ReportScheduleRecord> {
+  async createReportSchedule(
+    businessId: string,
+    data: CreateReportScheduleInput,
+  ): Promise<ReportScheduleRecord> {
     const settings = await this.getBusinessSettings(businessId);
     const schedules = (settings.reportSchedules as ReportScheduleRecord[] | undefined) || [];
     const newSchedule: ReportScheduleRecord = {
@@ -1018,7 +1031,11 @@ export class PrismaSettingsRepository implements ISettingsRepository {
     return newSchedule;
   }
 
-  async updateReportSchedule(businessId: string, id: string, data: UpdateReportScheduleInput): Promise<ReportScheduleRecord> {
+  async updateReportSchedule(
+    businessId: string,
+    id: string,
+    data: UpdateReportScheduleInput,
+  ): Promise<ReportScheduleRecord> {
     const settings = await this.getBusinessSettings(businessId);
     const schedules = (settings.reportSchedules as ReportScheduleRecord[] | undefined) || [];
     const index = schedules.findIndex((s) => s.id === id);

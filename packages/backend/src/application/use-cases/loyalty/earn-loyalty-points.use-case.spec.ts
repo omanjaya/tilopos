@@ -35,8 +35,8 @@ describe('EarnLoyaltyPointsUseCase', () => {
     id: 'prog-1',
     businessId: 'biz-1',
     name: 'Standard Loyalty',
-    pointsPerAmount: 1,
-    amountPerPoint: 10000, // 1 point per 10,000 IDR
+    pointsPerAmount: 10000, // spend 10,000 IDR to earn 1 point
+    amountPerPoint: 100, // 1 point = 100 IDR discount (for redemption)
     redemptionRate: 100,
     pointExpiryDays: 365,
     isActive: true,

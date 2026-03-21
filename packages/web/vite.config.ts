@@ -13,6 +13,19 @@ export default defineConfig({
   // This ensures built files reference the CDN origin instead of the app server.
   base: cdnUrl || '/',
   plugins: [
+    // Rewrite SPA routes that clash with container filesystem paths (e.g. /app)
+    {
+      name: 'spa-fallback',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const spaRoutes = ['/app', '/pos', '/kds', '/order'];
+          if (req.url && spaRoutes.some((r) => req.url!.startsWith(r + '/') || req.url === r)) {
+            req.url = '/index.html';
+          }
+          next();
+        });
+      },
+    },
     react(),
     // Bundle analysis - generates stats.html after build
     // process.env.ANALYZE === 'true' && visualizer({
@@ -85,6 +98,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['tilo.nouma.id'],
     watch: {
       usePolling: true,
     },
@@ -102,7 +116,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: 'happy-dom',
     setupFiles: './src/test/setup.ts',
     css: true,
   },

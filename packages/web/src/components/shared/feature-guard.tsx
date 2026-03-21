@@ -16,8 +16,8 @@ export function FeatureGuard({ children, path }: FeatureGuardProps) {
   const isPathVisible = useFeatureStore((s) => s.isPathVisible);
   const isLoaded = useFeatureStore((s) => s.isLoaded);
 
-  // Don't block while features are still loading
-  if (!isLoaded) return <>{children}</>;
+  // Show nothing while features are still loading to prevent flash of protected content
+  if (!isLoaded) return null;
 
   const checkPath = path || location.pathname;
   if (!isPathVisible(checkPath)) {

@@ -87,7 +87,7 @@ export interface CreateStorefrontOrderRequest {
   customerName: string;
   customerEmail?: string;
   customerPhone: string;
-  deliveryAddress?: string;
+  shippingAddress?: string;
   items: StorefrontCartItem[];
   notes?: string;
 }

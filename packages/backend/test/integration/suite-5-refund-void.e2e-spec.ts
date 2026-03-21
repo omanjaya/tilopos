@@ -34,6 +34,7 @@ describe('Suite 5: Refund & Void', () => {
         .expect(200);
 
       const nasiGoreng = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[0],
       );
       expect(nasiGoreng).toBeDefined();
@@ -46,10 +47,9 @@ describe('Suite 5: Refund & Void', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const dashRes = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${todayStr}&endDate=${tomorrowStr}`,
-        );
+      const dashRes = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${todayStr}&endDate=${tomorrowStr}`,
+      );
       if (dashRes.status < 400) {
         dashboardBefore = {
           grossSales: Number(dashRes.body.grossSales),
@@ -63,18 +63,17 @@ describe('Suite 5: Refund & Void', () => {
       expect(txId).toBeDefined();
 
       // First get transaction items to find the Nasi Goreng item ID
-      const txRes = await authRequest(app, 'owner')
-        .get(`/api/v1/pos/transactions?limit=50`);
+      const txRes = await authRequest(app, 'owner').get(`/api/v1/pos/transactions?limit=50`);
 
       expect(txRes.status).toBeLessThan(400);
-      const transactions = Array.isArray(txRes.body)
-        ? txRes.body
-        : txRes.body.data || [];
+      const transactions = Array.isArray(txRes.body) ? txRes.body : txRes.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tx = transactions.find((t: any) => t.id === txId);
 
       let nasiGorengItemId: string | undefined;
       if (tx?.items) {
         const nasiItem = tx.items.find(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (i: any) =>
             i.productName?.includes('Nasi Goreng') ||
             i.productId === testContext.created.productIds[0],
@@ -84,10 +83,10 @@ describe('Suite 5: Refund & Void', () => {
 
       if (!nasiGorengItemId) {
         // Fallback: get items from transaction detail
-        const detailRes = await authRequest(app, 'owner')
-          .get(`/api/v1/pos/transactions/${txId}`);
+        const detailRes = await authRequest(app, 'owner').get(`/api/v1/pos/transactions/${txId}`);
         if (detailRes.status < 400 && detailRes.body.items) {
           const nasiItem = detailRes.body.items.find(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (i: any) =>
               i.productName?.includes('Nasi Goreng') ||
               i.productId === testContext.created.productIds[0],
@@ -130,6 +129,7 @@ describe('Suite 5: Refund & Void', () => {
         .expect(200);
 
       const nasiGoreng = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[0],
       );
       expect(nasiGoreng).toBeDefined();
@@ -137,27 +137,22 @@ describe('Suite 5: Refund & Void', () => {
     });
 
     it('5.4 - should verify refund transaction recorded', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/pos/transactions?status=refunded&limit=10');
+      const res = await authRequest(app, 'owner').get(
+        '/api/v1/pos/transactions?status=refunded&limit=10',
+      );
 
       expect(res.status).toBeLessThan(400);
       // The original transaction should be refunded/partially_refunded
       // OR we should find refund-type transactions
-      const allTx = await authRequest(app, 'owner')
-        .get('/api/v1/pos/transactions?limit=50');
+      const allTx = await authRequest(app, 'owner').get('/api/v1/pos/transactions?limit=50');
 
-      const txList = Array.isArray(allTx.body)
-        ? allTx.body
-        : allTx.body.data || [];
+      const txList = Array.isArray(allTx.body) ? allTx.body : allTx.body.data || [];
 
       // Check if original transaction status changed
-      const originalTx = txList.find(
-        (t: any) => t.id === testContext.created.transactionIds[0],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const originalTx = txList.find((t: any) => t.id === testContext.created.transactionIds[0]);
       if (originalTx) {
-        expect(
-          ['refunded', 'partially_refunded'].includes(originalTx.status),
-        ).toBe(true);
+        expect(['refunded', 'partially_refunded'].includes(originalTx.status)).toBe(true);
       }
     });
 
@@ -173,10 +168,9 @@ describe('Suite 5: Refund & Void', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${todayStr}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${todayStr}&endDate=${tomorrowStr}`,
+      );
 
       expect(res.status).toBeLessThan(400);
       // Dashboard may or may not exclude refunded transactions from grossSales
@@ -202,20 +196,17 @@ describe('Suite 5: Refund & Void', () => {
         .get(`/api/v1/inventory/stock/${testContext.outletId}`)
         .expect(200);
 
-      const mieAyam = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[2],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mieAyam = res.body.find((s: any) => s.productId === testContext.created.productIds[2]);
       expect(mieAyam).toBeDefined();
       stockBeforeVoid = Number(mieAyam.quantity);
     });
 
     it('5.7 - should void transaction 3.8 (Mie Ayam + customer Budi)', async () => {
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/pos/void')
-        .send({
-          transactionId: txToVoid,
-          reason: 'Test void transaction',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/pos/void').send({
+        transactionId: txToVoid,
+        reason: 'Test void transaction',
+      });
 
       if (res.status >= 400) {
         console.log('5.7 void error:', res.status, res.body);
@@ -225,25 +216,24 @@ describe('Suite 5: Refund & Void', () => {
     });
 
     it('5.8 - should verify stock Mie Ayam restored', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/inventory/stock/${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('5.8 stock check error:', res.status, res.body);
       }
       expect(res.status).toBeLessThan(400);
 
-      const mieAyam = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[2],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mieAyam = res.body.find((s: any) => s.productId === testContext.created.productIds[2]);
       expect(mieAyam).toBeDefined();
       expect(Number(mieAyam.quantity)).toBe(stockBeforeVoid + 1);
     });
 
     it('5.9 - should verify customer Budi data after void', async () => {
       const customerId = testContext.created.customerIds[0];
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       // Loyalty reversal may or may not be implemented
       // Just verify the endpoint doesn't error
@@ -251,14 +241,12 @@ describe('Suite 5: Refund & Void', () => {
     });
 
     it('5.10 - should verify voided transaction status', async () => {
-      const allTx = await authRequest(app, 'owner')
-        .get('/api/v1/pos/transactions?limit=50');
+      const allTx = await authRequest(app, 'owner').get('/api/v1/pos/transactions?limit=50');
 
       expect(allTx.status).toBeLessThan(400);
-      const txList = Array.isArray(allTx.body)
-        ? allTx.body
-        : allTx.body.data || [];
+      const txList = Array.isArray(allTx.body) ? allTx.body : allTx.body.data || [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const voidedTx = txList.find((t: any) => t.id === txToVoid);
       if (voidedTx) {
         expect(voidedTx.status).toBe('voided');
@@ -267,12 +255,10 @@ describe('Suite 5: Refund & Void', () => {
     });
 
     it('5.11 - should fail voiding already voided transaction', async () => {
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/pos/void')
-        .send({
-          transactionId: txToVoid,
-          reason: 'Double void attempt',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/pos/void').send({
+        transactionId: txToVoid,
+        reason: 'Double void attempt',
+      });
 
       expect(res.status).toBeGreaterThanOrEqual(400);
     });
@@ -281,12 +267,10 @@ describe('Suite 5: Refund & Void', () => {
       // Transaction 3.1 was partially refunded in 5.2
       const refundedTxId = testContext.created.transactionIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/pos/void')
-        .send({
-          transactionId: refundedTxId,
-          reason: 'Try to void refunded tx',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/pos/void').send({
+        transactionId: refundedTxId,
+        reason: 'Try to void refunded tx',
+      });
 
       // Should fail — cannot void a refunded/partially_refunded transaction
       expect(res.status).toBeGreaterThanOrEqual(400);

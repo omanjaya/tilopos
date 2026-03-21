@@ -55,6 +55,10 @@ export const UnitConversionPage = lazy(() => import('@/features/inventory/unit-c
 export const BatchTrackingPage = lazy(() => import('@/features/inventory/batch-tracking-page').then(m => ({ default: m.BatchTrackingPage })));
 export const SerialNumbersPage = lazy(() => import('@/features/inventory/serial-numbers-page').then(m => ({ default: m.SerialNumbersPage })));
 export const ProductAssignmentPage = lazy(() => import('@/features/inventory/product-assignment-page').then(m => ({ default: m.ProductAssignmentPage })));
+export const StockOpnamePage = lazy(() => import('@/features/inventory/stock-opname-page').then(m => ({ default: m.StockOpnamePage })));
+export const StockOpnamePageMobile = lazy(() => import('@/features/inventory/stock-opname-page.mobile').then(m => ({ default: m.StockOpnamePage })));
+export const StockOpnameDetailPage = lazy(() => import('@/features/inventory/stock-opname-detail-page').then(m => ({ default: m.StockOpnameDetailPage })));
+export const StockOpnameDetailPageMobile = lazy(() => import('@/features/inventory/stock-opname-detail-page.mobile').then(m => ({ default: m.StockOpnameDetailPage })));
 
 // ── Orders & Tables ──────────────────────────────────────────────────────────
 export const OrdersPage = lazy(() => import('@/features/orders/orders-page').then(m => ({ default: m.OrdersPage })));
@@ -94,16 +98,23 @@ export const BillingPage = lazy(() => import('@/features/settings/billing-page')
 // ── Registration ─────────────────────────────────────────────────────────────
 export const RegisterPage = lazy(() => import('@/features/auth/register/register-page').then(m => ({ default: m.RegisterPage })));
 
+// ── Email Verification ──────────────────────────────────────────────────────
+export const VerifyEmailPage = lazy(() => import('@/features/auth/verify-email-page').then(m => ({ default: m.VerifyEmailPage })));
+
 // ── Import ──────────────────────────────────────────────────────────────────
 export const ExcelImportPage = lazy(() => import('@/features/import/excel-import-page').then(m => ({ default: m.ExcelImportPage })));
 
 // ── Credit ──────────────────────────────────────────────────────────────────
 export const CreditSalesPage = lazy(() => import('@/features/credit/credit-sales-page').then(m => ({ default: m.CreditSalesPage })));
 
+// ── Subscription ────────────────────────────────────────────────────────────
+export const SubscriptionPage = lazy(() => import('@/features/subscription/subscription-page').then(m => ({ default: m.SubscriptionPage })));
+
 // ── Misc ─────────────────────────────────────────────────────────────────────
 export const AuditPage = lazy(() => import('@/features/audit/audit-page').then(m => ({ default: m.AuditPage })));
 export const IngredientsPage = lazy(() => import('@/features/ingredients/ingredients-page').then(m => ({ default: m.IngredientsPage })));
 export const OnlineStorePage = lazy(() => import('@/features/online-store/online-store-page').then(m => ({ default: m.OnlineStorePage })));
+export const StorefrontPage = lazy(() => import('@/features/online-store/storefront-page').then(m => ({ default: m.StorefrontPage })));
 export const SelfOrderPage = lazy(() => import('@/features/self-order/self-order-page').then(m => ({ default: m.SelfOrderPage })));
 export const AppointmentsPage = lazy(() => import('@/features/appointments/appointments-page').then(m => ({ default: m.AppointmentsPage })));
 export const WorkOrdersPage = lazy(() => import('@/features/work-orders/work-orders-page').then(m => ({ default: m.WorkOrdersPage })));

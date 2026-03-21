@@ -25,6 +25,7 @@ import {
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import {
   Plus,
@@ -39,8 +40,6 @@ import {
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import type { Product } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 import { cn } from '@/lib/utils';
 
 /**
@@ -84,15 +83,11 @@ export function ProductsPage() {
     mutationFn: (id: string) => productsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
       toast.success({ title: 'Produk dihapus' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus'),
   });
 
   const products = productsData || [];

@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   ArrowLeft,
@@ -44,8 +45,6 @@ import {
   UserCheck,
 } from 'lucide-react';
 import type { TransactionStatus } from '@/types/transaction.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const STATUS_MAP: Record<TransactionStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   completed: { label: 'Selesai', variant: 'default' },
@@ -92,12 +91,7 @@ export function TransactionDetailPage() {
       setVoidDialogOpen(false);
       setVoidReason('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal void transaksi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal void transaksi'),
   });
 
   const refundMutation = useMutation({
@@ -110,12 +104,7 @@ export function TransactionDetailPage() {
       setRefundDialogOpen(false);
       setRefundReason('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memproses refund',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memproses refund'),
   });
 
   const handleReprint = async () => {

@@ -24,13 +24,15 @@ describe('Suite 6: KDS & Table Flow', () => {
   // 6A. KDS Order Lifecycle
   // ================================================================
   describe('6A - KDS Order Lifecycle', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let kdsOrderItems: any[] = [];
     let orderId: string;
     let firstItemId: string;
 
     it('6.1 - should get KDS orders for outlet', async () => {
-      const res = await authRequest(app, 'kitchen')
-        .get(`/api/v1/kds/orders?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'kitchen').get(
+        `/api/v1/kds/orders?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('6.1 KDS orders error:', res.status, res.body);
@@ -73,8 +75,7 @@ describe('Suite 6: KDS & Table Flow', () => {
     it('6.3 - should mark item as "ready"', async () => {
       expect(firstItemId).toBeDefined();
 
-      const res = await authRequest(app, 'kitchen')
-        .put(`/api/v1/kds/items/${firstItemId}/ready`);
+      const res = await authRequest(app, 'kitchen').put(`/api/v1/kds/items/${firstItemId}/ready`);
 
       if (res.status >= 400) {
         console.log('6.3 ready error:', res.status, res.body);
@@ -96,8 +97,7 @@ describe('Suite 6: KDS & Table Flow', () => {
           .send({ station: 'general' });
 
         // Then mark ready
-        await authRequest(app, 'kitchen')
-          .put(`/api/v1/kds/items/${item.id}/ready`);
+        await authRequest(app, 'kitchen').put(`/api/v1/kds/items/${item.id}/ready`);
       }
 
       // Bump the order
@@ -117,14 +117,14 @@ describe('Suite 6: KDS & Table Flow', () => {
     });
 
     it('6.5 - should verify table T1 is still occupied', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/tables?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/tables?outletId=${testContext.outletId}`,
+      );
 
       expect(res.status).toBeLessThan(400);
       const tables = Array.isArray(res.body) ? res.body : res.body.data || [];
-      const t1 = tables.find(
-        (t: any) => t.id === testContext.created.tableIds[0],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t1 = tables.find((t: any) => t.id === testContext.created.tableIds[0]);
       expect(t1).toBeDefined();
       // Table should be occupied (order is ready but not served yet)
       expect(t1.status).toBe('occupied');
@@ -160,13 +160,13 @@ describe('Suite 6: KDS & Table Flow', () => {
       const tableId = testContext.created.tableIds[0];
 
       // First check current status
-      const checkRes = await authRequest(app, 'owner')
-        .get(`/api/v1/tables?outletId=${testContext.outletId}`);
+      const checkRes = await authRequest(app, 'owner').get(
+        `/api/v1/tables?outletId=${testContext.outletId}`,
+      );
 
       expect(checkRes.status).toBeLessThan(400);
-      const tables = Array.isArray(checkRes.body)
-        ? checkRes.body
-        : checkRes.body.data || [];
+      const tables = Array.isArray(checkRes.body) ? checkRes.body : checkRes.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const t1 = tables.find((t: any) => t.id === tableId);
 
       if (t1 && t1.status !== 'available') {
@@ -182,8 +182,7 @@ describe('Suite 6: KDS & Table Flow', () => {
       }
 
       // Verify table is now available
-      const verifyRes = await authRequest(app, 'owner')
-        .get(`/api/v1/tables/${tableId}`);
+      const verifyRes = await authRequest(app, 'owner').get(`/api/v1/tables/${tableId}`);
 
       expect(verifyRes.status).toBeLessThan(400);
       expect(verifyRes.body.status).toBe('available');
@@ -195,8 +194,9 @@ describe('Suite 6: KDS & Table Flow', () => {
   // ================================================================
   describe('6B - KDS Analytics', () => {
     it('6.8 - should get kitchen analytics', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/kds/analytics?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/kds/analytics?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('6.8 analytics error:', res.status, res.body);
@@ -215,10 +215,9 @@ describe('Suite 6: KDS & Table Flow', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/kds/performance?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/kds/performance?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('6.9 performance error:', res.status, res.body);
@@ -232,8 +231,9 @@ describe('Suite 6: KDS & Table Flow', () => {
     });
 
     it('6.10 - should get overdue orders', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/kds/overdue?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/kds/overdue?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('6.10 overdue error:', res.status, res.body);

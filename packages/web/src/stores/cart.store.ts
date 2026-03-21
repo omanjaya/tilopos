@@ -6,6 +6,9 @@ import { useUIStore } from './ui.store';
 // Generate unique ID for cart items
 const generateCartItemId = () => `cart-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+// 24 hours in milliseconds
+const CART_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
 interface CartState {
     // Cart items
     items: CartItem[];
@@ -33,6 +36,9 @@ interface CartState {
 
     // Held bills
     heldBills: HeldBill[];
+
+    // Timestamp of last cart modification (for hydration expiry check)
+    lastUpdated: number;
 
     // Computed values
     subtotal: number;
@@ -82,6 +88,7 @@ export const useCartStore = create<CartState>()(
             discountPercent: 0,
             payments: [],
             heldBills: [],
+            lastUpdated: Date.now(),
             subtotal: 0,
             discountTotal: 0,
             taxAmount: 0,
@@ -112,7 +119,7 @@ export const useCartStore = create<CartState>()(
                             ...existingItem,
                             quantity: newQuantity,
                         };
-                        return { items: newItems };
+                        return { items: newItems, lastUpdated: Date.now() };
                     } else {
                         // Add new item with generated id
                         const newItem: CartItem = {
@@ -128,7 +135,7 @@ export const useCartStore = create<CartState>()(
                             notes: item.notes,
                             imageUrl: item.imageUrl,
                         };
-                        return { items: [...state.items, newItem] };
+                        return { items: [...state.items, newItem], lastUpdated: Date.now() };
                     }
                 });
                 get().recalculate();
@@ -142,6 +149,7 @@ export const useCartStore = create<CartState>()(
                         : state.items.map((i) =>
                             i.id === itemId ? { ...i, quantity } : i,
                         ),
+                    lastUpdated: Date.now(),
                 }));
                 get().recalculate();
             },
@@ -149,6 +157,7 @@ export const useCartStore = create<CartState>()(
             removeItem: (itemId) => {
                 set((state) => ({
                     items: state.items.filter((i) => i.id !== itemId),
+                    lastUpdated: Date.now(),
                 }));
                 get().recalculate();
             },
@@ -158,6 +167,7 @@ export const useCartStore = create<CartState>()(
                     items: state.items.map((i) =>
                         i.id === itemId ? { ...i, notes } : i,
                     ),
+                    lastUpdated: Date.now(),
                 }));
             },
 
@@ -166,6 +176,7 @@ export const useCartStore = create<CartState>()(
                     items: state.items.map((i) =>
                         i.id === itemId ? { ...i, modifiers } : i,
                     ),
+                    lastUpdated: Date.now(),
                 }));
                 get().recalculate();
             },
@@ -177,6 +188,7 @@ export const useCartStore = create<CartState>()(
                             ? { ...i, originalPrice: i.originalPrice ?? i.price, price }
                             : i,
                     ),
+                    lastUpdated: Date.now(),
                 }));
                 get().recalculate();
             },
@@ -233,11 +245,15 @@ export const useCartStore = create<CartState>()(
                 const bill: HeldBill = {
                     id: `held-${Date.now()}`,
                     customerName: customerName || state.customerName,
+                    customerId: state.customerId,
                     tableId: state.tableId,
                     tableName: state.tableName,
                     items: [...state.items],
                     notes: state.notes,
                     createdAt: new Date().toISOString(),
+                    orderType: state.orderType,
+                    discountAmount: state.discountAmount,
+                    discountPercent: state.discountPercent,
                 };
 
                 set((s) => ({
@@ -249,12 +265,24 @@ export const useCartStore = create<CartState>()(
             },
 
             resumeBill: (bill) => {
+                // Auto-hold current cart if it has items to prevent data loss
+                const currentItems = get().items;
+                if (currentItems.length > 0) {
+                    get().holdCurrentBill();
+                }
+
                 set({
                     items: [...bill.items],
                     customerName: bill.customerName,
+                    customerId: bill.customerId,
                     tableId: bill.tableId,
                     tableName: bill.tableName,
                     notes: bill.notes,
+                    orderType: bill.orderType || 'dine_in',
+                    discountAmount: bill.discountAmount || 0,
+                    discountPercent: bill.discountPercent || 0,
+                    payments: [],
+                    lastUpdated: Date.now(),
                 });
                 get().removeHeldBill(bill.id);
                 get().recalculate();
@@ -278,6 +306,7 @@ export const useCartStore = create<CartState>()(
                     discountAmount: 0,
                     discountPercent: 0,
                     payments: [],
+                    lastUpdated: Date.now(),
                     subtotal: 0,
                     discountTotal: 0,
                     taxAmount: 0,
@@ -289,23 +318,23 @@ export const useCartStore = create<CartState>()(
             },
 
             recalculate: () => {
-                const { taxRate, serviceChargeRate } = useUIStore.getState();
+                const { taxRate, serviceChargeRate, taxInclusive } = useUIStore.getState();
 
                 set((state) => {
-                    // Calculate subtotal
-                    const subtotal = state.items.reduce((sum, item) => {
+                    // Calculate subtotal (round to avoid floating point noise with decimal quantities)
+                    const subtotal = Math.round(state.items.reduce((sum, item) => {
                         const itemTotal = item.price * item.quantity;
                         const modifiersTotal = item.modifiers.reduce(
                             (m, mod) => m + mod.price * item.quantity,
                             0,
                         );
                         return sum + itemTotal + modifiersTotal;
-                    }, 0);
+                    }, 0));
 
-                    // Calculate discount
-                    let discountTotal = state.discountAmount;
+                    // Calculate discount (clamp to subtotal to prevent negatives)
+                    let discountTotal = Math.min(state.discountAmount, subtotal);
                     if (state.discountPercent > 0) {
-                        discountTotal = (subtotal * state.discountPercent) / 100;
+                        discountTotal = Math.round((subtotal * state.discountPercent) / 100);
                     }
 
                     // After discount
@@ -317,11 +346,19 @@ export const useCartStore = create<CartState>()(
                             ? Math.round(afterDiscount * serviceChargeRate)
                             : 0;
 
-                    // Tax
-                    const taxAmount = Math.round((afterDiscount + serviceCharge) * taxRate);
+                    // Tax calculation - matches backend logic
+                    let taxAmount: number;
+                    let total: number;
 
-                    // Total
-                    const total = afterDiscount + serviceCharge + taxAmount;
+                    if (taxInclusive) {
+                        // Tax-inclusive: prices already include tax, back-calculate for display
+                        taxAmount = Math.round(((afterDiscount + serviceCharge) * taxRate) / (1 + taxRate));
+                        total = Math.round((afterDiscount + serviceCharge) / 500) * 500;
+                    } else {
+                        // Tax-exclusive: add tax on top
+                        taxAmount = Math.round((afterDiscount + serviceCharge) * taxRate);
+                        total = Math.round((afterDiscount + serviceCharge + taxAmount) / 500) * 500;
+                    }
 
                     // Total payments
                     const totalPayments = state.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -354,11 +391,25 @@ export const useCartStore = create<CartState>()(
                 notes: state.notes,
                 discountAmount: state.discountAmount,
                 discountPercent: state.discountPercent,
-                payments: state.payments,
+                lastUpdated: state.lastUpdated,
             }),
             onRehydrateStorage: () => (state) => {
-                // Recalculate totals after hydration
                 if (state) {
+                    // Clear stale cart data older than 24 hours
+                    const lastUpdated = state.lastUpdated || 0;
+                    if (Date.now() - lastUpdated > CART_EXPIRY_MS) {
+                        state.items = [];
+                        state.heldBills = [];
+                        state.customerId = undefined;
+                        state.customerName = undefined;
+                        state.tableId = undefined;
+                        state.tableName = undefined;
+                        state.notes = undefined;
+                        state.discountAmount = 0;
+                        state.discountPercent = 0;
+                        state.payments = [];
+                    }
+                    // Recalculate totals after hydration
                     state.recalculate();
                 }
             },

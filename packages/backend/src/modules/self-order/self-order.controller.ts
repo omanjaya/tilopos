@@ -1,5 +1,17 @@
-import { Controller, Get, Post, Body, Param, Query, Put } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery, ApiParam } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Put,
+  UseGuards,
+  Headers,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { ApiTags, ApiOperation, ApiQuery, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { CreateSelfOrderSessionUseCase } from '../../application/use-cases/self-order/create-session.use-case';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { EventBusService } from '../../infrastructure/events/event-bus.service';
@@ -9,6 +21,9 @@ import { SelfOrderScheduler } from './self-order.scheduler';
 import { MenuTranslationBatchDto } from '../../application/dtos/self-order-features.dto';
 import { getTranslations, getSupportedLocales, isSupportedLocale } from './i18n';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
+import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 @ApiTags('Self Order')
 @Controller('self-order')
@@ -19,6 +34,7 @@ export class SelfOrderController {
     private readonly eventBus: EventBusService,
     private readonly paymentService: SelfOrderPaymentService,
     private readonly scheduler: SelfOrderScheduler,
+    private readonly configService: ConfigService,
   ) {}
 
   @Post('sessions')
@@ -158,6 +174,11 @@ export class SelfOrderController {
       throw new AppError(ErrorCode.SESSION_EXPIRED, 'Session has expired');
     }
 
+    // Validate quantity
+    if (!dto.quantity || dto.quantity <= 0 || !Number.isInteger(dto.quantity)) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Quantity must be a positive integer');
+    }
+
     // Validate product exists
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
@@ -200,6 +221,10 @@ export class SelfOrderController {
       throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Session not found');
     }
 
+    if (session.status !== 'active') {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Session has already been submitted');
+    }
+
     if (session.items.length === 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot submit empty order');
     }
@@ -211,7 +236,7 @@ export class SelfOrderController {
     });
 
     // Create order from session
-    const orderNumber = await this.generateOrderNumber(session.outletId);
+    const orderNumber = this.generateOrderNumber();
 
     const order = await this.prisma.order.create({
       data: {
@@ -223,14 +248,21 @@ export class SelfOrderController {
       },
     });
 
-    // Create order items from session items
+    // Resolve product names and create order items
+    const productIds = session.items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true },
+    });
+    const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
     for (const item of session.items) {
       await this.prisma.orderItem.create({
         data: {
           orderId: order.id,
           productId: item.productId,
           variantId: item.variantId,
-          productName: item.productId, // Will be resolved in actual implementation
+          productName: productNameMap.get(item.productId) || 'Unknown Product',
           quantity: item.quantity,
           notes: item.notes,
           status: 'pending',
@@ -282,10 +314,13 @@ export class SelfOrderController {
   }
 
   @Post('payment/callback')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @ApiOperation({ summary: 'Payment callback webhook' })
   async paymentCallback(
+    @Headers('x-webhook-signature') signature: string,
     @Body() dto: { orderId: string; status: 'success' | 'failed' | 'pending' },
   ) {
+    this.verifyWebhookSignature(signature, dto);
     await this.paymentService.handlePaymentCallback(dto.orderId, dto.status);
     return { received: true };
   }
@@ -437,6 +472,8 @@ export class SelfOrderController {
   // ==================== Menu Translations Management ====================
 
   @Post('menu/translations')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Set menu item translations',
     description:
@@ -510,8 +547,10 @@ export class SelfOrderController {
   // ==================== Payment Callback (webhook) ====================
 
   @Post('payment-callback')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @ApiOperation({ summary: 'Payment callback webhook (alternative path)' })
   async paymentCallbackAlt(
+    @Headers('x-webhook-signature') signature: string,
     @Body()
     dto: {
       sessionCode: string;
@@ -519,6 +558,7 @@ export class SelfOrderController {
       status: 'success' | 'failed' | 'pending';
     },
   ) {
+    this.verifyWebhookSignature(signature, dto);
     await this.paymentService.handlePaymentCallback(dto.paymentId, dto.status);
     return { received: true };
   }
@@ -549,17 +589,28 @@ export class SelfOrderController {
     };
   }
 
-  private async generateOrderNumber(outletId: string): Promise<string> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  private verifyWebhookSignature(signature: string, body: Record<string, unknown>): void {
+    const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
+    if (!webhookSecret) {
+      throw new UnauthorizedException('Webhook verification not configured');
+    }
+    if (!signature) {
+      throw new UnauthorizedException('Missing webhook signature');
+    }
+    const expectedSignature = createHmac('sha256', webhookSecret)
+      .update(JSON.stringify(body))
+      .digest('hex');
+    const sigBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
+      throw new UnauthorizedException('Invalid webhook signature');
+    }
+  }
 
-    const count = await this.prisma.order.count({
-      where: {
-        outletId,
-        createdAt: { gte: today },
-      },
-    });
-
-    return `ORD-${today.getFullYear().toString().slice(-2)}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}-${String(count + 1).padStart(3, '0')}`;
+  private generateOrderNumber(): string {
+    const now = new Date();
+    const dateStr = `${now.getFullYear().toString().slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `ORD-${dateStr}-${random}`;
   }
 }

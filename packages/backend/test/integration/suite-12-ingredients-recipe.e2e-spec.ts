@@ -29,19 +29,19 @@ describe('Suite 12: Ingredients & Recipe', () => {
   describe('Setup', () => {
     it('should ensure productIds and ingredientIds exist', async () => {
       if (!testContext.created.productIds.length) {
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/inventory/products');
+        const res = await authRequest(app, 'owner').get('/api/v1/inventory/products');
         expect(res.status).toBeLessThan(400);
         const products = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.productIds = products.map((p: any) => p.id);
         saveContext();
       }
 
       if (!testContext.created.ingredientIds.length) {
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/ingredients');
+        const res = await authRequest(app, 'owner').get('/api/v1/ingredients');
         expect(res.status).toBeLessThan(400);
         const ingredients = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.ingredientIds = ingredients.map((i: any) => i.id);
         saveContext();
       }
@@ -54,8 +54,9 @@ describe('Suite 12: Ingredients & Recipe', () => {
       // Try to find an existing recipe
       const productId = testContext.created.productIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/recipes?productId=${productId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/ingredients/recipes?productId=${productId}`,
+      );
 
       if (res.status < 400) {
         const recipes = Array.isArray(res.body) ? res.body : res.body.data || [res.body];
@@ -68,9 +69,10 @@ describe('Suite 12: Ingredients & Recipe', () => {
 
       // Create a recipe linking product to ingredients
       const ingredientA = testContext.created.ingredientIds[0]; // Beras
-      const ingredientB = testContext.created.ingredientIds.length > 2
-        ? testContext.created.ingredientIds[2] // Minyak Goreng
-        : testContext.created.ingredientIds[0];
+      const ingredientB =
+        testContext.created.ingredientIds.length > 2
+          ? testContext.created.ingredientIds[2] // Minyak Goreng
+          : testContext.created.ingredientIds[0];
 
       const createRes = await authRequest(app, 'owner')
         .post('/api/v1/ingredients/recipes')
@@ -87,8 +89,9 @@ describe('Suite 12: Ingredients & Recipe', () => {
         console.log('Create recipe error:', createRes.status, createRes.body);
         // Recipe may already exist — try another product
         for (let i = 1; i < testContext.created.productIds.length; i++) {
-          const altRes = await authRequest(app, 'owner')
-            .get(`/api/v1/ingredients/recipes?productId=${testContext.created.productIds[i]}`);
+          const altRes = await authRequest(app, 'owner').get(
+            `/api/v1/ingredients/recipes?productId=${testContext.created.productIds[i]}`,
+          );
           if (altRes.status < 400) {
             const altRecipes = Array.isArray(altRes.body) ? altRes.body : [altRes.body];
             if (altRecipes.length > 0 && altRecipes[0]?.items?.length > 0) {
@@ -109,8 +112,7 @@ describe('Suite 12: Ingredients & Recipe', () => {
     it('should ensure ingredient stock exists', async () => {
       const outletId = testContext.outletId!;
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/ingredients/stock/${outletId}`);
 
       if (stockRes.status >= 400) {
         console.log('Ingredient stock check error:', stockRes.status);
@@ -121,6 +123,7 @@ describe('Suite 12: Ingredients & Recipe', () => {
 
       // Ensure each ingredient has stock
       for (const ingredientId of testContext.created.ingredientIds) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const existing = stocks.find((s: any) => s.ingredientId === ingredientId);
         const currentQty = existing ? Number(existing.quantity || existing.currentStock || 0) : 0;
 
@@ -134,27 +137,28 @@ describe('Suite 12: Ingredients & Recipe', () => {
             });
 
           if (adjustRes.status >= 400) {
-            console.log(`Ingredient stock adjust error for ${ingredientId}:`, adjustRes.status, adjustRes.body);
+            console.log(
+              `Ingredient stock adjust error for ${ingredientId}:`,
+              adjustRes.status,
+              adjustRes.body,
+            );
           }
         }
       }
     });
 
     it('should ensure an open shift exists', async () => {
-      const currentRes = await authRequest(app, 'cashier')
-        .get('/api/v1/employees/shifts/current');
+      const currentRes = await authRequest(app, 'cashier').get('/api/v1/employees/shifts/current');
 
       if (currentRes.status < 400 && currentRes.body?.id) {
         activeShiftId = currentRes.body.id;
         return;
       }
 
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/employees/shifts/start')
-        .send({
-          outletId: testContext.outletId,
-          openingCash: 500000,
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/employees/shifts/start').send({
+        outletId: testContext.outletId,
+        openingCash: 500000,
+      });
 
       expect(res.status).toBeLessThan(400);
       activeShiftId = res.body.shiftId || res.body.id;
@@ -170,8 +174,7 @@ describe('Suite 12: Ingredients & Recipe', () => {
     it('12.1 - should get ingredient stock levels', async () => {
       const outletId = testContext.outletId!;
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/ingredients/stock/${outletId}`);
 
       if (res.status >= 400) {
         console.log('12.1 ingredient stock error:', res.status, res.body);
@@ -195,10 +198,12 @@ describe('Suite 12: Ingredients & Recipe', () => {
       expect(activeShiftId).toBeDefined();
 
       // Get product price
-      const productRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/products`);
+      const productRes = await authRequest(app, 'owner').get(`/api/v1/inventory/products`);
       expect(productRes.status).toBeLessThan(400);
-      const products = Array.isArray(productRes.body) ? productRes.body : productRes.body.data || [];
+      const products = Array.isArray(productRes.body)
+        ? productRes.body
+        : productRes.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const product = products.find((p: any) => p.id === recipeProductId);
       const unitPrice = product ? Number(product.basePrice || product.price || 25000) : 25000;
       const totalAmount = Math.ceil(unitPrice * 10 * 1.2); // 20% buffer for tax
@@ -237,11 +242,11 @@ describe('Suite 12: Ingredients & Recipe', () => {
       const outletId = testContext.outletId!;
       const ingredientId = testContext.created.ingredientIds[0]; // Beras
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/ingredients/stock/${outletId}`);
 
       expect(res.status).toBeLessThan(400);
       const stocks = Array.isArray(res.body) ? res.body : res.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => (s.ingredientId || s.id) === ingredientId);
       const currentQty = item ? Number(item.quantity || item.currentStock || 0) : 0;
 
@@ -265,11 +270,11 @@ describe('Suite 12: Ingredients & Recipe', () => {
 
       const ingredientId = testContext.created.ingredientIds[2]; // Minyak Goreng
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/ingredients/stock/${outletId}`);
 
       expect(res.status).toBeLessThan(400);
       const stocks = Array.isArray(res.body) ? res.body : res.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => (s.ingredientId || s.id) === ingredientId);
       const currentQty = item ? Number(item.quantity || item.currentStock || 0) : 0;
 
@@ -288,8 +293,9 @@ describe('Suite 12: Ingredients & Recipe', () => {
   // ================================================================
   describe('12B - Low Stock Alerts & Cost History', () => {
     it('12.5 - should get low stock alerts', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/low-stock?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/ingredients/low-stock?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('12.5 low stock error:', res.status, res.body);
@@ -308,8 +314,9 @@ describe('Suite 12: Ingredients & Recipe', () => {
 
     it('12.6 - should get recipe cost history', async () => {
       // First get a recipe ID
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/recipes?productId=${recipeProductId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/ingredients/recipes?productId=${recipeProductId}`,
+      );
 
       if (res.status >= 400) {
         console.log('12.6 get recipe error:', res.status);
@@ -325,8 +332,9 @@ describe('Suite 12: Ingredients & Recipe', () => {
 
       const recipeId = recipes[0].id;
 
-      const costRes = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/recipes/${recipeId}/cost-history`);
+      const costRes = await authRequest(app, 'owner').get(
+        `/api/v1/ingredients/recipes/${recipeId}/cost-history`,
+      );
 
       if (costRes.status >= 400) {
         console.log('12.6 cost history error:', costRes.status, costRes.body);
@@ -353,21 +361,21 @@ describe('Suite 12: Ingredients & Recipe', () => {
       const outletId = testContext.outletId!;
 
       // Get current stock
-      const beforeRes = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const beforeRes = await authRequest(app, 'owner').get(
+        `/api/v1/ingredients/stock/${outletId}`,
+      );
       expect(beforeRes.status).toBeLessThan(400);
       const stocks = Array.isArray(beforeRes.body) ? beforeRes.body : beforeRes.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => (s.ingredientId || s.id) === ingredientId);
       stockBeforeAdjust = item ? Number(item.quantity || item.currentStock || 0) : 0;
 
       // Adjust stock (add 25)
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/ingredients/stock/adjust')
-        .send({
-          ingredientId,
-          quantity: 25,
-          notes: 'Manual adjustment test',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/ingredients/stock/adjust').send({
+        ingredientId,
+        quantity: 25,
+        notes: 'Manual adjustment test',
+      });
 
       if (res.status >= 400) {
         console.log('12.7 adjust error:', res.status, res.body);
@@ -381,11 +389,11 @@ describe('Suite 12: Ingredients & Recipe', () => {
       const ingredientId = testContext.created.ingredientIds[0];
       const outletId = testContext.outletId!;
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/ingredients/stock/${outletId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/ingredients/stock/${outletId}`);
 
       expect(res.status).toBeLessThan(400);
       const stocks = Array.isArray(res.body) ? res.body : res.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => (s.ingredientId || s.id) === ingredientId);
       const currentQty = item ? Number(item.quantity || item.currentStock || 0) : 0;
 

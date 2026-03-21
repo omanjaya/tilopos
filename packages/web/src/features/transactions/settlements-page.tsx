@@ -31,13 +31,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format';
 import { Banknote, CheckCircle2, Clock, XCircle, Eye, Loader2 } from 'lucide-react';
 import type { Settlement } from '@/types/settlement.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   pending: { label: 'Tertunda', variant: 'secondary' },
@@ -89,12 +88,7 @@ export function SettlementsPage() {
       toast.success({ title: 'Penyelesaian berhasil dikonfirmasi' });
       setDetailTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyelesaikan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyelesaikan'),
   });
 
   const totalSettled = settlements

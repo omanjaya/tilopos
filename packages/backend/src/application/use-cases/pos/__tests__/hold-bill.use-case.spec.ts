@@ -1,9 +1,11 @@
 import { HoldBillUseCase, HoldBillInput } from '../hold-bill.use-case';
 import { HeldBillStore } from '@infrastructure/cache/held-bill.store';
+import type { IProductRepository } from '@domain/interfaces/repositories/product.repository';
 
 describe('HoldBillUseCase', () => {
   let useCase: HoldBillUseCase;
   let mockHeldBillStore: jest.Mocked<HeldBillStore>;
+  let mockProductRepo: jest.Mocked<IProductRepository>;
 
   const baseInput: HoldBillInput = {
     outletId: 'outlet-1',
@@ -24,7 +26,19 @@ describe('HoldBillUseCase', () => {
       list: jest.fn(),
     } as unknown as jest.Mocked<HeldBillStore>;
 
-    useCase = new HoldBillUseCase(mockHeldBillStore);
+    mockProductRepo = {
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'prod-1', name: 'Test Product', basePrice: 25000 }),
+      findByBusinessId: jest.fn(),
+      findByCategoryId: jest.fn(),
+      findBySku: jest.fn(),
+      save: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    } as jest.Mocked<IProductRepository>;
+
+    useCase = new HoldBillUseCase(mockHeldBillStore, mockProductRepo);
   });
 
   it('should hold a bill successfully and return a billId', async () => {
@@ -49,11 +63,15 @@ describe('HoldBillUseCase', () => {
         employeeId: 'emp-1',
         tableId: 'table-5',
         customerName: 'John Doe',
-        items: baseInput.items,
         notes: 'VIP customer',
+        subtotal: expect.any(Number),
         heldAt: expect.any(String),
       }),
     );
+    // Verify items include price snapshots
+    const callArg = mockHeldBillStore.hold.mock.calls[0][0];
+    expect(callArg.items).toHaveLength(2);
+    expect(callArg.items[0]).toMatchObject({ productId: 'prod-1', quantity: 2, unitPrice: 25000 });
   });
 
   it('should generate a unique bill ID for each call', async () => {

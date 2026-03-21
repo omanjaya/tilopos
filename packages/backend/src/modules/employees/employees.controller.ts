@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
   Inject,
+  Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
@@ -18,7 +20,7 @@ import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
-import { EmployeeRole } from '../../shared/constants/roles';
+import { EmployeeRole, canManageRole } from '../../shared/constants/roles';
 import { EmployeeRole as PrismaEmployeeRole } from '@prisma/client';
 import { StartShiftUseCase } from '../../application/use-cases/employees/start-shift.use-case';
 import { EndShiftUseCase } from '../../application/use-cases/employees/end-shift.use-case';
@@ -45,6 +47,7 @@ import type { IEmployeeRepository } from '../../domain/interfaces/repositories/e
 import type { IShiftRepository } from '../../domain/interfaces/repositories/shift.repository';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { EmployeesService } from './employees.service';
+import { LogAuditEventUseCase } from '../../application/use-cases/audit/log-audit-event.use-case';
 import {
   decimalToNumberRequired,
   decimalToNumber,
@@ -56,16 +59,29 @@ import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('employees')
 export class EmployeesController {
+  private readonly logger = new Logger(EmployeesController.name);
+
   constructor(
     private readonly startShiftUseCase: StartShiftUseCase,
     private readonly endShiftUseCase: EndShiftUseCase,
     private readonly employeesService: EmployeesService,
+    private readonly logAuditEventUseCase: LogAuditEventUseCase,
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
     @Inject(REPOSITORY_TOKENS.SHIFT)
     private readonly shiftRepo: IShiftRepository,
     private readonly prisma: PrismaService,
   ) {}
+
+  private async verifyOutletAccess(outletId: string, user: AuthUser): Promise<void> {
+    const outlet = await this.prisma.outlet.findUnique({
+      where: { id: outletId },
+      select: { businessId: true },
+    });
+    if (!outlet || outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
 
   // ==========================================================================
   // Employee CRUD
@@ -106,6 +122,10 @@ export class EmployeesController {
   @Post()
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
   async createEmployee(@Body() dto: CreateEmployeeDto, @CurrentUser() user: AuthUser) {
+    if (!canManageRole(user.role, dto.role)) {
+      throw new ForbiddenException('You cannot assign a role equal to or higher than your own');
+    }
+
     let hashedPin: string | null = null;
     if (dto.pin) {
       hashedPin = await bcrypt.hash(dto.pin, 10);
@@ -114,14 +134,14 @@ export class EmployeesController {
     const created = await this.prisma.employee.create({
       data: {
         businessId: user.businessId,
-        outletId: dto.outletId || null,
+        outletId: dto.outletId ?? null,
         name: dto.name,
-        email: dto.email || null,
-        phone: dto.phone || null,
+        email: dto.email ?? null,
+        phone: dto.phone ?? null,
         pin: hashedPin,
         role: dto.role as PrismaEmployeeRole,
         permissions: [],
-        hourlyRate: dto.hourlyRate || null,
+        hourlyRate: dto.hourlyRate ?? null,
         isActive: true,
         mfaSecret: null,
         mfaEnabled: false,
@@ -144,6 +164,66 @@ export class EmployeesController {
       updatedAt: created.updatedAt.toISOString(),
     };
   }
+
+  // ==========================================================================
+  // Static routes MUST come before :id to avoid route conflict
+  // ==========================================================================
+
+  @Get('shifts/current')
+  async getCurrentShift(@CurrentUser() user: AuthUser) {
+    const shift = await this.shiftRepo.findOpenShift(user.employeeId);
+    return shift ?? { shift: null };
+  }
+
+  @Get('shifts/summary')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
+  async getShiftSummary(@Query() query: ShiftSummaryQueryDto, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(query.outletId, user);
+    return this.employeesService.getAllEmployeeShiftSummary(
+      query.outletId,
+      new Date(query.from),
+      new Date(query.to),
+    );
+  }
+
+  @Get('schedule')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
+  async getSchedule(@Query() query: ScheduleQueryDto, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(query.outletId, user);
+    return this.employeesService.getWeeklySchedule(query.outletId, new Date(query.weekStart));
+  }
+
+  @Get('commissions/summary')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
+  async getCommissionSummary(
+    @Query() query: CommissionSummaryQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyOutletAccess(query.outletId, user);
+    return this.employeesService.getAllEmployeeCommissionSummary(
+      query.outletId,
+      new Date(query.from),
+      new Date(query.to),
+    );
+  }
+
+  @Get('attendance/summary')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
+  async getAttendanceSummary(
+    @Query() query: AttendanceSummaryQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyOutletAccess(query.outletId, user);
+    return this.employeesService.getAttendanceSummary(
+      query.outletId,
+      new Date(query.from),
+      new Date(query.to),
+    );
+  }
+
+  // ==========================================================================
+  // Dynamic :id routes
+  // ==========================================================================
 
   @Get(':id')
   async getEmployee(@Param('id') id: string, @CurrentUser() user: AuthUser) {
@@ -186,9 +266,27 @@ export class EmployeesController {
   ) {
     const employee = await this.employeeRepo.findById(id);
     if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
 
     // Enforce outlet access (owner can update all)
     OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
+
+    // Validate role hierarchy: requester must outrank the target employee's current role
+    if (!canManageRole(user.role, employee.role)) {
+      throw new ForbiddenException(
+        'You cannot modify an employee with a role equal to or higher than your own',
+      );
+    }
+
+    // If changing role, validate requester outranks the new role as well
+    if (dto.role !== undefined && !canManageRole(user.role, dto.role)) {
+      throw new ForbiddenException('You cannot assign a role equal to or higher than your own');
+    }
+
+    // Capture old role before update for audit logging
+    const oldRole = employee.role;
 
     const updateData: Record<string, unknown> = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -202,7 +300,30 @@ export class EmployeesController {
       updateData.pin = await bcrypt.hash(dto.pin, 10);
     }
 
-    return this.employeeRepo.update(id, updateData);
+    const result = await this.employeeRepo.update(id, updateData);
+
+    // Audit log when role changes
+    if (dto.role !== undefined && dto.role !== oldRole) {
+      this.logger.log(
+        `Role changed: employee=${id} from=${oldRole} to=${dto.role} by=${user.employeeId}`,
+      );
+      this.logAuditEventUseCase
+        .execute({
+          businessId: user.businessId,
+          outletId: employee.outletId || undefined,
+          employeeId: user.employeeId,
+          action: 'CHANGE_ROLE',
+          entityType: 'employee',
+          entityId: id,
+          oldValue: { role: oldRole },
+          newValue: { role: dto.role },
+        })
+        .catch(() => {
+          /* ignore audit log failures */
+        });
+    }
+
+    return result;
   }
 
   @Delete(':id')
@@ -210,6 +331,9 @@ export class EmployeesController {
   async deleteEmployee(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     const employee = await this.employeeRepo.findById(id);
     if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
 
     // Enforce outlet access (owner can delete all)
     OutletAccessGuard.enforceOutletAccess(user, employee.outletId, 'employee');
@@ -241,13 +365,8 @@ export class EmployeesController {
       shiftId,
       employeeId: user.employeeId,
       closingCash: dto.closingCash,
+      notes: dto.notes,
     });
-  }
-
-  @Get('shifts/current')
-  async getCurrentShift(@CurrentUser() user: AuthUser) {
-    const shift = await this.shiftRepo.findOpenShift(user.employeeId);
-    return shift ?? null;
   }
 
   // ==========================================================================
@@ -323,11 +442,17 @@ export class EmployeesController {
   }
 
   @Post(':id/shifts/start')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Start a shift for a specific employee' })
   async startShiftForEmployee(
     @Param('id') employeeId: string,
     @Body() dto: { outletId: string; openingCash: number },
+    @CurrentUser() user: AuthUser,
   ) {
+    const employee = await this.employeeRepo.findById(employeeId);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
     return this.startShiftUseCase.execute({
       outletId: dto.outletId,
       employeeId,
@@ -336,11 +461,18 @@ export class EmployeesController {
   }
 
   @Post(':id/shifts/end')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'End the current shift for a specific employee' })
   async endShiftForEmployee(
     @Param('id') employeeId: string,
     @Body() dto: { closingCash: number; notes?: string },
+    @CurrentUser() user: AuthUser,
   ) {
+    const employee = await this.employeeRepo.findById(employeeId);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
+
     // Find the currently open shift for this employee
     const openShift = await this.shiftRepo.findOpenShift(employeeId);
     if (!openShift) throw new NotFoundException('No open shift found for this employee');
@@ -349,22 +481,13 @@ export class EmployeesController {
       shiftId: openShift.id,
       employeeId,
       closingCash: dto.closingCash,
+      notes: dto.notes,
     });
   }
 
   // ==========================================================================
   // 1. Shift Reports
   // ==========================================================================
-
-  @Get('shifts/summary')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getShiftSummary(@Query() query: ShiftSummaryQueryDto) {
-    return this.employeesService.getAllEmployeeShiftSummary(
-      query.outletId,
-      new Date(query.from),
-      new Date(query.to),
-    );
-  }
 
   @Get(':id/shifts/report')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
@@ -395,7 +518,9 @@ export class EmployeesController {
 
   @Post('schedule')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async createSchedule(@Body() dto: CreateScheduleDto) {
+  async createSchedule(@Body() dto: CreateScheduleDto, @CurrentUser() user: AuthUser) {
+    // Verify employee and outlet belong to user's business
+    await this.validateScheduleAccess(user.businessId, dto.employeeId, dto.outletId);
     return this.employeesService.createSchedule({
       employeeId: dto.employeeId,
       outletId: dto.outletId,
@@ -406,15 +531,16 @@ export class EmployeesController {
     });
   }
 
-  @Get('schedule')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getSchedule(@Query() query: ScheduleQueryDto) {
-    return this.employeesService.getWeeklySchedule(query.outletId, new Date(query.weekStart));
-  }
-
   @Put('schedule/:id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async updateSchedule(@Param('id') id: string, @Body() dto: UpdateScheduleDto) {
+  async updateSchedule(
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (dto.employeeId || dto.outletId) {
+      await this.validateScheduleAccess(user.businessId, dto.employeeId, dto.outletId);
+    }
     return this.employeesService.updateSchedule(id, {
       employeeId: dto.employeeId,
       outletId: dto.outletId,
@@ -427,23 +553,31 @@ export class EmployeesController {
 
   @Delete('schedule/:id')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async deleteSchedule(@Param('id') id: string) {
+  async deleteSchedule(@Param('id') id: string, @CurrentUser() _user: AuthUser) {
     return this.employeesService.deleteSchedule(id);
+  }
+
+  private async validateScheduleAccess(businessId: string, employeeId?: string, outletId?: string) {
+    if (employeeId) {
+      const employee = await this.employeeRepo.findById(employeeId);
+      if (!employee || employee.businessId !== businessId) {
+        throw new NotFoundException('Employee not found');
+      }
+    }
+    if (outletId) {
+      const outlet = await this.prisma.outlet.findFirst({
+        where: { id: outletId, businessId },
+        select: { id: true },
+      });
+      if (!outlet) {
+        throw new NotFoundException('Outlet not found');
+      }
+    }
   }
 
   // ==========================================================================
   // 3. Commission Calculator
   // ==========================================================================
-
-  @Get('commissions/summary')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getCommissionSummary(@Query() query: CommissionSummaryQueryDto) {
-    return this.employeesService.getAllEmployeeCommissionSummary(
-      query.outletId,
-      new Date(query.from),
-      new Date(query.to),
-    );
-  }
 
   @Get(':id/commissions')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
@@ -472,18 +606,12 @@ export class EmployeesController {
   // 4. Attendance Tracking
   // ==========================================================================
 
-  @Get('attendance/summary')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
-  async getAttendanceSummary(@Query() query: AttendanceSummaryQueryDto) {
-    return this.employeesService.getAttendanceSummary(
-      query.outletId,
-      new Date(query.from),
-      new Date(query.to),
-    );
-  }
-
   @Post(':id/attendance/clock-in')
-  async clockIn(@Param('id') id: string, @Body() dto: ClockInDto) {
+  async clockIn(@Param('id') id: string, @Body() dto: ClockInDto, @CurrentUser() user: AuthUser) {
+    const employee = await this.employeeRepo.findById(id);
+    if (!employee || employee.businessId !== user.businessId) {
+      throw new NotFoundException('Employee not found');
+    }
     return this.employeesService.clockIn(id, dto.outletId);
   }
 

@@ -36,11 +36,20 @@ export class TransactionEventListener implements OnModuleInit {
 
     for (const result of results) {
       if (result.status === 'rejected') {
+        const error =
+          result.reason instanceof Error ? result.reason : new Error(String(result.reason));
         this.logger.error(
-          `Event handler failed for transaction ${event.transactionId}:`,
-          result.reason,
+          `Event handler failed for transaction ${event.transactionId}: ${error.message}`,
+          error.stack,
         );
-        // TODO: Add to dead letter queue for retry
+        // TODO(reliability): Add failed event to a dead letter queue (e.g. BullMQ)
+        // for automatic retry with exponential backoff. Currently, failed side-effects
+        // (ingredient deduction, loyalty points, audit logging, cache invalidation) are
+        // logged but silently dropped. A DLQ would allow:
+        //   1. Automatic retries with configurable delay/backoff
+        //   2. Manual inspection of permanently failed events
+        //   3. Alerting when failure rate exceeds threshold
+        // See: https://docs.bullmq.io/ for BullMQ dead letter queue patterns
       }
     }
   }
@@ -144,6 +153,9 @@ export class TransactionEventListener implements OnModuleInit {
         points: pointsEarned,
         balanceAfter: totalPoints,
         description: 'Earned from transaction',
+        expiresAt: loyaltyProgram.pointExpiryDays
+          ? new Date(Date.now() + Number(loyaltyProgram.pointExpiryDays) * 24 * 60 * 60 * 1000)
+          : null,
       },
     });
 

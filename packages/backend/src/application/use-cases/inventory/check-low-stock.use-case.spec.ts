@@ -54,6 +54,8 @@ describe('CheckLowStockUseCase', () => {
       findLowStockItems: jest.fn(),
       updateStockLevel: jest.fn(),
       createStockMovement: jest.fn(),
+      findStockMovements: jest.fn().mockResolvedValue([]),
+      incrementStockLevel: jest.fn().mockResolvedValue({ id: 'sl-1', quantity: 0 }),
     };
 
     mockProductRepo = {

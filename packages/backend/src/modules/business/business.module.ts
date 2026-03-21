@@ -6,8 +6,10 @@ import { OutletTypeService } from './services/outlet-type.service';
 import { FeatureController } from './controllers/feature.controller';
 import { OutletFeatureController } from './controllers/outlet-feature.controller';
 import { FeatureGuard } from '@common/guards/feature.guard';
+import { TemplatesModule } from '../templates/templates.module';
 
 @Module({
+  imports: [TemplatesModule],
   controllers: [FeatureController, OutletFeatureController],
   providers: [
     FeatureService,

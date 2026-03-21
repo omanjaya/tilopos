@@ -23,10 +23,9 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Edit } from 'lucide-react';
 import type { Product, BulkUpdateProductsRequest } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface BulkEditModalProps {
   open: boolean;
@@ -114,6 +113,7 @@ export function BulkEditModal({
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
 
       if ('deleted' in result) {
         toast.success({
@@ -129,12 +129,7 @@ export function BulkEditModal({
       onComplete();
       onOpenChange(false);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: action === 'delete' ? 'Gagal menghapus produk' : 'Gagal mengupdate produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, action === 'delete' ? 'Gagal menghapus produk' : 'Gagal mengupdate produk'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -19,6 +19,7 @@ import {
   LogOut,
   User,
   Settings,
+  CreditCard,
   HelpCircle,
   BookOpen,
   Video,
@@ -50,12 +51,12 @@ export function HeaderUserMenu() {
   const openShortcutsDialog = useOpenShortcutsDialog();
   const modKey = getModKey();
 
-  const initials = user?.name
+  const initials = (user?.name ?? '')
     .split(' ')
     .map((n) => n[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2) ?? '';
+    .slice(0, 2) || '?';
 
   const handleLogout = () => {
     logout();
@@ -113,6 +114,12 @@ export function HeaderUserMenu() {
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>
           </DropdownMenuItem>
+          {['owner', 'super_admin'].includes(user?.role || '') && (
+            <DropdownMenuItem onClick={() => navigate('/app/subscription')} className="cursor-pointer">
+              <CreditCard className="mr-2 h-4 w-4" />
+              <span>Langganan & Billing</span>
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />

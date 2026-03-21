@@ -1,8 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import type { PaymentMethod } from '@prisma/client';
+import { Prisma, type PaymentMethod } from '@prisma/client';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
 import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
@@ -12,6 +12,7 @@ import { ErrorCode } from '@shared/constants/error-codes';
 import type { IShiftRepository } from '@domain/interfaces/repositories/shift.repository';
 import type { IProductRepository } from '@domain/interfaces/repositories/product.repository';
 import type { IInventoryRepository } from '@domain/interfaces/repositories/inventory.repository';
+import { TaxConfigurationRepository } from '@infrastructure/repositories/settings/tax-configuration.repository';
 
 export interface TransactionItemInput {
   productId?: string;
@@ -53,12 +54,15 @@ export interface CreateTransactionOutput {
   transactionId: string;
   receiptNumber: string;
   grandTotal: number;
+  roundingAmount: number;
   change: number;
   loyaltyPointsEarned: number;
 }
 
 @Injectable()
 export class CreateTransactionUseCase {
+  private readonly logger = new Logger(CreateTransactionUseCase.name);
+
   constructor(
     @Inject(REPOSITORY_TOKENS.SHIFT)
     private readonly shiftRepo: IShiftRepository,
@@ -68,6 +72,7 @@ export class CreateTransactionUseCase {
     private readonly inventoryRepo: IInventoryRepository,
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
+    private readonly taxConfigRepo: TaxConfigurationRepository,
   ) {}
 
   async execute(input: CreateTransactionInput): Promise<CreateTransactionOutput> {
@@ -86,6 +91,7 @@ export class CreateTransactionUseCase {
       quantity: number;
       subtotal: number;
       notes: string | null;
+      modifiers?: Array<{ modifierId: string; modifierName: string; price: number }>;
     }> = [];
 
     // Track bundle component stock deductions separately
@@ -149,13 +155,13 @@ export class CreateTransactionUseCase {
                 deductQty,
               );
             }
-          }
 
-          bundleStockDeductions.push({
-            productId: component.productId,
-            variantId: component.variantId || null,
-            quantity: deductQty,
-          });
+            bundleStockDeductions.push({
+              productId: component.productId,
+              variantId: component.variantId || null,
+              quantity: deductQty,
+            });
+          }
         }
       } else {
         // === EXISTING PRODUCT PATH ===
@@ -167,19 +173,51 @@ export class CreateTransactionUseCase {
           );
         }
 
-        const unitPrice = item.unitPrice ?? product.basePrice;
-        const itemSubtotal = unitPrice * item.quantity;
+        // Look up variant price if a variant is selected
+        let variantName: string | null = null;
+        let baseUnitPrice = product.basePrice;
+        if (item.variantId) {
+          const variant = await this.prisma.productVariant.findUnique({
+            where: { id: item.variantId },
+            select: { price: true, name: true },
+          });
+          if (variant) {
+            baseUnitPrice = Number(variant.price);
+            variantName = variant.name;
+          }
+        }
+
+        // Look up modifier prices
+        let modifierTotal = 0;
+        const modifierRecords: Array<{ modifierId: string; modifierName: string; price: number }> =
+          [];
+        if (item.modifierIds && item.modifierIds.length > 0) {
+          const modifiers = await this.prisma.modifier.findMany({
+            where: { id: { in: item.modifierIds } },
+            select: { id: true, name: true, price: true },
+          });
+          for (const mod of modifiers) {
+            const modPrice = Number(mod.price);
+            modifierTotal += modPrice;
+            modifierRecords.push({ modifierId: mod.id, modifierName: mod.name, price: modPrice });
+          }
+        }
+
+        const unitPrice = item.unitPrice ?? baseUnitPrice;
+        const unitPriceWithModifiers = unitPrice + modifierTotal;
+        const itemSubtotal = unitPriceWithModifiers * item.quantity;
 
         itemDetails.push({
           productId: item.productId!,
           variantId: item.variantId || null,
           bundleId: null,
           productName: product.name,
-          variantName: null,
-          unitPrice,
+          variantName,
+          unitPrice: unitPriceWithModifiers,
           quantity: item.quantity,
           subtotal: itemSubtotal,
           notes: item.notes || null,
+          modifiers: modifierRecords,
         });
 
         if (product.trackStock) {
@@ -189,7 +227,11 @@ export class CreateTransactionUseCase {
             item.variantId || null,
           );
           if (stockLevel && stockLevel.quantity < item.quantity) {
-            throw new InsufficientStockException(item.productId!, stockLevel.quantity, item.quantity);
+            throw new InsufficientStockException(
+              item.productId!,
+              stockLevel.quantity,
+              item.quantity,
+            );
           }
         }
       }
@@ -201,18 +243,48 @@ export class CreateTransactionUseCase {
     if (input.discounts) {
       for (const discount of input.discounts) {
         if (discount.type === 'percentage') {
+          if (discount.value > 100) {
+            throw new BusinessError(
+              ErrorCode.INVALID_PAYMENT,
+              'Percentage discount cannot exceed 100%',
+            );
+          }
           discountAmount += subtotal * (discount.value / 100);
         } else {
           discountAmount += discount.value;
         }
       }
+      // Cap total discount at subtotal
+      discountAmount = Math.min(discountAmount, subtotal);
     }
 
-    const taxRate = 0.11;
+    const taxConfig = await this.taxConfigRepo.getTaxConfig(input.outletId);
+    const taxRate = taxConfig.taxRate / 100;
+    const serviceChargeRate = taxConfig.serviceCharge / 100;
     const taxableAmount = subtotal - discountAmount;
-    const taxAmount = Math.round(taxableAmount * taxRate);
-    const serviceCharge = 0;
-    const grandTotal = taxableAmount + taxAmount + serviceCharge;
+    const serviceCharge =
+      input.orderType === 'dine_in' ? Math.round(taxableAmount * serviceChargeRate) : 0;
+
+    let taxAmount: number;
+
+    let rawTotal: number;
+
+    if (taxConfig.taxInclusive) {
+      // Tax-inclusive: prices already include tax, back-calculate tax for display
+      taxAmount = Math.round(((taxableAmount + serviceCharge) * taxRate) / (1 + taxRate));
+      rawTotal = taxableAmount + serviceCharge;
+    } else {
+      // Tax-exclusive: add tax on top of subtotal
+      taxAmount = Math.round((taxableAmount + serviceCharge) * taxRate);
+      rawTotal = taxableAmount + serviceCharge + taxAmount;
+    }
+
+    // Round to nearest 500 (Indonesian Rupiah convention) and track the rounding difference.
+    // The Transaction model does not have a dedicated rounding column, so the rounding
+    // amount is documented here for transparency. If a `roundingAmount` column is added
+    // to the schema in the future, set it on the transaction record.
+    const grandTotal = Math.round(rawTotal / 500) * 500;
+    const roundingAmount = grandTotal - rawTotal;
 
     const totalPayments = input.payments.reduce((sum, p) => sum + p.amount, 0);
     if (totalPayments < grandTotal) {
@@ -224,7 +296,7 @@ export class CreateTransactionUseCase {
 
     const change = totalPayments - grandTotal;
 
-    const receiptNumber = `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const receiptNumber = `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const transactionId = crypto.randomUUID();
 
     // ATOMIC TRANSACTION: Create transaction + deduct stock + create movements
@@ -254,9 +326,9 @@ export class CreateTransactionUseCase {
         },
       });
 
-      // 2. Create transaction items
+      // 2. Create transaction items + modifier records
       for (const item of itemDetails) {
-        await tx.transactionItem.create({
+        const txItem = await tx.transactionItem.create({
           data: {
             transactionId: txn.id,
             productId: item.productId,
@@ -271,6 +343,20 @@ export class CreateTransactionUseCase {
             notes: item.notes,
           },
         });
+
+        // Create modifier records for this item
+        if (item.modifiers && item.modifiers.length > 0) {
+          for (const mod of item.modifiers) {
+            await tx.transactionItemModifier.create({
+              data: {
+                transactionItemId: txItem.id,
+                modifierId: mod.modifierId,
+                modifierName: mod.modifierName,
+                price: mod.price,
+              },
+            });
+          }
+        }
       }
 
       // 3. Create payments
@@ -304,17 +390,25 @@ export class CreateTransactionUseCase {
       }
 
       // 5. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
-      const stockChanges: Array<{ productId: string; variantId: string | null; previousQty: number; newQty: number }> = [];
+      const stockChanges: Array<{
+        productId: string;
+        variantId: string | null;
+        previousQty: number;
+        newQty: number;
+      }> = [];
 
       // 5a. Deduct stock for bundle components
       for (const deduction of bundleStockDeductions) {
-        const stockLevel = await tx.stockLevel.findFirst({
-          where: {
-            outletId: input.outletId,
-            productId: deduction.productId,
-            variantId: deduction.variantId,
-          },
-        });
+        // Use FOR UPDATE to prevent race conditions with concurrent transactions
+        const stockLevels = await tx.$queryRaw<Array<{ id: string; quantity: number }>>`
+          SELECT id, quantity FROM stock_levels
+          WHERE outlet_id = ${input.outletId}::uuid
+            AND product_id = ${deduction.productId}::uuid
+            AND variant_id ${deduction.variantId ? Prisma.sql`= ${deduction.variantId}::uuid` : Prisma.sql`IS NULL`}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        const stockLevel = stockLevels[0];
 
         if (!stockLevel) continue;
 
@@ -344,7 +438,12 @@ export class CreateTransactionUseCase {
           },
         });
 
-        stockChanges.push({ productId: deduction.productId, variantId: deduction.variantId, previousQty: currentQty, newQty });
+        stockChanges.push({
+          productId: deduction.productId,
+          variantId: deduction.variantId,
+          previousQty: currentQty,
+          newQty,
+        });
       }
 
       // 5b. Deduct stock for regular product items (skip bundle items)
@@ -358,16 +457,23 @@ export class CreateTransactionUseCase {
         if (!product?.trackStock) continue;
 
         // Find stock level with FOR UPDATE lock to prevent race conditions
-        const stockLevel = await tx.stockLevel.findFirst({
-          where: {
-            outletId: input.outletId,
-            productId: item.productId!,
-            variantId: item.variantId || null,
-          },
-        });
+        const stockLevels = await tx.$queryRaw<Array<{ id: string; quantity: number }>>`
+          SELECT id, quantity FROM stock_levels
+          WHERE outlet_id = ${input.outletId}::uuid
+            AND product_id = ${item.productId!}::uuid
+            AND variant_id ${item.variantId ? Prisma.sql`= ${item.variantId}::uuid` : Prisma.sql`IS NULL`}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        const stockLevel = stockLevels[0];
 
         if (!stockLevel) {
-          throw new InsufficientStockException(item.productId!, 0, item.quantity);
+          // No stock level record means stock hasn't been initialized for this outlet.
+          // Skip deduction rather than blocking the sale.
+          this.logger.warn(
+            `Stock level record missing for product ${item.productId} (variant: ${item.variantId ?? 'none'}) at outlet ${input.outletId}. Skipping stock deduction.`,
+          );
+          continue;
         }
 
         const currentQty = Number(stockLevel.quantity);
@@ -398,7 +504,12 @@ export class CreateTransactionUseCase {
           },
         });
 
-        stockChanges.push({ productId: item.productId!, variantId: item.variantId, previousQty: currentQty, newQty });
+        stockChanges.push({
+          productId: item.productId!,
+          variantId: item.variantId,
+          previousQty: currentQty,
+          newQty,
+        });
       }
 
       return { txn, stockChanges };
@@ -416,7 +527,13 @@ export class CreateTransactionUseCase {
     // Publish stock change events so inventory displays update in real-time
     for (const sc of transactionRecord.stockChanges) {
       this.eventBus.publish(
-        new StockLevelChangedEvent(input.outletId, sc.productId, sc.variantId, sc.previousQty, sc.newQty),
+        new StockLevelChangedEvent(
+          input.outletId,
+          sc.productId,
+          sc.variantId,
+          sc.previousQty,
+          sc.newQty,
+        ),
       );
     }
 
@@ -424,12 +541,44 @@ export class CreateTransactionUseCase {
     // which listens to TransactionCreatedEvent and creates the order using
     // CreateOrderUseCase for proper event emission and KDS notification
 
+    // Calculate loyalty points earned synchronously so the response includes the actual value.
+    // The async event listener will still handle the actual point accrual.
+    let loyaltyPointsEarned = 0;
+    if (input.customerId) {
+      try {
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: input.customerId },
+        });
+        if (customer?.isActive) {
+          const loyaltyProgram = await this.prisma.loyaltyProgram.findFirst({
+            where: { businessId: customer.businessId, isActive: true },
+          });
+          if (loyaltyProgram) {
+            const amountPerPoint = Number(loyaltyProgram.pointsPerAmount);
+            if (amountPerPoint > 0) {
+              const tiers = await this.prisma.loyaltyTier.findMany({
+                where: { businessId: customer.businessId, isActive: true },
+                orderBy: { sortOrder: 'asc' },
+              });
+              const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
+              const multiplier = currentTier ? Number(currentTier.pointMultiplier) : 1;
+              loyaltyPointsEarned = Math.floor((grandTotal / amountPerPoint) * multiplier);
+            }
+          }
+        }
+      } catch {
+        // Non-critical: if loyalty calculation fails, return 0 rather than failing the transaction
+        loyaltyPointsEarned = 0;
+      }
+    }
+
     return {
       transactionId: transactionRecord.txn.id,
       receiptNumber,
       grandTotal,
+      roundingAmount,
       change,
-      loyaltyPointsEarned: 0,
+      loyaltyPointsEarned,
     };
   }
 }

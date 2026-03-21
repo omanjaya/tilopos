@@ -1,8 +1,18 @@
 import { Controller, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
-import { IsBoolean, IsString, IsNotEmpty, IsArray, ValidateNested } from 'class-validator';
+import {
+  IsBoolean,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
+import { RolesGuard } from '@infrastructure/auth/roles.guard';
+import { Roles } from '@infrastructure/auth/roles.decorator';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import { EmployeeRole } from '@shared/constants/roles';
 import { FeatureService, type BusinessFeatureDto } from '../services/feature.service';
 import { BusinessTypeService, type BusinessTypeInfo } from '../services/business-type.service';
 import { type BusinessTypePreset } from '@config/business-types.config';
@@ -33,6 +43,10 @@ class ChangeBusinessTypeDto {
   @IsString()
   @IsNotEmpty()
   businessType!: string;
+
+  @IsString()
+  @IsOptional()
+  outletId?: string;
 }
 
 // Response interfaces
@@ -78,6 +92,17 @@ interface ChangeTypeResponse {
   previousType: string;
   newType: string;
   featuresEnabled: number;
+  templateApplied: boolean;
+  dataReset: {
+    outletProductsDeactivated: number;
+    tablesDeactivated: number;
+  };
+  templateData?: {
+    categories: number;
+    products: number;
+    modifierGroups: number;
+    tables: number;
+  };
 }
 
 interface FeatureRegistryResponse {
@@ -86,7 +111,8 @@ interface FeatureRegistryResponse {
 }
 
 @Controller('business')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 export class FeatureController {
   constructor(
     private readonly featureService: FeatureService,
@@ -131,6 +157,20 @@ export class FeatureController {
   }
 
   /**
+   * PUT /business/features/bulk
+   * Bulk update multiple features at once
+   * NOTE: Must be defined BEFORE features/:featureKey to avoid route conflict
+   */
+  @Put('features/bulk')
+  @HttpCode(HttpStatus.OK)
+  async bulkUpdateFeatures(
+    @CurrentUser() user: { businessId: string },
+    @Body() dto: BulkUpdateFeaturesDto,
+  ): Promise<BulkUpdateResponse> {
+    return this.featureService.bulkUpdateFeatures(user.businessId, dto.features);
+  }
+
+  /**
    * PUT /business/features/:featureKey
    * Toggle a specific feature on/off
    */
@@ -142,19 +182,6 @@ export class FeatureController {
     @Body() dto: ToggleFeatureDto,
   ): Promise<ToggleFeatureResponse> {
     return this.featureService.toggleFeature(user.businessId, featureKey, dto.isEnabled);
-  }
-
-  /**
-   * PUT /business/features/bulk
-   * Bulk update multiple features at once
-   */
-  @Put('features/bulk')
-  @HttpCode(HttpStatus.OK)
-  async bulkUpdateFeatures(
-    @CurrentUser() user: { businessId: string },
-    @Body() dto: BulkUpdateFeaturesDto,
-  ): Promise<BulkUpdateResponse> {
-    return this.featureService.bulkUpdateFeatures(user.businessId, dto.features);
   }
 
   /**
@@ -190,15 +217,16 @@ export class FeatureController {
 
   /**
    * PUT /business/type
-   * Change business type and reset features to preset
+   * Change business type, soft-delete old data, and apply new template
    */
   @Put('type')
   @HttpCode(HttpStatus.OK)
   async changeBusinessType(
-    @CurrentUser() user: { businessId: string },
+    @CurrentUser() user: { businessId: string; outletId: string | null },
     @Body() dto: ChangeBusinessTypeDto,
   ): Promise<ChangeTypeResponse> {
-    return this.businessTypeService.changeBusinessType(user.businessId, dto.businessType);
+    const outletId = dto.outletId ?? user.outletId ?? undefined;
+    return this.businessTypeService.changeBusinessType(user.businessId, dto.businessType, outletId);
   }
 
   /**

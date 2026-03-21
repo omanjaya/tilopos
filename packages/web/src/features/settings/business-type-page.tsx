@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { featuresApi, type BusinessTypePreset } from '@/api/endpoints/features.api';
 import { useFeatureStore } from '@/stores/feature.store';
 import { PageHeader } from '@/components/shared/page-header';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { cn } from '@/lib/utils';
 import {
   CheckCircle2, Loader2, Utensils, Coffee, Beef, ShoppingCart, Shirt,
@@ -77,12 +79,14 @@ function PresetCard({
 
 export function BusinessTypePage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
   const setBusinessType = useFeatureStore((s) => s.setBusinessType);
+  const setOutletType = useFeatureStore((s) => s.setOutletType);
   const currentType = useFeatureStore((s) => s.businessType);
+  const currentOutletId = useFeatureStore((s) => s.currentOutletId);
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const { data: presetsData, isLoading: presetsLoading } = useQuery({
     queryKey: ['business-type-presets'],
@@ -99,17 +103,39 @@ export function BusinessTypePage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['business-type'] });
       queryClient.invalidateQueries({ queryKey: ['business-features-by-category'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['modifiers'] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
       setBusinessType(result.newType);
-      // Refresh enabled features for sidebar
-      featuresApi.getEnabledFeatures().then(setEnabledFeatures);
-      toast({
+      setOutletType(result.newType);
+      // Refresh enabled features — outlet-level for POS, fallback to business-level
+      if (currentOutletId) {
+        featuresApi.getOutletEnabledFeatures(currentOutletId).then(setEnabledFeatures).catch(() => {
+          featuresApi.getEnabledFeatures().then(setEnabledFeatures);
+        });
+      } else {
+        featuresApi.getEnabledFeatures().then(setEnabledFeatures);
+      }
+
+      const parts: string[] = [`${result.featuresEnabled} fitur telah diaktifkan`];
+      if (result.templateApplied && result.templateData) {
+        const td = result.templateData;
+        parts.push(
+          `${td.categories} kategori, ${td.products} produk, ${td.modifierGroups} modifier group, ${td.tables} meja dibuat dari template`,
+        );
+      }
+      toast.success({
         title: 'Tipe bisnis berhasil diubah',
-        description: `${result.featuresEnabled} fitur telah diaktifkan`,
+        description: parts.join('. '),
       });
       setSelectedType(null);
+      setShowConfirmDialog(false);
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: 'Gagal mengubah tipe bisnis' });
+    onError: (error) => {
+      handleMutationError(error, 'Gagal mengubah tipe bisnis');
+      setShowConfirmDialog(false);
     },
   });
 
@@ -186,7 +212,7 @@ export function BusinessTypePage() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => changeMutation.mutate(selectedType)}
+                  onClick={() => setShowConfirmDialog(true)}
                   disabled={changeMutation.isPending}
                 >
                   {changeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -197,6 +223,22 @@ export function BusinessTypePage() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showConfirmDialog}
+        onOpenChange={setShowConfirmDialog}
+        title="Ubah Tipe Bisnis?"
+        description="Data produk, kategori, modifier, dan meja yang ada akan dinonaktifkan dan diganti dengan template baru sesuai tipe bisnis yang dipilih. Data lama tidak dihapus dan bisa diaktifkan kembali secara manual."
+        confirmLabel="Ya, Ubah"
+        cancelLabel="Batal"
+        variant="destructive"
+        isLoading={changeMutation.isPending}
+        onConfirm={() => {
+          if (selectedType) {
+            changeMutation.mutate(selectedType);
+          }
+        }}
+      />
     </div>
   );
 }

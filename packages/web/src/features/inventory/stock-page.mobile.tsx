@@ -36,8 +36,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { StockLevel } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 /**
  * StockPage Mobile Version
@@ -71,6 +70,7 @@ export function StockPage() {
   const [adjustType, setAdjustType] = useState<'add' | 'remove' | 'set'>('add');
   const [adjustQuantity, setAdjustQuantity] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
+  const [adjustUnitCost, setAdjustUnitCost] = useState('');
 
   const { data: stockData, isLoading } = useQuery({
     queryKey: ['stock-levels', outletId],
@@ -85,12 +85,7 @@ export function StockPage() {
       toast.success({ title: 'Stok berhasil disesuaikan' });
       closeAdjustDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyesuaikan stok',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyesuaikan stok'),
   });
 
   const metrics = useMemo(() => {
@@ -133,6 +128,7 @@ export function StockPage() {
     setAdjustType('add');
     setAdjustQuantity('');
     setAdjustReason('');
+    setAdjustUnitCost('');
     setAdjustDialogOpen(true);
   }
 
@@ -142,6 +138,7 @@ export function StockPage() {
     setAdjustType('add');
     setAdjustQuantity('');
     setAdjustReason('');
+    setAdjustUnitCost('');
   }
 
   function handleAdjustSubmit() {
@@ -152,6 +149,9 @@ export function StockPage() {
       quantity: Number(adjustQuantity),
       reason: adjustReason,
       type: adjustType,
+      ...(adjustType === 'add' && adjustUnitCost && Number(adjustUnitCost) > 0
+        ? { unitCost: Number(adjustUnitCost) }
+        : {}),
     });
   }
 
@@ -413,6 +413,24 @@ export function StockPage() {
                 className="h-12 mt-2"
               />
             </div>
+
+            {/* Unit Cost (only for add) */}
+            {adjustType === 'add' && (
+              <div>
+                <Label>Harga Satuan / Rp (opsional)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={adjustUnitCost}
+                  onChange={(e) => setAdjustUnitCost(e.target.value)}
+                  placeholder="Harga beli per unit"
+                  className="h-12 mt-2"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Jika diisi, HPP dihitung ulang (moving average)
+                </p>
+              </div>
+            )}
 
             {/* Reason */}
             <div>

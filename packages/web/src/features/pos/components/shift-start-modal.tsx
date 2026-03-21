@@ -93,88 +93,74 @@ export function ShiftStartModal({
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-        <DialogHeader>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
-              <Store className="h-5 w-5 text-primary" />
+      <DialogContent className="sm:max-w-sm p-4" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogHeader className="pb-0">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10">
+              <Store className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <DialogTitle>Mulai Shift Kerja</DialogTitle>
+              <DialogTitle className="text-base">Mulai Shift</DialogTitle>
+              <DialogDescription className="text-xs">
+                {greeting}, {user?.name || 'Kasir'} {user?.outletName ? `\u2022 ${user.outletName}` : ''}
+              </DialogDescription>
             </div>
           </div>
-          <DialogDescription>
-            {greeting}, {user?.name || 'Kasir'}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Outlet Info */}
-          {user?.outletName && (
-            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-              <span className="text-sm text-muted-foreground">Outlet</span>
-              <span className="font-medium">{user.outletName}</span>
-            </div>
-          )}
-
+        <div className="space-y-3 pt-1">
           {/* Opening Cash Display */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Kas Awal</label>
-            <div className="bg-muted/30 rounded-lg p-4 border-2 border-dashed border-muted-foreground/20">
-              <p className="text-3xl font-bold tabular-nums text-center">
-                {formatCurrency(openingCash)}
-              </p>
-            </div>
+          <div className="bg-muted/30 rounded-lg p-2.5 border border-muted-foreground/15">
+            <p className="text-xs text-muted-foreground text-center mb-0.5">Kas Awal</p>
+            <p className="text-2xl font-bold tabular-nums text-center">
+              {formatCurrency(openingCash)}
+            </p>
           </div>
 
           {/* Quick Amount Buttons */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground">Jumlah Cepat</label>
-            <div className="grid grid-cols-4 gap-2">
-              {QUICK_AMOUNTS.map((amount) => (
-                <Button
-                  key={amount}
-                  variant={openingCash === amount ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleQuickAmount(amount)}
-                  disabled={isSubmitting}
-                  className="h-9 text-sm font-medium"
-                >
-                  {formatCurrency(amount).replace('Rp ', '')}
-                </Button>
-              ))}
-            </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {QUICK_AMOUNTS.map((amount) => (
+              <Button
+                key={amount}
+                variant={openingCash === amount ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleQuickAmount(amount)}
+                disabled={isSubmitting}
+                className="h-8 text-xs font-medium"
+              >
+                {(amount / 1000).toLocaleString('id-ID')}rb
+              </Button>
+            ))}
           </div>
 
-          {/* Numpad */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground">Input Manual</label>
-            <NumPad
-              value={inputValue}
-              onChange={handleInputChange}
-              onSubmit={handleSubmit}
-            />
-          </div>
+          {/* Compact Numpad */}
+          <NumPad
+            value={inputValue}
+            onChange={handleInputChange}
+            className="gap-1.5 [&_button]:h-10 [&_button]:text-base"
+          />
         </div>
 
-        {/* Action Button */}
-        <div className="flex gap-2">
+        {/* Action Buttons */}
+        <div className="flex gap-2 pt-1">
           <Button
             variant="outline"
-            className="flex-1"
+            size="sm"
+            className="flex-1 h-9"
             onClick={onClose}
             disabled={isSubmitting}
           >
             Batal
           </Button>
           <Button
-            className="flex-1 h-10"
+            size="sm"
+            className="flex-1 h-9"
             onClick={handleSubmit}
             disabled={openingCash <= 0 || isSubmitting}
           >
             {isSubmitting ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                 Memproses...
               </>
             ) : (

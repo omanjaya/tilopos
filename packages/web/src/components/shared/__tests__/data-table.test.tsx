@@ -109,7 +109,8 @@ describe('DataTable', () => {
       );
 
       // 5 rows * 2 columns = 10 skeleton elements
-      const skeletons = container.querySelectorAll('.animate-pulse');
+      // The Skeleton component uses 'bg-muted' class with custom shimmer animation
+      const skeletons = container.querySelectorAll('.bg-muted');
       expect(skeletons).toHaveLength(10);
     });
   });

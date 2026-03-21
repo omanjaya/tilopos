@@ -10,12 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatDateTime } from '@/lib/format';
 import { CheckCheck, Search } from 'lucide-react';
 import type { NotificationSetting, NotificationLog } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   low_stock: 'Stok Rendah',
@@ -37,7 +36,6 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [recipientId, setRecipientId] = useState('');
   const [searchRecipient, setSearchRecipient] = useState('');
 
@@ -57,30 +55,18 @@ export function NotificationsPage() {
       settingsApi.updateNotificationSetting(id, { isEnabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
-      toast({ title: 'Pengaturan notifikasi diperbarui' });
+      toast.success({ title: 'Pengaturan notifikasi diperbarui' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal memperbarui pengaturan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui pengaturan'),
   });
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => settingsApi.markNotificationRead(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notification-logs'] });
-      toast({ title: 'Notifikasi ditandai sudah dibaca' });
+      toast.success({ title: 'Notifikasi ditandai sudah dibaca' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal memperbarui notifikasi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui notifikasi'),
   });
 
   const handleSearchLogs = (e: React.FormEvent) => {

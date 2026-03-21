@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
@@ -74,10 +74,14 @@ export function TodayTransactionsSheet({
 }: TodayTransactionsSheetProps) {
     const [search, setSearch] = useState('');
 
-    // Get today's date range
-    const today = new Date();
-    const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-    const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+    // Get today's date range (use separate Date instances to avoid mutation)
+    const { startOfDay, endOfDay } = useMemo(() => {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        return { startOfDay: start.toISOString(), endOfDay: end.toISOString() };
+    }, []);
 
     const {
         data: transactions,

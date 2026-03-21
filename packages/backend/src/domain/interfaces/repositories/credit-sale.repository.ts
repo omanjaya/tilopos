@@ -29,6 +29,7 @@ export interface CreditPaymentRecord {
 }
 
 export interface CreditSaleFilters {
+  businessId?: string;
   outletId?: string;
   customerId?: string;
   status?: string;
@@ -48,7 +49,11 @@ export interface ICreditSaleRepository {
   findById(id: string): Promise<CreditSaleRecord | null>;
   findByTransactionId(transactionId: string): Promise<CreditSaleRecord | null>;
   findAll(filters: CreditSaleFilters): Promise<CreditSaleRecord[]>;
-  findByCustomerId(customerId: string, status?: string): Promise<CreditSaleRecord[]>;
+  findByCustomerId(
+    customerId: string,
+    status?: string,
+    businessId?: string,
+  ): Promise<CreditSaleRecord[]>;
   getCustomerOutstanding(
     businessId: string,
     outletId?: string,

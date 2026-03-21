@@ -3,11 +3,7 @@ import { applyTheme, getSavedTheme, themes, type BrandTheme } from '@/config/the
 import {
     Navigation,
     HeroSection,
-    TrustedBySection,
     FeaturesSection,
-    PricingSection,
-    TestimonialsSection,
-    FAQSection,
     CTASection,
     Footer
 } from '@/features/landing/components';
@@ -31,11 +27,7 @@ export function LandingPage() {
         <div className="min-h-screen" style={{ backgroundColor: 'var(--brand-bg)' }}>
             <Navigation currentTheme={currentTheme} onThemeChange={handleThemeChange} />
             <HeroSection />
-            <TrustedBySection />
             <FeaturesSection />
-            <PricingSection />
-            <TestimonialsSection />
-            <FAQSection />
             <CTASection />
             <Footer />
         </div>

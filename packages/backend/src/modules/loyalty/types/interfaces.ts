@@ -96,4 +96,5 @@ export interface ILoyaltyRepository {
 
   // Customer operations
   updateCustomerPoints(customerId: string, points: number, tier?: string): Promise<Customer>;
+  incrementCustomerPoints(customerId: string, pointsDelta: number): Promise<Customer>;
 }

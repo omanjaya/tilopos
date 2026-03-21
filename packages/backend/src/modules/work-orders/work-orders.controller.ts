@@ -114,7 +114,7 @@ export class WorkOrdersController {
   }
 
   @Get(':id/total')
-  async calculateTotal(@Param('id') id: string) {
-    return this.workOrdersService.calculateTotal(id);
+  async calculateTotal(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.workOrdersService.calculateTotal(id, user.businessId);
   }
 }

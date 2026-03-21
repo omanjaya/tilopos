@@ -138,7 +138,7 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
       'retail_electronics',
       'wholesale',
     ],
-    menuPaths: ['/app/inventory/stock'],
+    menuPaths: ['/app/inventory/stock', '/app/inventory/stock-opname'],
     icon: 'Warehouse',
   },
   {

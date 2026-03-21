@@ -85,7 +85,7 @@ export function UpgradePrompt({ open, onOpenChange, featureName }: UpgradePrompt
               className="flex-1"
               onClick={() => {
                 onOpenChange(false);
-                navigate('/app/settings/billing');
+                navigate('/app/subscription');
               }}
             >
               <Zap className="mr-1.5 h-4 w-4" />
@@ -115,7 +115,7 @@ export function UpgradeBanner({ className }: UpgradeBannerProps) {
         <p className="text-sm font-medium">Upgrade ke Premium</p>
         <p className="text-xs text-muted-foreground">Akses semua fitur untuk mengembangkan bisnis Anda</p>
       </div>
-      <Button size="sm" variant="default" onClick={() => navigate('/app/settings/billing')}>
+      <Button size="sm" variant="default" onClick={() => navigate('/app/subscription')}>
         <Zap className="mr-1 h-3.5 w-3.5" />
         Upgrade
       </Button>

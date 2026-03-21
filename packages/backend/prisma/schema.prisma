@@ -91,6 +91,7 @@ enum TransactionStatus {
   partially_refunded
   credit
   partially_paid
+  split
 
   @@map("transaction_status")
 }
@@ -167,8 +168,18 @@ enum StockMovementType {
   transfer_out
   waste
   return_stock
+  opname
 
   @@map("stock_movement_type")
+}
+
+enum StockOpnameStatus {
+  draft
+  in_progress
+  completed
+  cancelled
+
+  @@map("stock_opname_status")
 }
 
 enum IngredientStockMovementType {
@@ -358,51 +369,51 @@ enum CustomerType {
 // ============================================================================
 
 model Business {
-  id                    String            @id @default(uuid()) @db.Uuid
-  name                  String            @db.VarChar(255)
-  legalName             String?           @map("legal_name") @db.VarChar(255)
-  taxId                 String?           @map("tax_id") @db.VarChar(50)
-  phone                 String?           @db.VarChar(20)
-  email                 String?           @db.VarChar(255)
-  address               String?           @db.Text
-  logoUrl               String?           @map("logo_url") @db.VarChar(500)
-  subscriptionPlan      SubscriptionPlan  @default(free) @map("subscription_plan")
-  subscriptionExpiresAt DateTime?         @map("subscription_expires_at") @db.Timestamptz()
-  settings              Json              @default("{}") @db.JsonB
-  status                BusinessStatus    @default(active)
-  
+  id                    String           @id @default(uuid()) @db.Uuid
+  name                  String           @db.VarChar(255)
+  legalName             String?          @map("legal_name") @db.VarChar(255)
+  taxId                 String?          @map("tax_id") @db.VarChar(50)
+  phone                 String?          @db.VarChar(20)
+  email                 String?          @db.VarChar(255)
+  address               String?          @db.Text
+  logoUrl               String?          @map("logo_url") @db.VarChar(500)
+  subscriptionPlan      SubscriptionPlan @default(free) @map("subscription_plan")
+  subscriptionExpiresAt DateTime?        @map("subscription_expires_at") @db.Timestamptz()
+  settings              Json             @default("{}") @db.JsonB
+  status                BusinessStatus   @default(active)
+
   // Business Type Configuration (Universal POS)
-  businessType          String            @default("custom") @map("business_type") @db.VarChar(30)
-  businessTypeSetAt     DateTime?         @map("business_type_set_at") @db.Timestamptz()
-  
-  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  businessType      String    @default("custom") @map("business_type") @db.VarChar(30)
+  businessTypeSetAt DateTime? @map("business_type_set_at") @db.Timestamptz()
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlets               Outlet[]
-  employees             Employee[]
-  categories            Category[]
-  products              Product[]
-  customers             Customer[]
-  modifierGroups        ModifierGroup[]
-  ingredients           Ingredient[]
-  suppliers             Supplier[]
-  stockTransfers        StockTransfer[]
-  loyaltyTiers          LoyaltyTier[]
-  loyaltyPrograms       LoyaltyProgram[]
-  auditLogs             AuditLog[]
-  devices               Device[]
-  notificationSettings  NotificationSetting[]
-  notificationLogs      NotificationLog[]
-  onlineStores          OnlineStore[]
-  promotions            Promotion[]
-  vouchers              Voucher[]
-  reportTemplates       ReportTemplate[]
-  features              BusinessFeature[]
-  pricingRules          PricingRule[]
-  bundlePackages        BundlePackage[]
-  subscriptions         Subscription[]
-  invoices              Invoice[]
+  outlets              Outlet[]
+  employees            Employee[]
+  categories           Category[]
+  products             Product[]
+  customers            Customer[]
+  modifierGroups       ModifierGroup[]
+  ingredients          Ingredient[]
+  suppliers            Supplier[]
+  stockTransfers       StockTransfer[]
+  loyaltyTiers         LoyaltyTier[]
+  loyaltyPrograms      LoyaltyProgram[]
+  auditLogs            AuditLog[]
+  devices              Device[]
+  notificationSettings NotificationSetting[]
+  notificationLogs     NotificationLog[]
+  onlineStores         OnlineStore[]
+  promotions           Promotion[]
+  vouchers             Voucher[]
+  reportTemplates      ReportTemplate[]
+  features             BusinessFeature[]
+  pricingRules         PricingRule[]
+  bundlePackages       BundlePackage[]
+  subscriptions        Subscription[]
+  invoices             Invoice[]
 
   @@map("businesses")
 }
@@ -412,17 +423,17 @@ model Business {
 // ============================================================================
 
 model BusinessFeature {
-  id              String    @id @default(uuid()) @db.Uuid
-  businessId      String    @map("business_id") @db.Uuid
-  featureKey      String    @map("feature_key") @db.VarChar(50)
-  isEnabled       Boolean   @default(true) @map("is_enabled")
-  enabledAt       DateTime? @map("enabled_at") @db.Timestamptz()
-  disabledAt      DateTime? @map("disabled_at") @db.Timestamptz()
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  featureKey String    @map("feature_key") @db.VarChar(50)
+  isEnabled  Boolean   @default(true) @map("is_enabled")
+  enabledAt  DateTime? @map("enabled_at") @db.Timestamptz()
+  disabledAt DateTime? @map("disabled_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, featureKey])
   @@index([businessId, isEnabled])
@@ -434,62 +445,63 @@ model BusinessFeature {
 // ============================================================================
 
 model Outlet {
-  id                    String    @id @default(uuid()) @db.Uuid
-  businessId            String    @map("business_id") @db.Uuid
-  name                  String    @db.VarChar(255)
-  code                  String?   @unique @db.VarChar(20)
-  address               String?   @db.Text
-  phone                 String?   @db.VarChar(20)
-  email                 String?   @db.VarChar(255)
-  timezone              String    @default("Asia/Jakarta") @db.VarChar(50)
-  taxRate               Decimal   @default(11.00) @map("tax_rate") @db.Decimal(5, 2)
-  serviceCharge         Decimal   @default(0) @map("service_charge") @db.Decimal(5, 2)
-  receiptHeader         String?   @map("receipt_header") @db.Text
-  receiptFooter         String?   @map("receipt_footer") @db.Text
-  settings              Json      @default("{}") @db.JsonB
-  isActive              Boolean   @default(true) @map("is_active")
+  id            String  @id @default(uuid()) @db.Uuid
+  businessId    String  @map("business_id") @db.Uuid
+  name          String  @db.VarChar(255)
+  code          String? @unique @db.VarChar(20)
+  address       String? @db.Text
+  phone         String? @db.VarChar(20)
+  email         String? @db.VarChar(255)
+  timezone      String  @default("Asia/Jakarta") @db.VarChar(50)
+  taxRate       Decimal @default(11.00) @map("tax_rate") @db.Decimal(5, 2)
+  serviceCharge Decimal @default(0) @map("service_charge") @db.Decimal(5, 2)
+  receiptHeader String? @map("receipt_header") @db.Text
+  receiptFooter String? @map("receipt_footer") @db.Text
+  settings      Json    @default("{}") @db.JsonB
+  isActive      Boolean @default(true) @map("is_active")
 
   // Outlet-level business type (allows different types per outlet)
-  outletType            String    @default("custom") @map("outlet_type") @db.VarChar(30)
-  outletTypeSetAt       DateTime? @map("outlet_type_set_at") @db.Timestamptz()
+  outletType      String    @default("custom") @map("outlet_type") @db.VarChar(30)
+  outletTypeSetAt DateTime? @map("outlet_type_set_at") @db.Timestamptz()
 
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business  @relation(fields: [businessId], references: [id])
-  employees             Employee[]
-  stockLevels           StockLevel[]
-  stockMovements        StockMovement[]
-  transactions          Transaction[]
-  shifts                Shift[]
-  tables                Table[]
-  orders                Order[]
-  ingredientStockLevels IngredientStockLevel[]
+  business                 Business                  @relation(fields: [businessId], references: [id])
+  employees                Employee[]
+  stockLevels              StockLevel[]
+  stockMovements           StockMovement[]
+  transactions             Transaction[]
+  shifts                   Shift[]
+  tables                   Table[]
+  orders                   Order[]
+  ingredientStockLevels    IngredientStockLevel[]
   ingredientStockMovements IngredientStockMovement[]
-  purchaseOrders        PurchaseOrder[]
-  sourceTransfers       StockTransfer[]   @relation("SourceOutlet")
-  destinationTransfers  StockTransfer[]   @relation("DestinationOutlet")
-  auditLogs             AuditLog[]
-  paymentSettlements    PaymentSettlement[]
-  onlineOrders          OnlineOrder[]
-  devices               Device[]
-  notificationSettings  NotificationSetting[]
-  notificationLogs      NotificationLog[]
-  selfOrderSessions     SelfOrderSession[]
-  storeOrders           StoreOrder[]
-  waitingList           WaitingList[]
-  employeeSchedules     EmployeeSchedule[]
-  employeeAttendances   EmployeeAttendance[]
-  batchLots             BatchLot[]
-  appointments          Appointment[]
-  workOrders            WorkOrder[]
-  serialNumbers         SerialNumber[]
-  serviceItems          ServiceItem[]
-  creditSales           CreditSale[]
-  outletFeatures        OutletFeature[]
-  outletProducts        OutletProduct[]
-  bundlePackageOutlets  BundlePackageOutlet[]
+  purchaseOrders           PurchaseOrder[]
+  sourceTransfers          StockTransfer[]           @relation("SourceOutlet")
+  destinationTransfers     StockTransfer[]           @relation("DestinationOutlet")
+  auditLogs                AuditLog[]
+  paymentSettlements       PaymentSettlement[]
+  onlineOrders             OnlineOrder[]
+  devices                  Device[]
+  notificationSettings     NotificationSetting[]
+  notificationLogs         NotificationLog[]
+  selfOrderSessions        SelfOrderSession[]
+  storeOrders              StoreOrder[]
+  waitingList              WaitingList[]
+  employeeSchedules        EmployeeSchedule[]
+  employeeAttendances      EmployeeAttendance[]
+  batchLots                BatchLot[]
+  appointments             Appointment[]
+  workOrders               WorkOrder[]
+  serialNumbers            SerialNumber[]
+  serviceItems             ServiceItem[]
+  creditSales              CreditSale[]
+  outletFeatures           OutletFeature[]
+  outletProducts           OutletProduct[]
+  bundlePackageOutlets     BundlePackageOutlet[]
+  stockOpnames             StockOpname[]
 
   @@index([businessId], map: "idx_outlets_business")
   @@map("outlets")
@@ -500,17 +512,17 @@ model Outlet {
 // ============================================================================
 
 model OutletFeature {
-  id              String    @id @default(uuid()) @db.Uuid
-  outletId        String    @map("outlet_id") @db.Uuid
-  featureKey      String    @map("feature_key") @db.VarChar(50)
-  isEnabled       Boolean   @default(true) @map("is_enabled")
-  enabledAt       DateTime? @map("enabled_at") @db.Timestamptz()
-  disabledAt      DateTime? @map("disabled_at") @db.Timestamptz()
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id         String    @id @default(uuid()) @db.Uuid
+  outletId   String    @map("outlet_id") @db.Uuid
+  featureKey String    @map("feature_key") @db.VarChar(50)
+  isEnabled  Boolean   @default(true) @map("is_enabled")
+  enabledAt  DateTime? @map("enabled_at") @db.Timestamptz()
+  disabledAt DateTime? @map("disabled_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, featureKey])
   @@index([outletId, isEnabled])
@@ -522,16 +534,16 @@ model OutletFeature {
 // ============================================================================
 
 model OutletProduct {
-  id              String    @id @default(uuid()) @db.Uuid
-  outletId        String    @map("outlet_id") @db.Uuid
-  productId       String    @map("product_id") @db.Uuid
-  isActive        Boolean   @default(true) @map("is_active")
-  sortOrder       Int       @default(0) @map("sort_order")
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  outletId  String   @map("outlet_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, productId])
   @@index([outletId])
@@ -544,51 +556,54 @@ model OutletProduct {
 // ============================================================================
 
 model Employee {
-  id                    String        @id @default(uuid()) @db.Uuid
-  businessId            String        @map("business_id") @db.Uuid
-  outletId              String?       @map("outlet_id") @db.Uuid
-  name                  String        @db.VarChar(255)
-  email                 String?       @db.VarChar(255)
-  phone                 String?       @db.VarChar(20)
-  pin                   String?       @db.VarChar(255)
-  role                  EmployeeRole
-  permissions           Json          @default("[]") @db.JsonB
-  hourlyRate            Decimal?      @map("hourly_rate") @db.Decimal(10, 2)
-  isActive              Boolean       @default(true) @map("is_active")
-  mfaSecret             String?       @map("mfa_secret") @db.VarChar(500)
-  mfaEnabled            Boolean       @default(false) @map("mfa_enabled")
-  googleId              String?       @map("google_id") @db.VarChar(255)
-  authProvider          String        @default("local") @map("auth_provider") @db.VarChar(20)
-  onboardingCompleted   Boolean       @default(false) @map("onboarding_completed")
-  profilePhotoUrl       String?       @map("profile_photo_url") @db.VarChar(500)
-  preferences           Json?         @db.JsonB
-  lastLoginAt           DateTime?     @map("last_login_at") @db.Timestamptz()
-  lastLoginIp           String?       @map("last_login_ip") @db.VarChar(45)
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                  String       @id @default(uuid()) @db.Uuid
+  businessId          String       @map("business_id") @db.Uuid
+  outletId            String?      @map("outlet_id") @db.Uuid
+  name                String       @db.VarChar(255)
+  email               String?      @db.VarChar(255)
+  phone               String?      @db.VarChar(20)
+  pin                 String?      @db.VarChar(255)
+  role                EmployeeRole
+  permissions         Json         @default("[]") @db.JsonB
+  hourlyRate          Decimal?     @map("hourly_rate") @db.Decimal(10, 2)
+  isActive            Boolean      @default(true) @map("is_active")
+  mfaSecret           String?      @map("mfa_secret") @db.VarChar(500)
+  mfaEnabled          Boolean      @default(false) @map("mfa_enabled")
+  googleId            String?      @map("google_id") @db.VarChar(255)
+  authProvider        String       @default("local") @map("auth_provider") @db.VarChar(20)
+  emailVerified       Boolean      @default(false) @map("email_verified")
+  onboardingCompleted Boolean      @default(false) @map("onboarding_completed")
+  profilePhotoUrl     String?      @map("profile_photo_url") @db.VarChar(500)
+  preferences         Json?        @db.JsonB
+  lastLoginAt         DateTime?    @map("last_login_at") @db.Timestamptz()
+  lastLoginIp         String?      @map("last_login_ip") @db.VarChar(45)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business      @relation(fields: [businessId], references: [id])
-  outlet                Outlet?       @relation(fields: [outletId], references: [id])
-  shifts                Shift[]
-  transactions          Transaction[] @relation("TransactionEmployee")
-  voidedTransactions    Transaction[] @relation("TransactionVoidedBy")
-  stockMovements        StockMovement[]
+  business                 Business                  @relation(fields: [businessId], references: [id])
+  outlet                   Outlet?                   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  shifts                   Shift[]
+  transactions             Transaction[]             @relation("TransactionEmployee")
+  voidedTransactions       Transaction[]             @relation("TransactionVoidedBy")
+  stockMovements           StockMovement[]
   ingredientStockMovements IngredientStockMovement[]
-  purchaseOrders        PurchaseOrder[]
-  requestedTransfers    StockTransfer[] @relation("TransferRequestedBy")
-  approvedTransfers     StockTransfer[] @relation("TransferApprovedBy")
-  receivedTransfers     StockTransfer[] @relation("TransferReceivedBy")
-  loyaltyTransactions   LoyaltyTransaction[]
-  auditLogs             AuditLog[]
-  notificationSettings  NotificationSetting[]
-  notificationLogs      NotificationLog[]
-  schedules             EmployeeSchedule[]
-  attendances           EmployeeAttendance[]
-  appointments          Appointment[]
-  workOrders            WorkOrder[]
-  creditSalesCreated    CreditSale[]    @relation("CreditSaleCreatedBy")
-  creditPaymentsReceived CreditPayment[] @relation("CreditPaymentReceivedBy")
+  purchaseOrders           PurchaseOrder[]
+  requestedTransfers       StockTransfer[]           @relation("TransferRequestedBy")
+  approvedTransfers        StockTransfer[]           @relation("TransferApprovedBy")
+  receivedTransfers        StockTransfer[]           @relation("TransferReceivedBy")
+  loyaltyTransactions      LoyaltyTransaction[]
+  auditLogs                AuditLog[]
+  notificationSettings     NotificationSetting[]
+  notificationLogs         NotificationLog[]
+  schedules                EmployeeSchedule[]
+  attendances              EmployeeAttendance[]
+  appointments             Appointment[]
+  workOrders               WorkOrder[]
+  creditSalesCreated       CreditSale[]              @relation("CreditSaleCreatedBy")
+  creditPaymentsReceived   CreditPayment[]           @relation("CreditPaymentReceivedBy")
+  createdOpnames           StockOpname[]             @relation("OpnameCreatedBy")
+  approvedOpnames          StockOpname[]             @relation("OpnameApprovedBy")
 
   @@index([businessId], map: "idx_employees_business")
   @@index([outletId], map: "idx_employees_outlet")
@@ -600,19 +615,19 @@ model Employee {
 // ============================================================================
 
 model EmployeeSchedule {
-  id              String    @id @default(uuid()) @db.Uuid
-  employeeId      String    @map("employee_id") @db.Uuid
-  outletId        String    @map("outlet_id") @db.Uuid
-  date            DateTime  @db.Date
-  startTime       String    @map("start_time") @db.VarChar(5)
-  endTime         String    @map("end_time") @db.VarChar(5)
-  notes           String?   @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  outletId   String   @map("outlet_id") @db.Uuid
+  date       DateTime @db.Date
+  startTime  String   @map("start_time") @db.VarChar(5)
+  endTime    String   @map("end_time") @db.VarChar(5)
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  employee        Employee  @relation(fields: [employeeId], references: [id])
-  outlet          Outlet    @relation(fields: [outletId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  outlet   Outlet   @relation(fields: [outletId], references: [id])
 
   @@index([employeeId], map: "idx_schedule_employee")
   @@index([outletId, date], map: "idx_schedule_outlet_date")
@@ -632,18 +647,18 @@ enum AttendanceStatus {
 }
 
 model EmployeeAttendance {
-  id              String            @id @default(uuid()) @db.Uuid
-  employeeId      String            @map("employee_id") @db.Uuid
-  outletId        String            @map("outlet_id") @db.Uuid
-  clockInTime     DateTime          @map("clock_in_time") @db.Timestamptz()
-  clockOutTime    DateTime?         @map("clock_out_time") @db.Timestamptz()
-  hoursWorked     Decimal?          @map("hours_worked") @db.Decimal(5, 2)
-  status          AttendanceStatus  @default(present)
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  id           String           @id @default(uuid()) @db.Uuid
+  employeeId   String           @map("employee_id") @db.Uuid
+  outletId     String           @map("outlet_id") @db.Uuid
+  clockInTime  DateTime         @map("clock_in_time") @db.Timestamptz()
+  clockOutTime DateTime?        @map("clock_out_time") @db.Timestamptz()
+  hoursWorked  Decimal?         @map("hours_worked") @db.Decimal(5, 2)
+  status       AttendanceStatus @default(present)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  employee        Employee          @relation(fields: [employeeId], references: [id])
-  outlet          Outlet            @relation(fields: [outletId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  outlet   Outlet   @relation(fields: [outletId], references: [id])
 
   @@index([employeeId], map: "idx_attendance_employee")
   @@index([outletId, clockInTime], map: "idx_attendance_outlet_date")
@@ -655,21 +670,21 @@ model EmployeeAttendance {
 // ============================================================================
 
 model Category {
-  id          String     @id @default(uuid()) @db.Uuid
-  businessId  String     @map("business_id") @db.Uuid
-  parentId    String?    @map("parent_id") @db.Uuid
-  name        String     @db.VarChar(255)
-  description String?    @db.Text
-  imageUrl    String?    @map("image_url") @db.VarChar(500)
-  sortOrder   Int        @default(0) @map("sort_order")
-  isActive    Boolean    @default(true) @map("is_active")
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  parentId    String?  @map("parent_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url") @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business    Business   @relation(fields: [businessId], references: [id])
-  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id])
-  children    Category[] @relation("CategoryParent")
-  products    Product[]
+  business Business   @relation(fields: [businessId], references: [id])
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryParent")
+  products Product[]
 
   @@index([businessId], map: "idx_categories_business")
   @@map("categories")
@@ -680,26 +695,26 @@ model Category {
 // ============================================================================
 
 model Product {
-  id                    String                @id @default(uuid()) @db.Uuid
-  businessId            String                @map("business_id") @db.Uuid
-  categoryId            String?               @map("category_id") @db.Uuid
-  sku                   String?               @db.VarChar(100)
-  barcode               String?               @db.VarChar(100)
-  name                  String                @db.VarChar(255)
-  description           String?               @db.Text
-  imageUrl              String?               @map("image_url") @db.VarChar(500)
-  basePrice             Decimal               @map("base_price") @db.Decimal(15, 2)
-  costPrice             Decimal?              @map("cost_price") @db.Decimal(15, 2)
-  hasVariants           Boolean               @default(false) @map("has_variants")
-  trackStock            Boolean               @default(true) @map("track_stock")
-  sellUnit              String?               @map("sell_unit") @db.VarChar(30)
-  isActive              Boolean               @default(true) @map("is_active")
-  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  categoryId  String?  @map("category_id") @db.Uuid
+  sku         String?  @db.VarChar(100)
+  barcode     String?  @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url") @db.VarChar(500)
+  basePrice   Decimal  @map("base_price") @db.Decimal(15, 2)
+  costPrice   Decimal? @map("cost_price") @db.Decimal(15, 2)
+  hasVariants Boolean  @default(false) @map("has_variants")
+  trackStock  Boolean  @default(true) @map("track_stock")
+  sellUnit    String?  @map("sell_unit") @db.VarChar(30)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business              @relation(fields: [businessId], references: [id])
-  category              Category?             @relation(fields: [categoryId], references: [id])
+  business              Business               @relation(fields: [businessId], references: [id])
+  category              Category?              @relation(fields: [categoryId], references: [id])
   variants              ProductVariant[]
   stockLevels           StockLevel[]
   stockMovements        StockMovement[]
@@ -717,6 +732,8 @@ model Product {
   serialNumbers         SerialNumber[]
   outletProducts        OutletProduct[]
   bundlePackageItems    BundlePackageItem[]
+  stockOpnameItems      StockOpnameItem[]
+  costPriceHistory      CostPriceHistory[]
 
   @@unique([businessId, sku], map: "uq_products_business_sku")
   @@unique([businessId, barcode], map: "uq_products_business_barcode")
@@ -725,6 +742,7 @@ model Product {
   @@index([sku], map: "idx_products_sku")
   @@index([barcode], map: "idx_products_barcode")
   @@index([businessId, isActive], map: "idx_products_business_active")
+  @@index([businessId, createdAt])
   @@map("products")
 }
 
@@ -733,28 +751,30 @@ model Product {
 // ============================================================================
 
 model ProductVariant {
-  id                    String                @id @default(uuid()) @db.Uuid
-  productId             String                @map("product_id") @db.Uuid
-  sku                   String?               @db.VarChar(100)
-  barcode               String?               @db.VarChar(100)
-  name                  String                @db.VarChar(255)
-  price                 Decimal               @db.Decimal(15, 2)
-  costPrice             Decimal?              @map("cost_price") @db.Decimal(15, 2)
-  isActive              Boolean               @default(true) @map("is_active")
-  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  sku       String?  @db.VarChar(100)
+  barcode   String?  @db.VarChar(100)
+  name      String   @db.VarChar(255)
+  price     Decimal  @db.Decimal(15, 2)
+  costPrice Decimal? @map("cost_price") @db.Decimal(15, 2)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  product               Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stockLevels           StockLevel[]
-  stockMovements        StockMovement[]
-  transactionItems      TransactionItem[]
-  orderItems            OrderItem[]
-  recipes               Recipe[]
-  purchaseOrderItems    PurchaseOrderItem[]
-  stockTransferItems    StockTransferItem[]
-  selfOrderItems        SelfOrderItem[]
-  storeOrderItems       StoreOrderItem[]
-  bundlePackageItems    BundlePackageItem[]
+  product            Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockLevels        StockLevel[]
+  stockMovements     StockMovement[]
+  transactionItems   TransactionItem[]
+  orderItems         OrderItem[]
+  recipes            Recipe[]
+  purchaseOrderItems PurchaseOrderItem[]
+  stockTransferItems StockTransferItem[]
+  selfOrderItems     SelfOrderItem[]
+  storeOrderItems    StoreOrderItem[]
+  bundlePackageItems BundlePackageItem[]
+  stockOpnameItems   StockOpnameItem[]
+  costPriceHistory   CostPriceHistory[]
 
   @@index([productId], map: "idx_variants_product")
   @@map("product_variants")
@@ -765,22 +785,23 @@ model ProductVariant {
 // ============================================================================
 
 model StockLevel {
-  id              String          @id @default(uuid()) @db.Uuid
-  outletId        String          @map("outlet_id") @db.Uuid
-  productId       String?         @map("product_id") @db.Uuid
-  variantId       String?         @map("variant_id") @db.Uuid
-  quantity        Decimal         @default(0) @db.Decimal(15, 3)
-  lowStockAlert   Int             @default(10) @map("low_stock_alert")
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String   @id @default(uuid()) @db.Uuid
+  outletId      String   @map("outlet_id") @db.Uuid
+  productId     String?  @map("product_id") @db.Uuid
+  variantId     String?  @map("variant_id") @db.Uuid
+  quantity      Decimal  @default(0) @db.Decimal(15, 3)
+  lowStockAlert Int      @default(10) @map("low_stock_alert")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet          @relation(fields: [outletId], references: [id])
-  product         Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant         ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  outlet  Outlet          @relation(fields: [outletId], references: [id])
+  product Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, productId, variantId], map: "uq_stock_outlet_product_variant")
   @@index([outletId], map: "idx_stock_outlet")
   @@index([outletId, productId], map: "idx_stock_outlet_product")
+  @@index([outletId, quantity])
   @@map("stock_levels")
 }
 
@@ -789,26 +810,28 @@ model StockLevel {
 // ============================================================================
 
 model StockMovement {
-  id              String              @id @default(uuid()) @db.Uuid
-  outletId        String              @map("outlet_id") @db.Uuid
-  productId       String?             @map("product_id") @db.Uuid
-  variantId       String?             @map("variant_id") @db.Uuid
-  movementType    StockMovementType   @map("movement_type")
-  quantity        Decimal             @db.Decimal(15, 3)
-  referenceId     String?             @map("reference_id") @db.Uuid
-  referenceType   String?             @map("reference_type") @db.VarChar(50)
-  notes           String?             @db.Text
-  createdBy       String?             @map("created_by") @db.Uuid
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  id            String            @id @default(uuid()) @db.Uuid
+  outletId      String            @map("outlet_id") @db.Uuid
+  productId     String?           @map("product_id") @db.Uuid
+  variantId     String?           @map("variant_id") @db.Uuid
+  movementType  StockMovementType @map("movement_type")
+  quantity      Decimal           @db.Decimal(15, 3)
+  referenceId   String?           @map("reference_id") @db.Uuid
+  referenceType String?           @map("reference_type") @db.VarChar(50)
+  notes         String?           @db.Text
+  createdBy     String?           @map("created_by") @db.Uuid
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet              @relation(fields: [outletId], references: [id])
-  product         Product?            @relation(fields: [productId], references: [id])
-  variant         ProductVariant?     @relation(fields: [variantId], references: [id])
-  employee        Employee?           @relation(fields: [createdBy], references: [id])
+  outlet   Outlet          @relation(fields: [outletId], references: [id])
+  product  Product?        @relation(fields: [productId], references: [id])
+  variant  ProductVariant? @relation(fields: [variantId], references: [id])
+  employee Employee?       @relation(fields: [createdBy], references: [id])
 
   @@index([outletId], map: "idx_stock_movements_outlet")
   @@index([createdAt], map: "idx_stock_movements_date")
+  @@index([outletId, productId, variantId], map: "idx_stock_movements_product")
+  @@index([referenceId, referenceType], map: "idx_stock_movements_reference")
   @@map("stock_movements")
 }
 
@@ -817,45 +840,47 @@ model StockMovement {
 // ============================================================================
 
 model Transaction {
-  id                String              @id @default(uuid()) @db.Uuid
-  outletId          String              @map("outlet_id") @db.Uuid
-  employeeId        String?             @map("employee_id") @db.Uuid
-  customerId        String?             @map("customer_id") @db.Uuid
-  shiftId           String?             @map("shift_id") @db.Uuid
-  receiptNumber     String              @unique @map("receipt_number") @db.VarChar(50)
-  transactionType   TransactionType     @default(sale) @map("transaction_type")
-  orderType         OrderType           @default(dine_in) @map("order_type")
-  tableId           String?             @map("table_id") @db.Uuid
-  subtotal          Decimal             @db.Decimal(15, 2)
-  discountAmount    Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
-  taxAmount         Decimal             @default(0) @map("tax_amount") @db.Decimal(15, 2)
-  serviceCharge     Decimal             @default(0) @map("service_charge") @db.Decimal(15, 2)
-  grandTotal        Decimal             @map("grand_total") @db.Decimal(15, 2)
-  notes             String?             @db.Text
-  status            TransactionStatus   @default(completed)
-  voidedAt          DateTime?           @map("voided_at") @db.Timestamptz()
-  voidedBy          String?             @map("voided_by") @db.Uuid
-  voidReason        String?             @map("void_reason") @db.Text
-  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String            @id @default(uuid()) @db.Uuid
+  outletId        String            @map("outlet_id") @db.Uuid
+  employeeId      String?           @map("employee_id") @db.Uuid
+  customerId      String?           @map("customer_id") @db.Uuid
+  shiftId         String?           @map("shift_id") @db.Uuid
+  receiptNumber   String            @map("receipt_number") @db.VarChar(50)
+  transactionType TransactionType   @default(sale) @map("transaction_type")
+  orderType       OrderType         @default(dine_in) @map("order_type")
+  tableId         String?           @map("table_id") @db.Uuid
+  subtotal        Decimal           @db.Decimal(15, 2)
+  discountAmount  Decimal           @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  taxAmount       Decimal           @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  serviceCharge   Decimal           @default(0) @map("service_charge") @db.Decimal(15, 2)
+  grandTotal      Decimal           @map("grand_total") @db.Decimal(15, 2)
+  notes           String?           @db.Text
+  status          TransactionStatus @default(completed)
+  voidedAt        DateTime?         @map("voided_at") @db.Timestamptz()
+  voidedBy        String?           @map("voided_by") @db.Uuid
+  voidReason      String?           @map("void_reason") @db.Text
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet            Outlet              @relation(fields: [outletId], references: [id])
-  employee          Employee?           @relation("TransactionEmployee", fields: [employeeId], references: [id])
-  customer          Customer?           @relation(fields: [customerId], references: [id])
-  shift             Shift?              @relation(fields: [shiftId], references: [id])
-  table             Table?              @relation(fields: [tableId], references: [id])
-  voidedByEmployee  Employee?           @relation("TransactionVoidedBy", fields: [voidedBy], references: [id])
-  items             TransactionItem[]
-  payments          Payment[]
-  onlineOrders      OnlineOrder[]
+  outlet              Outlet               @relation(fields: [outletId], references: [id])
+  employee            Employee?            @relation("TransactionEmployee", fields: [employeeId], references: [id])
+  customer            Customer?            @relation(fields: [customerId], references: [id])
+  shift               Shift?               @relation(fields: [shiftId], references: [id])
+  table               Table?               @relation(fields: [tableId], references: [id])
+  voidedByEmployee    Employee?            @relation("TransactionVoidedBy", fields: [voidedBy], references: [id])
+  items               TransactionItem[]
+  payments            Payment[]
+  onlineOrders        OnlineOrder[]
   loyaltyTransactions LoyaltyTransaction[]
-  creditSales       CreditSale[]
+  creditSales         CreditSale[]
 
+  @@unique([outletId, receiptNumber], map: "uq_receipt_per_outlet")
   @@index([outletId], map: "idx_transactions_outlet")
   @@index([createdAt], map: "idx_transactions_date")
   @@index([receiptNumber], map: "idx_transactions_receipt")
   @@index([outletId, createdAt(sort: Desc)], map: "idx_transactions_outlet_date")
+  @@index([outletId, status, createdAt])
   @@map("transactions")
 }
 
@@ -864,26 +889,26 @@ model Transaction {
 // ============================================================================
 
 model TransactionItem {
-  id                String                    @id @default(uuid()) @db.Uuid
-  transactionId     String                    @map("transaction_id") @db.Uuid
-  productId         String?                   @map("product_id") @db.Uuid
-  variantId         String?                   @map("variant_id") @db.Uuid
-  productName       String                    @map("product_name") @db.VarChar(255)
-  variantName       String?                   @map("variant_name") @db.VarChar(255)
-  quantity          Decimal                   @db.Decimal(10, 3)
-  unitPrice         Decimal                   @map("unit_price") @db.Decimal(15, 2)
-  discountAmount    Decimal                   @default(0) @map("discount_amount") @db.Decimal(15, 2)
-  subtotal          Decimal                   @db.Decimal(15, 2)
-  bundleId          String?                   @map("bundle_id") @db.Uuid
-  notes             String?                   @db.Text
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+  id             String   @id @default(uuid()) @db.Uuid
+  transactionId  String   @map("transaction_id") @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  variantId      String?  @map("variant_id") @db.Uuid
+  productName    String   @map("product_name") @db.VarChar(255)
+  variantName    String?  @map("variant_name") @db.VarChar(255)
+  quantity       Decimal  @db.Decimal(10, 3)
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(15, 2)
+  discountAmount Decimal  @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  subtotal       Decimal  @db.Decimal(15, 2)
+  bundleId       String?  @map("bundle_id") @db.Uuid
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  transaction       Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  product           Product?                  @relation(fields: [productId], references: [id])
-  variant           ProductVariant?           @relation(fields: [variantId], references: [id])
-  bundle            BundlePackage?            @relation(fields: [bundleId], references: [id])
-  modifiers         TransactionItemModifier[]
+  transaction Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     Product?                  @relation(fields: [productId], references: [id])
+  variant     ProductVariant?           @relation(fields: [variantId], references: [id])
+  bundle      BundlePackage?            @relation(fields: [bundleId], references: [id])
+  modifiers   TransactionItemModifier[]
 
   @@index([transactionId], map: "idx_trans_items_transaction")
   @@map("transaction_items")
@@ -894,17 +919,17 @@ model TransactionItem {
 // ============================================================================
 
 model Payment {
-  id                String          @id @default(uuid()) @db.Uuid
-  transactionId     String          @map("transaction_id") @db.Uuid
-  paymentMethod     PaymentMethod   @map("payment_method")
-  amount            Decimal         @db.Decimal(15, 2)
-  referenceNumber   String?         @map("reference_number") @db.VarChar(100)
-  status            PaymentStatus   @default(completed)
-  metadata          Json            @default("{}") @db.JsonB
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id              String        @id @default(uuid()) @db.Uuid
+  transactionId   String        @map("transaction_id") @db.Uuid
+  paymentMethod   PaymentMethod @map("payment_method")
+  amount          Decimal       @db.Decimal(15, 2)
+  referenceNumber String?       @map("reference_number") @db.VarChar(100)
+  status          PaymentStatus @default(completed)
+  metadata        Json          @default("{}") @db.JsonB
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  transaction       Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([transactionId], map: "idx_payments_transaction")
   @@map("payments")
@@ -915,28 +940,29 @@ model Payment {
 // ============================================================================
 
 model Shift {
-  id              String          @id @default(uuid()) @db.Uuid
-  outletId        String          @map("outlet_id") @db.Uuid
-  employeeId      String          @map("employee_id") @db.Uuid
-  startedAt       DateTime        @map("started_at") @db.Timestamptz()
-  endedAt         DateTime?       @map("ended_at") @db.Timestamptz()
-  openingCash     Decimal         @default(0) @map("opening_cash") @db.Decimal(15, 2)
-  closingCash     Decimal?        @map("closing_cash") @db.Decimal(15, 2)
-  expectedCash    Decimal?        @map("expected_cash") @db.Decimal(15, 2)
-  cashDifference  Decimal?        @map("cash_difference") @db.Decimal(15, 2)
-  cashIn          Decimal         @default(0) @map("cash_in") @db.Decimal(15, 2)
-  cashOut         Decimal         @default(0) @map("cash_out") @db.Decimal(15, 2)
-  notes           String?         @db.Text
-  status          ShiftStatus     @default(open)
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id             String      @id @default(uuid()) @db.Uuid
+  outletId       String      @map("outlet_id") @db.Uuid
+  employeeId     String      @map("employee_id") @db.Uuid
+  startedAt      DateTime    @map("started_at") @db.Timestamptz()
+  endedAt        DateTime?   @map("ended_at") @db.Timestamptz()
+  openingCash    Decimal     @default(0) @map("opening_cash") @db.Decimal(15, 2)
+  closingCash    Decimal?    @map("closing_cash") @db.Decimal(15, 2)
+  expectedCash   Decimal?    @map("expected_cash") @db.Decimal(15, 2)
+  cashDifference Decimal?    @map("cash_difference") @db.Decimal(15, 2)
+  cashIn         Decimal     @default(0) @map("cash_in") @db.Decimal(15, 2)
+  cashOut        Decimal     @default(0) @map("cash_out") @db.Decimal(15, 2)
+  notes          String?     @db.Text
+  status         ShiftStatus @default(open)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet          @relation(fields: [outletId], references: [id])
-  employee        Employee        @relation(fields: [employeeId], references: [id])
-  transactions    Transaction[]
+  outlet       Outlet        @relation(fields: [outletId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  transactions Transaction[]
 
   @@index([outletId], map: "idx_shifts_outlet")
   @@index([employeeId], map: "idx_shifts_employee")
+  @@index([outletId, status, createdAt])
   @@map("shifts")
 }
 
@@ -945,37 +971,37 @@ model Shift {
 // ============================================================================
 
 model Customer {
-  id                String              @id @default(uuid()) @db.Uuid
-  businessId        String              @map("business_id") @db.Uuid
-  name              String              @db.VarChar(255)
-  email             String?             @db.VarChar(255)
-  phone             String?             @db.VarChar(20)
-  address           String?             @db.Text
-  dateOfBirth       DateTime?           @map("date_of_birth") @db.Date
-  customerType      CustomerType        @default(individual) @map("customer_type")
-  loyaltyPoints     Int                 @default(0) @map("loyalty_points")
-  loyaltyTier       String              @default("regular") @map("loyalty_tier") @db.VarChar(20)
-  totalSpent        Decimal             @default(0) @map("total_spent") @db.Decimal(15, 2)
-  visitCount        Int                 @default(0) @map("visit_count")
-  lastVisitAt       DateTime?           @map("last_visit_at") @db.Timestamptz()
-  creditLimit       Decimal             @default(0) @map("credit_limit") @db.Decimal(15, 2)
-  creditBalance     Decimal             @default(0) @map("credit_balance") @db.Decimal(15, 2)
-  notes             String?             @db.Text
-  isActive          Boolean             @default(true) @map("is_active")
-  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String       @id @default(uuid()) @db.Uuid
+  businessId    String       @map("business_id") @db.Uuid
+  name          String       @db.VarChar(255)
+  email         String?      @db.VarChar(255)
+  phone         String?      @db.VarChar(20)
+  address       String?      @db.Text
+  dateOfBirth   DateTime?    @map("date_of_birth") @db.Date
+  customerType  CustomerType @default(individual) @map("customer_type")
+  loyaltyPoints Int          @default(0) @map("loyalty_points")
+  loyaltyTier   String       @default("regular") @map("loyalty_tier") @db.VarChar(20)
+  totalSpent    Decimal      @default(0) @map("total_spent") @db.Decimal(15, 2)
+  visitCount    Int          @default(0) @map("visit_count")
+  lastVisitAt   DateTime?    @map("last_visit_at") @db.Timestamptz()
+  creditLimit   Decimal      @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  creditBalance Decimal      @default(0) @map("credit_balance") @db.Decimal(15, 2)
+  notes         String?      @db.Text
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business          Business            @relation(fields: [businessId], references: [id])
-  transactions      Transaction[]
-  orders            Order[]
+  business            Business             @relation(fields: [businessId], references: [id])
+  transactions        Transaction[]
+  orders              Order[]
   loyaltyTransactions LoyaltyTransaction[]
-  vouchers          Voucher[]
-  appointments      Appointment[]
-  workOrders        WorkOrder[]
-  serialNumbers     SerialNumber[]
-  serviceItems      ServiceItem[]
-  creditSales       CreditSale[]
+  vouchers            Voucher[]
+  appointments        Appointment[]
+  workOrders          WorkOrder[]
+  serialNumbers       SerialNumber[]
+  serviceItems        ServiceItem[]
+  creditSales         CreditSale[]
 
   @@index([businessId], map: "idx_customers_business")
   @@index([phone], map: "idx_customers_phone")
@@ -987,21 +1013,21 @@ model Customer {
 // ============================================================================
 
 model Table {
-  id                String          @id @default(uuid()) @db.Uuid
-  outletId          String          @map("outlet_id") @db.Uuid
-  name              String          @db.VarChar(50)
-  capacity          Int             @default(4)
-  section           String?         @db.VarChar(50)
-  positionX         Int?            @map("position_x")
-  positionY         Int?            @map("position_y")
-  status            TableStatus     @default(available)
-  currentOrderId    String?         @map("current_order_id") @db.Uuid
-  occupiedAt        DateTime?       @map("occupied_at") @db.Timestamptz()
-  isActive          Boolean         @default(true) @map("is_active")
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id             String      @id @default(uuid()) @db.Uuid
+  outletId       String      @map("outlet_id") @db.Uuid
+  name           String      @db.VarChar(50)
+  capacity       Int         @default(4)
+  section        String?     @db.VarChar(50)
+  positionX      Int?        @map("position_x")
+  positionY      Int?        @map("position_y")
+  status         TableStatus @default(available)
+  currentOrderId String?     @map("current_order_id") @db.Uuid
+  occupiedAt     DateTime?   @map("occupied_at") @db.Timestamptz()
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet            Outlet          @relation(fields: [outletId], references: [id])
+  outlet            Outlet             @relation(fields: [outletId], references: [id])
   transactions      Transaction[]
   orders            Order[]
   selfOrderSessions SelfOrderSession[]
@@ -1016,29 +1042,30 @@ model Table {
 // ============================================================================
 
 model Order {
-  id              String          @id @default(uuid()) @db.Uuid
-  outletId        String          @map("outlet_id") @db.Uuid
-  orderNumber     String          @map("order_number") @db.VarChar(20)
-  orderType       OrderType       @default(dine_in) @map("order_type")
-  tableId         String?         @map("table_id") @db.Uuid
-  customerId      String?         @map("customer_id") @db.Uuid
-  status          OrderStatus     @default(pending)
-  priority        Int             @default(0)
-  notes           String?         @db.Text
-  estimatedTime   Int?            @map("estimated_time")
-  startedAt       DateTime?       @map("started_at") @db.Timestamptz()
-  completedAt     DateTime?       @map("completed_at") @db.Timestamptz()
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String      @id @default(uuid()) @db.Uuid
+  outletId      String      @map("outlet_id") @db.Uuid
+  orderNumber   String      @map("order_number") @db.VarChar(20)
+  orderType     OrderType   @default(dine_in) @map("order_type")
+  tableId       String?     @map("table_id") @db.Uuid
+  customerId    String?     @map("customer_id") @db.Uuid
+  status        OrderStatus @default(pending)
+  priority      Int         @default(0)
+  notes         String?     @db.Text
+  estimatedTime Int?        @map("estimated_time")
+  startedAt     DateTime?   @map("started_at") @db.Timestamptz()
+  completedAt   DateTime?   @map("completed_at") @db.Timestamptz()
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet          @relation(fields: [outletId], references: [id])
-  table           Table?          @relation(fields: [tableId], references: [id])
-  customer        Customer?       @relation(fields: [customerId], references: [id])
-  items           OrderItem[]
+  outlet   Outlet      @relation(fields: [outletId], references: [id])
+  table    Table?      @relation(fields: [tableId], references: [id])
+  customer Customer?   @relation(fields: [customerId], references: [id])
+  items    OrderItem[]
 
   @@index([outletId], map: "idx_orders_outlet")
   @@index([status], map: "idx_orders_status")
+  @@index([outletId, status, createdAt])
   @@map("orders")
 }
 
@@ -1047,23 +1074,23 @@ model Order {
 // ============================================================================
 
 model OrderItem {
-  id              String            @id @default(uuid()) @db.Uuid
-  orderId         String            @map("order_id") @db.Uuid
-  productId       String?           @map("product_id") @db.Uuid
-  variantId       String?           @map("variant_id") @db.Uuid
-  productName     String            @map("product_name") @db.VarChar(255)
-  quantity        Int
-  station         String?           @db.VarChar(50)
-  status          OrderItemStatus   @default(pending)
-  notes           String?           @db.Text
-  startedAt       DateTime?         @map("started_at") @db.Timestamptz()
-  completedAt     DateTime?         @map("completed_at") @db.Timestamptz()
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  id          String          @id @default(uuid()) @db.Uuid
+  orderId     String          @map("order_id") @db.Uuid
+  productId   String?         @map("product_id") @db.Uuid
+  variantId   String?         @map("variant_id") @db.Uuid
+  productName String          @map("product_name") @db.VarChar(255)
+  quantity    Int
+  station     String?         @db.VarChar(50)
+  status      OrderItemStatus @default(pending)
+  notes       String?         @db.Text
+  startedAt   DateTime?       @map("started_at") @db.Timestamptz()
+  completedAt DateTime?       @map("completed_at") @db.Timestamptz()
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  order           Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product         Product?          @relation(fields: [productId], references: [id])
-  variant         ProductVariant?   @relation(fields: [variantId], references: [id])
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([orderId], map: "idx_order_items_order")
   @@index([status], map: "idx_order_items_status")
@@ -1075,19 +1102,19 @@ model OrderItem {
 // ============================================================================
 
 model ModifierGroup {
-  id                    String                @id @default(uuid()) @db.Uuid
-  businessId            String                @map("business_id") @db.Uuid
-  name                  String                @db.VarChar(255)
-  selectionType         ModifierSelectionType @default(single) @map("selection_type")
-  minSelection          Int                   @default(0) @map("min_selection")
-  maxSelection          Int?                  @map("max_selection")
-  isRequired            Boolean               @default(false) @map("is_required")
-  sortOrder             Int                   @default(0) @map("sort_order")
-  isActive              Boolean               @default(true) @map("is_active")
-  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  id            String                @id @default(uuid()) @db.Uuid
+  businessId    String                @map("business_id") @db.Uuid
+  name          String                @db.VarChar(255)
+  selectionType ModifierSelectionType @default(single) @map("selection_type")
+  minSelection  Int                   @default(0) @map("min_selection")
+  maxSelection  Int?                  @map("max_selection")
+  isRequired    Boolean               @default(false) @map("is_required")
+  sortOrder     Int                   @default(0) @map("sort_order")
+  isActive      Boolean               @default(true) @map("is_active")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business              Business              @relation(fields: [businessId], references: [id])
+  business              Business               @relation(fields: [businessId], references: [id])
   modifiers             Modifier[]
   productModifierGroups ProductModifierGroup[]
 
@@ -1100,16 +1127,16 @@ model ModifierGroup {
 // ============================================================================
 
 model Modifier {
-  id                String                    @id @default(uuid()) @db.Uuid
-  modifierGroupId   String                    @map("modifier_group_id") @db.Uuid
-  name              String                    @db.VarChar(255)
-  price             Decimal                   @default(0) @db.Decimal(15, 2)
-  sortOrder         Int                       @default(0) @map("sort_order")
-  isActive          Boolean                   @default(true) @map("is_active")
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
+  id              String   @id @default(uuid()) @db.Uuid
+  modifierGroupId String   @map("modifier_group_id") @db.Uuid
+  name            String   @db.VarChar(255)
+  price           Decimal  @default(0) @db.Decimal(15, 2)
+  sortOrder       Int      @default(0) @map("sort_order")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  modifierGroup     ModifierGroup             @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  modifierGroup            ModifierGroup             @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
   transactionItemModifiers TransactionItemModifier[]
 
   @@index([modifierGroupId], map: "idx_modifiers_group")
@@ -1121,14 +1148,14 @@ model Modifier {
 // ============================================================================
 
 model ProductModifierGroup {
-  id                String          @id @default(uuid()) @db.Uuid
-  productId         String          @map("product_id") @db.Uuid
-  modifierGroupId   String          @map("modifier_group_id") @db.Uuid
-  sortOrder         Int             @default(0) @map("sort_order")
+  id              String @id @default(uuid()) @db.Uuid
+  productId       String @map("product_id") @db.Uuid
+  modifierGroupId String @map("modifier_group_id") @db.Uuid
+  sortOrder       Int    @default(0) @map("sort_order")
 
   // Relations
-  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  modifierGroup     ModifierGroup   @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modifierGroup ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@unique([productId, modifierGroupId], map: "uq_product_modifier_group")
   @@map("product_modifier_groups")
@@ -1139,17 +1166,17 @@ model ProductModifierGroup {
 // ============================================================================
 
 model TransactionItemModifier {
-  id                  String          @id @default(uuid()) @db.Uuid
-  transactionItemId   String          @map("transaction_item_id") @db.Uuid
-  modifierId          String          @map("modifier_id") @db.Uuid
-  modifierName        String          @map("modifier_name") @db.VarChar(255)
-  price               Decimal         @default(0) @db.Decimal(15, 2)
-  quantity            Int             @default(1)
-  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id                String   @id @default(uuid()) @db.Uuid
+  transactionItemId String   @map("transaction_item_id") @db.Uuid
+  modifierId        String   @map("modifier_id") @db.Uuid
+  modifierName      String   @map("modifier_name") @db.VarChar(255)
+  price             Decimal  @default(0) @db.Decimal(15, 2)
+  quantity          Int      @default(1)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  transactionItem     TransactionItem @relation(fields: [transactionItemId], references: [id], onDelete: Cascade)
-  modifier            Modifier        @relation(fields: [modifierId], references: [id])
+  transactionItem TransactionItem @relation(fields: [transactionItemId], references: [id], onDelete: Cascade)
+  modifier        Modifier        @relation(fields: [modifierId], references: [id])
 
   @@index([transactionItemId], map: "idx_trans_item_mods")
   @@map("transaction_item_modifiers")
@@ -1160,24 +1187,24 @@ model TransactionItemModifier {
 // ============================================================================
 
 model Ingredient {
-  id                    String                    @id @default(uuid()) @db.Uuid
-  businessId            String                    @map("business_id") @db.Uuid
-  name                  String                    @db.VarChar(255)
-  sku                   String?                   @db.VarChar(100)
-  unit                  String                    @db.VarChar(50)
-  costPerUnit           Decimal                   @default(0) @map("cost_per_unit") @db.Decimal(15, 4)
-  imageUrl              String?                   @map("image_url") @db.VarChar(500)
-  isActive              Boolean                   @default(true) @map("is_active")
-  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  sku         String?  @db.VarChar(100)
+  unit        String   @db.VarChar(50)
+  costPerUnit Decimal  @default(0) @map("cost_per_unit") @db.Decimal(15, 4)
+  imageUrl    String?  @map("image_url") @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business                  @relation(fields: [businessId], references: [id])
-  stockLevels           IngredientStockLevel[]
-  recipeItems           RecipeItem[]
-  stockMovements        IngredientStockMovement[]
-  purchaseOrderItems    PurchaseOrderItem[]
-  stockTransferItems    StockTransferItem[]
+  business           Business                  @relation(fields: [businessId], references: [id])
+  stockLevels        IngredientStockLevel[]
+  recipeItems        RecipeItem[]
+  stockMovements     IngredientStockMovement[]
+  purchaseOrderItems PurchaseOrderItem[]
+  stockTransferItems StockTransferItem[]
 
   @@unique([businessId, sku], map: "uq_ingredients_business_sku")
   @@index([businessId], map: "idx_ingredients_business")
@@ -1189,16 +1216,16 @@ model Ingredient {
 // ============================================================================
 
 model IngredientStockLevel {
-  id              String      @id @default(uuid()) @db.Uuid
-  outletId        String      @map("outlet_id") @db.Uuid
-  ingredientId    String      @map("ingredient_id") @db.Uuid
-  quantity        Decimal     @default(0) @db.Decimal(15, 4)
-  lowStockAlert   Decimal     @default(0) @map("low_stock_alert") @db.Decimal(15, 4)
-  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String   @id @default(uuid()) @db.Uuid
+  outletId      String   @map("outlet_id") @db.Uuid
+  ingredientId  String   @map("ingredient_id") @db.Uuid
+  quantity      Decimal  @default(0) @db.Decimal(15, 4)
+  lowStockAlert Decimal  @default(0) @map("low_stock_alert") @db.Decimal(15, 4)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet      @relation(fields: [outletId], references: [id])
-  ingredient      Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  outlet     Outlet     @relation(fields: [outletId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, ingredientId], map: "uq_ing_stock_outlet_ingredient")
   @@index([outletId], map: "idx_ing_stock_outlet")
@@ -1211,17 +1238,17 @@ model IngredientStockLevel {
 // ============================================================================
 
 model Recipe {
-  id          String          @id @default(uuid()) @db.Uuid
-  productId   String          @map("product_id") @db.Uuid
-  variantId   String?         @map("variant_id") @db.Uuid
-  notes       String?         @db.Text
-  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  variantId String?  @map("variant_id") @db.Uuid
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  items       RecipeItem[]
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  items   RecipeItem[]
 
   @@index([productId], map: "idx_recipes_product")
   @@map("recipes")
@@ -1232,16 +1259,16 @@ model Recipe {
 // ============================================================================
 
 model RecipeItem {
-  id              String      @id @default(uuid()) @db.Uuid
-  recipeId        String      @map("recipe_id") @db.Uuid
-  ingredientId    String      @map("ingredient_id") @db.Uuid
-  quantity        Decimal     @db.Decimal(15, 4)
-  unit            String      @db.VarChar(50)
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  id           String   @id @default(uuid()) @db.Uuid
+  recipeId     String   @map("recipe_id") @db.Uuid
+  ingredientId String   @map("ingredient_id") @db.Uuid
+  quantity     Decimal  @db.Decimal(15, 4)
+  unit         String   @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  recipe          Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  ingredient      Ingredient  @relation(fields: [ingredientId], references: [id])
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
 
   @@index([recipeId], map: "idx_recipe_items_recipe")
   @@map("recipe_items")
@@ -1252,21 +1279,21 @@ model RecipeItem {
 // ============================================================================
 
 model IngredientStockMovement {
-  id              String                        @id @default(uuid()) @db.Uuid
-  outletId        String                        @map("outlet_id") @db.Uuid
-  ingredientId    String                        @map("ingredient_id") @db.Uuid
-  movementType    IngredientStockMovementType   @map("movement_type")
-  quantity        Decimal                       @db.Decimal(15, 4)
-  referenceId     String?                       @map("reference_id") @db.Uuid
-  referenceType   String?                       @map("reference_type") @db.VarChar(50)
-  notes           String?                       @db.Text
-  createdBy       String?                       @map("created_by") @db.Uuid
-  createdAt       DateTime                      @default(now()) @map("created_at") @db.Timestamptz()
+  id            String                      @id @default(uuid()) @db.Uuid
+  outletId      String                      @map("outlet_id") @db.Uuid
+  ingredientId  String                      @map("ingredient_id") @db.Uuid
+  movementType  IngredientStockMovementType @map("movement_type")
+  quantity      Decimal                     @db.Decimal(15, 4)
+  referenceId   String?                     @map("reference_id") @db.Uuid
+  referenceType String?                     @map("reference_type") @db.VarChar(50)
+  notes         String?                     @db.Text
+  createdBy     String?                     @map("created_by") @db.Uuid
+  createdAt     DateTime                    @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet                        @relation(fields: [outletId], references: [id])
-  ingredient      Ingredient                    @relation(fields: [ingredientId], references: [id])
-  employee        Employee?                     @relation(fields: [createdBy], references: [id])
+  outlet     Outlet     @relation(fields: [outletId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  employee   Employee?  @relation(fields: [createdBy], references: [id])
 
   @@index([outletId], map: "idx_ing_movements_outlet")
   @@index([createdAt], map: "idx_ing_movements_date")
@@ -1278,21 +1305,21 @@ model IngredientStockMovement {
 // ============================================================================
 
 model Supplier {
-  id              String            @id @default(uuid()) @db.Uuid
-  businessId      String            @map("business_id") @db.Uuid
-  name            String            @db.VarChar(255)
-  contactPerson   String?           @map("contact_person") @db.VarChar(255)
-  phone           String?           @db.VarChar(20)
-  email           String?           @db.VarChar(255)
-  address         String?           @db.Text
-  notes           String?           @db.Text
-  isActive        Boolean           @default(true) @map("is_active")
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  name          String   @db.VarChar(255)
+  contactPerson String?  @map("contact_person") @db.VarChar(255)
+  phone         String?  @db.VarChar(20)
+  email         String?  @db.VarChar(255)
+  address       String?  @db.Text
+  notes         String?  @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business        Business          @relation(fields: [businessId], references: [id])
-  purchaseOrders  PurchaseOrder[]
+  business       Business        @relation(fields: [businessId], references: [id])
+  purchaseOrders PurchaseOrder[]
 
   @@index([businessId], map: "idx_suppliers_business")
   @@map("suppliers")
@@ -1303,24 +1330,24 @@ model Supplier {
 // ============================================================================
 
 model PurchaseOrder {
-  id              String                @id @default(uuid()) @db.Uuid
-  outletId        String                @map("outlet_id") @db.Uuid
-  supplierId      String                @map("supplier_id") @db.Uuid
-  poNumber        String                @unique @map("po_number") @db.VarChar(50)
-  status          PurchaseOrderStatus   @default(draft)
-  totalAmount     Decimal               @default(0) @map("total_amount") @db.Decimal(15, 2)
-  notes           String?               @db.Text
-  orderedAt       DateTime?             @map("ordered_at") @db.Timestamptz()
-  receivedAt      DateTime?             @map("received_at") @db.Timestamptz()
-  createdBy       String?               @map("created_by") @db.Uuid
-  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id          String              @id @default(uuid()) @db.Uuid
+  outletId    String              @map("outlet_id") @db.Uuid
+  supplierId  String              @map("supplier_id") @db.Uuid
+  poNumber    String              @unique @map("po_number") @db.VarChar(50)
+  status      PurchaseOrderStatus @default(draft)
+  totalAmount Decimal             @default(0) @map("total_amount") @db.Decimal(15, 2)
+  notes       String?             @db.Text
+  orderedAt   DateTime?           @map("ordered_at") @db.Timestamptz()
+  receivedAt  DateTime?           @map("received_at") @db.Timestamptz()
+  createdBy   String?             @map("created_by") @db.Uuid
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet                @relation(fields: [outletId], references: [id])
-  supplier        Supplier              @relation(fields: [supplierId], references: [id])
-  employee        Employee?             @relation(fields: [createdBy], references: [id])
-  items           PurchaseOrderItem[]
+  outlet   Outlet              @relation(fields: [outletId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  employee Employee?           @relation(fields: [createdBy], references: [id])
+  items    PurchaseOrderItem[]
 
   @@index([outletId], map: "idx_po_outlet")
   @@index([supplierId], map: "idx_po_supplier")
@@ -1332,23 +1359,23 @@ model PurchaseOrder {
 // ============================================================================
 
 model PurchaseOrderItem {
-  id                String          @id @default(uuid()) @db.Uuid
-  purchaseOrderId   String          @map("purchase_order_id") @db.Uuid
-  productId         String?         @map("product_id") @db.Uuid
-  variantId         String?         @map("variant_id") @db.Uuid
-  ingredientId      String?         @map("ingredient_id") @db.Uuid
-  itemName          String          @map("item_name") @db.VarChar(255)
-  quantityOrdered   Decimal         @map("quantity_ordered") @db.Decimal(15, 3)
-  quantityReceived  Decimal         @default(0) @map("quantity_received") @db.Decimal(15, 3)
-  unitCost          Decimal         @map("unit_cost") @db.Decimal(15, 4)
-  subtotal          Decimal         @db.Decimal(15, 2)
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id               String   @id @default(uuid()) @db.Uuid
+  purchaseOrderId  String   @map("purchase_order_id") @db.Uuid
+  productId        String?  @map("product_id") @db.Uuid
+  variantId        String?  @map("variant_id") @db.Uuid
+  ingredientId     String?  @map("ingredient_id") @db.Uuid
+  itemName         String   @map("item_name") @db.VarChar(255)
+  quantityOrdered  Decimal  @map("quantity_ordered") @db.Decimal(15, 3)
+  quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(15, 3)
+  unitCost         Decimal  @map("unit_cost") @db.Decimal(15, 4)
+  subtotal         Decimal  @db.Decimal(15, 2)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  purchaseOrder     PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product           Product?        @relation(fields: [productId], references: [id])
-  variant           ProductVariant? @relation(fields: [variantId], references: [id])
-  ingredient        Ingredient?     @relation(fields: [ingredientId], references: [id])
+  purchaseOrder PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product?        @relation(fields: [productId], references: [id])
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+  ingredient    Ingredient?     @relation(fields: [ingredientId], references: [id])
 
   @@index([purchaseOrderId], map: "idx_po_items_po")
   @@map("purchase_order_items")
@@ -1359,31 +1386,31 @@ model PurchaseOrderItem {
 // ============================================================================
 
 model StockTransfer {
-  id                    String                @id @default(uuid()) @db.Uuid
-  businessId            String                @map("business_id") @db.Uuid
-  transferNumber        String                @unique @map("transfer_number") @db.VarChar(50)
-  sourceOutletId        String                @map("source_outlet_id") @db.Uuid
-  destinationOutletId   String                @map("destination_outlet_id") @db.Uuid
-  status                StockTransferStatus   @default(pending)
-  notes                 String?               @db.Text
-  requestedBy           String?               @map("requested_by") @db.Uuid
-  approvedBy            String?               @map("approved_by") @db.Uuid
-  receivedBy            String?               @map("received_by") @db.Uuid
-  requestedAt           DateTime              @default(now()) @map("requested_at") @db.Timestamptz()
-  approvedAt            DateTime?             @map("approved_at") @db.Timestamptz()
-  shippedAt             DateTime?             @map("shipped_at") @db.Timestamptz()
-  receivedAt            DateTime?             @map("received_at") @db.Timestamptz()
-  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                  String              @id @default(uuid()) @db.Uuid
+  businessId          String              @map("business_id") @db.Uuid
+  transferNumber      String              @unique @map("transfer_number") @db.VarChar(50)
+  sourceOutletId      String              @map("source_outlet_id") @db.Uuid
+  destinationOutletId String              @map("destination_outlet_id") @db.Uuid
+  status              StockTransferStatus @default(pending)
+  notes               String?             @db.Text
+  requestedBy         String?             @map("requested_by") @db.Uuid
+  approvedBy          String?             @map("approved_by") @db.Uuid
+  receivedBy          String?             @map("received_by") @db.Uuid
+  requestedAt         DateTime            @default(now()) @map("requested_at") @db.Timestamptz()
+  approvedAt          DateTime?           @map("approved_at") @db.Timestamptz()
+  shippedAt           DateTime?           @map("shipped_at") @db.Timestamptz()
+  receivedAt          DateTime?           @map("received_at") @db.Timestamptz()
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business              @relation(fields: [businessId], references: [id])
-  sourceOutlet          Outlet                @relation("SourceOutlet", fields: [sourceOutletId], references: [id])
-  destinationOutlet     Outlet                @relation("DestinationOutlet", fields: [destinationOutletId], references: [id])
-  requestedByEmployee   Employee?             @relation("TransferRequestedBy", fields: [requestedBy], references: [id])
-  approvedByEmployee    Employee?             @relation("TransferApprovedBy", fields: [approvedBy], references: [id])
-  receivedByEmployee    Employee?             @relation("TransferReceivedBy", fields: [receivedBy], references: [id])
-  items                 StockTransferItem[]
+  business            Business            @relation(fields: [businessId], references: [id])
+  sourceOutlet        Outlet              @relation("SourceOutlet", fields: [sourceOutletId], references: [id])
+  destinationOutlet   Outlet              @relation("DestinationOutlet", fields: [destinationOutletId], references: [id])
+  requestedByEmployee Employee?           @relation("TransferRequestedBy", fields: [requestedBy], references: [id])
+  approvedByEmployee  Employee?           @relation("TransferApprovedBy", fields: [approvedBy], references: [id])
+  receivedByEmployee  Employee?           @relation("TransferReceivedBy", fields: [receivedBy], references: [id])
+  items               StockTransferItem[]
 
   @@index([businessId], map: "idx_transfers_business")
   @@index([sourceOutletId], map: "idx_transfers_source")
@@ -1397,22 +1424,22 @@ model StockTransfer {
 // ============================================================================
 
 model StockTransferItem {
-  id                String          @id @default(uuid()) @db.Uuid
-  transferId        String          @map("transfer_id") @db.Uuid
-  productId         String?         @map("product_id") @db.Uuid
-  variantId         String?         @map("variant_id") @db.Uuid
-  ingredientId      String?         @map("ingredient_id") @db.Uuid
-  itemName          String          @map("item_name") @db.VarChar(255)
-  quantitySent      Decimal         @map("quantity_sent") @db.Decimal(15, 3)
-  quantityReceived  Decimal?        @map("quantity_received") @db.Decimal(15, 3)
-  notes             String?         @db.Text
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id               String   @id @default(uuid()) @db.Uuid
+  transferId       String   @map("transfer_id") @db.Uuid
+  productId        String?  @map("product_id") @db.Uuid
+  variantId        String?  @map("variant_id") @db.Uuid
+  ingredientId     String?  @map("ingredient_id") @db.Uuid
+  itemName         String   @map("item_name") @db.VarChar(255)
+  quantitySent     Decimal  @map("quantity_sent") @db.Decimal(15, 3)
+  quantityReceived Decimal? @map("quantity_received") @db.Decimal(15, 3)
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  transfer          StockTransfer   @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  product           Product?        @relation(fields: [productId], references: [id])
-  variant           ProductVariant? @relation(fields: [variantId], references: [id])
-  ingredient        Ingredient?     @relation(fields: [ingredientId], references: [id])
+  transfer   StockTransfer   @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product    Product?        @relation(fields: [productId], references: [id])
+  variant    ProductVariant? @relation(fields: [variantId], references: [id])
+  ingredient Ingredient?     @relation(fields: [ingredientId], references: [id])
 
   @@index([transferId], map: "idx_transfer_items")
   @@map("stock_transfer_items")
@@ -1423,21 +1450,21 @@ model StockTransferItem {
 // ============================================================================
 
 model LoyaltyTransaction {
-  id              String                  @id @default(uuid()) @db.Uuid
-  customerId      String                  @map("customer_id") @db.Uuid
-  transactionId   String?                 @map("transaction_id") @db.Uuid
-  type            LoyaltyTransactionType
-  points          Int
-  balanceAfter    Int                     @map("balance_after")
-  description     String?                 @db.Text
-  expiresAt       DateTime?               @map("expires_at") @db.Timestamptz()
-  createdBy       String?                 @map("created_by") @db.Uuid
-  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz()
+  id            String                 @id @default(uuid()) @db.Uuid
+  customerId    String                 @map("customer_id") @db.Uuid
+  transactionId String?                @map("transaction_id") @db.Uuid
+  type          LoyaltyTransactionType
+  points        Int
+  balanceAfter  Int                    @map("balance_after")
+  description   String?                @db.Text
+  expiresAt     DateTime?              @map("expires_at") @db.Timestamptz()
+  createdBy     String?                @map("created_by") @db.Uuid
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  customer        Customer                @relation(fields: [customerId], references: [id])
-  transaction     Transaction?            @relation(fields: [transactionId], references: [id])
-  employee        Employee?               @relation(fields: [createdBy], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  employee    Employee?    @relation(fields: [createdBy], references: [id])
 
   @@index([customerId], map: "idx_loyalty_tx_customer")
   @@index([createdAt], map: "idx_loyalty_tx_date")
@@ -1450,19 +1477,19 @@ model LoyaltyTransaction {
 // ============================================================================
 
 model LoyaltyTier {
-  id                String    @id @default(uuid()) @db.Uuid
-  businessId        String    @map("business_id") @db.Uuid
-  name              String    @db.VarChar(50)
-  minPoints         Int       @default(0) @map("min_points")
-  minSpent          Decimal   @default(0) @map("min_spent") @db.Decimal(15, 2)
-  pointMultiplier   Decimal   @default(1.00) @map("point_multiplier") @db.Decimal(5, 2)
-  benefits          Json      @default("{}") @db.JsonB
-  sortOrder         Int       @default(0) @map("sort_order")
-  isActive          Boolean   @default(true) @map("is_active")
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  id              String   @id @default(uuid()) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  name            String   @db.VarChar(50)
+  minPoints       Int      @default(0) @map("min_points")
+  minSpent        Decimal  @default(0) @map("min_spent") @db.Decimal(15, 2)
+  pointMultiplier Decimal  @default(1.00) @map("point_multiplier") @db.Decimal(5, 2)
+  benefits        Json     @default("{}") @db.JsonB
+  sortOrder       Int      @default(0) @map("sort_order")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business          Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId], map: "idx_loyalty_tiers_business")
   @@map("loyalty_tiers")
@@ -1473,19 +1500,19 @@ model LoyaltyTier {
 // ============================================================================
 
 model LoyaltyProgram {
-  id                String    @id @default(uuid()) @db.Uuid
-  businessId        String    @map("business_id") @db.Uuid
-  name              String    @db.VarChar(255)
-  pointsPerAmount   Decimal   @default(1) @map("points_per_amount") @db.Decimal(10, 2)
-  amountPerPoint    Decimal   @default(1000) @map("amount_per_point") @db.Decimal(15, 2)
-  redemptionRate    Decimal   @default(50) @map("redemption_rate") @db.Decimal(10, 2)
-  pointExpiryDays   Int?      @map("point_expiry_days")
-  isActive          Boolean   @default(true) @map("is_active")
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String   @id @default(uuid()) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  name            String   @db.VarChar(255)
+  pointsPerAmount Decimal  @default(1) @map("points_per_amount") @db.Decimal(10, 2)
+  amountPerPoint  Decimal  @default(1000) @map("amount_per_point") @db.Decimal(15, 2)
+  redemptionRate  Decimal  @default(50) @map("redemption_rate") @db.Decimal(10, 2)
+  pointExpiryDays Int?     @map("point_expiry_days")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business          Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId], map: "idx_loyalty_prog_business")
   @@map("loyalty_programs")
@@ -1496,25 +1523,25 @@ model LoyaltyProgram {
 // ============================================================================
 
 model AuditLog {
-  id              String    @id @default(uuid()) @db.Uuid
-  businessId      String    @map("business_id") @db.Uuid
-  outletId        String?   @map("outlet_id") @db.Uuid
-  employeeId      String?   @map("employee_id") @db.Uuid
-  action          String    @db.VarChar(100)
-  entityType      String    @map("entity_type") @db.VarChar(50)
-  entityId        String?   @map("entity_id") @db.Uuid
-  oldValue        Json?     @map("old_value") @db.JsonB
-  newValue        Json?     @map("new_value") @db.JsonB
-  ipAddress       String?   @map("ip_address") @db.VarChar(45)
-  deviceId        String?   @map("device_id") @db.Uuid
-  metadata        Json      @default("{}") @db.JsonB
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  outletId   String?  @map("outlet_id") @db.Uuid
+  employeeId String?  @map("employee_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String?  @map("entity_id") @db.Uuid
+  oldValue   Json?    @map("old_value") @db.JsonB
+  newValue   Json?    @map("new_value") @db.JsonB
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  deviceId   String?  @map("device_id") @db.Uuid
+  metadata   Json     @default("{}") @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business        Business  @relation(fields: [businessId], references: [id])
-  outlet          Outlet?   @relation(fields: [outletId], references: [id])
-  employee        Employee? @relation(fields: [employeeId], references: [id])
-  device          Device?   @relation(fields: [deviceId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id])
+  outlet   Outlet?   @relation(fields: [outletId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
+  device   Device?   @relation(fields: [deviceId], references: [id])
 
   @@index([businessId], map: "idx_audit_business")
   @@index([employeeId], map: "idx_audit_employee")
@@ -1530,23 +1557,23 @@ model AuditLog {
 // ============================================================================
 
 model PaymentSettlement {
-  id                  String            @id @default(uuid()) @db.Uuid
-  outletId            String            @map("outlet_id") @db.Uuid
-  paymentMethod       String            @map("payment_method") @db.VarChar(50)
-  settlementDate      DateTime          @map("settlement_date") @db.Date
-  totalTransactions   Int               @default(0) @map("total_transactions")
-  grossAmount         Decimal           @map("gross_amount") @db.Decimal(15, 2)
-  feeAmount           Decimal           @default(0) @map("fee_amount") @db.Decimal(15, 2)
-  netAmount           Decimal           @map("net_amount") @db.Decimal(15, 2)
-  status              SettlementStatus  @default(pending)
-  referenceNumber     String?           @map("reference_number") @db.VarChar(100)
-  settledAt           DateTime?         @map("settled_at") @db.Timestamptz()
-  metadata            Json              @default("{}") @db.JsonB
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                String           @id @default(uuid()) @db.Uuid
+  outletId          String           @map("outlet_id") @db.Uuid
+  paymentMethod     String           @map("payment_method") @db.VarChar(50)
+  settlementDate    DateTime         @map("settlement_date") @db.Date
+  totalTransactions Int              @default(0) @map("total_transactions")
+  grossAmount       Decimal          @map("gross_amount") @db.Decimal(15, 2)
+  feeAmount         Decimal          @default(0) @map("fee_amount") @db.Decimal(15, 2)
+  netAmount         Decimal          @map("net_amount") @db.Decimal(15, 2)
+  status            SettlementStatus @default(pending)
+  referenceNumber   String?          @map("reference_number") @db.VarChar(100)
+  settledAt         DateTime?        @map("settled_at") @db.Timestamptz()
+  metadata          Json             @default("{}") @db.JsonB
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet              Outlet            @relation(fields: [outletId], references: [id])
+  outlet Outlet @relation(fields: [outletId], references: [id])
 
   @@index([outletId], map: "idx_settlement_outlet")
   @@index([settlementDate], map: "idx_settlement_date")
@@ -1560,39 +1587,40 @@ model PaymentSettlement {
 // ============================================================================
 
 model OnlineOrder {
-  id                  String              @id @default(uuid()) @db.Uuid
-  outletId            String              @map("outlet_id") @db.Uuid
-  platform            OnlineOrderPlatform
-  platformOrderId     String              @map("platform_order_id") @db.VarChar(100)
-  transactionId       String?             @map("transaction_id") @db.Uuid
-  orderType           OnlineOrderType     @default(delivery) @map("order_type")
-  customerName        String?             @map("customer_name") @db.VarChar(255)
-  customerPhone       String?             @map("customer_phone") @db.VarChar(20)
-  deliveryAddress     String?             @map("delivery_address") @db.Text
-  items               Json                @db.JsonB
-  subtotal            Decimal             @db.Decimal(15, 2)
-  deliveryFee         Decimal             @default(0) @map("delivery_fee") @db.Decimal(15, 2)
-  platformFee         Decimal             @default(0) @map("platform_fee") @db.Decimal(15, 2)
-  discountAmount      Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
-  grandTotal          Decimal             @map("grand_total") @db.Decimal(15, 2)
-  status              OnlineOrderStatus   @default(received)
-  driverName          String?             @map("driver_name") @db.VarChar(255)
-  driverPhone         String?             @map("driver_phone") @db.VarChar(20)
-  notes               String?             @db.Text
-  estimatedDelivery   DateTime?           @map("estimated_delivery") @db.Timestamptz()
-  acceptedAt          DateTime?           @map("accepted_at") @db.Timestamptz()
-  readyAt             DateTime?           @map("ready_at") @db.Timestamptz()
-  completedAt         DateTime?           @map("completed_at") @db.Timestamptz()
-  cancelledAt         DateTime?           @map("cancelled_at") @db.Timestamptz()
-  cancelReason        String?             @map("cancel_reason") @db.Text
-  metadata            Json                @default("{}") @db.JsonB
-  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                String              @id @default(uuid()) @db.Uuid
+  outletId          String              @map("outlet_id") @db.Uuid
+  platform          OnlineOrderPlatform
+  platformOrderId   String              @map("platform_order_id") @db.VarChar(100)
+  transactionId     String?             @map("transaction_id") @db.Uuid
+  orderType         OnlineOrderType     @default(delivery) @map("order_type")
+  customerName      String?             @map("customer_name") @db.VarChar(255)
+  customerPhone     String?             @map("customer_phone") @db.VarChar(20)
+  deliveryAddress   String?             @map("delivery_address") @db.Text
+  items             Json                @db.JsonB
+  subtotal          Decimal             @db.Decimal(15, 2)
+  deliveryFee       Decimal             @default(0) @map("delivery_fee") @db.Decimal(15, 2)
+  platformFee       Decimal             @default(0) @map("platform_fee") @db.Decimal(15, 2)
+  discountAmount    Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  grandTotal        Decimal             @map("grand_total") @db.Decimal(15, 2)
+  status            OnlineOrderStatus   @default(received)
+  driverName        String?             @map("driver_name") @db.VarChar(255)
+  driverPhone       String?             @map("driver_phone") @db.VarChar(20)
+  notes             String?             @db.Text
+  estimatedDelivery DateTime?           @map("estimated_delivery") @db.Timestamptz()
+  acceptedAt        DateTime?           @map("accepted_at") @db.Timestamptz()
+  readyAt           DateTime?           @map("ready_at") @db.Timestamptz()
+  completedAt       DateTime?           @map("completed_at") @db.Timestamptz()
+  cancelledAt       DateTime?           @map("cancelled_at") @db.Timestamptz()
+  cancelReason      String?             @map("cancel_reason") @db.Text
+  metadata          Json                @default("{}") @db.JsonB
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet              Outlet              @relation(fields: [outletId], references: [id])
-  transaction         Transaction?        @relation(fields: [transactionId], references: [id])
+  outlet      Outlet       @relation(fields: [outletId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
 
+  @@unique([outletId, platform, platformOrderId], map: "uq_online_order_platform")
   @@index([outletId], map: "idx_online_orders_outlet")
   @@index([platform, platformOrderId], map: "idx_online_orders_platform")
   @@index([status], map: "idx_online_orders_status")
@@ -1606,26 +1634,27 @@ model OnlineOrder {
 // ============================================================================
 
 model Device {
-  id                  String          @id @default(uuid()) @db.Uuid
-  businessId          String          @map("business_id") @db.Uuid
-  outletId            String?         @map("outlet_id") @db.Uuid
-  deviceName          String          @map("device_name") @db.VarChar(255)
-  deviceType          DeviceType      @map("device_type")
-  platform            DevicePlatform?
-  deviceIdentifier    String?         @unique @map("device_identifier") @db.VarChar(255)
-  appVersion          String?         @map("app_version") @db.VarChar(20)
-  lastSyncAt          DateTime?       @map("last_sync_at") @db.Timestamptz()
-  lastActiveAt        DateTime?       @map("last_active_at") @db.Timestamptz()
-  isActive            Boolean         @default(true) @map("is_active")
-  registeredAt        DateTime        @default(now()) @map("registered_at") @db.Timestamptz()
-  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id               String          @id @default(uuid()) @db.Uuid
+  businessId       String          @map("business_id") @db.Uuid
+  outletId         String?         @map("outlet_id") @db.Uuid
+  deviceName       String          @map("device_name") @db.VarChar(255)
+  deviceType       DeviceType      @map("device_type")
+  platform         DevicePlatform?
+  deviceIdentifier String?         @map("device_identifier") @db.VarChar(255)
+  appVersion       String?         @map("app_version") @db.VarChar(20)
+  lastSyncAt       DateTime?       @map("last_sync_at") @db.Timestamptz()
+  lastActiveAt     DateTime?       @map("last_active_at") @db.Timestamptz()
+  isActive         Boolean         @default(true) @map("is_active")
+  registeredAt     DateTime        @default(now()) @map("registered_at") @db.Timestamptz()
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business            Business        @relation(fields: [businessId], references: [id])
-  outlet              Outlet?         @relation(fields: [outletId], references: [id])
-  auditLogs           AuditLog[]
+  business  Business   @relation(fields: [businessId], references: [id])
+  outlet    Outlet?    @relation(fields: [outletId], references: [id])
+  auditLogs AuditLog[]
 
+  @@unique([businessId, deviceIdentifier], map: "uq_device_business")
   @@index([businessId], map: "idx_devices_business")
   @@index([outletId], map: "idx_devices_outlet")
   @@map("devices")
@@ -1636,21 +1665,21 @@ model Device {
 // ============================================================================
 
 model NotificationSetting {
-  id                  String              @id @default(uuid()) @db.Uuid
-  businessId          String              @map("business_id") @db.Uuid
-  outletId            String?             @map("outlet_id") @db.Uuid
-  employeeId          String?             @map("employee_id") @db.Uuid
-  notificationType    NotificationType    @map("notification_type")
-  channel             NotificationChannel
-  isEnabled           Boolean             @default(true) @map("is_enabled")
-  threshold           Json                @default("{}") @db.JsonB
-  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id               String              @id @default(uuid()) @db.Uuid
+  businessId       String              @map("business_id") @db.Uuid
+  outletId         String?             @map("outlet_id") @db.Uuid
+  employeeId       String?             @map("employee_id") @db.Uuid
+  notificationType NotificationType    @map("notification_type")
+  channel          NotificationChannel
+  isEnabled        Boolean             @default(true) @map("is_enabled")
+  threshold        Json                @default("{}") @db.JsonB
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business            Business            @relation(fields: [businessId], references: [id])
-  outlet              Outlet?             @relation(fields: [outletId], references: [id])
-  employee            Employee?           @relation(fields: [employeeId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id])
+  outlet   Outlet?   @relation(fields: [outletId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
 
   @@unique([businessId, outletId, employeeId, notificationType, channel], map: "uq_notification_setting")
   @@index([businessId], map: "idx_notif_settings_business")
@@ -1662,23 +1691,23 @@ model NotificationSetting {
 // ============================================================================
 
 model NotificationLog {
-  id                  String                @id @default(uuid()) @db.Uuid
-  businessId          String                @map("business_id") @db.Uuid
-  outletId            String?               @map("outlet_id") @db.Uuid
-  recipientId         String?               @map("recipient_id") @db.Uuid
-  notificationType    NotificationType      @map("notification_type")
-  channel             NotificationChannel
-  title               String                @db.VarChar(255)
-  body                String?               @db.Text
-  status              NotificationLogStatus @default(sent)
-  metadata            Json                  @default("{}") @db.JsonB
-  sentAt              DateTime              @default(now()) @map("sent_at") @db.Timestamptz()
-  readAt              DateTime?             @map("read_at") @db.Timestamptz()
+  id               String                @id @default(uuid()) @db.Uuid
+  businessId       String                @map("business_id") @db.Uuid
+  outletId         String?               @map("outlet_id") @db.Uuid
+  recipientId      String?               @map("recipient_id") @db.Uuid
+  notificationType NotificationType      @map("notification_type")
+  channel          NotificationChannel
+  title            String                @db.VarChar(255)
+  body             String?               @db.Text
+  status           NotificationLogStatus @default(sent)
+  metadata         Json                  @default("{}") @db.JsonB
+  sentAt           DateTime              @default(now()) @map("sent_at") @db.Timestamptz()
+  readAt           DateTime?             @map("read_at") @db.Timestamptz()
 
   // Relations
-  business            Business              @relation(fields: [businessId], references: [id])
-  outlet              Outlet?               @relation(fields: [outletId], references: [id])
-  recipient           Employee?             @relation(fields: [recipientId], references: [id])
+  business  Business  @relation(fields: [businessId], references: [id])
+  outlet    Outlet?   @relation(fields: [outletId], references: [id])
+  recipient Employee? @relation(fields: [recipientId], references: [id])
 
   @@index([recipientId], map: "idx_notif_logs_recipient")
   @@index([sentAt], map: "idx_notif_logs_date")
@@ -1690,25 +1719,25 @@ model NotificationLog {
 // ============================================================================
 
 model SelfOrderSession {
-  id              String                    @id @default(uuid()) @db.Uuid
-  outletId        String                    @map("outlet_id") @db.Uuid
-  tableId         String?                   @map("table_id") @db.Uuid
-  sessionCode     String                    @unique @map("session_code") @db.VarChar(50)
-  status          SelfOrderSessionStatus    @default(active)
-  customerName    String?                   @map("customer_name") @db.VarChar(255)
-  language        String                    @default("id") @db.VarChar(10)
-  paymentRef      String?                   @map("payment_ref") @db.VarChar(255)
-  paymentMethod   String?                   @map("payment_method") @db.VarChar(50)
-  paymentStatus   String?                   @map("payment_status") @db.VarChar(50)
-  paymentAt       DateTime?                 @map("payment_at") @db.Timestamptz()
-  expiresAt       DateTime                  @map("expires_at") @db.Timestamptz()
-  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id            String                 @id @default(uuid()) @db.Uuid
+  outletId      String                 @map("outlet_id") @db.Uuid
+  tableId       String?                @map("table_id") @db.Uuid
+  sessionCode   String                 @unique @map("session_code") @db.VarChar(50)
+  status        SelfOrderSessionStatus @default(active)
+  customerName  String?                @map("customer_name") @db.VarChar(255)
+  language      String                 @default("id") @db.VarChar(10)
+  paymentRef    String?                @map("payment_ref") @db.VarChar(255)
+  paymentMethod String?                @map("payment_method") @db.VarChar(50)
+  paymentStatus String?                @map("payment_status") @db.VarChar(50)
+  paymentAt     DateTime?              @map("payment_at") @db.Timestamptz()
+  expiresAt     DateTime               @map("expires_at") @db.Timestamptz()
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet                    @relation(fields: [outletId], references: [id])
-  table           Table?                    @relation(fields: [tableId], references: [id])
-  items           SelfOrderItem[]
+  outlet Outlet          @relation(fields: [outletId], references: [id])
+  table  Table?          @relation(fields: [tableId], references: [id])
+  items  SelfOrderItem[]
 
   @@index([outletId], map: "idx_self_order_outlet")
   @@index([sessionCode], map: "idx_self_order_code")
@@ -1720,20 +1749,20 @@ model SelfOrderSession {
 // ============================================================================
 
 model SelfOrderItem {
-  id              String            @id @default(uuid()) @db.Uuid
-  sessionId       String            @map("session_id") @db.Uuid
-  productId       String            @map("product_id") @db.Uuid
-  variantId       String?           @map("variant_id") @db.Uuid
-  quantity        Int               @default(1)
-  modifiers       Json              @default("[]") @db.JsonB
-  notes           String?           @db.Text
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  variantId String?  @map("variant_id") @db.Uuid
+  quantity  Int      @default(1)
+  modifiers Json     @default("[]") @db.JsonB
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  session         SelfOrderSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  product         Product           @relation(fields: [productId], references: [id])
-  variant         ProductVariant?   @relation(fields: [variantId], references: [id])
+  session SelfOrderSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product Product          @relation(fields: [productId], references: [id])
+  variant ProductVariant?  @relation(fields: [variantId], references: [id])
 
   @@index([sessionId], map: "idx_self_order_items_session")
   @@map("self_order_items")
@@ -1744,25 +1773,25 @@ model SelfOrderItem {
 // ============================================================================
 
 model OnlineStore {
-  id                String        @id @default(uuid()) @db.Uuid
-  businessId        String        @map("business_id") @db.Uuid
-  storeName         String        @map("store_name") @db.VarChar(255)
-  slug              String        @unique @db.VarChar(100)
-  domain            String?       @db.VarChar(255)
-  description       String?       @db.Text
-  logoUrl           String?       @map("logo_url") @db.VarChar(500)
-  bannerUrl         String?       @map("banner_url") @db.VarChar(500)
-  themeSettings     Json          @default("{}") @map("theme_settings") @db.JsonB
-  shippingMethods   Json          @default("[]") @map("shipping_methods") @db.JsonB
-  paymentMethods    Json          @default("[]") @map("payment_methods") @db.JsonB
-  socialLinks       Json          @default("{}") @map("social_links") @db.JsonB
-  isActive          Boolean       @default(true) @map("is_active")
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String   @id @default(uuid()) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  storeName       String   @map("store_name") @db.VarChar(255)
+  slug            String   @unique @db.VarChar(100)
+  domain          String?  @db.VarChar(255)
+  description     String?  @db.Text
+  logoUrl         String?  @map("logo_url") @db.VarChar(500)
+  bannerUrl       String?  @map("banner_url") @db.VarChar(500)
+  themeSettings   Json     @default("{}") @map("theme_settings") @db.JsonB
+  shippingMethods Json     @default("[]") @map("shipping_methods") @db.JsonB
+  paymentMethods  Json     @default("[]") @map("payment_methods") @db.JsonB
+  socialLinks     Json     @default("{}") @map("social_links") @db.JsonB
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business          Business      @relation(fields: [businessId], references: [id])
-  storeOrders       StoreOrder[]
+  business    Business     @relation(fields: [businessId], references: [id])
+  storeOrders StoreOrder[]
 
   @@index([businessId], map: "idx_online_stores_business")
   @@index([slug], map: "idx_online_stores_slug")
@@ -1774,35 +1803,35 @@ model OnlineStore {
 // ============================================================================
 
 model StoreOrder {
-  id                String                    @id @default(uuid()) @db.Uuid
-  storeId           String                    @map("store_id") @db.Uuid
-  outletId          String                    @map("outlet_id") @db.Uuid
-  orderNumber       String                    @unique @map("order_number") @db.VarChar(50)
-  customerName      String                    @map("customer_name") @db.VarChar(255)
-  customerEmail     String?                   @map("customer_email") @db.VarChar(255)
-  customerPhone     String                    @map("customer_phone") @db.VarChar(20)
-  shippingAddress   String?                   @map("shipping_address") @db.Text
-  shippingMethod    String?                   @map("shipping_method") @db.VarChar(50)
-  shippingCost      Decimal                   @default(0) @map("shipping_cost") @db.Decimal(15, 2)
-  subtotal          Decimal                   @db.Decimal(15, 2)
-  discountAmount    Decimal                   @default(0) @map("discount_amount") @db.Decimal(15, 2)
-  grandTotal        Decimal                   @map("grand_total") @db.Decimal(15, 2)
-  paymentMethod     String?                   @map("payment_method") @db.VarChar(50)
-  paymentStatus     StoreOrderPaymentStatus   @default(pending) @map("payment_status")
-  orderStatus       StoreOrderStatus          @default(pending) @map("order_status")
-  trackingNumber    String?                   @map("tracking_number") @db.VarChar(100)
-  notes             String?                   @db.Text
-  paidAt            DateTime?                 @map("paid_at") @db.Timestamptz()
-  shippedAt         DateTime?                 @map("shipped_at") @db.Timestamptz()
-  deliveredAt       DateTime?                 @map("delivered_at") @db.Timestamptz()
-  cancelledAt       DateTime?                 @map("cancelled_at") @db.Timestamptz()
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String                  @id @default(uuid()) @db.Uuid
+  storeId         String                  @map("store_id") @db.Uuid
+  outletId        String                  @map("outlet_id") @db.Uuid
+  orderNumber     String                  @unique @map("order_number") @db.VarChar(50)
+  customerName    String                  @map("customer_name") @db.VarChar(255)
+  customerEmail   String?                 @map("customer_email") @db.VarChar(255)
+  customerPhone   String                  @map("customer_phone") @db.VarChar(20)
+  shippingAddress String?                 @map("shipping_address") @db.Text
+  shippingMethod  String?                 @map("shipping_method") @db.VarChar(50)
+  shippingCost    Decimal                 @default(0) @map("shipping_cost") @db.Decimal(15, 2)
+  subtotal        Decimal                 @db.Decimal(15, 2)
+  discountAmount  Decimal                 @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  grandTotal      Decimal                 @map("grand_total") @db.Decimal(15, 2)
+  paymentMethod   String?                 @map("payment_method") @db.VarChar(50)
+  paymentStatus   StoreOrderPaymentStatus @default(pending) @map("payment_status")
+  orderStatus     StoreOrderStatus        @default(pending) @map("order_status")
+  trackingNumber  String?                 @map("tracking_number") @db.VarChar(100)
+  notes           String?                 @db.Text
+  paidAt          DateTime?               @map("paid_at") @db.Timestamptz()
+  shippedAt       DateTime?               @map("shipped_at") @db.Timestamptz()
+  deliveredAt     DateTime?               @map("delivered_at") @db.Timestamptz()
+  cancelledAt     DateTime?               @map("cancelled_at") @db.Timestamptz()
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  store             OnlineStore               @relation(fields: [storeId], references: [id])
-  outlet            Outlet                    @relation(fields: [outletId], references: [id])
-  items             StoreOrderItem[]
+  store  OnlineStore      @relation(fields: [storeId], references: [id])
+  outlet Outlet           @relation(fields: [outletId], references: [id])
+  items  StoreOrderItem[]
 
   @@index([storeId], map: "idx_store_orders_store")
   @@index([orderStatus], map: "idx_store_orders_status")
@@ -1815,21 +1844,21 @@ model StoreOrder {
 // ============================================================================
 
 model StoreOrderItem {
-  id              String          @id @default(uuid()) @db.Uuid
-  storeOrderId    String          @map("store_order_id") @db.Uuid
-  productId       String?         @map("product_id") @db.Uuid
-  variantId       String?         @map("variant_id") @db.Uuid
-  productName     String          @map("product_name") @db.VarChar(255)
-  variantName     String?         @map("variant_name") @db.VarChar(255)
-  quantity        Int
-  unitPrice       Decimal         @map("unit_price") @db.Decimal(15, 2)
-  subtotal        Decimal         @db.Decimal(15, 2)
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id           String   @id @default(uuid()) @db.Uuid
+  storeOrderId String   @map("store_order_id") @db.Uuid
+  productId    String?  @map("product_id") @db.Uuid
+  variantId    String?  @map("variant_id") @db.Uuid
+  productName  String   @map("product_name") @db.VarChar(255)
+  variantName  String?  @map("variant_name") @db.VarChar(255)
+  quantity     Int
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(15, 2)
+  subtotal     Decimal  @db.Decimal(15, 2)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  storeOrder      StoreOrder      @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
-  product         Product?        @relation(fields: [productId], references: [id])
-  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+  storeOrder StoreOrder      @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
+  product    Product?        @relation(fields: [productId], references: [id])
+  variant    ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([storeOrderId], map: "idx_store_order_items")
   @@map("store_order_items")
@@ -1840,24 +1869,24 @@ model StoreOrderItem {
 // ============================================================================
 
 model WaitingList {
-  id                  String              @id @default(uuid()) @db.Uuid
-  outletId            String              @map("outlet_id") @db.Uuid
-  customerName        String              @map("customer_name") @db.VarChar(255)
-  customerPhone       String?             @map("customer_phone") @db.VarChar(20)
-  partySize           Int                 @default(1) @map("party_size")
-  preferredSection    String?             @map("preferred_section") @db.VarChar(50)
-  tableId             String?             @map("table_id") @db.Uuid
-  status              WaitingListStatus   @default(waiting)
-  estimatedWait       Int?                @map("estimated_wait")
-  notes               String?             @db.Text
-  queuedAt            DateTime            @default(now()) @map("queued_at") @db.Timestamptz()
-  notifiedAt          DateTime?           @map("notified_at") @db.Timestamptz()
-  seatedAt            DateTime?           @map("seated_at") @db.Timestamptz()
-  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+  id               String            @id @default(uuid()) @db.Uuid
+  outletId         String            @map("outlet_id") @db.Uuid
+  customerName     String            @map("customer_name") @db.VarChar(255)
+  customerPhone    String?           @map("customer_phone") @db.VarChar(20)
+  partySize        Int               @default(1) @map("party_size")
+  preferredSection String?           @map("preferred_section") @db.VarChar(50)
+  tableId          String?           @map("table_id") @db.Uuid
+  status           WaitingListStatus @default(waiting)
+  estimatedWait    Int?              @map("estimated_wait")
+  notes            String?           @db.Text
+  queuedAt         DateTime          @default(now()) @map("queued_at") @db.Timestamptz()
+  notifiedAt       DateTime?         @map("notified_at") @db.Timestamptz()
+  seatedAt         DateTime?         @map("seated_at") @db.Timestamptz()
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet              Outlet              @relation(fields: [outletId], references: [id])
-  table               Table?              @relation(fields: [tableId], references: [id])
+  outlet Outlet @relation(fields: [outletId], references: [id])
+  table  Table? @relation(fields: [tableId], references: [id])
 
   @@index([outletId], map: "idx_waitlist_outlet")
   @@index([status], map: "idx_waitlist_status")
@@ -1869,25 +1898,25 @@ model WaitingList {
 // ============================================================================
 
 model Promotion {
-  id              String        @id @default(uuid()) @db.Uuid
-  businessId      String        @map("business_id") @db.Uuid
-  name            String        @db.VarChar(255)
-  description     String?       @db.Text
-  discountType    DiscountType  @map("discount_type")
-  discountValue   Decimal       @map("discount_value") @db.Decimal(15, 2)
-  minPurchase     Decimal?      @map("min_purchase") @db.Decimal(15, 2)
-  maxDiscount     Decimal?      @map("max_discount") @db.Decimal(15, 2)
-  validFrom       DateTime      @map("valid_from") @db.Timestamptz()
-  validUntil      DateTime      @map("valid_until") @db.Timestamptz()
-  usageLimit      Int?          @map("usage_limit")
-  usedCount       Int           @default(0) @map("used_count")
-  applicableTo    Json          @default("{}") @map("applicable_to") @db.JsonB
-  isActive        Boolean       @default(true) @map("is_active")
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  id            String       @id @default(uuid()) @db.Uuid
+  businessId    String       @map("business_id") @db.Uuid
+  name          String       @db.VarChar(255)
+  description   String?      @db.Text
+  discountType  DiscountType @map("discount_type")
+  discountValue Decimal      @map("discount_value") @db.Decimal(15, 2)
+  minPurchase   Decimal?     @map("min_purchase") @db.Decimal(15, 2)
+  maxDiscount   Decimal?     @map("max_discount") @db.Decimal(15, 2)
+  validFrom     DateTime     @map("valid_from") @db.Timestamptz()
+  validUntil    DateTime     @map("valid_until") @db.Timestamptz()
+  usageLimit    Int?         @map("usage_limit")
+  usedCount     Int          @default(0) @map("used_count")
+  applicableTo  Json         @default("{}") @map("applicable_to") @db.JsonB
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business        Business      @relation(fields: [businessId], references: [id])
-  vouchers        Voucher[]
+  business Business  @relation(fields: [businessId], references: [id])
+  vouchers Voucher[]
 
   @@index([businessId], map: "idx_promotions_business")
   @@index([validFrom, validUntil], map: "idx_promotions_dates")
@@ -1899,22 +1928,22 @@ model Promotion {
 // ============================================================================
 
 model Voucher {
-  id              String      @id @default(uuid()) @db.Uuid
-  businessId      String      @map("business_id") @db.Uuid
-  code            String      @unique @db.VarChar(50)
-  promotionId     String?     @map("promotion_id") @db.Uuid
-  initialValue    Decimal?    @map("initial_value") @db.Decimal(15, 2)
-  remainingValue  Decimal?    @map("remaining_value") @db.Decimal(15, 2)
-  expiresAt       DateTime?   @map("expires_at") @db.Timestamptz()
-  usedAt          DateTime?   @map("used_at") @db.Timestamptz()
-  usedBy          String?     @map("used_by") @db.Uuid
-  isActive        Boolean     @default(true) @map("is_active")
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  id             String    @id @default(uuid()) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  code           String    @unique @db.VarChar(50)
+  promotionId    String?   @map("promotion_id") @db.Uuid
+  initialValue   Decimal?  @map("initial_value") @db.Decimal(15, 2)
+  remainingValue Decimal?  @map("remaining_value") @db.Decimal(15, 2)
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz()
+  usedAt         DateTime? @map("used_at") @db.Timestamptz()
+  usedBy         String?   @map("used_by") @db.Uuid
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business        Business    @relation(fields: [businessId], references: [id])
-  promotion       Promotion?  @relation(fields: [promotionId], references: [id])
-  customer        Customer?   @relation(fields: [usedBy], references: [id])
+  business  Business   @relation(fields: [businessId], references: [id])
+  promotion Promotion? @relation(fields: [promotionId], references: [id])
+  customer  Customer?  @relation(fields: [usedBy], references: [id])
 
   @@index([code], map: "idx_vouchers_code")
   @@map("vouchers")
@@ -1936,24 +1965,24 @@ enum SagaStatus {
 }
 
 model SagaState {
-  id              String      @id @default(uuid()) @db.Uuid
-  sagaId          String      @unique @map("saga_id") @db.VarChar(255)
-  sagaName        String      @map("saga_name") @db.VarChar(255)
-  status          SagaStatus  @default(pending)
-  context         Json        @db.JsonB
-  currentStep     Int?        @default(0) @map("current_step")
-  completedSteps  Json?       @map("completed_steps") @db.JsonB
-  failedStep      String?     @map("failed_step") @db.VarChar(255)
-  error           String?     @db.VarChar(1000)
-  startedAt       DateTime    @default(now()) @map("started_at") @db.Timestamptz()
-  completedAt     DateTime?   @map("completed_at") @db.Timestamptz()
-  lastRetryAt     DateTime?   @map("last_retry_at") @db.Timestamptz()
-  retryCount      Int         @default(0) @map("retry_count")
-  maxRetries      Int         @default(3) @map("max_retries")
-  businessId      String?     @map("business_id") @db.Uuid
-  metadata        Json?       @db.JsonB
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz()
+  id             String     @id @default(uuid()) @db.Uuid
+  sagaId         String     @unique @map("saga_id") @db.VarChar(255)
+  sagaName       String     @map("saga_name") @db.VarChar(255)
+  status         SagaStatus @default(pending)
+  context        Json       @db.JsonB
+  currentStep    Int?       @default(0) @map("current_step")
+  completedSteps Json?      @map("completed_steps") @db.JsonB
+  failedStep     String?    @map("failed_step") @db.VarChar(255)
+  error          String?    @db.VarChar(1000)
+  startedAt      DateTime   @default(now()) @map("started_at") @db.Timestamptz()
+  completedAt    DateTime?  @map("completed_at") @db.Timestamptz()
+  lastRetryAt    DateTime?  @map("last_retry_at") @db.Timestamptz()
+  retryCount     Int        @default(0) @map("retry_count")
+  maxRetries     Int        @default(3) @map("max_retries")
+  businessId     String?    @map("business_id") @db.Uuid
+  metadata       Json?      @db.JsonB
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@index([sagaName], map: "idx_saga_states_name")
   @@index([status], map: "idx_saga_states_status")
@@ -1967,15 +1996,15 @@ model SagaState {
 // ============================================================================
 
 model ReportTemplate {
-  id              String    @id @default(uuid()) @db.Uuid
-  businessId      String    @map("business_id") @db.Uuid
-  name            String    @db.VarChar(255)
-  config          Json      @db.JsonB
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String   @db.VarChar(255)
+  config     Json     @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business        Business  @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
 
   @@index([businessId], map: "idx_report_templates_business")
   @@map("report_templates")
@@ -1986,15 +2015,15 @@ model ReportTemplate {
 // ============================================================================
 
 model AppVersion {
-  id              String    @id @default(uuid()) @db.Uuid
-  version         String    @db.VarChar(50)
-  platform        String    @db.VarChar(50)
-  releaseNotes    String?   @map("release_notes") @db.Text
-  downloadUrl     String?   @map("download_url") @db.VarChar(1000)
-  minRequired     String?   @map("min_required") @db.VarChar(50)
-  forceUpdate     Boolean   @default(false) @map("force_update")
-  publishedAt     DateTime  @default(now()) @map("published_at") @db.Timestamptz()
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  id           String   @id @default(uuid()) @db.Uuid
+  version      String   @db.VarChar(50)
+  platform     String   @db.VarChar(50)
+  releaseNotes String?  @map("release_notes") @db.Text
+  downloadUrl  String?  @map("download_url") @db.VarChar(1000)
+  minRequired  String?  @map("min_required") @db.VarChar(50)
+  forceUpdate  Boolean  @default(false) @map("force_update")
+  publishedAt  DateTime @default(now()) @map("published_at") @db.Timestamptz()
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   @@unique([version, platform], map: "uq_app_version_platform")
   @@index([platform], map: "idx_app_versions_platform")
@@ -2006,19 +2035,19 @@ model AppVersion {
 // ============================================================================
 
 model PriceTier {
-  id              String    @id @default(uuid()) @db.Uuid
-  productId       String    @map("product_id") @db.Uuid
-  tierName        String    @map("tier_name") @db.VarChar(100)
-  minQuantity     Int       @map("min_quantity")
-  maxQuantity     Int?      @map("max_quantity")
-  price           Decimal   @db.Decimal(15, 2)
-  discountPercent Decimal?  @map("discount_percent") @db.Decimal(5, 2)
-  isActive        Boolean   @default(true) @map("is_active")
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String   @id @default(uuid()) @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  tierName        String   @map("tier_name") @db.VarChar(100)
+  minQuantity     Int      @map("min_quantity")
+  maxQuantity     Int?     @map("max_quantity")
+  price           Decimal  @db.Decimal(15, 2)
+  discountPercent Decimal? @map("discount_percent") @db.Decimal(5, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, isActive], map: "idx_price_tiers_product")
   @@index([productId, minQuantity], map: "idx_price_tiers_qty")
@@ -2030,19 +2059,19 @@ model PriceTier {
 // ============================================================================
 
 model UnitConversion {
-  id                String    @id @default(uuid()) @db.Uuid
-  productId         String    @map("product_id") @db.Uuid
-  fromUnit          String    @map("from_unit") @db.VarChar(30)
-  fromUnitLabel     String    @map("from_unit_label") @db.VarChar(50)
-  toUnit            String    @map("to_unit") @db.VarChar(30)
-  toUnitLabel       String    @map("to_unit_label") @db.VarChar(50)
-  conversionFactor  Decimal   @map("conversion_factor") @db.Decimal(15, 4)
-  isDefault         Boolean   @default(false) @map("is_default")
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id               String   @id @default(uuid()) @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  fromUnit         String   @map("from_unit") @db.VarChar(30)
+  fromUnitLabel    String   @map("from_unit_label") @db.VarChar(50)
+  toUnit           String   @map("to_unit") @db.VarChar(30)
+  toUnitLabel      String   @map("to_unit_label") @db.VarChar(50)
+  conversionFactor Decimal  @map("conversion_factor") @db.Decimal(15, 4)
+  isDefault        Boolean  @default(false) @map("is_default")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, fromUnit, toUnit], map: "uq_unit_conversion_product")
   @@index([productId], map: "idx_unit_conversions_product")
@@ -2054,23 +2083,23 @@ model UnitConversion {
 // ============================================================================
 
 model BatchLot {
-  id              String          @id @default(uuid()) @db.Uuid
-  productId       String          @map("product_id") @db.Uuid
-  outletId        String          @map("outlet_id") @db.Uuid
-  batchNumber     String          @map("batch_number") @db.VarChar(100)
-  quantity        Decimal         @default(0) @db.Decimal(15, 3)
-  costPrice       Decimal?        @map("cost_price") @db.Decimal(15, 2)
-  manufacturedAt  DateTime?       @map("manufactured_at") @db.Timestamptz()
-  expiresAt       DateTime?       @map("expires_at") @db.Timestamptz()
-  receivedAt      DateTime        @default(now()) @map("received_at") @db.Timestamptz()
-  status          BatchLotStatus  @default(active)
-  notes           String?         @db.Text
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id             String         @id @default(uuid()) @db.Uuid
+  productId      String         @map("product_id") @db.Uuid
+  outletId       String         @map("outlet_id") @db.Uuid
+  batchNumber    String         @map("batch_number") @db.VarChar(100)
+  quantity       Decimal        @default(0) @db.Decimal(15, 3)
+  costPrice      Decimal?       @map("cost_price") @db.Decimal(15, 2)
+  manufacturedAt DateTime?      @map("manufactured_at") @db.Timestamptz()
+  expiresAt      DateTime?      @map("expires_at") @db.Timestamptz()
+  receivedAt     DateTime       @default(now()) @map("received_at") @db.Timestamptz()
+  status         BatchLotStatus @default(active)
+  notes          String?        @db.Text
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  outlet          Outlet          @relation(fields: [outletId], references: [id])
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  outlet  Outlet  @relation(fields: [outletId], references: [id])
 
   @@unique([productId, outletId, batchNumber], map: "uq_batch_lot")
   @@index([productId, outletId], map: "idx_batch_lots_product_outlet")
@@ -2159,29 +2188,29 @@ enum PricingRuleStatus {
 // ============================================================================
 
 model Appointment {
-  id              String              @id @default(uuid()) @db.Uuid
-  businessId      String              @map("business_id") @db.Uuid
-  outletId        String              @map("outlet_id") @db.Uuid
-  customerId      String?             @map("customer_id") @db.Uuid
-  employeeId      String?             @map("employee_id") @db.Uuid
-  serviceName     String              @map("service_name") @db.VarChar(255)
-  servicePrice    Decimal             @map("service_price") @db.Decimal(15, 2)
-  startTime       DateTime            @map("start_time") @db.Timestamptz()
-  endTime         DateTime            @map("end_time") @db.Timestamptz()
-  durationMinutes Int                 @map("duration_minutes")
-  status          AppointmentStatus   @default(scheduled)
-  notes           String?             @db.Text
-  customerName    String?             @map("customer_name") @db.VarChar(255)
-  customerPhone   String?             @map("customer_phone") @db.VarChar(20)
-  cancelledAt     DateTime?           @map("cancelled_at") @db.Timestamptz()
-  cancelReason    String?             @map("cancel_reason") @db.Text
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String            @id @default(uuid()) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  outletId        String            @map("outlet_id") @db.Uuid
+  customerId      String?           @map("customer_id") @db.Uuid
+  employeeId      String?           @map("employee_id") @db.Uuid
+  serviceName     String            @map("service_name") @db.VarChar(255)
+  servicePrice    Decimal           @map("service_price") @db.Decimal(15, 2)
+  startTime       DateTime          @map("start_time") @db.Timestamptz()
+  endTime         DateTime          @map("end_time") @db.Timestamptz()
+  durationMinutes Int               @map("duration_minutes")
+  status          AppointmentStatus @default(scheduled)
+  notes           String?           @db.Text
+  customerName    String?           @map("customer_name") @db.VarChar(255)
+  customerPhone   String?           @map("customer_phone") @db.VarChar(20)
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz()
+  cancelReason    String?           @map("cancel_reason") @db.Text
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet              @relation(fields: [outletId], references: [id])
-  customer        Customer?           @relation(fields: [customerId], references: [id])
-  employee        Employee?           @relation(fields: [employeeId], references: [id])
+  outlet   Outlet    @relation(fields: [outletId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
 
   @@index([outletId, startTime], map: "idx_appointments_outlet_time")
   @@index([employeeId, startTime], map: "idx_appointments_employee_time")
@@ -2195,38 +2224,39 @@ model Appointment {
 // ============================================================================
 
 model WorkOrder {
-  id              String            @id @default(uuid()) @db.Uuid
-  businessId      String            @map("business_id") @db.Uuid
-  outletId        String            @map("outlet_id") @db.Uuid
-  customerId      String?           @map("customer_id") @db.Uuid
-  employeeId      String?           @map("employee_id") @db.Uuid
-  orderNumber     String            @unique @map("order_number") @db.VarChar(50)
-  title           String            @db.VarChar(255)
-  description     String?           @db.Text
-  itemDescription String?           @map("item_description") @db.Text
-  itemBrand       String?           @map("item_brand") @db.VarChar(100)
-  itemModel       String?           @map("item_model") @db.VarChar(100)
-  itemSerial      String?           @map("item_serial") @db.VarChar(100)
-  diagnosis       String?           @db.Text
-  status          WorkOrderStatus   @default(pending)
-  priority        String            @default("normal") @db.VarChar(20)
-  estimatedCost   Decimal?          @map("estimated_cost") @db.Decimal(15, 2)
-  finalCost       Decimal?          @map("final_cost") @db.Decimal(15, 2)
-  estimatedDate   DateTime?         @map("estimated_date") @db.Timestamptz()
-  completedAt     DateTime?         @map("completed_at") @db.Timestamptz()
-  deliveredAt     DateTime?         @map("delivered_at") @db.Timestamptz()
-  customerName    String?           @map("customer_name") @db.VarChar(255)
-  customerPhone   String?           @map("customer_phone") @db.VarChar(20)
-  notes           String?           @db.Text
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id              String          @id @default(uuid()) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  outletId        String          @map("outlet_id") @db.Uuid
+  customerId      String?         @map("customer_id") @db.Uuid
+  employeeId      String?         @map("employee_id") @db.Uuid
+  orderNumber     String          @map("order_number") @db.VarChar(50)
+  title           String          @db.VarChar(255)
+  description     String?         @db.Text
+  itemDescription String?         @map("item_description") @db.Text
+  itemBrand       String?         @map("item_brand") @db.VarChar(100)
+  itemModel       String?         @map("item_model") @db.VarChar(100)
+  itemSerial      String?         @map("item_serial") @db.VarChar(100)
+  diagnosis       String?         @db.Text
+  status          WorkOrderStatus @default(pending)
+  priority        String          @default("normal") @db.VarChar(20)
+  estimatedCost   Decimal?        @map("estimated_cost") @db.Decimal(15, 2)
+  finalCost       Decimal?        @map("final_cost") @db.Decimal(15, 2)
+  estimatedDate   DateTime?       @map("estimated_date") @db.Timestamptz()
+  completedAt     DateTime?       @map("completed_at") @db.Timestamptz()
+  deliveredAt     DateTime?       @map("delivered_at") @db.Timestamptz()
+  customerName    String?         @map("customer_name") @db.VarChar(255)
+  customerPhone   String?         @map("customer_phone") @db.VarChar(20)
+  notes           String?         @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet            @relation(fields: [outletId], references: [id])
-  customer        Customer?         @relation(fields: [customerId], references: [id])
-  employee        Employee?         @relation(fields: [employeeId], references: [id])
-  items           WorkOrderItem[]
+  outlet   Outlet          @relation(fields: [outletId], references: [id])
+  customer Customer?       @relation(fields: [customerId], references: [id])
+  employee Employee?       @relation(fields: [employeeId], references: [id])
+  items    WorkOrderItem[]
 
+  @@unique([businessId, orderNumber], map: "uq_work_order_business")
   @@index([outletId, status], map: "idx_work_orders_outlet_status")
   @@index([customerId], map: "idx_work_orders_customer")
   @@index([status], map: "idx_work_orders_status")
@@ -2234,17 +2264,17 @@ model WorkOrder {
 }
 
 model WorkOrderItem {
-  id              String    @id @default(uuid()) @db.Uuid
-  workOrderId     String    @map("work_order_id") @db.Uuid
-  description     String    @db.VarChar(255)
-  type            String    @default("labor") @db.VarChar(20) // labor, parts, other
-  quantity        Decimal   @default(1) @db.Decimal(10, 3)
-  unitPrice       Decimal   @map("unit_price") @db.Decimal(15, 2)
-  subtotal        Decimal   @db.Decimal(15, 2)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  workOrderId String   @map("work_order_id") @db.Uuid
+  description String   @db.VarChar(255)
+  type        String   @default("labor") @db.VarChar(20) // labor, parts, other
+  quantity    Decimal  @default(1) @db.Decimal(10, 3)
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(15, 2)
+  subtotal    Decimal  @db.Decimal(15, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  workOrder       WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
   @@index([workOrderId], map: "idx_work_order_items_order")
   @@map("work_order_items")
@@ -2255,26 +2285,26 @@ model WorkOrderItem {
 // ============================================================================
 
 model SerialNumber {
-  id              String              @id @default(uuid()) @db.Uuid
-  businessId      String              @map("business_id") @db.Uuid
-  productId       String              @map("product_id") @db.Uuid
-  outletId        String              @map("outlet_id") @db.Uuid
-  serialNumber    String              @map("serial_number") @db.VarChar(100)
-  status          SerialNumberStatus  @default(in_stock)
-  purchaseDate    DateTime?           @map("purchase_date") @db.Timestamptz()
-  soldDate        DateTime?           @map("sold_date") @db.Timestamptz()
-  warrantyExpiry  DateTime?           @map("warranty_expiry") @db.Timestamptz()
-  customerId      String?             @map("customer_id") @db.Uuid
-  transactionId   String?             @map("transaction_id") @db.Uuid
-  costPrice       Decimal?            @map("cost_price") @db.Decimal(15, 2)
-  notes           String?             @db.Text
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id             String             @id @default(uuid()) @db.Uuid
+  businessId     String             @map("business_id") @db.Uuid
+  productId      String             @map("product_id") @db.Uuid
+  outletId       String             @map("outlet_id") @db.Uuid
+  serialNumber   String             @map("serial_number") @db.VarChar(100)
+  status         SerialNumberStatus @default(in_stock)
+  purchaseDate   DateTime?          @map("purchase_date") @db.Timestamptz()
+  soldDate       DateTime?          @map("sold_date") @db.Timestamptz()
+  warrantyExpiry DateTime?          @map("warranty_expiry") @db.Timestamptz()
+  customerId     String?            @map("customer_id") @db.Uuid
+  transactionId  String?            @map("transaction_id") @db.Uuid
+  costPrice      Decimal?           @map("cost_price") @db.Decimal(15, 2)
+  notes          String?            @db.Text
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  outlet          Outlet              @relation(fields: [outletId], references: [id])
-  customer        Customer?           @relation(fields: [customerId], references: [id])
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  outlet   Outlet    @relation(fields: [outletId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
 
   @@unique([businessId, serialNumber], map: "uq_serial_number_business")
   @@index([productId, outletId], map: "idx_serial_numbers_product_outlet")
@@ -2292,7 +2322,7 @@ model ServiceItem {
   businessId      String            @map("business_id") @db.Uuid
   outletId        String            @map("outlet_id") @db.Uuid
   customerId      String?           @map("customer_id") @db.Uuid
-  ticketNumber    String            @unique @map("ticket_number") @db.VarChar(50)
+  ticketNumber    String            @map("ticket_number") @db.VarChar(50)
   itemName        String            @map("item_name") @db.VarChar(255)
   itemDescription String?           @map("item_description") @db.Text
   quantity        Int               @default(1)
@@ -2311,9 +2341,10 @@ model ServiceItem {
   updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet          Outlet            @relation(fields: [outletId], references: [id])
-  customer        Customer?         @relation(fields: [customerId], references: [id])
+  outlet   Outlet    @relation(fields: [outletId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
 
+  @@unique([outletId, ticketNumber], map: "uq_ticket_per_outlet")
   @@index([outletId, status], map: "idx_service_items_outlet_status")
   @@index([customerId], map: "idx_service_items_customer")
   @@index([status], map: "idx_service_items_status")
@@ -2325,35 +2356,35 @@ model ServiceItem {
 // ============================================================================
 
 model PricingRule {
-  id                             String             @id @default(uuid()) @db.Uuid
-  businessId                     String             @map("business_id") @db.Uuid
-  name                           String             @db.VarChar(255)
-  description                    String?            @db.Text
-  type                           PricingRuleType
-  priority                       Int                @default(0)
-  status                         PricingRuleStatus  @default(active)
-  validFrom                      DateTime           @map("valid_from") @db.Timestamptz()
-  validUntil                     DateTime?          @map("valid_until") @db.Timestamptz()
-  conditions                     Json
-  discountType                   String             @map("discount_type") @db.VarChar(50)
-  discountValue                  Decimal            @map("discount_value") @db.Decimal(10, 2)
-  minQuantity                    Int?               @map("min_quantity")
-  maxQuantity                    Int?               @map("max_quantity")
-  applicableDays                 Int[]              @map("applicable_days")
-  timeFrom                       String?            @map("time_from") @db.VarChar(10)
-  timeUntil                      String?            @map("time_until") @db.VarChar(10)
-  customerSegments               String[]           @map("customer_segments")
-  productIds                     String[]           @map("product_ids")
-  categoryIds                    String[]           @map("category_ids")
-  excludeProductIds              String[]           @map("exclude_product_ids")
-  isCombinable                   Boolean            @default(false) @map("is_combinable")
-  maxApplicationsPerTransaction  Int?               @map("max_applications_per_transaction")
-  metadata                       Json?
-  createdAt                      DateTime           @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt                      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                            String            @id @default(uuid()) @db.Uuid
+  businessId                    String            @map("business_id") @db.Uuid
+  name                          String            @db.VarChar(255)
+  description                   String?           @db.Text
+  type                          PricingRuleType
+  priority                      Int               @default(0)
+  status                        PricingRuleStatus @default(active)
+  validFrom                     DateTime          @map("valid_from") @db.Timestamptz()
+  validUntil                    DateTime?         @map("valid_until") @db.Timestamptz()
+  conditions                    Json
+  discountType                  String            @map("discount_type") @db.VarChar(50)
+  discountValue                 Decimal           @map("discount_value") @db.Decimal(10, 2)
+  minQuantity                   Int?              @map("min_quantity")
+  maxQuantity                   Int?              @map("max_quantity")
+  applicableDays                Int[]             @map("applicable_days")
+  timeFrom                      String?           @map("time_from") @db.VarChar(10)
+  timeUntil                     String?           @map("time_until") @db.VarChar(10)
+  customerSegments              String[]          @map("customer_segments")
+  productIds                    String[]          @map("product_ids")
+  categoryIds                   String[]          @map("category_ids")
+  excludeProductIds             String[]          @map("exclude_product_ids")
+  isCombinable                  Boolean           @default(false) @map("is_combinable")
+  maxApplicationsPerTransaction Int?              @map("max_applications_per_transaction")
+  metadata                      Json?
+  createdAt                     DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt                     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business                       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId], map: "idx_pricing_rules_business")
   @@index([type], map: "idx_pricing_rules_type")
@@ -2368,19 +2399,19 @@ model PricingRule {
 // ============================================================================
 
 model CreditSale {
-  id                String          @id @default(uuid()) @db.Uuid
-  transactionId     String          @map("transaction_id") @db.Uuid
-  customerId        String          @map("customer_id") @db.Uuid
-  outletId          String          @map("outlet_id") @db.Uuid
-  totalAmount       Decimal         @map("total_amount") @db.Decimal(15, 2)
-  paidAmount        Decimal         @default(0) @map("paid_amount") @db.Decimal(15, 2)
-  outstandingAmount Decimal         @map("outstanding_amount") @db.Decimal(15, 2)
-  dueDate           DateTime?       @map("due_date") @db.Date
-  status            String          @default("outstanding") @db.VarChar(20)
-  notes             String?         @db.Text
-  createdBy         String?         @map("created_by") @db.Uuid
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                String    @id @default(uuid()) @db.Uuid
+  transactionId     String    @map("transaction_id") @db.Uuid
+  customerId        String    @map("customer_id") @db.Uuid
+  outletId          String    @map("outlet_id") @db.Uuid
+  totalAmount       Decimal   @map("total_amount") @db.Decimal(15, 2)
+  paidAmount        Decimal   @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  outstandingAmount Decimal   @map("outstanding_amount") @db.Decimal(15, 2)
+  dueDate           DateTime? @map("due_date") @db.Date
+  status            String    @default("outstanding") @db.VarChar(20)
+  notes             String?   @db.Text
+  createdBy         String?   @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   transaction       Transaction     @relation(fields: [transactionId], references: [id])
   customer          Customer        @relation(fields: [customerId], references: [id])
@@ -2388,6 +2419,7 @@ model CreditSale {
   createdByEmployee Employee?       @relation("CreditSaleCreatedBy", fields: [createdBy], references: [id])
   payments          CreditPayment[]
 
+  @@unique([transactionId], map: "uq_credit_sale_transaction")
   @@index([customerId], map: "idx_credit_sales_customer")
   @@index([outletId], map: "idx_credit_sales_outlet")
   @@index([status], map: "idx_credit_sales_status")
@@ -2405,7 +2437,7 @@ model CreditPayment {
   receivedBy      String?       @map("received_by") @db.Uuid
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
 
-  creditSale      CreditSale    @relation(fields: [creditSaleId], references: [id], onDelete: Cascade)
+  creditSale         CreditSale @relation(fields: [creditSaleId], references: [id], onDelete: Cascade)
   receivedByEmployee Employee?  @relation("CreditPaymentReceivedBy", fields: [receivedBy], references: [id])
 
   @@index([creditSaleId], map: "idx_credit_payments_credit_sale")
@@ -2417,21 +2449,21 @@ model CreditPayment {
 // ============================================================================
 
 model BundlePackage {
-  id              String              @id @default(uuid()) @db.Uuid
-  businessId      String              @map("business_id") @db.Uuid
-  name            String              @db.VarChar(255)
-  description     String?             @db.Text
-  imageUrl        String?             @map("image_url") @db.VarChar(500)
-  price           Decimal             @db.Decimal(15, 2)
-  costPrice       Decimal?            @map("cost_price") @db.Decimal(15, 2)
-  isActive        Boolean             @default(true) @map("is_active")
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url") @db.VarChar(500)
+  price       Decimal  @db.Decimal(15, 2)
+  costPrice   Decimal? @map("cost_price") @db.Decimal(15, 2)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business        Business            @relation(fields: [businessId], references: [id])
-  items           BundlePackageItem[]
-  outlets         BundlePackageOutlet[]
+  business         Business              @relation(fields: [businessId], references: [id])
+  items            BundlePackageItem[]
+  outlets          BundlePackageOutlet[]
   transactionItems TransactionItem[]
 
   @@index([businessId], map: "idx_bundle_packages_business")
@@ -2440,33 +2472,33 @@ model BundlePackage {
 }
 
 model BundlePackageItem {
-  id              String          @id @default(uuid()) @db.Uuid
-  bundleId        String          @map("bundle_id") @db.Uuid
-  productId       String          @map("product_id") @db.Uuid
-  variantId       String?         @map("variant_id") @db.Uuid
-  quantity        Decimal         @default(1) @db.Decimal(10, 3)
-  sortOrder       Int             @default(0) @map("sort_order")
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  bundleId  String   @map("bundle_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  variantId String?  @map("variant_id") @db.Uuid
+  quantity  Decimal  @default(1) @db.Decimal(10, 3)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  bundle          BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id])
-  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+  bundle  BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([bundleId], map: "idx_bundle_items_bundle")
   @@map("bundle_package_items")
 }
 
 model BundlePackageOutlet {
-  id              String          @id @default(uuid()) @db.Uuid
-  bundleId        String          @map("bundle_id") @db.Uuid
-  outletId        String          @map("outlet_id") @db.Uuid
-  isActive        Boolean         @default(true) @map("is_active")
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  id        String   @id @default(uuid()) @db.Uuid
+  bundleId  String   @map("bundle_id") @db.Uuid
+  outletId  String   @map("outlet_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  bundle          BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
-  outlet          Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  bundle BundlePackage @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  outlet Outlet        @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@unique([bundleId, outletId])
   @@index([outletId], map: "idx_bundle_outlets_outlet")
@@ -2478,19 +2510,19 @@ model BundlePackageOutlet {
 // ============================================================================
 
 model Subscription {
-  id              String             @id @default(uuid()) @db.Uuid
-  businessId      String             @map("business_id") @db.Uuid
-  plan            SubscriptionPlan
-  status          SubscriptionStatus @default(active)
-  billingCycle    String             @default("monthly") @map("billing_cycle") @db.VarChar(20)
-  startDate       DateTime           @map("start_date") @db.Timestamptz()
-  endDate         DateTime           @map("end_date") @db.Timestamptz()
-  trialEndsAt     DateTime?          @map("trial_ends_at") @db.Timestamptz()
-  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz()
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  id           String             @id @default(uuid()) @db.Uuid
+  businessId   String             @map("business_id") @db.Uuid
+  plan         SubscriptionPlan
+  status       SubscriptionStatus @default(active)
+  billingCycle String             @default("monthly") @map("billing_cycle") @db.VarChar(20)
+  startDate    DateTime           @map("start_date") @db.Timestamptz()
+  endDate      DateTime           @map("end_date") @db.Timestamptz()
+  trialEndsAt  DateTime?          @map("trial_ends_at") @db.Timestamptz()
+  cancelledAt  DateTime?          @map("cancelled_at") @db.Timestamptz()
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz()
 
-  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  invoices        Invoice[]
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
 
   @@index([businessId], map: "idx_subscriptions_business")
   @@index([status], map: "idx_subscriptions_status")
@@ -2498,26 +2530,102 @@ model Subscription {
 }
 
 model Invoice {
-  id              String             @id @default(uuid()) @db.Uuid
-  businessId      String             @map("business_id") @db.Uuid
-  subscriptionId  String?            @map("subscription_id") @db.Uuid
-  invoiceNumber   String             @unique @map("invoice_number") @db.VarChar(50)
-  amount          Decimal            @db.Decimal(15, 2)
-  status          InvoiceStatus      @default(pending)
-  dueDate         DateTime           @map("due_date") @db.Timestamptz()
-  paidAt          DateTime?          @map("paid_at") @db.Timestamptz()
-  paymentMethod   String?            @map("payment_method") @db.VarChar(50)
-  paymentRef      String?            @map("payment_ref") @db.VarChar(255)
-  paymentUrl      String?            @map("payment_url") @db.VarChar(500)
-  provider        String?            @db.VarChar(20)
-  metadata        Json               @default("{}") @db.JsonB
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  id             String        @id @default(uuid()) @db.Uuid
+  businessId     String        @map("business_id") @db.Uuid
+  subscriptionId String?       @map("subscription_id") @db.Uuid
+  invoiceNumber  String        @map("invoice_number") @db.VarChar(50)
+  amount         Decimal       @db.Decimal(15, 2)
+  status         InvoiceStatus @default(pending)
+  dueDate        DateTime      @map("due_date") @db.Timestamptz()
+  paidAt         DateTime?     @map("paid_at") @db.Timestamptz()
+  paymentMethod  String?       @map("payment_method") @db.VarChar(50)
+  paymentRef     String?       @map("payment_ref") @db.VarChar(255)
+  paymentUrl     String?       @map("payment_url") @db.VarChar(500)
+  provider       String?       @db.VarChar(20)
+  metadata       Json          @default("{}") @db.JsonB
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
 
-  business        Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  subscription    Subscription?      @relation(fields: [subscriptionId], references: [id])
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
 
+  @@unique([businessId, invoiceNumber], map: "uq_invoice_business")
   @@index([businessId], map: "idx_invoices_business")
   @@index([status], map: "idx_invoices_status")
   @@index([invoiceNumber], map: "idx_invoices_number")
   @@map("invoices")
+}
+
+// ============================================================================
+// STOCK OPNAME (Physical Inventory Count)
+// ============================================================================
+
+model StockOpname {
+  id           String            @id @default(uuid()) @db.Uuid
+  outletId     String            @map("outlet_id") @db.Uuid
+  opnameNumber String            @unique @map("opname_number") @db.VarChar(50)
+  status       StockOpnameStatus @default(draft)
+  notes        String?           @db.Text
+  createdBy    String            @map("created_by") @db.Uuid
+  approvedBy   String?           @map("approved_by") @db.Uuid
+  startedAt    DateTime?         @map("started_at") @db.Timestamptz()
+  completedAt  DateTime?         @map("completed_at") @db.Timestamptz()
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  outlet             Outlet            @relation(fields: [outletId], references: [id])
+  createdByEmployee  Employee          @relation("OpnameCreatedBy", fields: [createdBy], references: [id])
+  approvedByEmployee Employee?         @relation("OpnameApprovedBy", fields: [approvedBy], references: [id])
+  items              StockOpnameItem[]
+
+  @@index([outletId], map: "idx_opname_outlet")
+  @@index([status], map: "idx_opname_status")
+  @@index([createdAt], map: "idx_opname_date")
+  @@map("stock_opnames")
+}
+
+model StockOpnameItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  opnameId       String   @map("opname_id") @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  variantId      String?  @map("variant_id") @db.Uuid
+  systemQuantity Decimal  @map("system_quantity") @db.Decimal(15, 3)
+  actualQuantity Decimal? @map("actual_quantity") @db.Decimal(15, 3)
+  difference     Decimal? @db.Decimal(15, 3)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  opname  StockOpname     @relation(fields: [opnameId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([opnameId], map: "idx_opname_items_opname")
+  @@map("stock_opname_items")
+}
+
+// ============================================================================
+// COST PRICE HISTORY (Moving Average Audit Trail)
+// ============================================================================
+
+model CostPriceHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  variantId      String?  @map("variant_id") @db.Uuid
+  previousCost   Decimal  @map("previous_cost") @db.Decimal(15, 4)
+  newCost        Decimal  @map("new_cost") @db.Decimal(15, 4)
+  quantityBefore Decimal  @map("quantity_before") @db.Decimal(15, 3)
+  quantityAdded  Decimal  @map("quantity_added") @db.Decimal(15, 3)
+  unitCostAdded  Decimal  @map("unit_cost_added") @db.Decimal(15, 4)
+  referenceId    String?  @map("reference_id") @db.Uuid
+  referenceType  String?  @map("reference_type") @db.VarChar(50)
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  product Product?        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([productId], map: "idx_cost_history_product")
+  @@index([variantId], map: "idx_cost_history_variant")
+  @@index([createdAt], map: "idx_cost_history_date")
+  @@map("cost_price_history")
 }

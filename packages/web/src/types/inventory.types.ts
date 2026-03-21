@@ -16,6 +16,21 @@ export interface StockAdjustmentRequest {
   quantity: number;
   reason: string;
   type: 'add' | 'remove' | 'set';
+  unitCost?: number;
+}
+
+export interface CostPriceHistoryEntry {
+  id: string;
+  productId: string | null;
+  variantId: string | null;
+  previousCost: number;
+  newCost: number;
+  quantityBefore: number;
+  quantityAdded: number;
+  unitCostAdded: number;
+  referenceType: string | null;
+  referenceId: string | null;
+  createdAt: string;
 }
 
 export type TransferStatus = 'requested' | 'approved' | 'shipped' | 'in_transit' | 'received' | 'cancelled';
@@ -31,15 +46,34 @@ export interface StockTransfer {
   notes: string | null;
   requestedBy: string;
   approvedBy: string | null;
+  approvedAt: string | null;
+  shippedAt: string | null;
+  receivedAt: string | null;
+  receivedBy: string | null;
   items: StockTransferItem[];
   createdAt: string;
   updatedAt: string;
 }
 
+export interface TransferTemplateData {
+  name: string;
+  description?: string;
+  sourceOutletId: string;
+  destinationOutletId: string;
+  items: { productId: string; productName: string; defaultQuantity: number }[];
+}
+
+export interface TransferDiscrepancy {
+  itemName: string;
+  sent: number;
+  received: number;
+  difference: number;
+}
+
 export interface StockTransferItem {
   id: string;
   productName: string;
-  requestedQuantity: number;
+  quantitySent: number;
   receivedQuantity: number | null;
 }
 

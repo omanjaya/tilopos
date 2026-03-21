@@ -310,7 +310,16 @@ export class WorkOrdersService {
     });
   }
 
-  async calculateTotal(workOrderId: string) {
+  async calculateTotal(workOrderId: string, businessId?: string) {
+    // Verify work order belongs to business if businessId provided
+    if (businessId) {
+      const wo = await this.prisma.workOrder.findFirst({
+        where: { id: workOrderId, outlet: { businessId } },
+        select: { id: true },
+      });
+      if (!wo) throw new NotFoundException('Work order not found');
+    }
+
     const items = await this.prisma.workOrderItem.findMany({
       where: { workOrderId },
     });

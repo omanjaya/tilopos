@@ -92,7 +92,7 @@ export function useRealtimeInventory(
       currentSocket?.off('inventory:stock_changed', stockChangedHandler);
       currentSocket?.off('inventory:stock_updated', stockUpdatedHandler);
       currentSocket?.off('transfer:status_changed', transferHandler);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom]);

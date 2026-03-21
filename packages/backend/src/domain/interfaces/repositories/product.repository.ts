@@ -8,6 +8,18 @@ export interface IProductRepository {
   delete(id: string): Promise<void>;
 }
 
+export interface ProductVariantRecord {
+  id: string;
+  productId: string;
+  sku: string | null;
+  barcode: string | null;
+  name: string;
+  price: number;
+  costPrice: number | null;
+  isActive: boolean;
+  createdAt: Date;
+}
+
 export interface ProductRecord {
   id: string;
   businessId: string;
@@ -23,4 +35,5 @@ export interface ProductRecord {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  variants?: ProductVariantRecord[];
 }

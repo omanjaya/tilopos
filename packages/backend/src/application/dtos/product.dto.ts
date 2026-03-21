@@ -4,6 +4,8 @@ import {
   IsOptional,
   IsArray,
   IsBoolean,
+  IsNotEmpty,
+  MaxLength,
   ValidateNested,
   Min,
 } from 'class-validator';
@@ -62,9 +64,10 @@ export class UpdateVariantDto {
 }
 
 export class CreateProductDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  businessId!: string;
+  businessId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -78,11 +81,14 @@ export class CreateProductDto {
 
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'Product name must not be empty' })
+  @MaxLength(255)
   name!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   @ApiPropertyOptional()

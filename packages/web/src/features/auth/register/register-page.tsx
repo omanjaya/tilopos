@@ -5,14 +5,12 @@ import { AnimatePresence } from 'framer-motion';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
 import { useFeatureStore } from '@/stores/feature.store';
-import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Card, CardContent } from '@/components/ui/card';
 import { AccountStep, type AccountData } from './steps/account-step';
 import { BusinessTypeStep } from './steps/business-type-step';
 import { BusinessInfoStep, type BusinessInfoData } from './steps/business-info-step';
 import { SuccessStep } from './steps/success-step';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 import type { RegisterRequest, RegisterResponse } from '@/types/register.types';
 
 interface FormData {
@@ -61,8 +59,10 @@ export function RegisterPage() {
           role: data.role as 'owner',
           businessId: data.businessId,
           outletId: data.outletId,
+          outletName: formData.businessInfo?.outletName,
           employeeId: data.employeeId,
           onboardingCompleted: true,
+          emailVerified: data.emailVerified ?? false,
         },
         data.accessToken,
       );
@@ -71,12 +71,7 @@ export function RegisterPage() {
       setRegisterResult(data);
       setCurrentStep(3);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Pendaftaran gagal',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat mendaftar',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Pendaftaran gagal'),
   });
 
   const handleAccountNext = (data: AccountData) => {

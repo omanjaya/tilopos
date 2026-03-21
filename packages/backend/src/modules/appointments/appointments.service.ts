@@ -214,6 +214,7 @@ export class AppointmentsService {
     startTime: string,
     durationMinutes: number,
     excludeId?: string,
+    businessId?: string,
   ) {
     const start = new Date(startTime);
     const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
@@ -222,6 +223,7 @@ export class AppointmentsService {
       where: {
         outletId,
         employeeId,
+        ...(businessId && { businessId }),
         status: {
           in: [
             AppointmentStatus.scheduled,

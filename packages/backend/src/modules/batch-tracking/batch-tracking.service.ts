@@ -32,6 +32,12 @@ export class BatchTrackingService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  async findById(id: string) {
+    const batch = await this.prisma.batchLot.findUnique({ where: { id } });
+    if (!batch) throw new NotFoundException('Batch lot not found');
+    return batch;
+  }
+
   async listByProduct(productId: string, outletId: string) {
     return this.prisma.batchLot.findMany({
       where: { productId, outletId },

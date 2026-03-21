@@ -26,11 +26,18 @@ export class SelfOrderMenuService {
 
     if (!outlet) throw new NotFoundException('Outlet not found');
 
+    // Fetch product IDs assigned to this specific outlet via OutletProduct junction table
+    const outletProducts = await this.prisma.outletProduct.findMany({
+      where: { outletId, isActive: true },
+      select: { productId: true },
+    });
+    const outletProductIds = outletProducts.map((op) => op.productId);
+
     const categories = await this.prisma.category.findMany({
       where: { businessId: outlet.businessId, isActive: true },
       include: {
         products: {
-          where: { isActive: true },
+          where: { isActive: true, id: { in: outletProductIds } },
           include: {
             variants: { where: { isActive: true } },
             productModifierGroups: {

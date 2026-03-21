@@ -21,8 +21,7 @@ import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { MoreHorizontal, Eye, Play, Check, HandPlatter, CheckCircle2, XCircle } from 'lucide-react';
 import type { Order, OrderStatus } from '@/types/order.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   pending: { label: 'Menunggu', variant: 'secondary' },
@@ -35,7 +34,6 @@ const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'des
 
 const ORDER_TYPE_MAP: Record<string, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   dine_in: { label: 'Dine In', variant: 'default' },
-  take_away: { label: 'Take Away', variant: 'secondary' },
   takeaway: { label: 'Take Away', variant: 'secondary' },
   delivery: { label: 'Delivery', variant: 'outline' },
 };
@@ -112,12 +110,7 @@ export function OrdersPage() {
       });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memperbarui status',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat memperbarui status pesanan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status pesanan'),
   });
 
   const columns: Column<Order>[] = [

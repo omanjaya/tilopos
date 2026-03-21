@@ -29,10 +29,10 @@ describe('Suite 13: Self-Order', () => {
   describe('Setup', () => {
     it('should ensure productIds exist', async () => {
       if (!testContext.created.productIds.length) {
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/inventory/products');
+        const res = await authRequest(app, 'owner').get('/api/v1/inventory/products');
         expect(res.status).toBeLessThan(400);
         const products = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.productIds = products.map((p: any) => p.id);
         saveContext();
       }
@@ -47,12 +47,10 @@ describe('Suite 13: Self-Order', () => {
     it('13.1 - should create a self-order session', async () => {
       const outletId = testContext.outletId!;
 
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/self-order/sessions')
-        .send({
-          outletId,
-          language: 'id',
-        });
+      const res = await request(app.getHttpServer()).post('/api/v1/self-order/sessions').send({
+        outletId,
+        language: 'id',
+      });
 
       if (res.status >= 400) {
         console.log('13.1 create session error:', res.status, res.body);
@@ -77,8 +75,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.2 - should get menu (public, no auth)', async () => {
       const outletId = testContext.outletId!;
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/menu?outletId=${outletId}`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/menu?outletId=${outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('13.2 menu error:', res.status, res.body);
@@ -100,8 +99,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.2b - should get menu with language support (parametric route)', async () => {
       const outletId = testContext.outletId!;
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/menu/${outletId}?lang=en`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/menu/${outletId}?lang=en`,
+      );
 
       if (res.status >= 400) {
         console.log('13.2b menu/:outletId error:', res.status, res.body);
@@ -120,8 +120,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.3 - should get session by code', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}`,
+      );
 
       if (res.status >= 400) {
         console.log('13.3 get session error:', res.status, res.body);
@@ -190,8 +191,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.5 - should get session total', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}/total`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}/total`,
+      );
 
       if (res.status >= 400) {
         console.log('13.5 total error:', res.status, res.body);
@@ -204,14 +206,17 @@ describe('Suite 13: Self-Order', () => {
       expect(Number(res.body.grandTotal)).toBeGreaterThanOrEqual(Number(res.body.subtotal));
       expect(res.body.itemCount).toBeGreaterThanOrEqual(2);
 
-      console.log(`13.5 Total: subtotal=${res.body.subtotal}, grand=${res.body.grandTotal}, items=${res.body.itemCount}`);
+      console.log(
+        `13.5 Total: subtotal=${res.body.subtotal}, grand=${res.body.grandTotal}, items=${res.body.itemCount}`,
+      );
     });
 
     it('13.6 - should submit order', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/self-order/sessions/${sessionCode}/submit`);
+      const res = await request(app.getHttpServer()).post(
+        `/api/v1/self-order/sessions/${sessionCode}/submit`,
+      );
 
       if (res.status >= 400) {
         console.log('13.6 submit error:', res.status, res.body);
@@ -233,8 +238,7 @@ describe('Suite 13: Self-Order', () => {
     it('13.7 - should verify order appears in KDS', async () => {
       const outletId = testContext.outletId!;
 
-      const res = await authRequest(app, 'kitchen')
-        .get(`/api/v1/kds/orders?outletId=${outletId}`);
+      const res = await authRequest(app, 'kitchen').get(`/api/v1/kds/orders?outletId=${outletId}`);
 
       if (res.status >= 400) {
         console.log('13.7 KDS error:', res.status, res.body);
@@ -248,6 +252,7 @@ describe('Suite 13: Self-Order', () => {
       if (orders.length > 0) {
         // Look for our self-order
         const soOrder = orders.find(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (o: any) => o.orderNumber?.startsWith('ORD-') || o.orderType === 'dine_in',
         );
         if (soOrder) {
@@ -270,8 +275,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.8 - should get total for payment', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}/total`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}/total`,
+      );
 
       expect(res.status).toBeLessThan(400);
       grandTotal = Number(res.body.grandTotal);
@@ -304,8 +310,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.10 - should get payment status', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}/payment-status`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}/payment-status`,
+      );
 
       if (res.status >= 400) {
         console.log('13.10 payment status error:', res.status, res.body);
@@ -324,8 +331,9 @@ describe('Suite 13: Self-Order', () => {
       expect(sessionCode).toBeDefined();
 
       // Get the paymentRef from the session
-      const statusRes = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}/payment-status`);
+      const statusRes = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}/payment-status`,
+      );
 
       expect(statusRes.status).toBeLessThan(400);
       const paymentRef = statusRes.body.paymentReference;
@@ -350,8 +358,9 @@ describe('Suite 13: Self-Order', () => {
     it('13.12 - should verify session is now paid', async () => {
       expect(sessionCode).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/self-order/sessions/${sessionCode}/payment-status`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/self-order/sessions/${sessionCode}/payment-status`,
+      );
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.sessionStatus).toBe('paid');
@@ -393,8 +402,7 @@ describe('Suite 13: Self-Order', () => {
     });
 
     it('13.14 - should get i18n translations (id)', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/self-order/i18n/id');
+      const res = await request(app.getHttpServer()).get('/api/v1/self-order/i18n/id');
 
       if (res.status >= 400) {
         console.log('13.14 i18n error:', res.status, res.body);
@@ -409,8 +417,7 @@ describe('Suite 13: Self-Order', () => {
     });
 
     it('13.15 - should get i18n translations (en)', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/self-order/i18n/en');
+      const res = await request(app.getHttpServer()).get('/api/v1/self-order/i18n/en');
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.locale).toBe('en');
@@ -420,8 +427,7 @@ describe('Suite 13: Self-Order', () => {
     });
 
     it('13.16 - should fallback for unsupported locale', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/self-order/i18n/zh');
+      const res = await request(app.getHttpServer()).get('/api/v1/self-order/i18n/zh');
 
       expect(res.status).toBeLessThan(400);
       // Should return fallback with id translations
@@ -460,16 +466,18 @@ describe('Suite 13: Self-Order', () => {
       const emptyCode = createRes.body.sessionCode;
 
       // Try to submit empty session
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/self-order/sessions/${emptyCode}/submit`);
+      const res = await request(app.getHttpServer()).post(
+        `/api/v1/self-order/sessions/${emptyCode}/submit`,
+      );
 
       expect(res.status).toBeGreaterThanOrEqual(400);
       console.log('13.18 Empty submit rejected:', res.status);
     });
 
     it('13.19 - should return 404 for invalid session code', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/self-order/sessions/INVALID-CODE-123');
+      const res = await request(app.getHttpServer()).get(
+        '/api/v1/self-order/sessions/INVALID-CODE-123',
+      );
 
       expect(res.status).toBeGreaterThanOrEqual(400);
       console.log('13.19 Invalid session code:', res.status);

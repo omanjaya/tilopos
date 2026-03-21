@@ -9,4 +9,3 @@ export {
   loadPositions,
   savePositions,
 } from './table-layout.utils';
-export { generateDemoTables } from './demo-data';

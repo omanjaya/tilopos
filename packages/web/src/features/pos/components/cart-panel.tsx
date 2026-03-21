@@ -40,7 +40,7 @@ export function CartPanel({ onCheckout, onHoldBill, onQuickCashCheckout }: CartP
         updateItemPrice,
         removeItem,
     } = useCartStore();
-    const { taxRate, serviceChargeRate } = useUIStore();
+    const { taxRate, serviceChargeRate, taxInclusive } = useUIStore();
     const { hasPriceEditing, hasDecimalQuantities } = useBusinessFeatures();
 
     const orderTypeLabels = {
@@ -118,7 +118,7 @@ export function CartPanel({ onCheckout, onHoldBill, onQuickCashCheckout }: CartP
                         {serviceCharge > 0 && (
                             <SummaryRow label={`Layanan (${(serviceChargeRate * 100).toFixed(0)}%)`} value={serviceCharge} />
                         )}
-                        <SummaryRow label={`PPN (${(taxRate * 100).toFixed(0)}%)`} value={taxAmount} />
+                        <SummaryRow label={`PPN (${(taxRate * 100).toFixed(0)}%)${taxInclusive ? ' inkl.' : ''}`} value={taxAmount} />
                         <Separator className="my-2" />
                         <div className="flex items-center justify-between font-bold text-lg">
                             <span>Total</span>
@@ -172,8 +172,8 @@ function CartItemRow({ item, onQuantityChange, onRemove, allowPriceEdit, onPrice
     const [isEditingPrice, setIsEditingPrice] = useState(false);
     const [isEditingQty, setIsEditingQty] = useState(false);
     const step = allowDecimalQty ? 0.5 : 1;
-    const modifiersTotal = item.modifiers.reduce((sum, m) => sum + m.price, 0);
-    const itemTotal = (item.price + modifiersTotal) * item.quantity;
+    const modifiersTotal = item.modifiers.reduce((sum, m) => sum + Number(m.price), 0);
+    const itemTotal = (Number(item.price) + modifiersTotal) * item.quantity;
 
     const handlePriceSubmit = (value: string) => {
         const newPrice = Number(value);

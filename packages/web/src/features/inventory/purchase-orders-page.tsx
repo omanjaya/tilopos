@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -24,8 +24,7 @@ import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { Plus, MoreHorizontal, Eye, PackageCheck } from 'lucide-react';
 import type { PurchaseOrder } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 type POStatus = PurchaseOrder['status'];
 
@@ -57,29 +56,8 @@ export function PurchaseOrdersPage() {
       toast.success({ title: 'PO berhasil diterima' });
       setReceiveTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menerima PO',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menerima PO'),
   });
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/inventory/purchase-orders/new');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
 
   const columns: Column<PurchaseOrder>[] = [
     {
@@ -157,7 +135,12 @@ export function PurchaseOrdersPage() {
         isLoading={isLoading}
         searchPlaceholder="Cari purchase order..."
         emptyTitle="Belum ada purchase order"
-        emptyDescription="Buat purchase order pertama Anda."
+        emptyDescription="Buat purchase order untuk memesan barang dari supplier dan mengelola stok masuk."
+        emptyAction={
+          <Button onClick={() => navigate('/app/inventory/purchase-orders/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Buat PO
+          </Button>
+        }
         filters={
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]">

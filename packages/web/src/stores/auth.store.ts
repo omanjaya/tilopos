@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import type { AuthUser } from '@/types/auth.types';
+import { useOrderStore } from './order.store';
+import { useTransactionStore } from './transaction.store';
+import { useInventoryStore } from './inventory.store';
+import { useFeatureStore } from './feature.store';
+import { useCartStore } from './cart.store';
+import { destroySharedSocket } from '@/hooks/realtime/socket.util';
 
 interface AuthState {
   user: AuthUser | null;
@@ -32,6 +38,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('tilopos-offline-queue');
     // Clear IndexedDB offline transaction queue
     try { indexedDB.deleteDatabase('tilopos-sync'); } catch { /* ignore */ }
+    // Destroy WebSocket connection so it reconnects with fresh token on next login
+    destroySharedSocket();
+    // Reset other Zustand stores to prevent data leaking between sessions
+    useCartStore.getState().clearCart();
+    useOrderStore.getState().setOrders([]);
+    useTransactionStore.getState().clearTransactions();
+    useInventoryStore.getState().setStockLevels([]);
+    useInventoryStore.getState().setLowStockAlerts([]);
+    useFeatureStore.getState().setEnabledFeatures([]);
+    useFeatureStore.getState().setRestrictedFeatures([]);
+    useFeatureStore.getState().setCurrentOutletId(null);
     set({ user: null, token: null, isAuthenticated: false });
   },
   isTokenExpired: () => {

@@ -1,45 +1,50 @@
 import { NotFoundException } from '@nestjs/common';
 import { EmployeesService } from '../../src/modules/employees/employees.service';
-import { PrismaService } from '../../src/infrastructure/database/prisma.service';
+import { EmployeeShiftReportsService } from '../../src/modules/employees/employee-shift-reports.service';
+import { EmployeeScheduleService } from '../../src/modules/employees/employee-schedule.service';
+import { EmployeeCommissionService } from '../../src/modules/employees/employee-commission.service';
+import { EmployeeAttendanceService } from '../../src/modules/employees/employee-attendance.service';
 import { BusinessError } from '../../src/shared/errors/business-error';
+import { ErrorCode } from '../../src/shared/constants/error-codes';
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
-  let mockPrisma: jest.Mocked<PrismaService>;
-
-  const makeDecimal = (value: number) => ({
-    toNumber: () => value,
-  });
+  let mockShiftReportsService: jest.Mocked<EmployeeShiftReportsService>;
+  let mockScheduleService: jest.Mocked<EmployeeScheduleService>;
+  let mockCommissionService: jest.Mocked<EmployeeCommissionService>;
+  let mockAttendanceService: jest.Mocked<EmployeeAttendanceService>;
 
   beforeEach(() => {
-    mockPrisma = {
-      employee: {
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-      },
-      shift: {
-        findMany: jest.fn(),
-      },
-      employeeSchedule: {
-        create: jest.fn(),
-        findMany: jest.fn(),
-        findUnique: jest.fn(),
-        update: jest.fn(),
-        delete: jest.fn(),
-      },
-      transaction: {
-        findMany: jest.fn(),
-        aggregate: jest.fn(),
-      },
-      employeeAttendance: {
-        findFirst: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        findMany: jest.fn(),
-      },
-    } as unknown as jest.Mocked<PrismaService>;
+    mockShiftReportsService = {
+      getEmployeeShiftReport: jest.fn(),
+      getAllEmployeeShiftSummary: jest.fn(),
+    } as unknown as jest.Mocked<EmployeeShiftReportsService>;
 
-    service = new EmployeesService(mockPrisma);
+    mockScheduleService = {
+      createSchedule: jest.fn(),
+      getWeeklySchedule: jest.fn(),
+      updateSchedule: jest.fn(),
+      deleteSchedule: jest.fn(),
+    } as unknown as jest.Mocked<EmployeeScheduleService>;
+
+    mockCommissionService = {
+      getEmployeeCommissions: jest.fn(),
+      getAllEmployeeCommissionSummary: jest.fn(),
+    } as unknown as jest.Mocked<EmployeeCommissionService>;
+
+    mockAttendanceService = {
+      clockIn: jest.fn(),
+      clockOut: jest.fn(),
+      getAttendanceRecords: jest.fn(),
+      getAttendanceSummary: jest.fn(),
+    } as unknown as jest.Mocked<EmployeeAttendanceService>;
+
+    service = new EmployeesService(
+      mockShiftReportsService,
+      mockScheduleService,
+      mockCommissionService,
+      mockAttendanceService,
+    );
   });
 
   // ==========================================================================
@@ -51,32 +56,31 @@ describe('EmployeesService', () => {
     const to = new Date('2026-01-31');
 
     it('should return a shift report with valid params', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', name: 'John Doe' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
+      const shiftReport = {
+        employeeId: 'emp-1',
+        employeeName: 'John Doe',
+        totalShifts: 1,
+        totalHoursWorked: 8,
+        averageShiftDuration: 8,
+        totalSales: 300000,
+        totalTransactions: 2,
+        cashVariance: 500,
+        shifts: [
+          {
+            shiftId: 'shift-1',
+            startTime: '2026-01-15T08:00:00.000Z',
+            endTime: '2026-01-15T16:00:00.000Z',
+            duration: 8,
+            sales: 300000,
+            transactions: 2,
+            cashDifference: 500,
+          },
+        ],
+      };
+      mockShiftReportsService.getEmployeeShiftReport.mockResolvedValue(shiftReport);
 
-      const shiftStart = new Date('2026-01-15T08:00:00.000Z');
-      const shiftEnd = new Date('2026-01-15T16:00:00.000Z');
-
-      const shifts = [
-        {
-          id: 'shift-1',
-          employeeId: 'emp-1',
-          startedAt: shiftStart,
-          endedAt: shiftEnd,
-          cashDifference: makeDecimal(500),
-          transactions: [
-            { id: 'tx-1', grandTotal: makeDecimal(100000) },
-            { id: 'tx-2', grandTotal: makeDecimal(200000) },
-          ],
-        },
-      ];
-      (mockPrisma.shift.findMany as jest.Mock).mockResolvedValue(shifts);
-
-      // Act
       const result = await service.getEmployeeShiftReport('emp-1', from, to);
 
-      // Assert
       expect(result.employeeId).toBe('emp-1');
       expect(result.employeeName).toBe('John Doe');
       expect(result.totalShifts).toBe(1);
@@ -86,23 +90,24 @@ describe('EmployeesService', () => {
       expect(result.totalTransactions).toBe(2);
       expect(result.cashVariance).toBe(500);
       expect(result.shifts).toHaveLength(1);
-      expect(result.shifts[0].shiftId).toBe('shift-1');
-      expect(result.shifts[0].duration).toBe(8);
-      expect(result.shifts[0].sales).toBe(300000);
-      expect(result.shifts[0].transactions).toBe(2);
-      expect(result.shifts[0].cashDifference).toBe(500);
     });
 
     it('should return empty data when no shifts found', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', name: 'John Doe' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
-      (mockPrisma.shift.findMany as jest.Mock).mockResolvedValue([]);
+      const emptyReport = {
+        employeeId: 'emp-1',
+        employeeName: 'John Doe',
+        totalShifts: 0,
+        totalHoursWorked: 0,
+        averageShiftDuration: 0,
+        totalSales: 0,
+        totalTransactions: 0,
+        cashVariance: 0,
+        shifts: [],
+      };
+      mockShiftReportsService.getEmployeeShiftReport.mockResolvedValue(emptyReport);
 
-      // Act
       const result = await service.getEmployeeShiftReport('emp-1', from, to);
 
-      // Assert
       expect(result.employeeId).toBe('emp-1');
       expect(result.totalShifts).toBe(0);
       expect(result.totalHoursWorked).toBe(0);
@@ -114,10 +119,10 @@ describe('EmployeesService', () => {
     });
 
     it('should throw NotFoundException when employee not found', async () => {
-      // Arrange
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+      mockShiftReportsService.getEmployeeShiftReport.mockRejectedValue(
+        new NotFoundException('Employee not found'),
+      );
 
-      // Act & Assert
       await expect(service.getEmployeeShiftReport('nonexistent', from, to)).rejects.toThrow(
         NotFoundException,
       );
@@ -130,14 +135,29 @@ describe('EmployeesService', () => {
 
   describe('getWeeklySchedule', () => {
     it('should return a 7-day schedule grid', async () => {
-      // Arrange
       const weekStart = new Date('2026-01-26T00:00:00.000Z');
-      (mockPrisma.employeeSchedule.findMany as jest.Mock).mockResolvedValue([]);
+      const dayNames = [
+        'Sunday',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+      ];
+      const weeklySchedule = {
+        weekStart: '2026-01-26',
+        weekEnd: '2026-02-01',
+        days: Array.from({ length: 7 }, (_, i) => ({
+          date: `2026-01-${26 + i}`,
+          dayOfWeek: dayNames[i],
+          entries: [],
+        })),
+      };
+      mockScheduleService.getWeeklySchedule.mockResolvedValue(weeklySchedule);
 
-      // Act
       const result = await service.getWeeklySchedule('outlet-1', weekStart);
 
-      // Assert
       expect(result.days).toHaveLength(7);
       expect(result.weekStart).toBe('2026-01-26');
       expect(result.days[0].dayOfWeek).toBeDefined();
@@ -146,24 +166,18 @@ describe('EmployeesService', () => {
 
   describe('createSchedule', () => {
     it('should create a schedule entry with valid data', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', name: 'John Doe' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
-
-      const scheduleDate = new Date('2026-02-01');
       const createdSchedule = {
         id: 'sched-1',
         employeeId: 'emp-1',
+        employeeName: 'John Doe',
         outletId: 'outlet-1',
-        date: scheduleDate,
+        date: '2026-02-01',
         startTime: '08:00',
         endTime: '16:00',
         notes: 'Morning shift',
-        employee: { name: 'John Doe' },
       };
-      (mockPrisma.employeeSchedule.create as jest.Mock).mockResolvedValue(createdSchedule);
+      mockScheduleService.createSchedule.mockResolvedValue(createdSchedule);
 
-      // Act
       const result = await service.createSchedule({
         employeeId: 'emp-1',
         outletId: 'outlet-1',
@@ -173,31 +187,19 @@ describe('EmployeesService', () => {
         notes: 'Morning shift',
       });
 
-      // Assert
       expect(result.id).toBe('sched-1');
       expect(result.employeeId).toBe('emp-1');
       expect(result.employeeName).toBe('John Doe');
       expect(result.startTime).toBe('08:00');
       expect(result.endTime).toBe('16:00');
       expect(result.notes).toBe('Morning shift');
-      expect(mockPrisma.employeeSchedule.create).toHaveBeenCalledWith({
-        data: {
-          employeeId: 'emp-1',
-          outletId: 'outlet-1',
-          date: expect.any(Date),
-          startTime: '08:00',
-          endTime: '16:00',
-          notes: 'Morning shift',
-        },
-        include: { employee: { select: { name: true } } },
-      });
     });
 
     it('should throw NotFoundException if employee not found', async () => {
-      // Arrange
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+      mockScheduleService.createSchedule.mockRejectedValue(
+        new NotFoundException('Employee not found'),
+      );
 
-      // Act & Assert
       await expect(
         service.createSchedule({
           employeeId: 'nonexistent',
@@ -219,20 +221,21 @@ describe('EmployeesService', () => {
     const to = new Date('2026-01-31');
 
     it('should calculate commissions for a cashier at 1% rate', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', role: 'cashier' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
+      const commissionData = {
+        employeeId: 'emp-1',
+        period: { from: '2026-01-01', to: '2026-01-31' },
+        commissionRate: 0.01,
+        totalSales: 300000,
+        commissionAmount: 3000,
+        transactions: [
+          { transactionId: 'tx-1', amount: 100000, commission: 1000 },
+          { transactionId: 'tx-2', amount: 200000, commission: 2000 },
+        ],
+      };
+      mockCommissionService.getEmployeeCommissions.mockResolvedValue(commissionData);
 
-      const transactions = [
-        { id: 'tx-1', grandTotal: makeDecimal(100000) },
-        { id: 'tx-2', grandTotal: makeDecimal(200000) },
-      ];
-      (mockPrisma.transaction.findMany as jest.Mock).mockResolvedValue(transactions);
-
-      // Act
       const result = await service.getEmployeeCommissions('emp-1', from, to);
 
-      // Assert
       expect(result.commissionRate).toBe(0.01);
       expect(result.totalSales).toBe(300000);
       expect(result.commissionAmount).toBe(3000);
@@ -242,59 +245,62 @@ describe('EmployeesService', () => {
     });
 
     it('should calculate commissions for a manager at 2% rate', async () => {
-      // Arrange
-      const employee = { id: 'emp-2', role: 'manager' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
+      const commissionData = {
+        employeeId: 'emp-2',
+        period: { from: '2026-01-01', to: '2026-01-31' },
+        commissionRate: 0.02,
+        totalSales: 500000,
+        commissionAmount: 10000,
+        transactions: [{ transactionId: 'tx-1', amount: 500000, commission: 10000 }],
+      };
+      mockCommissionService.getEmployeeCommissions.mockResolvedValue(commissionData);
 
-      const transactions = [{ id: 'tx-1', grandTotal: makeDecimal(500000) }];
-      (mockPrisma.transaction.findMany as jest.Mock).mockResolvedValue(transactions);
-
-      // Act
       const result = await service.getEmployeeCommissions('emp-2', from, to);
 
-      // Assert
       expect(result.commissionRate).toBe(0.02);
       expect(result.totalSales).toBe(500000);
       expect(result.commissionAmount).toBe(10000);
     });
 
     it('should return 0% commission for owner role', async () => {
-      // Arrange
-      const employee = { id: 'emp-3', role: 'owner' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
-      (mockPrisma.transaction.findMany as jest.Mock).mockResolvedValue([
-        { id: 'tx-1', grandTotal: makeDecimal(1000000) },
-      ]);
+      const commissionData = {
+        employeeId: 'emp-3',
+        period: { from: '2026-01-01', to: '2026-01-31' },
+        commissionRate: 0,
+        totalSales: 1000000,
+        commissionAmount: 0,
+        transactions: [],
+      };
+      mockCommissionService.getEmployeeCommissions.mockResolvedValue(commissionData);
 
-      // Act
       const result = await service.getEmployeeCommissions('emp-3', from, to);
 
-      // Assert
       expect(result.commissionRate).toBe(0);
       expect(result.commissionAmount).toBe(0);
     });
 
     it('should use default rate for unknown roles', async () => {
-      // Arrange
-      const employee = { id: 'emp-4', role: 'custom_role' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
-      (mockPrisma.transaction.findMany as jest.Mock).mockResolvedValue([
-        { id: 'tx-1', grandTotal: makeDecimal(100000) },
-      ]);
+      const commissionData = {
+        employeeId: 'emp-4',
+        period: { from: '2026-01-01', to: '2026-01-31' },
+        commissionRate: 0.01,
+        totalSales: 100000,
+        commissionAmount: 1000,
+        transactions: [{ transactionId: 'tx-1', amount: 100000, commission: 1000 }],
+      };
+      mockCommissionService.getEmployeeCommissions.mockResolvedValue(commissionData);
 
-      // Act
       const result = await service.getEmployeeCommissions('emp-4', from, to);
 
-      // Assert
-      expect(result.commissionRate).toBe(0.01); // DEFAULT_COMMISSION_RATE
+      expect(result.commissionRate).toBe(0.01);
       expect(result.commissionAmount).toBe(1000);
     });
 
     it('should throw NotFoundException if employee not found', async () => {
-      // Arrange
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+      mockCommissionService.getEmployeeCommissions.mockRejectedValue(
+        new NotFoundException('Employee not found'),
+      );
 
-      // Act & Assert
       await expect(service.getEmployeeCommissions('nonexistent', from, to)).rejects.toThrow(
         NotFoundException,
       );
@@ -307,51 +313,23 @@ describe('EmployeesService', () => {
 
   describe('clockIn', () => {
     it('should create attendance record on successful clock in', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', name: 'John' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
-      (mockPrisma.employeeAttendance.findFirst as jest.Mock).mockResolvedValue(null);
-
-      const clockInTime = new Date();
-      const createdAttendance = {
-        id: 'att-1',
-        employeeId: 'emp-1',
-        clockInTime,
-        clockOutTime: null,
-        status: 'present',
+      const clockInResult = {
+        attendanceId: 'att-1',
+        clockInTime: new Date().toISOString(),
       };
-      (mockPrisma.employeeAttendance.create as jest.Mock).mockResolvedValue(createdAttendance);
+      mockAttendanceService.clockIn.mockResolvedValue(clockInResult);
 
-      // Act
       const result = await service.clockIn('emp-1', 'outlet-1');
 
-      // Assert
       expect(result.attendanceId).toBe('att-1');
       expect(result.clockInTime).toBeDefined();
-      expect(mockPrisma.employeeAttendance.create).toHaveBeenCalledWith({
-        data: {
-          employeeId: 'emp-1',
-          outletId: 'outlet-1',
-          clockInTime: expect.any(Date),
-          status: 'present',
-        },
-      });
     });
 
     it('should throw BusinessError when already clocked in', async () => {
-      // Arrange
-      const employee = { id: 'emp-1', name: 'John' };
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(employee);
+      mockAttendanceService.clockIn.mockRejectedValue(
+        new BusinessError(ErrorCode.ALREADY_CLOCKED_IN, 'Employee is already clocked in'),
+      );
 
-      const existingAttendance = {
-        id: 'att-existing',
-        employeeId: 'emp-1',
-        clockInTime: new Date(),
-        clockOutTime: null,
-      };
-      (mockPrisma.employeeAttendance.findFirst as jest.Mock).mockResolvedValue(existingAttendance);
-
-      // Act & Assert
       await expect(service.clockIn('emp-1', 'outlet-1')).rejects.toThrow(BusinessError);
       await expect(service.clockIn('emp-1', 'outlet-1')).rejects.toThrow(
         'Employee is already clocked in',
@@ -359,56 +337,33 @@ describe('EmployeesService', () => {
     });
 
     it('should throw NotFoundException if employee not found', async () => {
-      // Arrange
-      (mockPrisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+      mockAttendanceService.clockIn.mockRejectedValue(new NotFoundException('Employee not found'));
 
-      // Act & Assert
       await expect(service.clockIn('nonexistent', 'outlet-1')).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('clockOut', () => {
     it('should update attendance record on successful clock out', async () => {
-      // Arrange
-      const clockInTime = new Date(Date.now() - 8 * 60 * 60 * 1000); // 8 hours ago
-      const existingAttendance = {
-        id: 'att-1',
-        employeeId: 'emp-1',
-        clockInTime,
-        clockOutTime: null,
+      const clockOutResult = {
+        attendanceId: 'att-1',
+        clockOutTime: new Date().toISOString(),
+        hoursWorked: 8,
       };
-      (mockPrisma.employeeAttendance.findFirst as jest.Mock).mockResolvedValue(existingAttendance);
+      mockAttendanceService.clockOut.mockResolvedValue(clockOutResult);
 
-      const updatedAttendance = {
-        id: 'att-1',
-        employeeId: 'emp-1',
-        clockInTime,
-        clockOutTime: new Date(),
-        hoursWorked: makeDecimal(8),
-      };
-      (mockPrisma.employeeAttendance.update as jest.Mock).mockResolvedValue(updatedAttendance);
-
-      // Act
       const result = await service.clockOut('emp-1');
 
-      // Assert
       expect(result.attendanceId).toBe('att-1');
       expect(result.clockOutTime).toBeDefined();
       expect(result.hoursWorked).toBeGreaterThan(0);
-      expect(mockPrisma.employeeAttendance.update).toHaveBeenCalledWith({
-        where: { id: 'att-1' },
-        data: {
-          clockOutTime: expect.any(Date),
-          hoursWorked: expect.anything(),
-        },
-      });
     });
 
     it('should throw BusinessError when not clocked in', async () => {
-      // Arrange
-      (mockPrisma.employeeAttendance.findFirst as jest.Mock).mockResolvedValue(null);
+      mockAttendanceService.clockOut.mockRejectedValue(
+        new BusinessError(ErrorCode.NOT_CLOCKED_IN, 'Employee is not clocked in'),
+      );
 
-      // Act & Assert
       await expect(service.clockOut('emp-1')).rejects.toThrow(BusinessError);
       await expect(service.clockOut('emp-1')).rejects.toThrow('Employee is not clocked in');
     });

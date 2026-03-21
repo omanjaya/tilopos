@@ -1,4 +1,5 @@
 import { EndShiftUseCase, EndShiftInput } from './end-shift.use-case';
+import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { BusinessError } from '@shared/errors/business-error';
 import type {
   IShiftRepository,
@@ -10,6 +11,7 @@ describe('EndShiftUseCase', () => {
   let useCase: EndShiftUseCase;
   let mockShiftRepo: jest.Mocked<IShiftRepository>;
   let mockPrisma: jest.Mocked<PrismaService>;
+  let mockEventBus: jest.Mocked<EventBusService>;
 
   const openShift: ShiftRecord = {
     id: 'shift-1',
@@ -48,9 +50,24 @@ describe('EndShiftUseCase', () => {
       payment: {
         aggregate: jest.fn(),
       },
+      transaction: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { grandTotal: null } }),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue({
+          name: 'John Doe',
+          businessId: 'biz-1',
+        }),
+      },
     } as unknown as jest.Mocked<PrismaService>;
 
-    useCase = new EndShiftUseCase(mockShiftRepo, mockPrisma);
+    mockEventBus = {
+      publish: jest.fn(),
+      ofType: jest.fn(),
+      onAll: jest.fn(),
+    } as unknown as jest.Mocked<EventBusService>;
+
+    useCase = new EndShiftUseCase(mockShiftRepo, mockPrisma, mockEventBus);
   });
 
   afterEach(() => {

@@ -41,10 +41,23 @@ export class XenditInvoiceService extends XenditBaseService {
 
     // Add customer information if provided
     if (input.customer) {
+      if (!input.customer.email) {
+        this.logger.warn(
+          `Customer email not provided for invoice ${externalId}. ` +
+            'Xendit may require a valid email for invoice delivery.',
+        );
+      }
+      if (!input.customer.phone) {
+        this.logger.warn(
+          `Customer phone not provided for invoice ${externalId}. ` +
+            'Xendit may require a valid phone number for some payment methods.',
+        );
+      }
+
       payload.customer = {
         given_names: input.customer.name,
-        email: input.customer.email || 'customer@example.com',
-        mobile_number: input.customer.phone || '+6280000000000',
+        email: input.customer.email || undefined,
+        mobile_number: input.customer.phone || undefined,
       };
     }
 

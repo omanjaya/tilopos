@@ -12,14 +12,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useRealtimeDeviceSync } from '@/hooks/use-realtime';
 import { formatDateTime } from '@/lib/format';
 import { MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react';
 import { DeviceStatusIndicator, type DeviceSyncStatus } from './components/device-status-indicator';
 import type { Device } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const DEVICE_TYPE_LABELS: Record<string, string> = {
   pos_terminal: 'POS Terminal',
@@ -55,7 +54,6 @@ function resolveDeviceSyncStatus(
 
 export function DevicesPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<Device | null>(null);
 
   const { deviceStatuses } = useRealtimeDeviceSync();
@@ -69,31 +67,19 @@ export function DevicesPage() {
     mutationFn: (id: string) => settingsApi.syncDevice(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast({ title: 'Sinkronisasi perangkat berhasil' });
+      toast.success({ title: 'Sinkronisasi perangkat berhasil' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal sinkronisasi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal sinkronisasi'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => settingsApi.removeDevice(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast({ title: 'Perangkat berhasil dihapus' });
+      toast.success({ title: 'Perangkat berhasil dihapus' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menghapus perangkat',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus perangkat'),
   });
 
   const columns: Column<Device>[] = [

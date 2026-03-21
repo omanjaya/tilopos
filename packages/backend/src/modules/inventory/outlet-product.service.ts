@@ -110,6 +110,7 @@ export class OutletProductService {
         },
       },
       include: {
+        variants: { where: { isActive: true } },
         category: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },

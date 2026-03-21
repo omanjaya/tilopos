@@ -23,14 +23,22 @@ export class AutoSettlementUseCase {
   async execute(params: AutoSettleParams): Promise<AutoSettleResult[]> {
     const settlementDate = params.settlementDate ?? new Date();
 
+    // Create separate date objects to avoid mutating settlementDate
+    const startOfDay = new Date(settlementDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(settlementDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
     // Get all transactions for the outlet that need settlement
+    const { businessId } = params;
     const transactions = await this.prisma.transaction.findMany({
       where: {
         outletId: params.outletId,
+        outlet: { businessId },
         status: 'completed',
         createdAt: {
-          gte: new Date(settlementDate.setHours(0, 0, 0, 0)),
-          lt: new Date(settlementDate.setHours(23, 59, 59, 999)),
+          gte: startOfDay,
+          lt: endOfDay,
         },
       },
       include: {

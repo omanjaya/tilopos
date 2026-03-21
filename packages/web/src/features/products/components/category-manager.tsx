@@ -12,10 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, Pencil, Check, X, Loader2 } from 'lucide-react';
 import type { Category } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface CategoryManagerProps {
   open: boolean;
@@ -41,9 +40,7 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
       setNewName('');
       toast.success({ title: 'Kategori ditambahkan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal'),
   });
 
   const updateMutation = useMutation({
@@ -54,9 +51,7 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
       setEditingId(null);
       toast.success({ title: 'Kategori diperbarui' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal'),
   });
 
   const toggleMutation = useMutation({

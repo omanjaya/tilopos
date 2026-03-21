@@ -80,4 +80,6 @@ export interface IOnlineStoreRepository {
     }[];
   }): Promise<StoreOrderRecord>;
   updateOrderStatus(id: string, status: string): Promise<StoreOrderRecord>;
+  findOrderById(id: string): Promise<StoreOrderRecord | null>;
+  findStoreById(id: string): Promise<OnlineStoreRecord | null>;
 }

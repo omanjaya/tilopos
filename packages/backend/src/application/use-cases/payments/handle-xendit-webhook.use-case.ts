@@ -340,11 +340,7 @@ export class HandleXenditWebhookUseCase {
 
     const payment = await this.prisma.payment.findFirst({
       where: {
-        OR: [
-          { referenceNumber: externalId },
-          { referenceNumber: cleanId },
-          { referenceNumber: { contains: cleanId } },
-        ],
+        OR: [{ referenceNumber: externalId }, { referenceNumber: cleanId }],
       },
       include: {
         transaction: true,

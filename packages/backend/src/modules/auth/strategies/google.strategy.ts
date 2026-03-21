@@ -21,7 +21,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   private readonly logger = new Logger(GoogleStrategy.name);
 
   constructor(configService: ConfigService) {
-    const secret = configService.get<string>('JWT_SECRET', 'placeholder-secret');
+    const secret = configService.getOrThrow<string>('JWT_SECRET');
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -29,10 +29,22 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       secretOrKey: secret,
     });
 
-    this.logger.warn(
-      'Google OAuth strategy is using a placeholder implementation. ' +
-        'Install passport-google-oauth20 for full server-side OAuth flow.',
-    );
+    const googleClientId = configService.get<string>('GOOGLE_CLIENT_ID');
+    const googleClientSecret = configService.get<string>('GOOGLE_CLIENT_SECRET');
+
+    if (!googleClientId || !googleClientSecret) {
+      this.logger.warn(
+        'GOOGLE_CLIENT_ID and/or GOOGLE_CLIENT_SECRET are not configured. ' +
+          'Google OAuth strategy is using a placeholder JWT-based implementation. ' +
+          'Set these environment variables and install passport-google-oauth20 for full server-side OAuth flow.',
+      );
+    } else {
+      this.logger.warn(
+        'Google OAuth credentials are configured but passport-google-oauth20 is not installed. ' +
+          'The current strategy uses a placeholder JWT-based implementation. ' +
+          'Install passport-google-oauth20 and update this strategy for full server-side OAuth flow.',
+      );
+    }
   }
 
   validate(payload: Record<string, unknown>): GoogleOAuthProfile {

@@ -21,10 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Zap } from 'lucide-react';
 import type { CreateProductRequest } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface ProductQuickAddModalProps {
   open: boolean;
@@ -50,6 +49,7 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
     mutationFn: (data: CreateProductRequest) => productsApi.create(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
       toast.success({
         title: '✅ Produk berhasil ditambahkan!',
         description: `"${data.name}" - Rp ${data.basePrice.toLocaleString('id-ID')}`,
@@ -60,12 +60,7 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
       setCategoryId('');
       onOpenChange(false);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan produk'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -142,6 +137,7 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
                 placeholder="25000"
                 value={basePrice}
                 onChange={(e) => setBasePrice(e.target.value)}
+                onFocus={(e) => { if (e.target.value === '0') setBasePrice(''); }}
                 className="pl-12"
                 disabled={createMutation.isPending}
               />

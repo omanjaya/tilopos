@@ -1,9 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
@@ -319,7 +314,8 @@ export class OwnerAnalyticsController {
     });
 
     const refundRate = salesCount > 0 ? (refundCount / salesCount) * 100 : 0;
-    if (refundRate > 5) { // >5% refund rate
+    if (refundRate > 5) {
+      // >5% refund rate
       alerts.push({
         type: 'high_refunds',
         severity: 'warning',

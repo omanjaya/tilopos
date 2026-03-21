@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
@@ -16,27 +16,24 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileSpreadsheet } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function CustomersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
 
   // Feature checks
   const { hasCustomerLoyalty } = useBusinessFeatures();
 
-  const { data: customersData, isLoading } = useQuery({
-    queryKey: ['customers', search],
-    queryFn: () =>
-      customersApi.list({
-        search: search || undefined,
-      }),
+  const { data: customersData, isLoading, pagination, sort, setSearch } = usePaginatedList<Customer>({
+    queryKey: ['customers'],
+    queryFn: (params) => customersApi.listPaginated(params),
+    defaultLimit: 15,
   });
 
   const deactivateMutation = useMutation({
@@ -49,20 +46,15 @@ export function CustomersPage() {
       });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menonaktifkan pelanggan',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat menonaktifkan pelanggan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menonaktifkan pelanggan'),
   });
 
   const columns: Column<Customer>[] = [
-    { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
+    { key: 'name', header: 'Nama', sortable: true, cell: (row) => <span className="font-medium">{row.name}</span> },
     { key: 'email', header: 'Email', cell: (row) => <span className="text-muted-foreground">{row.email ?? '-'}</span> },
     { key: 'phone', header: 'Telepon', cell: (row) => <span className="text-muted-foreground">{row.phone ?? '-'}</span> },
-    { key: 'totalSpent', header: 'Total Belanja', cell: (row) => formatCurrency(row.totalSpent) },
-    { key: 'visitCount', header: 'Kunjungan', cell: (row) => row.visitCount },
+    { key: 'totalSpent', header: 'Total Belanja', sortable: true, cell: (row) => formatCurrency(row.totalSpent) },
+    { key: 'visitCount', header: 'Kunjungan', sortable: true, cell: (row) => row.visitCount },
     // Loyalty points - only show if customer_loyalty is enabled
     ...(hasCustomerLoyalty ? [{
       key: 'loyaltyPoints',
@@ -113,22 +105,6 @@ export function CustomersPage() {
     },
   ];
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/customers/new');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
-
   return (
     <div>
       <PageHeader title="Pelanggan" description="Kelola data pelanggan Anda">
@@ -145,10 +121,12 @@ export function CustomersPage() {
 
       <DataTable
         columns={columns}
-        data={customersData ?? []}
+        data={customersData}
         isLoading={isLoading}
         searchPlaceholder="Cari pelanggan..."
         onSearch={setSearch}
+        pagination={pagination}
+        sort={sort}
         emptyTitle="Belum ada pelanggan"
         emptyDescription="Mulai membangun database pelanggan Anda untuk tracking loyalitas dan riwayat pembelian."
         emptyAction={

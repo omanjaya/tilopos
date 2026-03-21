@@ -1,5 +1,14 @@
 import '@testing-library/jest-dom/vitest';
 
+// ResizeObserver polyfill for Radix UI components in tests
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // Node.js 21+ ships a native `localStorage` that lacks the Web Storage API
 // methods (getItem, setItem, removeItem, clear). jsdom provides a proper
 // implementation, but on newer Node versions the native object may shadow it.

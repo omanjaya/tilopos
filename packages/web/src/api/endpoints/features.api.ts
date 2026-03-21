@@ -45,6 +45,17 @@ export interface ChangeTypeResponse {
   previousType: string;
   newType: string;
   featuresEnabled: number;
+  templateApplied: boolean;
+  dataReset: {
+    outletProductsDeactivated: number;
+    tablesDeactivated: number;
+  };
+  templateData?: {
+    categories: number;
+    products: number;
+    modifierGroups: number;
+    tables: number;
+  };
 }
 
 export const featuresApi = {
@@ -83,8 +94,8 @@ export const featuresApi = {
       )
       .then((r) => r.data),
 
-  changeBusinessType: (businessType: string) =>
-    apiClient.put<ChangeTypeResponse>('/business/type', { businessType }).then((r) => r.data),
+  changeBusinessType: (businessType: string, outletId?: string) =>
+    apiClient.put<ChangeTypeResponse>('/business/type', { businessType, outletId }).then((r) => r.data),
 
   getTypePresets: () =>
     apiClient

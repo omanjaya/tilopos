@@ -25,7 +25,7 @@ type TransactionWithRelations = PrismaTransaction & {
 
 @Injectable()
 export class PrismaTransactionRepository implements ITransactionRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findById(id: string): Promise<TransactionRecord | null> {
     const transaction = await this.prisma.transaction.findUnique({
@@ -51,9 +51,10 @@ export class PrismaTransactionRepository implements ITransactionRepository {
   }
 
   async findByReceiptNumber(receiptNumber: string): Promise<TransactionRecord | null> {
-    const transaction = await this.prisma.transaction.findUnique({
+    const transaction = await this.prisma.transaction.findFirst({
       where: { receiptNumber },
       include: {
+        outlet: { select: { businessId: true } },
         items: {
           include: {
             modifiers: true,
@@ -83,6 +84,9 @@ export class PrismaTransactionRepository implements ITransactionRepository {
           lte: endDate,
         },
       },
+      include: {
+        outlet: { select: { businessId: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -108,7 +112,14 @@ export class PrismaTransactionRepository implements ITransactionRepository {
           serviceCharge: transaction.serviceCharge,
           grandTotal: transaction.grandTotal,
           notes: transaction.notes,
-          status: transaction.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded' | 'credit' | 'partially_paid',
+          status: transaction.status as
+            | 'pending'
+            | 'completed'
+            | 'voided'
+            | 'refunded'
+            | 'partially_refunded'
+            | 'credit'
+            | 'partially_paid',
         },
         include: {
           items: {
@@ -147,7 +158,14 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         ...(data.grandTotal !== undefined && { grandTotal: data.grandTotal }),
         ...(data.notes !== undefined && { notes: data.notes ?? undefined }),
         ...(data.status !== undefined && {
-          status: data.status as 'pending' | 'completed' | 'voided' | 'refunded' | 'partially_refunded' | 'credit' | 'partially_paid',
+          status: data.status as
+            | 'pending'
+            | 'completed'
+            | 'voided'
+            | 'refunded'
+            | 'partially_refunded'
+            | 'credit'
+            | 'partially_paid',
         }),
         ...(data.voidedAt !== undefined && { voidedAt: data.voidedAt ?? undefined }),
         ...(data.voidedBy !== undefined && { voidedBy: data.voidedBy ?? undefined }),

@@ -58,11 +58,11 @@ export class ExcelGeneratorService {
     sheet.addRow([]);
     const totalsRow = sheet.addRow([
       'TOTAL',
-      data.totals.transactions,
-      data.totals.totalSales,
-      data.totals.discount,
-      data.totals.tax,
-      data.totals.netSales,
+      this.sanitizeCellValue(data.totals.transactions),
+      this.sanitizeCellValue(data.totals.totalSales),
+      this.sanitizeCellValue(data.totals.discount),
+      this.sanitizeCellValue(data.totals.tax),
+      this.sanitizeCellValue(data.totals.netSales),
     ]);
     totalsRow.font = { bold: true };
 

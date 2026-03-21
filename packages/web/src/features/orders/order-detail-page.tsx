@@ -17,7 +17,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatDateTime } from '@/lib/format';
 import {
   ArrowLeft,
@@ -33,8 +34,6 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import type { OrderStatus, OrderType } from '@/types/order.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   pending: { label: 'Menunggu', variant: 'secondary' },
@@ -47,7 +46,7 @@ const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'des
 
 const ORDER_TYPE_MAP: Record<OrderType, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   dine_in: { label: 'Dine In', variant: 'default' },
-  take_away: { label: 'Take Away', variant: 'secondary' },
+  takeaway: { label: 'Take Away', variant: 'secondary' },
   delivery: { label: 'Delivery', variant: 'outline' },
 };
 
@@ -55,7 +54,6 @@ export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [confirmStatus, setConfirmStatus] = useState<{ status: OrderStatus; label: string; variant: 'default' | 'destructive' } | null>(null);
 
   const { data: order, isLoading } = useQuery({
@@ -70,16 +68,10 @@ export function OrderDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['order', id] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
-      toast({ title: 'Status pesanan berhasil diperbarui' });
+      toast.success({ title: 'Status pesanan berhasil diperbarui' });
       setConfirmStatus(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal memperbarui status',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status'),
   });
 
   if (isLoading) {

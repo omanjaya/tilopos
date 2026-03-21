@@ -121,7 +121,12 @@ export class OrdersService {
     if (input.updateItems && input.updateItems.length > 0) {
       for (const update of input.updateItems) {
         const updateData: Record<string, unknown> = {};
-        if (update.quantity !== undefined) updateData.quantity = update.quantity;
+        if (update.quantity !== undefined) {
+          if (update.quantity < 1) {
+            throw new BadRequestException(`Quantity must be at least 1, got ${update.quantity}`);
+          }
+          updateData.quantity = update.quantity;
+        }
         if (update.notes !== undefined) updateData.notes = update.notes;
 
         if (Object.keys(updateData).length > 0) {

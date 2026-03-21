@@ -74,7 +74,7 @@ export function useRealtimeShifts(
     return () => {
       currentSocket?.off('shift:started', startedHandler);
       currentSocket?.off('shift:ended', endedHandler);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom]);
@@ -138,7 +138,7 @@ export function useRealtimeShiftSales(
 
     return () => {
       currentSocket?.off('shift:sales_updated', handler);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom]);

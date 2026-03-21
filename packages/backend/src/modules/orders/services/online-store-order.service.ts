@@ -35,10 +35,10 @@ export class OnlineStoreOrderService {
 
     if (!store) throw new NotFoundException('Store not found');
 
-    // Get product details
+    // Get product details - filter by businessId to ensure products belong to the correct business
     const productIds = data.items.map((i) => i.productId);
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: productIds }, businessId: store.businessId },
     });
 
     const orderItems: StoreOrderItem[] = data.items.map((item) => {
@@ -58,11 +58,8 @@ export class OnlineStoreOrderService {
     const discountAmount = 0;
     const grandTotal = subtotal + shippingCost - discountAmount;
 
-    // Generate order number
-    const orderCount = await this.prisma.storeOrder.count({
-      where: { storeId },
-    });
-    const orderNumber = `ON${(orderCount + 1).toString().padStart(4, '0')}`;
+    // Generate order number using timestamp + random suffix to avoid race conditions
+    const orderNumber = `ON${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
     const order = await this.prisma.storeOrder.create({
       data: {

@@ -22,7 +22,8 @@ import {
 import { creditApi } from '@/api/endpoints/credit.api';
 import type { CreditSale } from '@/api/endpoints/credit.api';
 import { formatCurrency } from '@/lib/format';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 interface RecordPaymentModalProps {
   open: boolean;
@@ -55,7 +56,7 @@ export function RecordPaymentModal({
       });
     },
     onSuccess: () => {
-      toast({
+      toast.success({
         title: 'Pembayaran Berhasil',
         description: `${formatCurrency(amount)} berhasil dicatat.`,
       });
@@ -69,13 +70,7 @@ export function RecordPaymentModal({
       });
       handleClose();
     },
-    onError: (error: Error) => {
-      toast({
-        title: 'Gagal Mencatat Pembayaran',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal Mencatat Pembayaran'),
   });
 
   const handleClose = () => {

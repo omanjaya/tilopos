@@ -6,7 +6,7 @@ export const kdsApi = {
   // Backend automatically excludes completed and cancelled orders
   getOrders: (outletId: string) =>
     apiClient
-      .get<KDSOrder[]>('/orders', { params: { outletId } })
+      .get<KDSOrder[]>('/kds/orders', { params: { outletId } })
       .then((r) => r.data),
 
   bumpItem: (orderItemId: string) =>

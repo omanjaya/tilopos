@@ -79,12 +79,13 @@ export function OwnerDashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['owner-analytics', 'critical-alerts'] });
     };
 
-    socket.current?.on('transaction:completed', handleTransactionCompleted);
-    socket.current?.on('transfer:status_changed', handleTransferStatusChanged);
+    const s = socket.current;
+    s?.on('transaction:completed', handleTransactionCompleted);
+    s?.on('transfer:status_changed', handleTransferStatusChanged);
 
     return () => {
-      socket.current?.off('transaction:completed', handleTransactionCompleted);
-      socket.current?.off('transfer:status_changed', handleTransferStatusChanged);
+      s?.off('transaction:completed', handleTransactionCompleted);
+      s?.off('transfer:status_changed', handleTransferStatusChanged);
     };
   }, [socket, isConnected, isLive, queryClient]);
 

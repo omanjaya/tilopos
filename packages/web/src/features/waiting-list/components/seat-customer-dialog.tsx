@@ -15,18 +15,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Armchair, Search, Check, Users, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/api/client';
 import type { WaitingListEntry } from '@/types/waiting-list.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface Table {
   id: string;
   name: string;
   capacity: number;
-  status: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  status: 'available' | 'occupied' | 'reserved' | 'cleaning';
   section?: string;
 }
 
@@ -66,12 +65,7 @@ export function SeatCustomerDialog({ open, entry, onOpenChange, onSuccess }: Sea
       setSearch('');
       onSuccess();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal mendudukkan pelanggan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mendudukkan pelanggan'),
   });
 
   const handleSubmit = () => {

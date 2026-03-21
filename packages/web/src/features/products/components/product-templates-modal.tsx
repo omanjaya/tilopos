@@ -123,7 +123,10 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>({});
 
-  const categories = selectedType ? TEMPLATES[selectedType] ?? [] : [];
+  const categories = useMemo(
+    () => (selectedType ? TEMPLATES[selectedType] ?? [] : []),
+    [selectedType],
+  );
   const allProducts = useMemo(
     () => categories.flatMap((c) => c.products.map((p) => ({ ...p, key: `${c.key}-${p.name}` }))),
     [categories],
@@ -150,6 +153,7 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
       const ok = results.filter((r) => r.status === 'fulfilled').length;
       const failed = results.filter((r) => r.status === 'rejected').length;
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       toast.success({
         title: `${ok} produk berhasil diimport`,

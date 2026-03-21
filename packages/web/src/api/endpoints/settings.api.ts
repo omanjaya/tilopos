@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import { useUIStore } from '@/stores/ui.store';
 import type {
   Business,
   UpdateBusinessRequest,
@@ -51,6 +52,8 @@ export const settingsApi = {
     apiClient.post<Outlet>('/settings/outlets', data).then((r) => r.data),
   updateOutlet: (id: string, data: Partial<CreateOutletRequest>) =>
     apiClient.put<Outlet>(`/settings/outlets/${id}`, data).then((r) => r.data),
+  deleteOutlet: (id: string) =>
+    apiClient.delete(`/settings/outlets/${id}`).then((r) => r.data),
 
   listDevices: () =>
     apiClient.get<Device[]>('/devices').then((r) => r.data),
@@ -142,7 +145,7 @@ export const settingsApi = {
 
   // Operating Hours
   getOperatingHours: () => {
-    const outletId = localStorage.getItem('selectedOutletId');
+    const outletId = useUIStore.getState().selectedOutletId;
     if (!outletId) {
       return Promise.resolve({
         id: '',
@@ -168,7 +171,7 @@ export const settingsApi = {
     });
   },
   updateOperatingHours: (data: UpdateOperatingHoursRequest) => {
-    const outletId = localStorage.getItem('selectedOutletId');
+    const outletId = useUIStore.getState().selectedOutletId;
     if (!outletId) return Promise.reject(new Error('No outlet selected'));
     const hours = (data.schedule ?? []).map((s, i) => ({
       dayOfWeek: DAY_DEFAULTS.findIndex((d) => d.day === s.day) ?? i,

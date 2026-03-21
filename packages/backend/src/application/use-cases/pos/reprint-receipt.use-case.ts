@@ -40,6 +40,29 @@ export class ReprintReceiptUseCase {
         })
       : null;
 
+    // Fetch customer name if customerId is present
+    const customer = transaction.customerId
+      ? await this.prisma.customer.findUnique({
+          where: { id: transaction.customerId },
+          select: { name: true },
+        })
+      : null;
+
+    // Fetch modifiers for each item
+    const itemIds = items.map((item) => item.id);
+    const modifiers = await this.prisma.transactionItemModifier.findMany({
+      where: { transactionItemId: { in: itemIds } },
+    });
+    const modifiersByItemId = new Map<string, typeof modifiers>();
+    for (const mod of modifiers) {
+      const existing = modifiersByItemId.get(mod.transactionItemId) || [];
+      existing.push(mod);
+      modifiersByItemId.set(mod.transactionItemId, existing);
+    }
+
+    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+    const changeAmount = Math.max(0, totalPaid - transaction.grandTotal);
+
     return {
       transaction: {
         id: transaction.id,
@@ -54,6 +77,7 @@ export class ReprintReceiptUseCase {
         serviceCharge: transaction.serviceCharge,
         total: transaction.grandTotal,
         grandTotal: transaction.grandTotal,
+        changeAmount,
         notes: transaction.notes,
         createdAt: transaction.createdAt,
         items: items.map((item) => ({
@@ -65,7 +89,11 @@ export class ReprintReceiptUseCase {
           discountAmount: item.discountAmount,
           subtotal: item.subtotal,
           totalPrice: item.subtotal,
-          modifiers: [],
+          modifiers: (modifiersByItemId.get(item.id) || []).map((m) => ({
+            id: m.id,
+            name: m.modifierName,
+            price: Number(m.price),
+          })),
           notes: item.notes,
         })),
         payments: payments.map((p) => ({
@@ -79,7 +107,7 @@ export class ReprintReceiptUseCase {
       business: business || { name: '-', address: '-', phone: '-', taxId: null },
       outlet: outlet || { id: '', name: '-', address: '-', phone: '-' },
       employee: employee || { name: '-' },
-      customer: transaction.customerId ? { name: transaction.customerId } : undefined,
+      customer: customer ? { name: customer.name } : undefined,
       isReprint: true,
       reprintedAt: new Date().toISOString(),
     };

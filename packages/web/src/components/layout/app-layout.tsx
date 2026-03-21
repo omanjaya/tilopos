@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Sidebar } from './sidebar/index';
 import { MobileSidebar } from './sidebar/mobile-sidebar';
 import { Header } from './header/index';
@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MobileNav } from '@/components/shared/mobile-nav';
+import { EmailVerificationBanner } from '@/components/shared/email-verification-banner';
 import { useMediaQuery, BREAKPOINTS } from '@/hooks/use-media-query';
 
 export function AppLayout() {
@@ -38,6 +39,13 @@ export function AppLayout() {
 
   // Business type migration for existing users
   const { shouldShowPrompt: showMigrationModal, setPrompted: setMigrationPrompted } = useBusinessTypeMigration();
+
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Focus main content on route change for screen-reader and keyboard users
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, [location.pathname]);
 
   // Enable global keyboard shortcuts across the app
   useGlobalShortcuts();
@@ -160,6 +168,11 @@ export function AppLayout() {
     <RealtimeProvider>
       <TooltipProvider>
         <div className="min-h-screen bg-background">
+          {/* Skip to content — accessible via Tab key */}
+          <a href="#main-content" className="skip-to-content">
+            Langsung ke konten
+          </a>
+
           {/* Desktop sidebar - always visible on lg+ */}
           <div className="hidden lg:block fixed left-0 top-0 z-40 h-screen">
             <Sidebar />
@@ -190,11 +203,17 @@ export function AppLayout() {
             )}
           >
             <Header />
-            <main className={cn(
-              "px-4 py-4 lg:px-6 lg:py-6",
-              // Add bottom padding on mobile/tablet for MobileNav
-              "pb-24 lg:pb-6"
-            )}>
+            <main
+              ref={mainRef}
+              id="main-content"
+              tabIndex={-1}
+              className={cn(
+                "px-4 py-4 lg:px-6 lg:py-6 outline-none",
+                // Add bottom padding on mobile/tablet for MobileNav
+                "pb-24 lg:pb-6"
+              )}
+            >
+              {user && !user.emailVerified && <EmailVerificationBanner />}
               <Outlet />
             </main>
           </div>

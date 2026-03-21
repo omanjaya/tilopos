@@ -17,7 +17,11 @@ export class PointsRules {
     customerTier: LoyaltyTier | null,
   ): PointsCalculation {
     // Calculate base points: amount / pointsPerAmount
-    const basePoints = Math.floor(transactionAmount / Number(program.pointsPerAmount));
+    const pointsPerAmount = Number(program.pointsPerAmount) || 0;
+    if (pointsPerAmount <= 0) {
+      return { basePoints: 0, multiplier: 1, totalPoints: 0 };
+    }
+    const basePoints = Math.floor(transactionAmount / pointsPerAmount);
 
     // Apply tier multiplier
     const multiplier = Number(customerTier?.pointMultiplier || 1);
@@ -45,7 +49,11 @@ export class PointsRules {
     program: LoyaltyProgram,
     customerTier?: LoyaltyTier | null,
   ): PointsCalculation {
-    const basePoints = Math.floor(amount / Number(program.pointsPerAmount));
+    const pointsPerAmount = Number(program.pointsPerAmount) || 0;
+    if (pointsPerAmount <= 0) {
+      return { basePoints: 0, multiplier: 1, totalPoints: 0 };
+    }
+    const basePoints = Math.floor(amount / pointsPerAmount);
     const multiplier = customerTier ? Number(customerTier.pointMultiplier) : 1;
     const totalPoints = Math.floor(basePoints * multiplier);
 

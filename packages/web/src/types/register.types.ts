@@ -24,6 +24,7 @@ export interface RegisterResponse {
   businessType: string;
   featuresEnabled: number;
   enabledFeatures: string[];
+  emailVerified: boolean;
 }
 
 export interface BusinessTypePresetPublic {

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { productsApi } from '@/api/endpoints/products.api';
 import { categoriesApi } from '@/api/endpoints/categories.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -31,13 +31,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import { useOptimisticDelete } from '@/hooks/use-optimistic-delete';
+import { useRowHighlight } from '@/hooks/use-row-highlight';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2, LayoutTemplate, Printer } from 'lucide-react';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import type { Product } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function ProductsPage() {
   const navigate = useNavigate();
@@ -45,7 +47,6 @@ export function ProductsPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
-  const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
@@ -56,6 +57,8 @@ export function ProductsPage() {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
 
+  const { highlightedRowId, highlightRow } = useRowHighlight();
+
   // Feature checks for dynamic UI
   const { hasBarcodeScanning } = useBusinessFeatures();
 
@@ -64,31 +67,26 @@ export function ProductsPage() {
     queryFn: categoriesApi.list,
   });
 
-  const { data: productsData, isLoading } = useQuery({
-    queryKey: ['products', outletId, search, categoryFilter],
-    queryFn: () =>
-      productsApi.list({
-        outletId: outletId || undefined,
-        search: search || undefined,
-        categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
-      }),
+  const filters = useMemo(() => ({
+    outletId: outletId || undefined,
+    categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
+  }), [outletId, categoryFilter]);
+
+  const { data: productsData, isLoading, pagination, sort, setSearch } = usePaginatedList<Product>({
+    queryKey: ['products'],
+    queryFn: (params) => productsApi.listPaginated({ ...params, ...filters }),
+    filters,
+    defaultLimit: 15,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => productsApi.delete(id),
+  const deleteMutation = useOptimisticDelete({
+    queryKey: ['products'],
+    deleteFn: (id) => productsApi.delete(id),
+    successMessage: 'Produk berhasil dihapus',
+    errorMessage: 'Gagal menghapus produk',
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success({
-        title: 'Produk berhasil dihapus',
-        description: `"${deleteTarget?.name}" telah dihapus dari daftar produk`,
-      });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
       setDeleteTarget(null);
-    },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat menghapus produk',
-      });
     },
   });
 
@@ -108,17 +106,14 @@ export function ProductsPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      highlightRow(data.id);
       toast.success({
-        title: '✅ Produk berhasil diduplikasi!',
+        title: 'Produk berhasil diduplikasi',
         description: `"${data.name}" telah ditambahkan`,
       });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menduplikasi produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menduplikasi produk'),
   });
 
   const isAllSelected = Boolean(productsData && productsData.length > 0 && selectedProducts.length === productsData.length);
@@ -171,7 +166,7 @@ export function ProductsPage() {
           </div>
         ),
     },
-    { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
+    { key: 'name', header: 'Nama', sortable: true, cell: (row) => <span className="font-medium">{row.name}</span> },
     {
       key: 'sku',
       header: hasBarcodeScanning ? (
@@ -181,7 +176,7 @@ export function ProductsPage() {
       ) : 'SKU',
       cell: (row) => <span className="text-muted-foreground font-mono text-sm">{row.sku}</span>
     },
-    { key: 'price', header: 'Harga', cell: (row) => formatCurrency(row.basePrice) },
+    { key: 'basePrice', header: 'Harga', sortable: true, cell: (row) => formatCurrency(row.basePrice) },
     {
       key: 'category',
       header: 'Kategori',
@@ -226,46 +221,6 @@ export function ProductsPage() {
       ),
     },
   ];
-
-  // Keyboard shortcuts
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input/textarea
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-        return;
-      }
-
-      // N - New product (full form)
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/products/new');
-      }
-
-      // Q - Quick add product
-      if (e.key === 'q' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setQuickAddOpen(true);
-      }
-
-      // B - Bulk add product
-      if (e.key === 'b' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setBulkAddOpen(true);
-      }
-
-      // / - Focus search
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate, setQuickAddOpen, setBulkAddOpen]);
 
   return (
     <div>
@@ -312,10 +267,14 @@ export function ProductsPage() {
 
       <DataTable
         columns={columns}
-        data={productsData ?? []}
+        data={productsData}
         isLoading={isLoading}
         searchPlaceholder="Cari produk..."
         onSearch={setSearch}
+        pagination={pagination}
+        sort={sort}
+        highlightedRowId={highlightedRowId}
+        rowId={(row) => row.id}
         emptyTitle="Belum ada produk"
         emptyDescription="Mulai dengan menambahkan produk pertama Anda untuk mulai berjualan."
         emptyAction={

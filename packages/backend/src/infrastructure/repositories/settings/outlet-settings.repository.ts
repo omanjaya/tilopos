@@ -69,10 +69,30 @@ export class OutletSettingsRepository {
   /**
    * Update outlet information
    */
-  async updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord> {
+  async updateOutlet(
+    id: string,
+    data: {
+      name?: string;
+      code?: string;
+      address?: string;
+      phone?: string;
+      taxRate?: number;
+      serviceCharge?: number;
+      isActive?: boolean;
+    },
+  ): Promise<OutletRecord> {
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.code !== undefined) updateData.code = data.code;
+    if (data.address !== undefined) updateData.address = data.address;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.taxRate !== undefined) updateData.taxRate = data.taxRate;
+    if (data.serviceCharge !== undefined) updateData.serviceCharge = data.serviceCharge;
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
+
     const outlet = await this.prisma.outlet.update({
       where: { id },
-      data: data as Record<string, never>,
+      data: updateData,
     });
 
     return {

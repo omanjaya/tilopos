@@ -73,6 +73,7 @@ describe('Suite 3: POS Transaksi', () => {
         .expect(200);
 
       const nasiGoreng = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[0],
       );
       expect(nasiGoreng).toBeDefined();
@@ -84,9 +85,8 @@ describe('Suite 3: POS Transaksi', () => {
         .get(`/api/v1/inventory/stock/${testContext.outletId}`)
         .expect(200);
 
-      const esTeh = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[1],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const esTeh = res.body.find((s: any) => s.productId === testContext.created.productIds[1]);
       expect(esTeh).toBeDefined();
       expect(Number(esTeh.quantity)).toBe(199);
     });
@@ -99,6 +99,7 @@ describe('Suite 3: POS Transaksi', () => {
       // Verify ingredient stock levels are accessible
       expect(Array.isArray(res.body)).toBe(true);
       const beras = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.ingredientId === testContext.created.ingredientIds[0],
       );
       expect(beras).toBeDefined();
@@ -113,6 +114,7 @@ describe('Suite 3: POS Transaksi', () => {
         .expect(200);
 
       const teh = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.ingredientId === testContext.created.ingredientIds[1],
       );
       expect(teh).toBeDefined();
@@ -121,8 +123,7 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.6 - should verify stock movement recorded', async () => {
       // Use the transaction list to verify the sale was recorded
-      const res = await authRequest(app, 'cashier')
-        .get('/api/v1/pos/transactions?limit=5');
+      const res = await authRequest(app, 'cashier').get('/api/v1/pos/transactions?limit=5');
 
       expect(res.status).toBeLessThan(400);
       const transactions = Array.isArray(res.body) ? res.body : res.body.data || [];
@@ -133,8 +134,7 @@ describe('Suite 3: POS Transaksi', () => {
       const txId = testContext.created.transactionIds[0];
 
       // Use list endpoint with search to get detail with items/payments
-      const res = await authRequest(app, 'cashier')
-        .get(`/api/v1/pos/transactions/${txId}`);
+      const res = await authRequest(app, 'cashier').get(`/api/v1/pos/transactions/${txId}`);
 
       if (res.status >= 400) {
         console.log('3.7 get transaction error:', res.status, res.body);
@@ -189,8 +189,7 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.9 - should verify customer loyalty points earned', async () => {
       const customerId = testContext.created.customerIds[0];
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       // Loyalty might not be implemented, check gracefully
       if (res.status === 200) {
@@ -201,8 +200,7 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.10 - should verify customer data accessible', async () => {
       const customerId = testContext.created.customerIds[0];
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/customers/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/customers/${customerId}`);
 
       expect(res.status).toBeLessThan(400);
       expect(res.body).toBeDefined();
@@ -211,8 +209,7 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.11 - should verify customer totalSpent', async () => {
       const customerId = testContext.created.customerIds[0];
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/customers/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/customers/${customerId}`);
 
       expect(res.status).toBeLessThan(400);
       // totalSpent may or may not be tracked in the customer record
@@ -261,8 +258,9 @@ describe('Suite 3: POS Transaksi', () => {
     });
 
     it('3.13 - should verify KDS order created', async () => {
-      const res = await authRequest(app, 'kitchen')
-        .get(`/api/v1/kds/orders?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'kitchen').get(
+        `/api/v1/kds/orders?outletId=${testContext.outletId}`,
+      );
 
       // KDS may or may not be triggered automatically
       if (res.status === 200) {
@@ -273,14 +271,14 @@ describe('Suite 3: POS Transaksi', () => {
     });
 
     it('3.14 - should verify table status', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/tables?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/tables?outletId=${testContext.outletId}`,
+      );
 
       if (res.status === 200) {
         const tables = Array.isArray(res.body) ? res.body : res.body.data || [];
-        const t1 = tables.find(
-          (t: any) => t.id === testContext.created.tableIds[0],
-        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const t1 = tables.find((t: any) => t.id === testContext.created.tableIds[0]);
         if (t1) {
           expect(t1.status).toBeDefined();
         }
@@ -333,8 +331,7 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.16 - should verify transaction has correct totals', async () => {
       const txId = testContext.created.transactionIds[3]; // multi-payment tx
-      const res = await authRequest(app, 'cashier')
-        .get(`/api/v1/pos/transactions/${txId}`);
+      const res = await authRequest(app, 'cashier').get(`/api/v1/pos/transactions/${txId}`);
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.id).toBe(txId);
@@ -346,8 +343,7 @@ describe('Suite 3: POS Transaksi', () => {
       // Change was already verified in 3.15 (res.body.change === 0)
       // Here just verify the transaction exists and is completed
       const txId = testContext.created.transactionIds[3];
-      const res = await authRequest(app, 'cashier')
-        .get(`/api/v1/pos/transactions/${txId}`);
+      const res = await authRequest(app, 'cashier').get(`/api/v1/pos/transactions/${txId}`);
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.status).toBe('completed');
@@ -365,12 +361,10 @@ describe('Suite 3: POS Transaksi', () => {
         .get(`/api/v1/inventory/stock/${testContext.outletId}`)
         .expect(200);
 
-      const ng = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[0],
-      );
-      const et = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[1],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ng = res.body.find((s: any) => s.productId === testContext.created.productIds[0]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const et = res.body.find((s: any) => s.productId === testContext.created.productIds[1]);
       stockBefore = {
         nasiGoreng: Number(ng?.quantity || 0),
         esTeh: Number(et?.quantity || 0),
@@ -415,12 +409,10 @@ describe('Suite 3: POS Transaksi', () => {
         .get(`/api/v1/inventory/stock/${testContext.outletId}`)
         .expect(200);
 
-      const ng = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[0],
-      );
-      const et = res.body.find(
-        (s: any) => s.productId === testContext.created.productIds[1],
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ng = res.body.find((s: any) => s.productId === testContext.created.productIds[0]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const et = res.body.find((s: any) => s.productId === testContext.created.productIds[1]);
 
       // Bundle Paket Hemat = Nasi Goreng × 1 + Es Teh × 1
       // Stock should decrease by component quantities
@@ -440,16 +432,12 @@ describe('Suite 3: POS Transaksi', () => {
 
     it('3.21 - should validate voucher before use', async () => {
       // Get a voucher code from context (created in Suite 1)
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/promotions/vouchers?limit=5');
+      const res = await authRequest(app, 'owner').get('/api/v1/promotions/vouchers?limit=5');
 
       if (res.status === 200) {
-        const vouchers = Array.isArray(res.body)
-          ? res.body
-          : res.body.data || [];
-        const unused = vouchers.find(
-          (v: any) => !v.usedAt && !v.redeemedAt,
-        );
+        const vouchers = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const unused = vouchers.find((v: any) => !v.usedAt && !v.redeemedAt);
         if (unused) {
           voucherCode = unused.code;
           promotionId = unused.promotionId;
@@ -536,13 +524,10 @@ describe('Suite 3: POS Transaksi', () => {
     });
 
     it('3.24 - should verify promotion usedCount increased', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/promotions');
+      const res = await authRequest(app, 'owner').get('/api/v1/promotions');
 
       if (res.status === 200) {
-        const promotions = Array.isArray(res.body)
-          ? res.body
-          : res.body.data || [];
+        const promotions = Array.isArray(res.body) ? res.body : res.body.data || [];
         if (promotions.length > 0) {
           expect(promotions[0]).toBeDefined();
         }
@@ -672,26 +657,20 @@ describe('Suite 3: POS Transaksi', () => {
       }
       expect(res.status).toBeLessThan(400);
       expect(res.body.billId || res.body.id).toBeDefined();
-      testContext.created['heldBillIds'] =
-        testContext.created['heldBillIds'] || [];
-      testContext.created['heldBillIds'].push(
-        res.body.billId || res.body.id,
-      );
+      testContext.created['heldBillIds'] = testContext.created['heldBillIds'] || [];
+      testContext.created['heldBillIds'].push(res.body.billId || res.body.id);
     });
 
     it('3.30 - should list held bills', async () => {
-      const res = await authRequest(app, 'cashier')
-        .get(
-          `/api/v1/pos/held-bills?outletId=${testContext.outletId}`,
-        );
+      const res = await authRequest(app, 'cashier').get(
+        `/api/v1/pos/held-bills?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('3.30 list held bills error:', res.status, res.body);
       }
       expect(res.status).toBeLessThan(400);
-      const bills = Array.isArray(res.body)
-        ? res.body
-        : res.body.data || [];
+      const bills = Array.isArray(res.body) ? res.body : res.body.data || [];
       expect(bills.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -702,8 +681,7 @@ describe('Suite 3: POS Transaksi', () => {
         return;
       }
 
-      const res = await authRequest(app, 'cashier')
-        .post(`/api/v1/pos/resume/${billId}`);
+      const res = await authRequest(app, 'cashier').post(`/api/v1/pos/resume/${billId}`);
 
       if (res.status >= 400) {
         console.log('3.31 resume bill error:', res.status, res.body);
@@ -718,17 +696,11 @@ describe('Suite 3: POS Transaksi', () => {
   // ================================================================
   describe('Summary', () => {
     it('should have all transaction data in context', () => {
-      expect(
-        testContext.created.transactionIds.length,
-      ).toBeGreaterThanOrEqual(4);
+      expect(testContext.created.transactionIds.length).toBeGreaterThanOrEqual(4);
 
       console.log('\n=== Suite 3 Summary ===');
-      console.log(
-        `Transactions: ${testContext.created.transactionIds.length}`,
-      );
-      console.log(
-        `Held Bills: ${testContext.created['heldBillIds']?.length || 0}`,
-      );
+      console.log(`Transactions: ${testContext.created.transactionIds.length}`);
+      console.log(`Held Bills: ${testContext.created['heldBillIds']?.length || 0}`);
       console.log('========================\n');
 
       saveContext();

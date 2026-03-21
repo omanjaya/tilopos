@@ -52,11 +52,10 @@ describe('Suite 1: Master Data', () => {
     });
 
     it('should list categories', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/inventory/categories')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/inventory/categories').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const names = res.body.map((c: any) => c.name);
       expect(names).toContain('Makanan');
       expect(names).toContain('Minuman');
@@ -138,15 +137,12 @@ describe('Suite 1: Master Data', () => {
     });
 
     it('1.7 - should list products', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/inventory/products')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/inventory/products').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
       // Should contain our 4 test products (plus any seeded ones)
-      const testNames = res.body
-        .map((p: any) => p.name)
-        .filter((n: string) => n.includes('Test'));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const testNames = res.body.map((p: any) => p.name).filter((n: string) => n.includes('Test'));
       expect(testNames.length).toBeGreaterThanOrEqual(4);
     });
 
@@ -169,9 +165,7 @@ describe('Suite 1: Master Data', () => {
   // ================================================================
   describe('1C - Employees', () => {
     it('1.9 - should list employees', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/employees')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/employees').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.length).toBeGreaterThanOrEqual(1);
@@ -239,14 +233,11 @@ describe('Suite 1: Master Data', () => {
     });
 
     it('1.13 - should list customers', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/customers')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/customers').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
-      const testNames = res.body
-        .map((c: any) => c.name)
-        .filter((n: string) => n.includes('Test'));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const testNames = res.body.map((c: any) => c.name).filter((n: string) => n.includes('Test'));
       expect(testNames.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -298,10 +289,10 @@ describe('Suite 1: Master Data', () => {
 
       expect(Array.isArray(res.body)).toBe(true);
       // Verify our newly created tables exist
-      const ourTables = res.body.filter((t: any) =>
-        testContext.created.tableIds.includes(t.id),
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ourTables = res.body.filter((t: any) => testContext.created.tableIds.includes(t.id));
       expect(ourTables.length).toBe(2);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ourTables.forEach((t: any) => {
         expect(t.status).toBe('available');
       });
@@ -358,14 +349,11 @@ describe('Suite 1: Master Data', () => {
     });
 
     it('should list ingredients', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/ingredients')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/ingredients').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
-      const testIngredients = res.body.filter((i: any) =>
-        i.name.includes('Test'),
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const testIngredients = res.body.filter((i: any) => i.name.includes('Test'));
       expect(testIngredients.length).toBeGreaterThanOrEqual(3);
     });
   });
@@ -377,9 +365,7 @@ describe('Suite 1: Master Data', () => {
     it('1.20 - should create promotion "Diskon 20%"', async () => {
       const now = new Date();
       const validFrom = now.toISOString();
-      const validUntil = new Date(
-        now.getTime() + 30 * 24 * 60 * 60 * 1000,
-      ).toISOString(); // +30 days
+      const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(); // +30 days
 
       const res = await authRequest(app, 'owner')
         .post('/api/v1/promotions')
@@ -406,9 +392,7 @@ describe('Suite 1: Master Data', () => {
     it('1.21 - should generate 5 vouchers', async () => {
       const now = new Date();
       const validFrom = now.toISOString();
-      const validTo = new Date(
-        now.getTime() + 30 * 24 * 60 * 60 * 1000,
-      ).toISOString();
+      const validTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
       const res = await authRequest(app, 'owner')
         .post('/api/v1/promotions/vouchers/generate')
@@ -427,6 +411,7 @@ describe('Suite 1: Master Data', () => {
       expect(res.body.length).toBe(5);
       // Store first voucher code for later tests
       testContext.created['voucherCodes'] = testContext.created['voucherCodes'] || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       res.body.forEach((v: any) => {
         expect(v.code).toMatch(/^TEST/);
         testContext.created['voucherCodes'].push(v.code);
@@ -447,14 +432,11 @@ describe('Suite 1: Master Data', () => {
     });
 
     it('should list promotions', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/promotions')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/promotions').expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
-      const testPromos = res.body.filter((p: any) =>
-        p.name.includes('Test'),
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const testPromos = res.body.filter((p: any) => p.name.includes('Test'));
       expect(testPromos.length).toBeGreaterThanOrEqual(1);
     });
   });

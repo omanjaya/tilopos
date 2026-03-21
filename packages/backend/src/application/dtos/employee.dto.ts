@@ -1,9 +1,23 @@
-import { IsString, IsOptional, IsNumber, IsBoolean, IsEmail, Min } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+const EMPLOYEE_ROLES = ['cashier', 'kitchen', 'inventory', 'supervisor', 'manager'] as const;
 
 export class CreateEmployeeDto {
   @ApiProperty()
   @IsString()
+  @IsNotEmpty({ message: 'Name must not be empty' })
+  @MaxLength(255)
   name!: string;
 
   @ApiPropertyOptional()
@@ -21,8 +35,10 @@ export class CreateEmployeeDto {
   @IsString()
   pin?: string;
 
-  @ApiProperty({ enum: ['cashier', 'kitchen', 'inventory', 'supervisor', 'manager', 'owner'] })
-  @IsString()
+  @ApiProperty({ enum: EMPLOYEE_ROLES })
+  @IsEnum(EMPLOYEE_ROLES, {
+    message: 'Role must be one of: cashier, kitchen, inventory, supervisor, manager',
+  })
   role!: string;
 
   @ApiPropertyOptional()
@@ -57,9 +73,11 @@ export class UpdateEmployeeDto {
   @IsString()
   pin?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: EMPLOYEE_ROLES })
   @IsOptional()
-  @IsString()
+  @IsEnum(EMPLOYEE_ROLES, {
+    message: 'Role must be one of: cashier, kitchen, inventory, supervisor, manager',
+  })
   role?: string;
 
   @ApiPropertyOptional()
@@ -94,4 +112,9 @@ export class EndShiftDto {
   @IsNumber()
   @Min(0)
   closingCash!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

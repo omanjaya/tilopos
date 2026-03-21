@@ -148,15 +148,18 @@ export class EmailChannel implements INotificationChannel {
       }
 
       const from = this.configService.get<string>('SMTP_FROM', 'noreply@tilopos.com');
+      const safeTitle = this.escapeHtml(payload.title);
+      const safeBody = this.escapeHtml(payload.body);
+      const safeActionUrl = payload.actionUrl ? this.escapeHtml(payload.actionUrl) : null;
       const info = await this.transporter.sendMail({
         from,
         to: email,
         subject: payload.title,
         text: payload.body,
         html: `<div style="font-family:sans-serif;padding:20px;">
-          <h2>${payload.title}</h2>
-          <p>${payload.body}</p>
-          ${payload.actionUrl ? `<p><a href="${payload.actionUrl}">View Details</a></p>` : ''}
+          <h2>${safeTitle}</h2>
+          <p>${safeBody}</p>
+          ${safeActionUrl ? `<p><a href="${safeActionUrl}">View Details</a></p>` : ''}
         </div>`,
       });
 
@@ -168,6 +171,17 @@ export class EmailChannel implements INotificationChannel {
       this.logger.error(`Email failed: ${error}`);
       return { success: false, error: String(error) };
     }
+  }
+
+  private escapeHtml(text: string): string {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
+    };
+    return text.replace(/[&<>"']/g, (char) => map[char]);
   }
 }
 

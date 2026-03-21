@@ -1,25 +1,20 @@
 import { ProcessRefundUseCase, ProcessRefundInput } from './process-refund.use-case';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
-import { PrismaService } from '@infrastructure/database/prisma.service';
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
 import { RefundNotAllowedException } from '@domain/exceptions/refund-not-allowed.exception';
 import type {
   ITransactionRepository,
   TransactionRecord,
 } from '@domain/interfaces/repositories/transaction.repository';
-import type {
-  IInventoryRepository,
-  StockLevelRecord,
-} from '@domain/interfaces/repositories/inventory.repository';
-import type { IAuditLogRepository } from '@domain/interfaces/repositories/audit.repository';
+import type { PrismaService } from '@infrastructure/database/prisma.service';
 
 describe('ProcessRefundUseCase', () => {
   let useCase: ProcessRefundUseCase;
   let mockTransactionRepo: jest.Mocked<ITransactionRepository>;
-  let mockInventoryRepo: jest.Mocked<IInventoryRepository>;
-  let mockAuditRepo: jest.Mocked<IAuditLogRepository>;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockEventBus: jest.Mocked<EventBusService>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockTx: any;
 
   const originalTransaction: TransactionRecord = {
     id: 'txn-original',
@@ -51,23 +46,16 @@ describe('ProcessRefundUseCase', () => {
       variantId: null,
       productName: 'Nasi Goreng',
       variantName: null,
-      quantity: 2,
+      quantity: { toNumber: () => 2 },
       unitPrice: { toNumber: () => 25000 },
-      discountAmount: 0,
-      subtotal: 50000,
+      discountAmount: { toNumber: () => 0 },
+      subtotal: { toNumber: () => 50000 },
       notes: null,
+      bundleId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     },
   ];
-
-  const baseStockLevel: StockLevelRecord = {
-    id: 'stock-1',
-    outletId: 'outlet-1',
-    productId: 'prod-1',
-    variantId: null,
-    quantity: 48,
-    lowStockAlert: 5,
-    updatedAt: new Date(),
-  };
 
   const baseRefundInput: ProcessRefundInput = {
     transactionId: 'txn-original',
@@ -94,24 +82,38 @@ describe('ProcessRefundUseCase', () => {
       findPaymentsByTransactionId: jest.fn(),
     };
 
-    mockInventoryRepo = {
-      findStockLevel: jest.fn(),
-      findStockLevelsByOutlet: jest.fn(),
-      findLowStockItems: jest.fn(),
-      updateStockLevel: jest.fn(),
-      createStockMovement: jest.fn(),
-    };
-
-    mockAuditRepo = {
-      create: jest.fn(),
-      findByEntity: jest.fn(),
-      findByDateRange: jest.fn(),
+    mockTx = {
+      transaction: {
+        create: jest.fn().mockResolvedValue({ id: 'txn-refund' }),
+        update: jest.fn().mockResolvedValue({}),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { subtotal: null } }),
+      },
+      transactionItem: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      stockLevel: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'stock-1',
+          quantity: { toNumber: () => 48 },
+        }),
+        update: jest.fn().mockResolvedValue({ quantity: { toNumber: () => 50 } }),
+      },
+      stockMovement: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({}),
+      },
     };
 
     mockPrisma = {
       transactionItem: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue(mockTransactionItems),
       },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      $transaction: jest.fn().mockImplementation(async (cb) => cb(mockTx)),
     } as unknown as jest.Mocked<PrismaService>;
 
     mockEventBus = {
@@ -120,73 +122,11 @@ describe('ProcessRefundUseCase', () => {
       onAll: jest.fn(),
     } as unknown as jest.Mocked<EventBusService>;
 
-    useCase = new ProcessRefundUseCase(
-      mockTransactionRepo,
-      mockInventoryRepo,
-      mockAuditRepo,
-      mockPrisma,
-      mockEventBus,
-    );
+    useCase = new ProcessRefundUseCase(mockTransactionRepo, mockPrisma, mockEventBus);
   });
 
   it('should process full refund successfully', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     const result = await useCase.execute(baseRefundInput);
 
@@ -199,69 +139,16 @@ describe('ProcessRefundUseCase', () => {
     expect(result.receiptNumber).toContain('REF-');
 
     // Should update original to 'refunded' since full refund
-    expect(mockTransactionRepo.update).toHaveBeenCalledWith('txn-original', {
-      status: 'refunded',
-    });
+    expect(mockTx.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'txn-original' },
+        data: { status: 'refunded' },
+      }),
+    );
   });
 
   it('should process partial refund successfully', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     const partialRefundInput: ProcessRefundInput = {
       ...baseRefundInput,
@@ -283,9 +170,12 @@ describe('ProcessRefundUseCase', () => {
     expect(result.refundAmount).toBe(27750);
 
     // Should be partially_refunded since 25000 < 50000
-    expect(mockTransactionRepo.update).toHaveBeenCalledWith('txn-original', {
-      status: 'partially_refunded',
-    });
+    expect(mockTx.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'txn-original' },
+        data: { status: 'partially_refunded' },
+      }),
+    );
   });
 
   it('should throw TransactionNotFoundException when transaction not found', async () => {
@@ -319,71 +209,14 @@ describe('ProcessRefundUseCase', () => {
       ...originalTransaction,
       status: 'partially_refunded',
     });
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund-2',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     const result = await useCase.execute(baseRefundInput);
 
-    expect(result.refundTransactionId).toBe('txn-refund-2');
+    expect(result.refundTransactionId).toBe('txn-refund');
   });
 
   it('should throw RefundNotAllowedException when transaction item not found', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
 
     const badInput: ProcessRefundInput = {
       ...baseRefundInput,
@@ -409,62 +242,6 @@ describe('ProcessRefundUseCase', () => {
     };
 
     mockTransactionRepo.findById.mockResolvedValue(zeroSubtotalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     const result = await useCase.execute(baseRefundInput);
 
@@ -474,141 +251,34 @@ describe('ProcessRefundUseCase', () => {
     expect(result.refundAmount).toBe(50000);
   });
 
-  it('should return stock after refund', async () => {
+  it('should restore stock after refund', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     await useCase.execute(baseRefundInput);
 
-    // Stock should be restored: 48 + 2 = 50
-    expect(mockInventoryRepo.updateStockLevel).toHaveBeenCalledWith('stock-1', 50);
-    expect(mockInventoryRepo.createStockMovement).toHaveBeenCalledWith(
+    // Stock should be restored: increment by 2
+    expect(mockTx.stockLevel.update).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'stock-1' },
+        data: { quantity: { increment: 2 } },
+      }),
+    );
+    expect(mockTx.stockMovement.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
         movementType: 'return_stock',
         quantity: 2,
         referenceType: 'refund',
       }),
-    );
+    });
   });
 
   it('should create audit log after refund', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     await useCase.execute(baseRefundInput);
 
-    expect(mockAuditRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({
+    expect(mockTx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
         action: 'transaction_refunded',
         entityType: 'transaction',
         entityId: 'txn-original',
@@ -616,78 +286,22 @@ describe('ProcessRefundUseCase', () => {
         oldValue: expect.objectContaining({ status: 'completed' }),
         newValue: expect.objectContaining({ status: 'refunded' }),
       }),
-    );
+    });
   });
 
   it('should save refund transaction with negative amounts', async () => {
     mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-    (mockPrisma.transactionItem.findMany as jest.Mock).mockResolvedValue(mockTransactionItems);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({
-      ...txn,
-      id: 'txn-refund',
-    }));
-    mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'refund',
-      quantity: 2,
-      referenceId: 'txn-refund',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
-    mockTransactionRepo.update.mockResolvedValue({
-      id: 'txn-original',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TRX-001',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'refunded',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockAuditRepo.create.mockResolvedValue({
-      id: 'audit-1',
-      businessId: 'biz-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      action: 'refund',
-      entityType: 'transaction',
-      entityId: 'txn-original',
-      oldValue: null,
-      newValue: null,
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
-    });
 
     await useCase.execute(baseRefundInput);
 
-    expect(mockTransactionRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
+    expect(mockTx.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
         transactionType: 'refund',
         subtotal: -50000,
         taxAmount: -5500,
         grandTotal: -55500,
         status: 'completed',
       }),
-    );
+    });
   });
 });

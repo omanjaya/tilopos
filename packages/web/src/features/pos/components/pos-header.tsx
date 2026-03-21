@@ -16,6 +16,8 @@ import {
     Keyboard,
     ShoppingCart,
     Receipt,
+    Play,
+    Square,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -58,6 +60,7 @@ interface PosHeaderProps {
     onCartClick: () => void;
     onRefreshProducts: () => void;
     onTodayTransactionsClick: () => void;
+    onStartShift?: () => void;
     onEndShift?: (shiftData: CurrentShiftData) => void;
     currentShift?: CurrentShiftData | null;
 }
@@ -78,6 +81,7 @@ export function PosHeader({
     onCartClick,
     onRefreshProducts,
     onTodayTransactionsClick,
+    onStartShift,
     onEndShift,
     currentShift,
 }: PosHeaderProps) {
@@ -119,6 +123,31 @@ export function PosHeader({
             </div>
 
             <div className="flex items-center gap-1 md:gap-2">
+                {/* Shift Button */}
+                {currentShift ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 min-h-[44px] border-red-500/30 text-red-600 hover:bg-red-500/10 hidden sm:inline-flex"
+                        onClick={() => setIsShiftEndModalOpen(true)}
+                        title="Tutup Shift"
+                    >
+                        <Square className="h-4 w-4" />
+                        <span className="hidden lg:inline">Tutup Shift</span>
+                    </Button>
+                ) : (
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className="gap-2 min-h-[44px]"
+                        onClick={onStartShift}
+                        title="Mulai Shift"
+                    >
+                        <Play className="h-4 w-4" />
+                        <span className="hidden lg:inline">Mulai Shift</span>
+                    </Button>
+                )}
+
                 {/* Order Type - hidden on small screens, in dropdown */}
                 <FeatureGate feature={FEATURES.ORDER_TYPES}>
                     <div className="hidden md:block">

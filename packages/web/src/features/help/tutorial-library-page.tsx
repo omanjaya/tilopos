@@ -187,6 +187,8 @@ export function TutorialLibraryPage() {
                     frameBorder="0"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
+                    sandbox="allow-scripts allow-same-origin allow-presentation"
+                    referrerPolicy="no-referrer"
                   />
                 </div>
 

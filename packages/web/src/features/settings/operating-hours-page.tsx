@@ -9,11 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Save, Plus, Trash2, Calendar } from 'lucide-react';
 import type { DaySchedule, SpecialHour, UpdateOperatingHoursRequest } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const DEFAULT_SCHEDULE: DaySchedule[] = [
   { day: 'monday', dayLabel: 'Senin', isOpen: true, openTime: '08:00', closeTime: '22:00' },
@@ -27,7 +26,6 @@ const DEFAULT_SCHEDULE: DaySchedule[] = [
 
 export function OperatingHoursPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [schedule, setSchedule] = useState<DaySchedule[]>(DEFAULT_SCHEDULE);
   const [specialHours, setSpecialHours] = useState<Omit<SpecialHour, 'id'>[]>([]);
@@ -66,15 +64,9 @@ export function OperatingHoursPage() {
     mutationFn: (data: UpdateOperatingHoursRequest) => settingsApi.updateOperatingHours(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['operatingHours'] });
-      toast({ title: 'Jam operasional berhasil disimpan' });
+      toast.success({ title: 'Jam operasional berhasil disimpan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

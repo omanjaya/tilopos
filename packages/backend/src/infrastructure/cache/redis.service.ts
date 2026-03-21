@@ -31,6 +31,20 @@ export class RedisService implements OnModuleDestroy {
     await this.redis.del(key);
   }
 
+  /**
+   * Atomically get and delete a key (Redis GETDEL).
+   * Returns null if the key does not exist.
+   */
+  async getdel<T>(key: string): Promise<T | null> {
+    const data = await this.redis.getdel(key);
+    if (!data) return null;
+    try {
+      return JSON.parse(data) as T;
+    } catch {
+      return data as unknown as T;
+    }
+  }
+
   async invalidatePattern(pattern: string): Promise<void> {
     let cursor = '0';
     do {

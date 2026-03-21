@@ -18,16 +18,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { Loader2, Plus, Star, Coins, RefreshCw, Clock } from 'lucide-react';
 import type { LoyaltyTier } from '@/types/promotion.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function LoyaltyPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const [programName, setProgramName] = useState('');
@@ -56,17 +54,11 @@ export function LoyaltyPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['loyalty-program'] });
       queryClient.invalidateQueries({ queryKey: ['loyalty-tiers'] });
-      toast({ title: 'Program loyalti berhasil dibuat' });
+      toast.success({ title: 'Program loyalti berhasil dibuat' });
       setDialogOpen(false);
       resetForm();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal membuat program',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membuat program'),
   });
 
   const resetForm = () => {

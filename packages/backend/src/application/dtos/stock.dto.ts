@@ -27,4 +27,12 @@ export class UpdateStockDto {
   @ApiProperty()
   @IsString()
   reason!: string;
+
+  @ApiPropertyOptional({
+    description: 'Unit cost for moving average calculation (only used with increment)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  unitCost?: number;
 }

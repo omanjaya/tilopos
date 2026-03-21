@@ -136,3 +136,66 @@ Super Admin > Owner > Manager > Supervisor > Cashier / Kitchen Staff / Inventory
 **Backend** (`packages/backend/.env`): `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `RABBITMQ_URL`
 
 **Frontend** (`packages/web/.env`): `VITE_API_URL` (backend URL), `VITE_CDN_URL` (optional)
+
+## Production / VPS Environment
+
+**This project runs on a VPS used for testing (not real production).**
+
+| Item | Detail |
+|------|--------|
+| OS | Ubuntu 24.04.3 LTS |
+| CPU | 4 cores |
+| RAM | 16 GB |
+| Disk | 193 GB |
+| Project path | `/root/tilopos` |
+
+### Docker Setup
+
+All services run via Docker Compose using `docker-compose.dev.yml`:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d    # Start all services
+docker compose -f docker-compose.dev.yml down      # Stop all services
+docker compose -f docker-compose.dev.yml logs -f   # Follow logs
+docker compose -f docker-compose.dev.yml restart backend  # Restart single service
+```
+
+**Containers:**
+
+| Container | Image | Port | Notes |
+|-----------|-------|------|-------|
+| `tilopos-backend-1` | tilopos-backend | 3001 | NestJS, hot-reload via volume mounts |
+| `tilopos-web-1` | tilopos-web | 5173 | Vite dev server, hot-reload via volume mounts |
+| `tilopos-postgres-1` | postgres:15-alpine | 127.0.0.1:5432 | DB: `tilopos`, user: `tilopos` |
+| `tilopos-redis-1` | redis:7-alpine | 127.0.0.1:6379 | AOF persistence enabled |
+| `tilopos-rabbitmq-1` | rabbitmq:3-management-alpine | 127.0.0.1:5672 (AMQP), 127.0.0.1:15672 (UI) | User: `tilo` |
+
+**Volume mounts:** Source code (`src/`, `prisma/`, config files) is mounted into containers, so code changes on host reflect immediately.
+
+**Named volumes:** `pgdata_dev`, `redisdata_dev`, `rabbitmq_dev`, `backend_node_modules`, `web_node_modules`
+
+### Running Commands Inside Containers
+
+```bash
+# Run Prisma migration inside backend container
+docker compose -f docker-compose.dev.yml exec backend npx prisma migrate dev
+
+# Generate Prisma client
+docker compose -f docker-compose.dev.yml exec backend npx prisma db push
+
+# Seed database
+docker compose -f docker-compose.dev.yml exec backend npx prisma db seed
+
+# Access PostgreSQL directly
+docker compose -f docker-compose.dev.yml exec postgres psql -U tilopos -d tilopos
+
+# Check backend logs
+docker compose -f docker-compose.dev.yml logs -f backend
+
+# Rebuild a specific container (after Dockerfile or dependency changes)
+docker compose -f docker-compose.dev.yml up -d --build backend
+```
+
+### Other Projects on This VPS
+
+- **FileForge** (`/root/project`) — also running via Docker, uses ports 8000, 8880, 8443. Unrelated to TiloPOS.

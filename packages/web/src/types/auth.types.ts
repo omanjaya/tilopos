@@ -10,7 +10,9 @@ export interface LoginResponse {
   role: EmployeeRole;
   businessId: string;
   outletId: string | null;
+  outletName: string | null;
   onboardingCompleted: boolean;
+  emailVerified: boolean;
 }
 
 export interface AuthUser {
@@ -26,6 +28,7 @@ export interface AuthUser {
   profilePhotoUrl?: string | null;
   createdAt?: string;
   onboardingCompleted?: boolean;
+  emailVerified?: boolean;
   preferences?: UserPreferences;
 }
 

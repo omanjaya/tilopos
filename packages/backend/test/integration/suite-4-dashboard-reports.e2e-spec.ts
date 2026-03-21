@@ -30,13 +30,13 @@ describe('Suite 4: Dashboard & Reports', () => {
   // 4A. Dashboard Summary
   // ================================================================
   describe('4A - Dashboard Summary', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let summary: any;
 
     it('4.1 - should get dashboard summary (today)', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('4.1 dashboard summary error:', res.status, res.body);
@@ -78,8 +78,7 @@ describe('Suite 4: Dashboard & Reports', () => {
       const avg = Number(summary.averageSalePerTransaction);
       expect(avg).toBeGreaterThan(0);
       // avg should approximately equal netSales / transactions
-      const expectedAvg =
-        Number(summary.netSales) / Number(summary.transactions);
+      const expectedAvg = Number(summary.netSales) / Number(summary.transactions);
       expect(avg).toBeCloseTo(expectedAvg, 0);
     });
 
@@ -89,6 +88,7 @@ describe('Suite 4: Dashboard & Reports', () => {
 
       // At least one hour should have sales
       const hoursWithSales = summary.salesByHour.filter(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (h: any) => Number(h.grossSales) > 0 || Number(h.numSales) > 0,
       );
       expect(hoursWithSales.length).toBeGreaterThanOrEqual(1);
@@ -100,6 +100,7 @@ describe('Suite 4: Dashboard & Reports', () => {
 
       // At least one day should have sales
       const daysWithSales = summary.salesByDayOfWeek.filter(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (d: any) => Number(d.grossSales) > 0 || Number(d.numSales) > 0,
       );
       expect(daysWithSales.length).toBeGreaterThanOrEqual(1);
@@ -110,13 +111,13 @@ describe('Suite 4: Dashboard & Reports', () => {
   // 4B. Dashboard Items
   // ================================================================
   describe('4B - Dashboard Items', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let items: any;
 
     it('4.10 - should get dashboard items', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/items?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/items?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('4.10 dashboard items error:', res.status, res.body);
@@ -133,9 +134,8 @@ describe('Suite 4: Dashboard & Reports', () => {
 
       // Nasi Goreng should be among top items (most sold)
       const nasiGoreng = items.topItems.find(
-        (i: any) =>
-          i.name?.includes('Nasi Goreng') ||
-          i.productName?.includes('Nasi Goreng'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (i: any) => i.name?.includes('Nasi Goreng') || i.productName?.includes('Nasi Goreng'),
       );
       expect(nasiGoreng).toBeDefined();
     });
@@ -146,6 +146,7 @@ describe('Suite 4: Dashboard & Reports', () => {
       expect(items.categoryByVolume.length).toBeGreaterThanOrEqual(1);
 
       // Each category should have percentage
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       items.categoryByVolume.forEach((c: any) => {
         expect(c.category).toBeDefined();
         expect(Number(c.percentage)).toBeGreaterThanOrEqual(0);
@@ -157,6 +158,7 @@ describe('Suite 4: Dashboard & Reports', () => {
       expect(Array.isArray(items.categoryBySales)).toBe(true);
       expect(items.categoryBySales.length).toBeGreaterThanOrEqual(1);
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       items.categoryBySales.forEach((c: any) => {
         expect(c.category).toBeDefined();
         expect(Number(c.percentage)).toBeGreaterThanOrEqual(0);
@@ -169,10 +171,9 @@ describe('Suite 4: Dashboard & Reports', () => {
   // ================================================================
   describe('4C - Outlet Comparison', () => {
     it('4.14 - should get outlet comparison', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/outlet-comparison?startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/outlet-comparison?startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('4.14 outlet comparison error:', res.status, res.body);
@@ -188,10 +189,9 @@ describe('Suite 4: Dashboard & Reports', () => {
     it('4.15 - should have outlet metrics via dashboard summary', async () => {
       // Verify outlet metrics using the summary endpoint instead
       // (outlet-comparison may fail with connection pool issues)
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       expect(res.status).toBeLessThan(400);
       expect(Number(res.body.grossSales)).toBeGreaterThan(0);
@@ -208,10 +208,9 @@ describe('Suite 4: Dashboard & Reports', () => {
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${yesterdayStr}&endDate=${yesterdayStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${yesterdayStr}&endDate=${yesterdayStr}`,
+      );
 
       expect(res.status).toBeLessThan(400);
       // Yesterday should have 0 sales (all transactions created today)
@@ -222,10 +221,9 @@ describe('Suite 4: Dashboard & Reports', () => {
     it('4.17 - should get dashboard for this month (includes today)', async () => {
       const monthStart = `${today.substring(0, 7)}-01`; // YYYY-MM-01
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${monthStart}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/summary?outletId=${testContext.outletId}&startDate=${monthStart}&endDate=${tomorrowStr}`,
+      );
 
       expect(res.status).toBeLessThan(400);
       // This month should include today's transactions
@@ -239,8 +237,7 @@ describe('Suite 4: Dashboard & Reports', () => {
   // ================================================================
   describe('4E - Owner Analytics', () => {
     it('4.18 - should get real-time metrics', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/owner/analytics/real-time-metrics');
+      const res = await authRequest(app, 'owner').get('/api/v1/owner/analytics/real-time-metrics');
 
       if (res.status >= 400) {
         console.log('4.18 real-time metrics error:', res.status, res.body);
@@ -252,8 +249,9 @@ describe('Suite 4: Dashboard & Reports', () => {
     });
 
     it('4.19 - should get overview', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/owner/analytics/overview?dateRange=today');
+      const res = await authRequest(app, 'owner').get(
+        '/api/v1/owner/analytics/overview?dateRange=today',
+      );
 
       if (res.status >= 400) {
         console.log('4.19 overview error:', res.status, res.body);
@@ -265,8 +263,7 @@ describe('Suite 4: Dashboard & Reports', () => {
     });
 
     it('4.20 - should get critical alerts', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/owner/analytics/critical-alerts');
+      const res = await authRequest(app, 'owner').get('/api/v1/owner/analytics/critical-alerts');
 
       if (res.status >= 400) {
         console.log('4.20 critical alerts error:', res.status, res.body);
@@ -276,6 +273,7 @@ describe('Suite 4: Dashboard & Reports', () => {
       expect(Array.isArray(res.body.alerts)).toBe(true);
 
       // Each alert should have type and severity
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       res.body.alerts.forEach((alert: any) => {
         expect(alert.type).toBeDefined();
         expect(alert.severity).toBeDefined();
@@ -283,8 +281,9 @@ describe('Suite 4: Dashboard & Reports', () => {
     });
 
     it('4.21 - should get outlets comparison', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/owner/analytics/outlets-comparison?dateRange=today');
+      const res = await authRequest(app, 'owner').get(
+        '/api/v1/owner/analytics/outlets-comparison?dateRange=today',
+      );
 
       if (res.status >= 400) {
         console.log('4.21 outlets comparison error:', res.status, res.body);
@@ -294,9 +293,8 @@ describe('Suite 4: Dashboard & Reports', () => {
       expect(Array.isArray(res.body.outlets)).toBe(true);
 
       // Our outlet should be in the list with sales > 0
-      const ourOutlet = res.body.outlets.find(
-        (o: any) => o.outletId === testContext.outletId,
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ourOutlet = res.body.outlets.find((o: any) => o.outletId === testContext.outletId);
       if (ourOutlet) {
         expect(Number(ourOutlet.sales)).toBeGreaterThan(0);
         expect(Number(ourOutlet.transactions)).toBeGreaterThanOrEqual(4);

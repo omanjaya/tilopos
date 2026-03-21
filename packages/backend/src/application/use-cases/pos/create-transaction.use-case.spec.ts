@@ -1,5 +1,7 @@
 import { CreateTransactionUseCase, CreateTransactionInput } from './create-transaction.use-case';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { TaxConfigurationRepository } from '@infrastructure/repositories/settings/tax-configuration.repository';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
 import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
@@ -16,15 +18,15 @@ import type {
   IInventoryRepository,
   StockLevelRecord,
 } from '@domain/interfaces/repositories/inventory.repository';
-import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
 
 describe('CreateTransactionUseCase', () => {
   let useCase: CreateTransactionUseCase;
   let mockShiftRepo: jest.Mocked<IShiftRepository>;
   let mockProductRepo: jest.Mocked<IProductRepository>;
   let mockInventoryRepo: jest.Mocked<IInventoryRepository>;
-  let mockTransactionRepo: jest.Mocked<ITransactionRepository>;
   let mockEventBus: jest.Mocked<EventBusService>;
+  let mockPrisma: jest.Mocked<PrismaService>;
+  let mockTaxConfigRepo: jest.Mocked<TaxConfigurationRepository>;
 
   const baseShift: ShiftRecord = {
     id: 'shift-1',
@@ -105,16 +107,8 @@ describe('CreateTransactionUseCase', () => {
       findLowStockItems: jest.fn(),
       updateStockLevel: jest.fn(),
       createStockMovement: jest.fn(),
-    };
-
-    mockTransactionRepo = {
-      findById: jest.fn(),
-      findByReceiptNumber: jest.fn(),
-      findByOutletAndDateRange: jest.fn(),
-      save: jest.fn(),
-      update: jest.fn(),
-      findItemsByTransactionId: jest.fn(),
-      findPaymentsByTransactionId: jest.fn(),
+      findStockMovements: jest.fn().mockResolvedValue([]),
+      incrementStockLevel: jest.fn().mockResolvedValue({ id: 'sl-1', quantity: 0 }),
     };
 
     mockEventBus = {
@@ -123,12 +117,77 @@ describe('CreateTransactionUseCase', () => {
       onAll: jest.fn(),
     } as unknown as jest.Mocked<EventBusService>;
 
+    // Create a transaction client mock that will be passed to $transaction callback
+    const mockTxClient = {
+      transaction: {
+        create: jest.fn().mockResolvedValue({
+          id: 'txn-1',
+          outletId: 'outlet-1',
+          employeeId: 'emp-1',
+          customerId: null,
+          shiftId: 'shift-1',
+          receiptNumber: 'TXN-123',
+          transactionType: 'sale',
+          orderType: 'dine_in',
+          tableId: null,
+          subtotal: 50000,
+          discountAmount: 0,
+          taxAmount: 5500,
+          serviceCharge: 0,
+          grandTotal: 55500,
+          notes: null,
+          status: 'completed',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      },
+      transactionItem: {
+        create: jest.fn().mockResolvedValue({ id: 'item-1' }),
+      },
+      payment: {
+        create: jest.fn().mockResolvedValue({ id: 'payment-1' }),
+      },
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...baseProduct,
+          trackStock: true,
+        }),
+      },
+      stockLevel: {
+        findFirst: jest.fn().mockResolvedValue(baseStockLevel),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stockMovement: {
+        create: jest.fn().mockResolvedValue({ id: 'movement-1' }),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'stock-1', quantity: 50 }]),
+    };
+
+    mockPrisma = {
+      $transaction: jest.fn().mockImplementation((fn) => fn(mockTxClient)),
+      ...mockTxClient,
+    } as unknown as jest.Mocked<PrismaService>;
+
+    mockTaxConfigRepo = {
+      getTaxConfig: jest.fn().mockResolvedValue({
+        outletId: 'outlet-1',
+        taxRate: 11,
+        serviceCharge: 5,
+        taxInclusive: false,
+        taxName: 'PPN',
+      }),
+      updateTaxConfig: jest.fn(),
+      getBusinessTaxConfig: jest.fn(),
+      updateBusinessTaxConfig: jest.fn(),
+    } as unknown as jest.Mocked<TaxConfigurationRepository>;
+
     useCase = new CreateTransactionUseCase(
       mockShiftRepo,
       mockProductRepo,
       mockInventoryRepo,
-      mockTransactionRepo,
       mockEventBus,
+      mockPrisma,
+      mockTaxConfigRepo,
     );
   });
 
@@ -150,40 +209,25 @@ describe('CreateTransactionUseCase', () => {
       createdBy: 'emp-1',
       createdAt: new Date(),
     });
-    mockTransactionRepo.save.mockResolvedValue({
-      id: 'txn-1',
-      outletId: 'outlet-1',
-      employeeId: 'emp-1',
-      customerId: null,
-      shiftId: 'shift-1',
-      receiptNumber: 'TXN-123',
-      transactionType: 'sale',
-      orderType: 'dine_in',
-      tableId: null,
-      subtotal: 50000,
-      discountAmount: 0,
-      taxAmount: 5500,
-      serviceCharge: 0,
-      grandTotal: 55500,
-      notes: null,
-      status: 'completed',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
 
     const result = await useCase.execute(baseInput);
 
+    // subtotal=50000, service=2500(5%), tax=round(52500*0.11)=5775
+    // grandTotal=round(58275/500)*500=58500
     expect(result.transactionId).toBe('txn-1');
     expect(result.receiptNumber).toBeDefined();
-    expect(result.grandTotal).toBe(55500);
-    expect(result.change).toBe(44500); // 100000 - 55500
-    expect(mockTransactionRepo.save).toHaveBeenCalledWith(
+    expect(result.grandTotal).toBe(58500);
+    expect(result.change).toBe(41500); // 100000 - 58500
+    expect(mockPrisma.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        transactionType: 'sale',
-        status: 'completed',
-        subtotal: 50000,
-        taxAmount: 5500,
-        grandTotal: 55500,
+        data: expect.objectContaining({
+          transactionType: 'sale',
+          status: 'completed',
+          subtotal: 50000,
+          taxAmount: 5775,
+          serviceCharge: 2500,
+          grandTotal: 58500,
+        }),
       }),
     );
   });
@@ -245,7 +289,7 @@ describe('CreateTransactionUseCase', () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct); // price 25000
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -269,15 +313,17 @@ describe('CreateTransactionUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    // subtotal = 25000 * 2 = 50000
-    // tax = Math.round(50000 * 0.11) = 5500
-    // grandTotal = 50000 + 5500 = 55500
-    expect(result.grandTotal).toBe(55500);
-    expect(mockTransactionRepo.save).toHaveBeenCalledWith(
+    // subtotal=50000, service=2500(5% dine_in), tax=round(52500*0.11)=5775
+    // grandTotal=round(58275/500)*500=58500
+    expect(result.grandTotal).toBe(58500);
+    expect(mockPrisma.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        subtotal: 50000,
-        taxAmount: 5500,
-        grandTotal: 55500,
+        data: expect.objectContaining({
+          subtotal: 50000,
+          taxAmount: 5775,
+          serviceCharge: 2500,
+          grandTotal: 58500,
+        }),
       }),
     );
   });
@@ -286,7 +332,7 @@ describe('CreateTransactionUseCase', () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -311,18 +357,17 @@ describe('CreateTransactionUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    // subtotal = 50000, discount = 50000 * 0.10 = 5000
-    // taxableAmount = 50000 - 5000 = 45000
-    // tax = Math.round(45000 * 0.11) = 4950
-    // grandTotal = 45000 + 4950 = 49950
-    expect(result.grandTotal).toBe(49950);
+    // subtotal=50000, discount=5000, taxable=45000
+    // service=round(45000*0.05)=2250, tax=round(47250*0.11)=5198
+    // grandTotal=round(52448/500)*500=52500
+    expect(result.grandTotal).toBe(52500);
   });
 
   it('should calculate change correctly', async () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -345,40 +390,32 @@ describe('CreateTransactionUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    // grandTotal = 55500, payment = 100000
-    // change = 100000 - 55500 = 44500
-    expect(result.change).toBe(44500);
+    // grandTotal = 58500, payment = 100000
+    // change = 100000 - 58500 = 41500
+    expect(result.change).toBe(41500);
   });
 
   it('should deduct stock after transaction', async () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
-    mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
-    mockInventoryRepo.createStockMovement.mockResolvedValue({
-      id: 'movement-1',
-      outletId: 'outlet-1',
-      productId: 'prod-1',
-      variantId: null,
-      movementType: 'sale',
-      quantity: -2,
-      referenceId: 'txn-1',
-      referenceType: 'transaction',
-      notes: null,
-      createdBy: 'emp-1',
-      createdAt: new Date(),
-    });
 
     await useCase.execute(baseInput);
 
-    // Stock should be reduced: 50 - 2 = 48
-    expect(mockInventoryRepo.updateStockLevel).toHaveBeenCalledWith('stock-1', 48);
-    expect(mockInventoryRepo.createStockMovement).toHaveBeenCalledWith(
+    // Stock should be reduced: 50 - 2 = 48 via Prisma transaction
+    expect(mockPrisma.stockLevel.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        movementType: 'sale',
-        quantity: -2,
-        referenceType: 'transaction',
+        where: { id: 'stock-1' },
+        data: { quantity: 48 },
+      }),
+    );
+    expect(mockPrisma.stockMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          movementType: 'sale',
+          quantity: -2,
+          referenceType: 'transaction',
+        }),
       }),
     );
   });
@@ -387,7 +424,7 @@ describe('CreateTransactionUseCase', () => {
     const noStockProduct = { ...baseProduct, trackStock: false };
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(noStockProduct);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     // findStockLevel returns null but should still not throw for products without trackStock
     mockInventoryRepo.findStockLevel.mockResolvedValue(null);
 
@@ -400,7 +437,7 @@ describe('CreateTransactionUseCase', () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -423,7 +460,7 @@ describe('CreateTransactionUseCase', () => {
       expect.objectContaining({
         transactionId: 'txn-1',
         outletId: 'outlet-1',
-        grandTotal: 55500,
+        grandTotal: 58500,
         customerId: null,
       }),
     );
@@ -440,7 +477,7 @@ describe('CreateTransactionUseCase', () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValueOnce(baseProduct).mockResolvedValueOnce(product2);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -467,17 +504,17 @@ describe('CreateTransactionUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    // subtotal = 110000
-    // tax = Math.round(110000 * 0.11) = 12100
-    // grandTotal = 110000 + 12100 = 122100
-    expect(result.grandTotal).toBe(122100);
+    // subtotal=110000, service=round(110000*0.05)=5500
+    // tax=round(115500*0.11)=12705
+    // grandTotal=round(128205/500)*500=128000
+    expect(result.grandTotal).toBe(128000);
   });
 
   it('should handle fixed discount correctly', async () => {
     mockShiftRepo.findById.mockResolvedValue(baseShift);
     mockProductRepo.findById.mockResolvedValue(baseProduct);
     mockInventoryRepo.findStockLevel.mockResolvedValue(baseStockLevel);
-    mockTransactionRepo.save.mockImplementation(async (txn) => ({ ...txn, id: 'txn-1' }));
+    // Transaction is created via mockPrisma in beforeEach
     mockInventoryRepo.updateStockLevel.mockResolvedValue(baseStockLevel);
     mockInventoryRepo.createStockMovement.mockResolvedValue({
       id: 'movement-1',
@@ -501,10 +538,9 @@ describe('CreateTransactionUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    // subtotal = 50000, discount = 5000
-    // taxableAmount = 45000
-    // tax = Math.round(45000 * 0.11) = 4950
-    // grandTotal = 45000 + 4950 = 49950
-    expect(result.grandTotal).toBe(49950);
+    // subtotal=50000, discount=5000, taxable=45000
+    // service=round(45000*0.05)=2250, tax=round(47250*0.11)=5198
+    // grandTotal=round(52448/500)*500=52500
+    expect(result.grandTotal).toBe(52500);
   });
 });

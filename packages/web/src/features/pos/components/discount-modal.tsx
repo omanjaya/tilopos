@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Percent, DollarSign, Tag, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,15 @@ export function DiscountModal({ open, onClose }: DiscountModalProps) {
     const [amountValue, setAmountValue] = useState(
         currentDiscountAmount > 0 ? currentDiscountAmount.toString() : ''
     );
+
+    // Sync local state when modal opens
+    useEffect(() => {
+        if (open) {
+            setTab(currentDiscountPercent > 0 ? 'percent' : 'amount');
+            setPercentValue(currentDiscountPercent > 0 ? currentDiscountPercent.toString() : '');
+            setAmountValue(currentDiscountAmount > 0 ? currentDiscountAmount.toString() : '');
+        }
+    }, [open, currentDiscountPercent, currentDiscountAmount]);
 
     // Calculate preview
     const numPercent = parseFloat(percentValue) || 0;

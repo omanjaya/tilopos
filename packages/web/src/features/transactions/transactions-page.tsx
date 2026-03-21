@@ -32,6 +32,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { formatCurrency, formatTime } from '@/lib/format';
 import { generateFilename } from '@/lib/export-utils';
 import { useAuthStore } from '@/stores/auth.store';
@@ -41,8 +43,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Transaction } from '@/types/transaction.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,6 @@ export function TransactionsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('all');
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [outletFilter, setOutletFilter] = useState<string>('all');
-  const [search, setSearch] = useState('');
 
   // Dialogs
   const [voidTarget, setVoidTarget] = useState<Transaction | null>(null);
@@ -100,16 +99,18 @@ export function TransactionsPage() {
       : activeTab === 'cancelled' ? ('refunded' as const)
         : activeTab;
 
-  const { data: transactionsData, isLoading } = useQuery({
-    queryKey: ['transactions', outletFilter, search, activeTab, selectedDate],
-    queryFn: () =>
-      transactionsApi.list({
-        outletId: outletFilter !== 'all' ? outletFilter : undefined,
-        search: search || undefined,
-        status: statusParam,
-        startDate: selectedDate,
-        endDate: selectedDate,
-      }),
+  const filters = useMemo(() => ({
+    outletId: outletFilter !== 'all' ? outletFilter : undefined,
+    status: statusParam,
+    startDate: selectedDate,
+    endDate: selectedDate,
+  }), [outletFilter, statusParam, selectedDate]);
+
+  const { data: transactionsData, isLoading, pagination, sort, setSearch } = usePaginatedList<Transaction>({
+    queryKey: ['transactions'],
+    queryFn: (params) => transactionsApi.listPaginated({ ...params, ...filters }),
+    filters,
+    defaultLimit: 20,
   });
 
   // ── Computed ─────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ export function TransactionsPage() {
     return map;
   }, [outlets]);
 
-  const transactions = transactionsData ?? [];
+  const transactions = transactionsData;
 
   // For "cancelled" tab, include both refunded and partial_refund
   const filtered = activeTab === 'cancelled'
@@ -175,12 +176,7 @@ export function TransactionsPage() {
       setVoidTarget(null);
       setVoidReason('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal void transaksi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal void transaksi'),
   });
 
   const refundMutation = useMutation({
@@ -192,12 +188,7 @@ export function TransactionsPage() {
       setRefundTarget(null);
       setRefundReason('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memproses refund',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memproses refund'),
   });
 
   const handleReprint = async (id: string) => {
@@ -275,6 +266,7 @@ export function TransactionsPage() {
     {
       key: 'totalAmount',
       header: 'Total Harga',
+      sortable: true,
       cell: (row) => <span className="font-medium">{formatCurrency(row.totalAmount)}</span>,
     },
     actionColumn,
@@ -525,6 +517,8 @@ export function TransactionsPage() {
           isLoading={isLoading}
           searchPlaceholder="Cari no. receipt..."
           onSearch={setSearch}
+          pagination={pagination}
+          sort={sort}
           emptyTitle="Data Tidak Ditemukan"
           emptyDescription="Transaksi akan muncul di sini setelah ada penjualan."
         />

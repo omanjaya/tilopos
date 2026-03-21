@@ -4,10 +4,12 @@ import type {
   StockAdjustmentRequest,
   StockTransfer,
   CreateTransferRequest,
+  TransferTemplateData,
   Supplier,
   CreateSupplierRequest,
   PurchaseOrder,
   CreatePurchaseOrderRequest,
+  CostPriceHistoryEntry,
 } from '@/types/inventory.types';
 
 export const inventoryApi = {
@@ -35,14 +37,21 @@ export const inventoryApi = {
       return Array.isArray(raw) ? raw : [];
     }),
 
-  adjustStock: (data: StockAdjustmentRequest) =>
-    apiClient.post('/inventory/stock/adjust', {
+  adjustStock: (data: StockAdjustmentRequest) => {
+    const typeMap: Record<StockAdjustmentRequest['type'], 'set' | 'increment' | 'decrement'> = {
+      add: 'increment',
+      remove: 'decrement',
+      set: 'set',
+    };
+    return apiClient.post('/inventory/stock/adjust', {
       outletId: data.outletId,
       productId: data.productId,
-      adjustmentType: data.type,
+      adjustmentType: typeMap[data.type],
       quantity: data.quantity,
       reason: data.reason,
-    }).then((r) => r.data),
+      ...(data.unitCost != null && { unitCost: data.unitCost }),
+    }).then((r) => r.data);
+  },
 
   // Stock Transfers
   listTransfers: (params?: { status?: string }) =>
@@ -97,10 +106,10 @@ export const inventoryApi = {
   getTransferTemplate: (id: string) =>
     apiClient.get(`/transfer-templates/${id}`).then((r) => r.data),
 
-  createTransferTemplate: (data: any) =>
+  createTransferTemplate: (data: TransferTemplateData) =>
     apiClient.post('/transfer-templates', data).then((r) => r.data),
 
-  updateTransferTemplate: (id: string, data: any) =>
+  updateTransferTemplate: (id: string, data: TransferTemplateData) =>
     apiClient.put(`/transfer-templates/${id}`, data).then((r) => r.data),
 
   deleteTransferTemplate: (id: string) =>
@@ -174,4 +183,11 @@ export const inventoryApi = {
 
   removeProductFromOutlet: (outletId: string, productId: string) =>
     apiClient.delete(`/inventory/outlets/${outletId}/products/${productId}`).then((r) => r.data),
+
+  // Cost Price History
+  getCostHistory: (productId: string, params?: { variantId?: string }) =>
+    apiClient.get<CostPriceHistoryEntry[]>(`/inventory/cost-history/${productId}`, { params }).then((r) => {
+      const raw = r.data;
+      return Array.isArray(raw) ? raw : [];
+    }),
 };

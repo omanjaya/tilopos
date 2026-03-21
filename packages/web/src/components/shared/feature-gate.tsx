@@ -49,13 +49,9 @@ export function FeatureGate({
     fallback = null
 }: FeatureGateProps) {
     const isFeatureEnabled = useFeatureStore((s) => s.isFeatureEnabled);
+    const isFeatureRestricted = useFeatureStore((s) => s.isFeatureRestricted);
     const isLoaded = useFeatureStore((s) => s.isLoaded);
     const businessType = useFeatureStore((s) => s.businessType);
-
-    // For custom business type, show all features (user can configure manually)
-    if (businessType === 'custom') {
-        return <>{children}</>;
-    }
 
     // If features haven't loaded yet, show children (graceful degradation)
     if (!isLoaded) {
@@ -63,6 +59,16 @@ export function FeatureGate({
     }
 
     const features = Array.isArray(feature) ? feature : [feature];
+
+    // For custom business type, bypass business-type feature filtering
+    // but still enforce subscription restrictions
+    if (businessType === 'custom') {
+        const hasRestricted = requireAll
+            ? features.some((f) => isFeatureRestricted(f))
+            : features.every((f) => isFeatureRestricted(f));
+
+        return hasRestricted ? <>{fallback}</> : <>{children}</>;
+    }
 
     const isEnabled = requireAll
         ? features.every((f) => isFeatureEnabled(f))

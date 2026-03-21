@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -8,9 +8,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from './empty-state';
-import { Search } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Column<T> {
@@ -18,6 +19,20 @@ export interface Column<T> {
   header: React.ReactNode;
   cell: (row: T) => React.ReactNode;
   sortable?: boolean;
+}
+
+export interface DataTablePagination {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  onPageChange: (page: number) => void;
+}
+
+export interface DataTableSort {
+  sortBy: string | undefined;
+  sortOrder: 'asc' | 'desc';
+  onSort: (key: string) => void;
 }
 
 interface DataTableProps<T> {
@@ -30,6 +45,14 @@ interface DataTableProps<T> {
   emptyDescription?: string;
   emptyAction?: React.ReactNode;
   filters?: React.ReactNode;
+  /** Optional pagination — when provided, pagination controls are shown below the table */
+  pagination?: DataTablePagination;
+  /** Optional sorting — when provided, sortable columns become clickable */
+  sort?: DataTableSort;
+  /** Row ID to highlight briefly after a mutation (e.g., after create/edit) */
+  highlightedRowId?: string | null;
+  /** Key extractor for row identity — needed for highlightedRowId to work */
+  rowId?: (row: T) => string;
 }
 
 export function DataTable<T>({
@@ -42,73 +65,18 @@ export function DataTable<T>({
   emptyDescription = 'Data belum tersedia.',
   emptyAction,
   filters,
+  pagination,
+  sort,
+  highlightedRowId,
+  rowId,
 }: DataTableProps<T>) {
   const data = useMemo(() => Array.isArray(rawData) ? rawData : [], [rawData]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
-  const tableRef = useRef<HTMLTableElement>(null);
 
   const handleSearch = (value: string) => {
     setSearchQuery(value);
     onSearch?.(value);
   };
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle if table is in view and has data
-      if (isLoading || data.length === 0) return;
-
-      // Ignore if user is typing in an input/textarea
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          setFocusedRowIndex((prev) => {
-            if (prev === null) return 0;
-            return Math.min(prev + 1, data.length - 1);
-          });
-          break;
-
-        case 'ArrowUp':
-          e.preventDefault();
-          setFocusedRowIndex((prev) => {
-            if (prev === null || prev === 0) return 0;
-            return prev - 1;
-          });
-          break;
-
-        case 'Enter':
-          e.preventDefault();
-          if (focusedRowIndex !== null) {
-            // Find the first focusable element in the focused row
-            const row = tableRef.current?.querySelector(
-              `tbody tr:nth-child(${focusedRowIndex + 1})`
-            );
-            const focusable = row?.querySelector<HTMLElement>(
-              'button, a, [tabindex]:not([tabindex="-1"])'
-            );
-            focusable?.focus();
-          }
-          break;
-
-        case 'Escape':
-          e.preventDefault();
-          setFocusedRowIndex(null);
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [data.length, focusedRowIndex, isLoading]);
-
-  // Reset focus when data changes
-  useEffect(() => {
-    setFocusedRowIndex(null);
-  }, [data]);
 
   return (
     <div className="space-y-4">
@@ -128,12 +96,32 @@ export function DataTable<T>({
       </div>
 
       <div className="rounded-md border">
-        <Table ref={tableRef}>
+        <Table>
           <TableHeader>
             <TableRow>
-              {columns.map((col) => (
-                <TableHead key={col.key}>{col.header}</TableHead>
-              ))}
+              {columns.map((col) => {
+                const isSorted = col.sortable && sort && sort.sortBy === col.key;
+                return (
+                  <TableHead
+                    key={col.key}
+                    aria-sort={isSorted ? (sort!.sortOrder === 'asc' ? 'ascending' : 'descending') : col.sortable && sort ? 'none' : undefined}
+                  >
+                    {col.sortable && sort ? (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 hover:text-foreground transition-colors -ml-1 px-1 py-0.5 rounded"
+                        onClick={() => sort.onSort(col.key)}
+                        aria-label={`Urutkan berdasarkan ${typeof col.header === 'string' ? col.header : col.key}`}
+                      >
+                        {col.header}
+                        <SortIcon columnKey={col.key} sortBy={sort.sortBy} sortOrder={sort.sortOrder} />
+                      </button>
+                    ) : (
+                      col.header
+                    )}
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -158,23 +146,126 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((row, i) => (
-                <TableRow
-                  key={i}
-                  className={cn(
-                    'transition-colors',
-                    focusedRowIndex === i && 'ring-2 ring-primary ring-inset bg-accent/50'
-                  )}
-                  tabIndex={focusedRowIndex === i ? 0 : -1}
-                >
-                  {columns.map((col) => (
-                    <TableCell key={col.key}>{col.cell(row)}</TableCell>
-                  ))}
-                </TableRow>
-              ))
+              data.map((row, i) => {
+                const id = rowId?.(row);
+                return (
+                  <TableRow
+                    key={id ?? i}
+                    className={cn(
+                      'transition-colors',
+                      highlightedRowId && id === highlightedRowId && 'row-highlight'
+                    )}
+                  >
+                    {columns.map((col) => (
+                      <TableCell key={col.key}>{col.cell(row)}</TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <PaginationControls pagination={pagination} />
+      )}
+
+      {/* Live region for screen readers — announces data count changes */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {!isLoading && (pagination
+          ? `Menampilkan ${Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total)} sampai ${Math.min(pagination.page * pagination.limit, pagination.total)} dari ${pagination.total} data`
+          : `${data.length} data ditampilkan`
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SortIcon({ columnKey, sortBy, sortOrder }: { columnKey: string; sortBy: string | undefined; sortOrder: 'asc' | 'desc' }) {
+  if (sortBy !== columnKey) {
+    return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />;
+  }
+  if (sortOrder === 'asc') {
+    return <ArrowUp className="h-3.5 w-3.5 text-primary" />;
+  }
+  return <ArrowDown className="h-3.5 w-3.5 text-primary" />;
+}
+
+function PaginationControls({ pagination }: { pagination: DataTablePagination }) {
+  const { page, totalPages, total, limit, onPageChange } = pagination;
+
+  const start = (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+
+  const pageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const maxVisible = 5;
+
+    if (totalPages <= maxVisible + 2) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push('ellipsis');
+
+      const rangeStart = Math.max(2, page - 1);
+      const rangeEnd = Math.min(totalPages - 1, page + 1);
+      for (let i = rangeStart; i <= rangeEnd; i++) pages.push(i);
+
+      if (page < totalPages - 2) pages.push('ellipsis');
+      pages.push(totalPages);
+    }
+
+    return pages;
+  }, [page, totalPages]);
+
+  return (
+    <div className="flex items-center justify-between px-2">
+      <p className="text-sm text-muted-foreground">
+        Menampilkan {start}–{end} dari {total.toLocaleString('id-ID')}
+      </p>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          aria-label="Halaman sebelumnya"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+
+        {pageNumbers.map((p, i) =>
+          p === 'ellipsis' ? (
+            <span key={`ellipsis-${i}`} className="px-1 text-sm text-muted-foreground">
+              ...
+            </span>
+          ) : (
+            <Button
+              key={p}
+              variant={p === page ? 'default' : 'outline'}
+              size="icon"
+              className="h-8 w-8 text-xs"
+              onClick={() => onPageChange(p)}
+              aria-label={`Halaman ${p}`}
+              aria-current={p === page ? 'page' : undefined}
+            >
+              {p}
+            </Button>
+          ),
+        )}
+
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          aria-label="Halaman berikutnya"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );

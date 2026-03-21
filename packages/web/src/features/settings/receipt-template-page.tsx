@@ -16,15 +16,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Save } from 'lucide-react';
 import type { UpdateReceiptTemplateRequest } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function ReceiptTemplatePage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const [showLogo, setShowLogo] = useState(true);
   const [showAddress, setShowAddress] = useState(true);
@@ -57,15 +55,9 @@ export function ReceiptTemplatePage() {
     mutationFn: (data: UpdateReceiptTemplateRequest) => settingsApi.updateReceiptTemplate(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['receiptTemplate'] });
-      toast({ title: 'Template struk berhasil disimpan' });
+      toast.success({ title: 'Template struk berhasil disimpan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

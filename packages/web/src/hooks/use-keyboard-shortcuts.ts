@@ -1,5 +1,3 @@
-import { useEffect, useCallback } from 'react';
-
 export interface KeyboardShortcut {
     key: string;
     handler: () => void;
@@ -24,58 +22,9 @@ interface UseKeyboardShortcutsOptions {
 }
 
 /**
- * Generic hook for registering keyboard shortcuts.
- *
- * Listens for `keydown` events on `window` and invokes the matching handler.
- * F-keys and Escape are always allowed even when an input element is focused
- * unless `allowInInput` is explicitly set to false.
+ * Keyboard shortcuts are disabled.
+ * This hook is intentionally a no-op — all global and page-level shortcuts have been removed.
  */
-export function useKeyboardShortcuts({
-    shortcuts,
-    enabled = true,
-}: UseKeyboardShortcutsOptions): void {
-    const handleKeyDown = useCallback(
-        (event: KeyboardEvent) => {
-            if (!enabled) return;
-
-            const target = event.target as HTMLElement;
-            const isInput =
-                target.tagName === 'INPUT' ||
-                target.tagName === 'TEXTAREA' ||
-                target.isContentEditable;
-
-            const isFKey = event.key.startsWith('F') && event.key.length <= 3;
-            const isEscape = event.key === 'Escape';
-
-            for (const shortcut of shortcuts) {
-                if (shortcut.key !== event.key) continue;
-
-                // Check modifier keys
-                if (shortcut.modifiers) {
-                    if (shortcut.modifiers.ctrl && !event.ctrlKey) continue;
-                    if (shortcut.modifiers.shift && !event.shiftKey) continue;
-                    if (shortcut.modifiers.alt && !event.altKey) continue;
-                    if (shortcut.modifiers.meta && !event.metaKey) continue;
-                }
-
-                // When focused on an input, only allow if explicitly permitted or F-key/Escape
-                const allowInInput =
-                    shortcut.allowInInput ?? (isFKey || isEscape);
-                if (isInput && !allowInInput) continue;
-
-                if (shortcut.preventDefault !== false) {
-                    event.preventDefault();
-                }
-
-                shortcut.handler();
-                return;
-            }
-        },
-        [shortcuts, enabled],
-    );
-
-    useEffect(() => {
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleKeyDown]);
+export function useKeyboardShortcuts(_options: UseKeyboardShortcutsOptions): void {
+    // No-op: keyboard shortcuts disabled
 }

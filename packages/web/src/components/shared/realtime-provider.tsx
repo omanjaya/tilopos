@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { useRealtimeSync } from '@/hooks/use-realtime';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 
 interface RealtimeContextValue {
   isConnected: boolean;
@@ -36,11 +36,9 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     if (!isConnected && !wasDisconnected.current) {
       wasDisconnected.current = true;
       disconnectToastRef.current?.dismiss();
-      const t = toast({
+      const t = toast.error({
         title: 'Koneksi terputus',
         description: 'Mencoba menghubungkan kembali...',
-        variant: 'destructive',
-        className: 'py-3 px-4',
       });
       disconnectToastRef.current = t;
     }
@@ -50,10 +48,9 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
       disconnectToastRef.current?.dismiss();
       disconnectToastRef.current = null;
 
-      const t = toast({
+      const t = toast.success({
         title: 'Terhubung kembali',
         description: 'Koneksi real-time berhasil dipulihkan.',
-        className: 'py-3 px-4 border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100',
       });
       setTimeout(() => t.dismiss(), 3000);
     }

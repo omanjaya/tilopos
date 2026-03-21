@@ -63,6 +63,9 @@ describe('CreateOrderUseCase', () => {
         create: jest.fn(),
       },
       table: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'table-5', outletId: 'outlet-1', status: 'available' }),
         update: jest.fn(),
       },
     } as unknown as jest.Mocked<PrismaService>;

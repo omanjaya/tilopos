@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -30,8 +30,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { toast } from '@/lib/toast-utils';
 import { Package, AlertTriangle, XCircle, Loader2, SlidersHorizontal } from 'lucide-react';
 import type { StockLevel } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 type StockFilter = 'all' | 'low' | 'out';
 
@@ -53,6 +52,7 @@ export function StockPage() {
   const [adjustType, setAdjustType] = useState<'add' | 'remove' | 'set'>('add');
   const [adjustQuantity, setAdjustQuantity] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
+  const [adjustUnitCost, setAdjustUnitCost] = useState('');
 
   const { data: stockData, isLoading } = useQuery({
     queryKey: ['stock-levels', outletId],
@@ -70,12 +70,7 @@ export function StockPage() {
       });
       closeAdjustDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyesuaikan stok',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat menyesuaikan stok',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyesuaikan stok'),
   });
 
   const filteredData = useMemo(() => {
@@ -99,6 +94,7 @@ export function StockPage() {
     setAdjustType('add');
     setAdjustQuantity('');
     setAdjustReason('');
+    setAdjustUnitCost('');
     setAdjustDialogOpen(true);
   }
 
@@ -108,35 +104,27 @@ export function StockPage() {
     setAdjustType('add');
     setAdjustQuantity('');
     setAdjustReason('');
+    setAdjustUnitCost('');
   }
 
   function handleAdjustSubmit() {
     if (!adjustProduct || !adjustQuantity || !adjustReason) return;
+    const qty = Number(adjustQuantity);
+    if (!qty || qty <= 0) {
+      toast.error({ title: 'Jumlah harus lebih besar dari 0' });
+      return;
+    }
     adjustMutation.mutate({
       productId: adjustProduct.productId,
       outletId,
-      quantity: Number(adjustQuantity),
+      quantity: qty,
       reason: adjustReason,
       type: adjustType,
+      ...(adjustType === 'add' && adjustUnitCost && Number(adjustUnitCost) > 0
+        ? { unitCost: Number(adjustUnitCost) }
+        : {}),
     });
   }
-
-  // Keyboard shortcut: N to open adjustment dialog
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        e.preventDefault();
-        openAdjustDialog();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const columns: Column<StockLevel>[] = [
     {
@@ -280,6 +268,22 @@ export function StockPage() {
                 placeholder="Masukkan jumlah"
               />
             </div>
+
+            {adjustType === 'add' && (
+              <div>
+                <Label>Harga Satuan / Rp (opsional)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={adjustUnitCost}
+                  onChange={(e) => setAdjustUnitCost(e.target.value)}
+                  placeholder="Harga beli per unit untuk update HPP"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Jika diisi, HPP akan dihitung ulang dengan metode moving average
+                </p>
+              </div>
+            )}
 
             <div>
               <Label>Alasan</Label>

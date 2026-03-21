@@ -11,6 +11,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUIStore } from '@/stores/ui.store';
 import { formatCurrency, formatDateTime } from '@/lib/format';
@@ -34,8 +42,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { Shift } from '@/types/order.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 function formatDuration(startedAt: string, endedAt: string | null): string {
   const start = new Date(startedAt);
@@ -61,6 +67,7 @@ export function ShiftsPage() {
   const [cashInNotes, setCashInNotes] = useState('');
   const [cashOutOpen, setCashOutOpen] = useState(false);
   const [cashOutAmount, setCashOutAmount] = useState('');
+  const [cashOutReason, setCashOutReason] = useState('');
   const [cashOutNotes, setCashOutNotes] = useState('');
 
   const employeeId = user?.employeeId || '';
@@ -82,12 +89,7 @@ export function ShiftsPage() {
       setStartShiftOpen(false);
       setOpeningCash('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memulai shift',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memulai shift'),
   });
 
   const endShiftMutation = useMutation({
@@ -100,12 +102,7 @@ export function ShiftsPage() {
       setClosingCash('');
       setEndShiftNotes('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menutup shift',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menutup shift'),
   });
 
   const cashInMutation = useMutation({
@@ -118,30 +115,21 @@ export function ShiftsPage() {
       setCashInAmount('');
       setCashInNotes('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal mencatat cash in',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mencatat cash in'),
   });
 
   const cashOutMutation = useMutation({
-    mutationFn: (data: { shiftId: string; amount: number; notes?: string }) =>
+    mutationFn: (data: { shiftId: string; amount: number; reason: string; notes?: string }) =>
       shiftsApi.cashOut(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
       toast.success({ title: 'Cash out berhasil dicatat' });
       setCashOutOpen(false);
       setCashOutAmount('');
+      setCashOutReason('');
       setCashOutNotes('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal mencatat cash out',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mencatat cash out'),
   });
 
   const historyShifts = shifts?.filter((s) => !!s.endedAt) ?? [];
@@ -465,7 +453,7 @@ export function ShiftsPage() {
       </Dialog>
 
       {/* Cash Out Dialog */}
-      <Dialog open={cashOutOpen} onOpenChange={(open) => { if (!open) { setCashOutOpen(false); setCashOutAmount(''); setCashOutNotes(''); } }}>
+      <Dialog open={cashOutOpen} onOpenChange={(open) => { if (!open) { setCashOutOpen(false); setCashOutAmount(''); setCashOutReason(''); setCashOutNotes(''); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cash Out</DialogTitle>
@@ -485,6 +473,20 @@ export function ShiftsPage() {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="cash-out-reason">Alasan</Label>
+              <Select value={cashOutReason} onValueChange={setCashOutReason}>
+                <SelectTrigger id="cash-out-reason">
+                  <SelectValue placeholder="Pilih alasan pengeluaran" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Pembelian supplies">Pembelian supplies</SelectItem>
+                  <SelectItem value="Setoran">Setoran</SelectItem>
+                  <SelectItem value="Pengeluaran operasional">Pengeluaran operasional</SelectItem>
+                  <SelectItem value="Lainnya">Lainnya</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="cash-out-notes">Catatan (opsional)</Label>
               <Textarea
                 id="cash-out-notes"
@@ -497,7 +499,7 @@ export function ShiftsPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => { setCashOutOpen(false); setCashOutAmount(''); setCashOutNotes(''); }}
+              onClick={() => { setCashOutOpen(false); setCashOutAmount(''); setCashOutReason(''); setCashOutNotes(''); }}
               disabled={cashOutMutation.isPending}
             >
               Batal
@@ -508,10 +510,11 @@ export function ShiftsPage() {
                 cashOutMutation.mutate({
                   shiftId: activeShift.id,
                   amount: Number(cashOutAmount) || 0,
+                  reason: cashOutReason,
                   notes: cashOutNotes || undefined,
                 });
               }}
-              disabled={cashOutMutation.isPending || !cashOutAmount || Number(cashOutAmount) <= 0}
+              disabled={cashOutMutation.isPending || !cashOutAmount || Number(cashOutAmount) <= 0 || !cashOutReason}
               aria-busy={cashOutMutation.isPending}
               aria-label={cashOutMutation.isPending ? 'Menyimpan cash out...' : undefined}
             >

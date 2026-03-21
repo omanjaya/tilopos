@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
-import sharp from 'sharp';
+import * as sharp from 'sharp';
 
 export interface ProcessedImage {
   original: Buffer;

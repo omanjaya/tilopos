@@ -88,20 +88,24 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
   },
 
   isPathVisible: (path) => {
-    const { enabledFeatures, isLoaded, businessType, outletType } = get();
+    const { enabledFeatures, restrictedFeatures, isLoaded, businessType, outletType } = get();
 
     // If features haven't loaded yet, show everything
     if (!isLoaded) return true;
-
-    // For custom type (outlet or business level), show all paths
-    const activeType = outletType || businessType;
-    if (activeType === 'custom') return true;
 
     // Check if this path is controlled by any feature
     const requiredFeatures = PATH_FEATURE_MAP[path];
 
     // If no feature controls this path, it's always visible
     if (!requiredFeatures || requiredFeatures.length === 0) return true;
+
+    // For custom type (outlet or business level), bypass business-type filtering
+    // but still enforce subscription restrictions
+    const activeType = outletType || businessType;
+    if (activeType === 'custom') {
+      // Path is visible if ANY of its controlling features are NOT subscription-restricted
+      return requiredFeatures.some((f) => !restrictedFeatures.includes(f));
+    }
 
     // Path is visible if ANY of its controlling features are enabled
     return requiredFeatures.some((f) => enabledFeatures.includes(f));

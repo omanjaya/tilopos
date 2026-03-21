@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import type { PaginationParams, PaginatedResponse } from '@/types/api.types';
 import type {
   Customer,
   CreateCustomerRequest,
@@ -10,6 +11,15 @@ import type {
 export const customersApi = {
   list: (params?: { search?: string }) =>
     apiClient.get<Customer[]>('/customers', { params }).then((r) => r.data),
+
+  listPaginated: (params?: PaginationParams) =>
+    apiClient.get<PaginatedResponse<Customer>>('/customers', { params }).then((r) => {
+      const d = r.data;
+      if (Array.isArray(d)) {
+        return { data: d, total: d.length, page: 1, limit: d.length, totalPages: 1 } as PaginatedResponse<Customer>;
+      }
+      return d;
+    }),
 
   get: (id: string) =>
     apiClient.get<Customer>(`/customers/${id}`).then((r) => r.data),

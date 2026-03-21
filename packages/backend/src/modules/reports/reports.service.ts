@@ -169,42 +169,91 @@ export class ReportsService {
     // Group data by dimensions
     const groupedData = new Map<string, Record<string, unknown>>();
 
-    for (const tx of filteredTransactions) {
-      const dimensionKey = this.buildDimensionKey(tx, config.dimensions);
-      const existing = groupedData.get(dimensionKey) || this.initRow(tx, config.dimensions);
+    // Check if dimensions require per-item or per-payment expansion
+    const needsItemExpansion = config.dimensions.some((d) => d === 'product' || d === 'category');
+    const needsPaymentExpansion = config.dimensions.includes('payment_method');
 
-      // Accumulate metrics
-      if (config.metrics.includes('sales')) {
-        (existing['sales'] as number) += Number(tx.grandTotal);
-      }
-      if (config.metrics.includes('items')) {
-        (existing['items'] as number) += tx.items.reduce(
-          (sum, item) => sum + Number(item.quantity),
-          0,
-        );
-      }
-      if (config.metrics.includes('payments')) {
-        (existing['payments'] as number) += tx.payments.length;
-      }
-      if (config.metrics.includes('customers')) {
-        if (tx.customerId) {
-          const customerSet = (existing['_customerIds'] as Set<string>) || new Set<string>();
-          customerSet.add(tx.customerId);
-          existing['_customerIds'] = customerSet;
-          existing['customers'] = customerSet.size;
+    for (const tx of filteredTransactions) {
+      // Determine expansion rows: when grouping by product/category, create one row per item;
+      // when grouping by payment_method, create one row per payment; otherwise one row per tx.
+      const itemSlices =
+        needsItemExpansion && tx.items.length > 0
+          ? tx.items.map((item) => ({ item, items: [item] }))
+          : [{ item: tx.items[0] ?? null, items: tx.items }];
+
+      const paymentSlices =
+        needsPaymentExpansion && tx.payments.length > 0
+          ? tx.payments.map((payment) => ({ payment, payments: [payment] }))
+          : [{ payment: tx.payments[0] ?? null, payments: tx.payments }];
+
+      for (const itemSlice of itemSlices) {
+        for (const paymentSlice of paymentSlices) {
+          const expandedTx = {
+            ...tx,
+            _currentItem: itemSlice.item,
+            _currentPayment: paymentSlice.payment,
+          };
+          const dimensionKey = this.buildDimensionKey(expandedTx, config.dimensions);
+          const existing =
+            groupedData.get(dimensionKey) || this.initRow(expandedTx, config.dimensions);
+
+          // Accumulate metrics - when expanding, distribute per-slice
+          if (config.metrics.includes('sales')) {
+            if (needsItemExpansion) {
+              (existing['sales'] as number) += Number(itemSlice.item?.subtotal ?? 0);
+            } else if (!needsPaymentExpansion || paymentSlice === paymentSlices[0]) {
+              (existing['sales'] as number) += Number(tx.grandTotal);
+            }
+          }
+          if (config.metrics.includes('items')) {
+            if (needsItemExpansion) {
+              (existing['items'] as number) += Number(itemSlice.item?.quantity ?? 0);
+            } else {
+              (existing['items'] as number) += tx.items.reduce(
+                (sum, item) => sum + Number(item.quantity),
+                0,
+              );
+            }
+          }
+          if (config.metrics.includes('payments')) {
+            (existing['payments'] as number) += paymentSlice.payments.length;
+          }
+          if (config.metrics.includes('customers')) {
+            if (tx.customerId) {
+              const customerSet = (existing['_customerIds'] as Set<string>) || new Set<string>();
+              customerSet.add(tx.customerId);
+              existing['_customerIds'] = customerSet;
+              existing['customers'] = customerSet.size;
+            }
+          }
+          if (config.metrics.includes('orders')) {
+            // Only count order once per transaction, not per expansion
+            const orderSet = (existing['_orderIds'] as Set<string>) || new Set<string>();
+            if (!orderSet.has(tx.id)) {
+              orderSet.add(tx.id);
+              existing['_orderIds'] = orderSet;
+              (existing['orders'] as number) += 1;
+            }
+          }
+          if (config.metrics.includes('discounts')) {
+            if (needsItemExpansion) {
+              (existing['discounts'] as number) += Number(itemSlice.item?.discountAmount ?? 0);
+            } else if (!needsPaymentExpansion || paymentSlice === paymentSlices[0]) {
+              (existing['discounts'] as number) += Number(tx.discountAmount);
+            }
+          }
+          if (config.metrics.includes('tax')) {
+            if (
+              !needsItemExpansion &&
+              (!needsPaymentExpansion || paymentSlice === paymentSlices[0])
+            ) {
+              (existing['tax'] as number) += Number(tx.taxAmount);
+            }
+          }
+
+          groupedData.set(dimensionKey, existing);
         }
       }
-      if (config.metrics.includes('orders')) {
-        (existing['orders'] as number) += 1;
-      }
-      if (config.metrics.includes('discounts')) {
-        (existing['discounts'] as number) += Number(tx.discountAmount);
-      }
-      if (config.metrics.includes('tax')) {
-        (existing['tax'] as number) += Number(tx.taxAmount);
-      }
-
-      groupedData.set(dimensionKey, existing);
     }
 
     // Handle refunds separately if requested
@@ -384,6 +433,15 @@ export class ReportsService {
         } | null;
       }[];
       payments?: { paymentMethod: string }[];
+      _currentItem?: {
+        product: {
+          id: string;
+          name: string;
+          categoryId: string | null;
+          category: { name: string } | null;
+        } | null;
+      } | null;
+      _currentPayment?: { paymentMethod: string } | null;
     },
     dimensions: ReportDimension[],
   ): string {
@@ -407,13 +465,19 @@ export class ReportsService {
           parts.push(tx.orderType);
           break;
         case 'payment_method':
-          parts.push(tx.payments?.[0]?.paymentMethod ?? 'unknown');
+          parts.push(
+            tx._currentPayment?.paymentMethod ?? tx.payments?.[0]?.paymentMethod ?? 'unknown',
+          );
           break;
         case 'product':
-          parts.push(tx.items?.[0]?.product?.id ?? 'unknown');
+          parts.push(tx._currentItem?.product?.id ?? tx.items?.[0]?.product?.id ?? 'unknown');
           break;
         case 'category':
-          parts.push(tx.items?.[0]?.product?.categoryId ?? 'uncategorized');
+          parts.push(
+            tx._currentItem?.product?.categoryId ??
+              tx.items?.[0]?.product?.categoryId ??
+              'uncategorized',
+          );
           break;
       }
     }
@@ -436,6 +500,15 @@ export class ReportsService {
         } | null;
       }[];
       payments?: { paymentMethod: string }[];
+      _currentItem?: {
+        product: {
+          id: string;
+          name: string;
+          categoryId: string | null;
+          category: { name: string } | null;
+        } | null;
+      } | null;
+      _currentPayment?: { paymentMethod: string } | null;
     },
     dimensions: ReportDimension[],
   ): Record<string, unknown> {
@@ -470,15 +543,21 @@ export class ReportsService {
           row['orderType'] = tx.orderType;
           break;
         case 'payment_method':
-          row['paymentMethod'] = tx.payments?.[0]?.paymentMethod ?? 'unknown';
+          row['paymentMethod'] =
+            tx._currentPayment?.paymentMethod ?? tx.payments?.[0]?.paymentMethod ?? 'unknown';
           break;
         case 'product':
-          row['productId'] = tx.items?.[0]?.product?.id ?? null;
-          row['productName'] = tx.items?.[0]?.product?.name ?? 'Unknown';
+          row['productId'] = tx._currentItem?.product?.id ?? tx.items?.[0]?.product?.id ?? null;
+          row['productName'] =
+            tx._currentItem?.product?.name ?? tx.items?.[0]?.product?.name ?? 'Unknown';
           break;
         case 'category':
-          row['categoryId'] = tx.items?.[0]?.product?.categoryId ?? null;
-          row['categoryName'] = tx.items?.[0]?.product?.category?.name ?? 'Uncategorized';
+          row['categoryId'] =
+            tx._currentItem?.product?.categoryId ?? tx.items?.[0]?.product?.categoryId ?? null;
+          row['categoryName'] =
+            tx._currentItem?.product?.category?.name ??
+            tx.items?.[0]?.product?.category?.name ??
+            'Uncategorized';
           break;
       }
     }

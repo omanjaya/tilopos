@@ -1,11 +1,11 @@
 import {
   LayoutDashboard, Package, Users, UserRound, ShoppingCart,
-  Receipt, BarChart3, Warehouse, ArrowLeftRight, Truck, ClipboardList,
+  Receipt, BarChart3, Warehouse, ArrowLeftRight, Truck, ClipboardList, ClipboardCheck,
   UtensilsCrossed, MonitorPlay, Clock, CalendarDays, Tag, Heart,
   FlaskConical, Globe, QrCode, ScrollText, Settings, Building2, Monitor, Bell,
   Banknote, Ticket, Filter, Calculator, Printer, ListPlus,
   ToggleLeft, Store, TrendingUp, RefreshCw, Calendar, Wrench, Hash,
-  Palette, FileText, Layers,
+  Palette, FileText, Layers, Crown,
   type LucideIcon,
 } from 'lucide-react';
 import type { EmployeeRole } from '@/types/auth.types';
@@ -40,7 +40,7 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
     '/app/transactions', '/app/orders', '/app/tables', '/app/waiting-list',
     '/app/shifts', '/app/settlements',
     '/app/products', '/app/bundle-packages', '/app/ingredients',
-    '/app/inventory/stock', '/app/inventory/transfers', '/app/inventory/suppliers',
+    '/app/inventory/stock', '/app/inventory/stock-opname', '/app/inventory/transfers', '/app/inventory/suppliers',
     '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
     '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
     '/app/inventory/serial-numbers', '/app/inventory/product-assignment',
@@ -61,7 +61,7 @@ export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
   inventory: [
     '/app',
     '/app/products', '/app/bundle-packages', '/app/ingredients',
-    '/app/inventory/stock', '/app/inventory/transfers', '/app/inventory/suppliers',
+    '/app/inventory/stock', '/app/inventory/stock-opname', '/app/inventory/transfers', '/app/inventory/suppliers',
     '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
     '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
     '/app/inventory/serial-numbers', '/app/inventory/product-assignment',
@@ -110,6 +110,7 @@ export const navSections: NavSection[] = [
     maxVisible: 4,
     items: [
       { to: '/app/inventory/stock', label: 'Stok', icon: Warehouse },
+      { to: '/app/inventory/stock-opname', label: 'Stock Opname', icon: ClipboardCheck },
       { to: '/app/inventory/transfers', label: 'Transfer Stok', icon: ArrowLeftRight },
       { to: '/app/inventory/suppliers', label: 'Supplier', icon: Truck },
       { to: '/app/inventory/purchase-orders', label: 'Purchase Order', icon: ClipboardList },
@@ -191,6 +192,7 @@ export const navSections: NavSection[] = [
     icon: Settings,
     items: [
       { to: '/app/settings/business', label: 'Pengaturan', icon: Settings },
+      { to: '/app/subscription', label: 'Langganan', icon: Crown },
       { to: '/app/audit', label: 'Audit Log', icon: ScrollText },
     ],
   },
@@ -262,10 +264,10 @@ export const DEFAULT_PINS_BY_ROLE: Partial<Record<EmployeeRole, string[]>> = {
   cashier: ['/pos', '/app/transactions'],
   kitchen: ['/kds'],
   inventory: ['/app/products', '/app/inventory/stock'],
-  supervisor: ['/app', '/app/reports/sales', '/app/products'],
-  manager: ['/app', '/app/reports/sales', '/app/products'],
-  owner: ['/app', '/app/reports/sales', '/app/employees'],
-  super_admin: ['/app', '/app/reports/sales', '/app/employees'],
+  supervisor: ['/app', '/pos', '/app/transactions', '/app/products'],
+  manager: ['/app', '/app/reports/sales', '/app/transactions', '/app/products', '/app/employees'],
+  owner: ['/app', '/pos', '/app/reports/sales', '/app/transactions', '/app/products'],
+  super_admin: ['/app', '/pos', '/app/reports/sales', '/app/transactions', '/app/products'],
 };
 
 export function loadPinnedItems(role: EmployeeRole): string[] {

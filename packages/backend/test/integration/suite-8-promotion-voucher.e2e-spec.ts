@@ -63,8 +63,7 @@ describe('Suite 8: Promotion & Voucher', () => {
       const promotionId = testContext.created['promotionIds']?.[0];
       expect(promotionId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/promotions/${promotionId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/promotions/${promotionId}`);
 
       if (res.status >= 400) {
         console.log('8.2 get promotion error:', res.status, res.body);
@@ -133,8 +132,7 @@ describe('Suite 8: Promotion & Voucher', () => {
   // ================================================================
   describe('8C - Voucher Export & Limits', () => {
     it('8.5 - should export vouchers as CSV', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/promotions/vouchers/export');
+      const res = await authRequest(app, 'owner').get('/api/v1/promotions/vouchers/export');
 
       if (res.status >= 400) {
         console.log('8.5 export error:', res.status, res.body);
@@ -171,6 +169,7 @@ describe('Suite 8: Promotion & Voucher', () => {
             .send({ customerId: testContext.created.customerIds[0] });
 
           if (useRes.status < 400) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             usedCount++;
           }
         }
@@ -191,8 +190,7 @@ describe('Suite 8: Promotion & Voucher', () => {
       // Verify promotion usedCount
       const promotionId = testContext.created['promotionIds']?.[0];
       if (promotionId) {
-        const promoRes = await authRequest(app, 'owner')
-          .get(`/api/v1/promotions/${promotionId}`);
+        const promoRes = await authRequest(app, 'owner').get(`/api/v1/promotions/${promotionId}`);
 
         if (promoRes.status < 400) {
           // usedCount may not increment from manual voucher use (only from transactions)

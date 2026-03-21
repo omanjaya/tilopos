@@ -99,6 +99,30 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Accessibility                                                       */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  /* Skip-to-content link — visible only on focus (keyboard users) */
+  .skip-to-content {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100]
+           focus:rounded-md focus:bg-primary focus:px-4 focus:py-2
+           focus:text-primary-foreground focus:shadow-lg focus:outline-none
+           focus:ring-2 focus:ring-ring focus:ring-offset-2;
+  }
+
+  /* Row highlight flash after successful mutation */
+  .row-highlight {
+    animation: row-flash 1.5s ease-out;
+  }
+
+  @keyframes row-flash {
+    0% { background-color: hsl(var(--success) / 0.2); }
+    100% { background-color: transparent; }
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Touch-device & Tablet POS optimizations                            */
 /* ------------------------------------------------------------------ */
 

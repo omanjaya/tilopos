@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Package, Plus, Search, Ticket, User, Phone, ArrowRight } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -45,7 +46,6 @@ function formatCurrency(value: number) {
 }
 
 export function ItemTrackingPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
@@ -95,7 +95,7 @@ export function ItemTrackingPage() {
       }),
     onSuccess: (item) => {
       queryClient.invalidateQueries({ queryKey: ['item-tracking'] });
-      toast({ title: `Item diterima! Tiket: ${item.ticketNumber}` });
+      toast.success({ title: `Item diterima! Tiket: ${item.ticketNumber}` });
       setActiveTab('active');
       setItemName('');
       setItemDesc('');
@@ -107,14 +107,14 @@ export function ItemTrackingPage() {
       setCustPhone('');
       setRecNotes('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal menerima item' }),
+    onError: (error) => handleMutationError(error, 'Gagal menerima item'),
   });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => itemTrackingApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['item-tracking'] });
-      toast({ title: 'Status diperbarui' });
+      toast.success({ title: 'Status diperbarui' });
     },
   });
 

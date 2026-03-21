@@ -7,6 +7,7 @@ import {
   type BusinessTypePreset,
 } from '@config/business-types.config';
 import { OutletFeatureService } from './outlet-feature.service';
+import { TemplatesService } from '../../templates/templates.service';
 
 export interface OutletTypeInfo {
   code: string;
@@ -23,6 +24,17 @@ export interface ChangeOutletTypeResult {
   previousType: string;
   newType: string;
   featuresEnabled: number;
+  templateApplied: boolean;
+  dataReset: {
+    outletProductsDeactivated: number;
+    tablesDeactivated: number;
+  };
+  templateData?: {
+    categories: number;
+    products: number;
+    modifierGroups: number;
+    tables: number;
+  };
 }
 
 @Injectable()
@@ -32,6 +44,7 @@ export class OutletTypeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outletFeatureService: OutletFeatureService,
+    private readonly templatesService: TemplatesService,
   ) {}
 
   /**
@@ -70,7 +83,7 @@ export class OutletTypeService {
   }
 
   /**
-   * Change outlet type and reset its features to the new preset
+   * Change outlet type: soft-delete outlet data, reset features, apply new template
    */
   async changeOutletType(outletId: string, newTypeCode: string): Promise<ChangeOutletTypeResult> {
     if (!isValidBusinessType(newTypeCode)) {
@@ -79,7 +92,7 @@ export class OutletTypeService {
 
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
-      select: { outletType: true },
+      select: { outletType: true, businessId: true },
     });
 
     if (!outlet) {
@@ -88,19 +101,67 @@ export class OutletTypeService {
 
     const previousType = outlet.outletType;
 
-    // Initialize features based on new outlet type
+    // 1. Soft-deactivate outlet-level data
+    const [outletProducts, tables] = await this.prisma.$transaction([
+      this.prisma.outletProduct.updateMany({
+        where: { outletId, isActive: true },
+        data: { isActive: false },
+      }),
+      this.prisma.table.updateMany({
+        where: { outletId, isActive: true },
+        data: { isActive: false },
+      }),
+    ]);
+
+    const dataReset = {
+      outletProductsDeactivated: outletProducts.count,
+      tablesDeactivated: tables.count,
+    };
+
+    // 2. Initialize features based on new outlet type
     await this.outletFeatureService.initializeFeaturesForOutletType(outletId, newTypeCode);
+
+    // 3. Apply new template
+    let templateApplied = false;
+    let templateData:
+      | { categories: number; products: number; modifierGroups: number; tables: number }
+      | undefined;
+    try {
+      const result = await this.templatesService.applyTemplate(
+        outlet.businessId,
+        outletId,
+        newTypeCode,
+        { categories: true, products: true, modifiers: true, tables: true },
+      );
+      templateApplied = true;
+      templateData = {
+        categories: result.categories,
+        products: result.products,
+        modifierGroups: result.modifierGroups,
+        tables: result.tables,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Template for "${newTypeCode}" not found, skipping template apply: ${error instanceof Error ? error.message : error}`,
+      );
+    }
 
     // Count enabled features
     const enabledFeatures = await this.outletFeatureService.getEnabledFeatureKeys(outletId);
 
-    this.logger.log(`Outlet ${outletId} changed type from "${previousType}" to "${newTypeCode}"`);
+    this.logger.log(
+      `Outlet ${outletId} changed type from "${previousType}" to "${newTypeCode}" ` +
+        `(template: ${templateApplied}, deactivated: ${JSON.stringify(dataReset)})`,
+    );
 
     return {
       success: true,
       previousType,
       newType: newTypeCode,
       featuresEnabled: enabledFeatures.length,
+      templateApplied,
+      dataReset,
+      templateData,
     };
   }
 

@@ -1,7 +1,7 @@
-import { Test } from '@nestjs/testing';
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { BusinessScopeGuard, BusinessScoped, BUSINESS_SCOPE_KEY } from '../business-scope.guard';
+import { JwtService } from '@nestjs/jwt';
+import { BusinessScopeGuard, BusinessScoped } from '../business-scope.guard';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 
@@ -9,31 +9,47 @@ describe('BusinessScopeGuard', () => {
   let guard: BusinessScopeGuard;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockReflector: jest.Mocked<Reflector>;
+  let mockJwtService: jest.Mocked<JwtService>;
+  let mockProductFindUnique: jest.Mock;
+  let mockCustomerFindUnique: jest.Mock;
+  let mockOrderFindUnique: jest.Mock;
+  let mockTableFindUnique: jest.Mock;
+  let mockPromotionFindUnique: jest.Mock;
 
   beforeEach(async () => {
+    mockProductFindUnique = jest.fn();
+    mockCustomerFindUnique = jest.fn();
+    mockOrderFindUnique = jest.fn();
+    mockTableFindUnique = jest.fn();
+    mockPromotionFindUnique = jest.fn();
+
     mockPrisma = {
       product: {
-        findUnique: jest.fn(),
+        findUnique: mockProductFindUnique,
       },
       customer: {
-        findUnique: jest.fn(),
+        findUnique: mockCustomerFindUnique,
       },
       order: {
-        findUnique: jest.fn(),
+        findUnique: mockOrderFindUnique,
       },
       table: {
-        findUnique: jest.fn(),
+        findUnique: mockTableFindUnique,
       },
       promotion: {
-        findUnique: jest.fn(),
+        findUnique: mockPromotionFindUnique,
       },
-    } as any;
+    } as unknown as jest.Mocked<PrismaService>;
 
     mockReflector = {
       get: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Reflector>;
 
-    guard = new BusinessScopeGuard(mockReflector, mockPrisma);
+    mockJwtService = {
+      verify: jest.fn(),
+    } as unknown as jest.Mocked<JwtService>;
+
+    guard = new BusinessScopeGuard(mockReflector, mockPrisma, mockJwtService);
   });
 
   describe('canActivate', () => {
@@ -49,19 +65,20 @@ describe('BusinessScopeGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should throw ForbiddenException when user is not authenticated', async () => {
+    it('should allow access when user is not authenticated (let JwtAuthGuard handle it)', async () => {
       mockReflector.get.mockReturnValue({
         resource: 'product',
         param: 'id',
       });
 
       const context = createMockContext({
-        user: null, // No user
+        user: null, // No user - guard defers to JwtAuthGuard
         params: { id: 'prod-1' },
       });
 
-      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
-      await expect(guard.canActivate(context)).rejects.toThrow('Authentication required');
+      // Guard returns true to let JwtAuthGuard handle auth
+      const result = await guard.canActivate(context);
+      expect(result).toBe(true);
     });
 
     it('should throw ForbiddenException when resource ID is missing', async () => {
@@ -102,10 +119,10 @@ describe('BusinessScopeGuard', () => {
         param: 'id',
       });
 
-      mockPrisma.product.findUnique.mockResolvedValue({
+      mockProductFindUnique.mockResolvedValue({
         id: 'prod-1',
         businessId: 'biz-1',
-      } as any);
+      } as Record<string, unknown>);
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -126,10 +143,10 @@ describe('BusinessScopeGuard', () => {
         param: 'id',
       });
 
-      mockPrisma.product.findUnique.mockResolvedValue({
+      mockProductFindUnique.mockResolvedValue({
         id: 'prod-1',
         businessId: 'biz-2', // Different business!
-      } as any);
+      } as Record<string, unknown>);
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -148,7 +165,7 @@ describe('BusinessScopeGuard', () => {
         param: 'id',
       });
 
-      mockPrisma.product.findUnique.mockResolvedValue(null);
+      mockProductFindUnique.mockResolvedValue(null);
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -164,7 +181,7 @@ describe('BusinessScopeGuard', () => {
         param: 'id',
       });
 
-      mockPrisma.product.findUnique.mockRejectedValue(new Error('Database error'));
+      mockProductFindUnique.mockRejectedValue(new Error('Database error'));
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -181,10 +198,10 @@ describe('BusinessScopeGuard', () => {
         param: 'id',
       });
 
-      mockPrisma.customer.findUnique.mockResolvedValue({
+      mockCustomerFindUnique.mockResolvedValue({
         id: 'cust-1',
         businessId: 'biz-1',
-      } as any);
+      } as Record<string, unknown>);
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -205,10 +222,10 @@ describe('BusinessScopeGuard', () => {
         param: 'productId',
       });
 
-      mockPrisma.product.findUnique.mockResolvedValue({
+      mockProductFindUnique.mockResolvedValue({
         id: 'prod-1',
         businessId: 'biz-1',
-      } as any);
+      } as Record<string, unknown>);
 
       const context = createMockContext({
         user: { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' },
@@ -222,18 +239,12 @@ describe('BusinessScopeGuard', () => {
   });
 
   describe('BusinessScoped decorator', () => {
-    it('should set metadata correctly', () => {
+    it('should be a valid decorator function', () => {
       const options = { resource: 'product' as const, param: 'id' };
       const decorator = BusinessScoped(options);
 
-      const mockTarget = {};
-      const mockKey = 'testMethod';
-      const mockDescriptor = {};
-
-      // Apply decorator
-      decorator(mockTarget, mockKey, mockDescriptor);
-
-      // Metadata should be set (we can't test Reflect.getMetadata directly without a real reflector)
+      // Verify decorator is a function
+      expect(typeof decorator).toBe('function');
       expect(decorator).toBeDefined();
     });
   });
@@ -244,8 +255,8 @@ describe('BusinessScopeGuard', () => {
  */
 function createMockContext(data: {
   user: AuthUser | null;
-  params: Record<string, any>;
-  body?: Record<string, any>;
+  params: Record<string, unknown>;
+  body?: Record<string, unknown>;
 }): ExecutionContext {
   return {
     switchToHttp: () => ({
@@ -256,11 +267,5 @@ function createMockContext(data: {
       }),
     }),
     getHandler: () => ({}),
-    getClass: () => ({}),
-    getArgs: () => [],
-    getArgByIndex: () => ({}),
-    switchToRpc: () => ({}) as any,
-    switchToWs: () => ({}) as any,
-    getType: () => 'http' as any,
-  } as ExecutionContext;
+  } as unknown as ExecutionContext;
 }

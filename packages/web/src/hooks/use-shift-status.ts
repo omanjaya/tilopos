@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/stores/auth.store';
 import { getSharedSocket, releaseSharedSocket } from '@/hooks/realtime/socket.util';
 import { apiClient } from '@/api/client';
@@ -62,8 +62,10 @@ export function useShiftStatus(): UseShiftStatusReturn {
     setIsLoading(true);
     try {
       const response = await apiClient.get('/employees/shifts/current');
-      const shift = response.data;
-      if (shift) {
+      const raw = response.data;
+      // Backend may return { shift: ... } wrapper or direct shift object
+      const shift = raw?.shift !== undefined ? raw.shift : raw;
+      if (shift && shift.id) {
         setCurrentShift({
           shiftId: shift.id,
           employeeId: shift.employeeId,
@@ -77,7 +79,7 @@ export function useShiftStatus(): UseShiftStatusReturn {
       } else {
         setCurrentShift(null);
       }
-    } catch (error) {
+    } catch {
       // 404 or no active shift is expected
       setCurrentShift(null);
     } finally {
@@ -129,7 +131,8 @@ export function useShiftStatus(): UseShiftStatusReturn {
     try {
       // First get current shift to get shiftId
       const response = await apiClient.get('/employees/shifts/current');
-      const shift = response.data;
+      const raw = response.data;
+      const shift = raw?.shift !== undefined ? raw.shift : raw;
       const shiftId = shift?.id;
 
       if (!shiftId) {
@@ -226,12 +229,19 @@ export function useShiftStatus(): UseShiftStatusReturn {
     };
   }, [token, user?.outletId, user?.businessId]);
 
-  // Fetch current shift on mount
+  // Keep a stable ref for refetchShift to avoid triggering the mount effect
+  // when the callback identity changes (which would cause an infinite loop)
+  const refetchShiftRef = useRef(refetchShift);
+  useEffect(() => {
+    refetchShiftRef.current = refetchShift;
+  }, [refetchShift]);
+
+  // Fetch current shift on mount / when auth changes
   useEffect(() => {
     if (token && user?.employeeId) {
-      refetchShift();
+      refetchShiftRef.current();
     }
-  }, [token, user?.employeeId, refetchShift]);
+  }, [token, user?.employeeId]);
 
   return { currentShift, isConnected, isLoading, clearShift, startShift, endShift, refetchShift };
 }

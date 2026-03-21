@@ -30,8 +30,8 @@ export function ProductRecommendations({
     enabled: !!outletId,
   });
 
-  // Get popular items (in real app, sorting would be based on orderCount from API)
-  // For now, just show available items
+  // Show available menu items excluding the currently viewed product, limited to maxItems.
+  // Items are displayed in their default API order (no popularity sorting applied).
   const popularItems = menuItems
     ?.filter((item) => item.id !== currentProductId && item.isAvailable)
     .slice(0, showAll ? undefined : maxItems) || [];

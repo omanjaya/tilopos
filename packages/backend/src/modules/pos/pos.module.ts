@@ -12,19 +12,21 @@ import { ResumeBillUseCase } from '../../application/use-cases/pos/resume-bill.u
 import { ReprintReceiptUseCase } from '../../application/use-cases/pos/reprint-receipt.use-case';
 import { HeldBillStore } from '../../infrastructure/cache/held-bill.store';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import { SERVICE_TOKENS } from '../../infrastructure/services/service.tokens';
 import { PrismaTransactionRepository } from '../../infrastructure/repositories/prisma-transaction.repository';
 import { PrismaProductRepository } from '../../infrastructure/repositories/prisma-product.repository';
 import { PrismaInventoryRepository } from '../../infrastructure/repositories/prisma-inventory.repository';
 import { PrismaShiftRepository } from '../../infrastructure/repositories/prisma-shift.repository';
 import { PrismaCustomerRepository } from '../../infrastructure/repositories/prisma-customer.repository';
 import { PrismaAuditRepository } from '../../infrastructure/repositories/prisma-audit.repository';
-import { MockPaymentGateway } from '../../infrastructure/services/mock-payment-gateway';
+import { PaymentModule } from '../../infrastructure/services/payment/payment.module';
+import { TaxConfigurationRepository } from '../../infrastructure/repositories/settings/tax-configuration.repository';
 
 @Module({
+  imports: [PaymentModule],
   controllers: [PosController],
   providers: [
     CreateTransactionUseCase,
+    TaxConfigurationRepository,
     ProcessRefundUseCase,
     ProcessMultiPaymentUseCase,
     VoidTransactionUseCase,
@@ -41,7 +43,6 @@ import { MockPaymentGateway } from '../../infrastructure/services/mock-payment-g
     { provide: REPOSITORY_TOKENS.SHIFT, useClass: PrismaShiftRepository },
     { provide: REPOSITORY_TOKENS.CUSTOMER, useClass: PrismaCustomerRepository },
     { provide: REPOSITORY_TOKENS.AUDIT, useClass: PrismaAuditRepository },
-    { provide: SERVICE_TOKENS.PAYMENT_GATEWAY, useClass: MockPaymentGateway },
   ],
 })
 export class PosModule {}

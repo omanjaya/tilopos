@@ -54,20 +54,22 @@ export function useBusinessFeatures() {
         };
 
         // Feature check wrapper (considers custom type)
+        // Custom type bypasses business-type filtering but still enforces subscription restrictions
         const isEnabled = (feature: FeatureKey | string): boolean => {
-            if (isCustom) return true; // Custom shows all
+            if (isFeatureRestricted(feature)) return false;
+            if (isCustom) return true;
             return isFeatureEnabled(feature);
         };
 
         // Check multiple features (ANY)
         const hasAnyFeature = (...features: (FeatureKey | string)[]): boolean => {
-            if (isCustom) return true;
+            if (isCustom) return features.some((f) => !isFeatureRestricted(f));
             return features.some((f) => isFeatureEnabled(f));
         };
 
         // Check multiple features (ALL)
         const hasAllFeatures = (...features: (FeatureKey | string)[]): boolean => {
-            if (isCustom) return true;
+            if (isCustom) return features.every((f) => !isFeatureRestricted(f));
             return features.every((f) => isFeatureEnabled(f));
         };
 

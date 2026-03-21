@@ -44,6 +44,17 @@ export class ProcessMultiPaymentUseCase {
       throw new TransactionNotFoundException(input.transactionId);
     }
 
+    if (
+      transaction.status === 'completed' ||
+      transaction.status === 'voided' ||
+      transaction.status === 'split'
+    ) {
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        `Cannot add payments to transaction in status: ${transaction.status}`,
+      );
+    }
+
     const totalPayments = input.payments.reduce((sum, p) => sum + p.amount, 0);
     if (totalPayments < transaction.grandTotal) {
       throw new BusinessError(
@@ -90,13 +101,14 @@ export class ProcessMultiPaymentUseCase {
     }
 
     let cashChange = 0;
-    const cashPayment = input.payments.find((p) => p.method === 'cash');
-    if (cashPayment) {
+    const cashPayments = input.payments.filter((p) => p.method === 'cash');
+    if (cashPayments.length > 0) {
+      const totalCash = cashPayments.reduce((sum, p) => sum + p.amount, 0);
       const nonCashTotal = input.payments
         .filter((p) => p.method !== 'cash')
         .reduce((sum, p) => sum + p.amount, 0);
       const cashNeeded = transaction.grandTotal - nonCashTotal;
-      cashChange = Math.max(0, cashPayment.amount - cashNeeded);
+      cashChange = Math.max(0, totalCash - cashNeeded);
     }
 
     await this.transactionRepo.update(input.transactionId, { status: 'completed' });

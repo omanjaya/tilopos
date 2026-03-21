@@ -87,7 +87,7 @@ export function useRealtimeTransactions(
 
     return () => {
       currentSocket?.off('transaction:created', handler);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom, addTransaction]);

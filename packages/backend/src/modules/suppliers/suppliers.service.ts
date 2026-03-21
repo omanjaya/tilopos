@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 export interface SupplierPerformanceEntry {
@@ -396,7 +396,7 @@ export class SuppliersService {
     return { purchaseOrders: createdPOs };
   }
 
-  async findPurchaseOrdersByBusiness(businessId: string, status?: string) {
+  async findPurchaseOrdersByBusiness(businessId: string, status?: string, page = 1, limit = 100) {
     const where: Record<string, unknown> = {
       outlet: { businessId },
     };
@@ -404,10 +404,15 @@ export class SuppliersService {
       where.status = status;
     }
 
+    const take = Math.min(Math.max(limit, 1), 100);
+    const skip = (Math.max(page, 1) - 1) * take;
+
     return this.prisma.purchaseOrder.findMany({
       where,
       include: { supplier: true, items: true },
       orderBy: { createdAt: 'desc' },
+      take,
+      skip,
     });
   }
 
@@ -416,6 +421,14 @@ export class SuppliersService {
     approvedBy: string,
     notes?: string,
   ): Promise<PurchaseOrderResult> {
+    const existing = await this.prisma.purchaseOrder.findUnique({ where: { id: poId } });
+    if (!existing) throw new NotFoundException('Purchase order not found');
+    if (existing.status !== 'draft') {
+      throw new BadRequestException(
+        `Cannot approve PO with status "${existing.status}". Only draft POs can be approved.`,
+      );
+    }
+
     const po = await this.prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
@@ -443,6 +456,12 @@ export class SuppliersService {
     rejectedBy: string,
     reason: string,
   ): Promise<PurchaseOrderResult> {
+    const existing = await this.prisma.purchaseOrder.findUnique({ where: { id: poId } });
+    if (!existing) throw new NotFoundException('Purchase order not found');
+    if (existing.status !== 'draft' && existing.status !== 'ordered') {
+      throw new BadRequestException(`Cannot reject PO with status "${existing.status}".`);
+    }
+
     const po = await this.prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
@@ -537,6 +556,306 @@ export class SuppliersService {
     }
 
     return trend;
+  }
+
+  /**
+   * Get purchase history for a specific supplier scoped by business
+   */
+  async getPurchaseHistory(supplierId: string, businessId: string) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, businessId },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: { supplierId, outlet: { businessId } },
+      include: {
+        items: true,
+        outlet: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalPurchases = orders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+    const totalOrders = orders.length;
+    const avgOrderValue = totalOrders > 0 ? totalPurchases / totalOrders : 0;
+
+    const statusCounts = {
+      pending: orders.filter((o) => o.status === 'draft').length,
+      approved: orders.filter((o) => o.status === 'ordered').length,
+      completed: orders.filter((o) => o.status === 'received').length,
+      cancelled: orders.filter((o) => o.status === 'cancelled').length,
+    };
+
+    return {
+      supplierName: supplier.name,
+      summary: {
+        totalPurchases: Math.round(totalPurchases * 100) / 100,
+        totalOrders,
+        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        statusCounts,
+      },
+      orders: orders.map((po) => ({
+        id: po.id,
+        orderNumber: po.poNumber,
+        orderDate: po.createdAt,
+        status: po.status,
+        totalAmount: Number(po.totalAmount),
+        outletName: po.outlet.name,
+        itemCount: po.items.length,
+        items: po.items.map((item) => ({
+          productName: item.itemName,
+          quantity: Number(item.quantityOrdered),
+          unitPrice: Number(item.unitCost),
+          subtotal: Number(item.subtotal),
+        })),
+      })),
+    };
+  }
+
+  /**
+   * Get payment status for a specific supplier scoped by business
+   */
+  async getPaymentStatus(supplierId: string, businessId: string) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, businessId },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: { supplierId, outlet: { businessId } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalPurchases = orders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+    // Consider 'received' orders as paid, 'ordered' or 'draft' as unpaid
+    const paidOrders = orders.filter((o) => o.status === 'received');
+    const unpaidOrders = orders.filter((o) => o.status === 'ordered' || o.status === 'draft');
+
+    const totalPaid = paidOrders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+    const totalDebt = unpaidOrders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+    const paymentRate = totalPurchases > 0 ? (totalPaid / totalPurchases) * 100 : 100;
+
+    const now = new Date();
+    const overdueOrders = unpaidOrders.filter((o) => {
+      if (!o.orderedAt) return false;
+      const daysSinceOrder = (now.getTime() - o.orderedAt.getTime()) / (1000 * 60 * 60 * 24);
+      return daysSinceOrder > 30; // 30 days overdue threshold
+    });
+
+    const mapOrder = (po: (typeof orders)[0]) => ({
+      id: po.id,
+      orderNumber: po.poNumber,
+      totalAmount: Number(po.totalAmount),
+      paidAmount: po.status === 'received' ? Number(po.totalAmount) : 0,
+      outstandingAmount: po.status === 'received' ? 0 : Number(po.totalAmount),
+      orderDate: po.createdAt,
+      dueDate: po.orderedAt ? new Date(po.orderedAt.getTime() + 30 * 24 * 60 * 60 * 1000) : null,
+      daysOverdue: po.orderedAt
+        ? Math.max(
+            0,
+            Math.floor((now.getTime() - po.orderedAt.getTime()) / (1000 * 60 * 60 * 24) - 30),
+          )
+        : 0,
+    });
+
+    return {
+      supplierName: supplier.name,
+      summary: {
+        totalDebt: Math.round(totalDebt * 100) / 100,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalPurchases: Math.round(totalPurchases * 100) / 100,
+        paymentRate: Math.round(paymentRate * 10) / 10,
+        unpaidOrdersCount: unpaidOrders.length,
+        overdueOrdersCount: overdueOrders.length,
+      },
+      unpaidOrders: unpaidOrders.map(mapOrder),
+      overdueOrders: overdueOrders.map(mapOrder),
+    };
+  }
+
+  /**
+   * Compare prices across suppliers for same products
+   */
+  async getSupplierComparison(businessId: string) {
+    // Get all PO items grouped by product from active suppliers
+    const poItems = await this.prisma.purchaseOrderItem.findMany({
+      where: {
+        productId: { not: null },
+        purchaseOrder: {
+          status: 'received',
+          outlet: { businessId },
+        },
+      },
+      include: {
+        purchaseOrder: {
+          include: { supplier: { select: { id: true, name: true } } },
+        },
+        product: { select: { id: true, name: true } },
+      },
+    });
+
+    // Group by product, then by supplier
+    const productMap = new Map<
+      string,
+      {
+        productId: string;
+        productName: string;
+        suppliers: Map<string, { prices: number[]; name: string; lastDate: Date }>;
+      }
+    >();
+
+    for (const item of poItems) {
+      if (!item.productId || !item.product) continue;
+      const pid = item.productId;
+      const sid = item.purchaseOrder.supplierId;
+
+      if (!productMap.has(pid)) {
+        productMap.set(pid, {
+          productId: pid,
+          productName: item.product.name,
+          suppliers: new Map(),
+        });
+      }
+
+      const pEntry = productMap.get(pid)!;
+      if (!pEntry.suppliers.has(sid)) {
+        pEntry.suppliers.set(sid, {
+          prices: [],
+          name: item.purchaseOrder.supplier.name,
+          lastDate: item.purchaseOrder.createdAt,
+        });
+      }
+
+      const sEntry = pEntry.suppliers.get(sid)!;
+      sEntry.prices.push(Number(item.unitCost));
+      if (item.purchaseOrder.createdAt > sEntry.lastDate) {
+        sEntry.lastDate = item.purchaseOrder.createdAt;
+      }
+    }
+
+    // Build comparisons (only products with multiple suppliers)
+    const comparisons = [];
+    for (const [, product] of productMap) {
+      if (product.suppliers.size < 2) continue;
+
+      const suppliers = [];
+      for (const [supplierId, data] of product.suppliers) {
+        const avgPrice = data.prices.reduce((a, b) => a + b, 0) / data.prices.length;
+        suppliers.push({
+          supplierId,
+          supplierName: data.name,
+          avgPrice: Math.round(avgPrice * 100) / 100,
+          minPrice: Math.min(...data.prices),
+          maxPrice: Math.max(...data.prices),
+          orderCount: data.prices.length,
+          lastOrderDate: data.lastDate,
+        });
+      }
+
+      suppliers.sort((a, b) => a.avgPrice - b.avgPrice);
+      const cheapest = suppliers[0];
+      const mostExpensive = suppliers[suppliers.length - 1];
+      const priceDiff = mostExpensive.avgPrice - cheapest.avgPrice;
+      const savingsPct =
+        mostExpensive.avgPrice > 0 ? (priceDiff / mostExpensive.avgPrice) * 100 : 0;
+
+      comparisons.push({
+        productId: product.productId,
+        productName: product.productName,
+        suppliers,
+        cheapestSupplier: cheapest.supplierName,
+        mostExpensiveSupplier: mostExpensive.avgPrice,
+        priceDifference: Math.round(priceDiff * 100) / 100,
+        savingsPercentage: Math.round(savingsPct * 10) / 10,
+      });
+    }
+
+    comparisons.sort((a, b) => b.savingsPercentage - a.savingsPercentage);
+
+    return {
+      comparisons,
+      totalProducts: comparisons.length,
+    };
+  }
+
+  /**
+   * Get reorder alerts with supplier info for all outlets in a business
+   */
+  async getReorderAlerts(businessId: string) {
+    const lowStockItems = await this.prisma.stockLevel.findMany({
+      where: {
+        outlet: { businessId },
+        productId: { not: null },
+      },
+      include: {
+        product: { select: { id: true, name: true, sku: true, isActive: true } },
+        outlet: { select: { name: true } },
+      },
+      take: 500,
+    });
+
+    // Filter to active low-stock items first
+    const filteredItems = lowStockItems.filter(
+      (sl) => sl.product && sl.product.isActive && Number(sl.quantity) < sl.lowStockAlert,
+    );
+
+    // Batch query: fetch the last received PO item for each product in one query (fixes N+1)
+    const productIds = filteredItems
+      .map((sl) => sl.productId)
+      .filter((id): id is string => id !== null);
+
+    const lastPOItems =
+      productIds.length > 0
+        ? await this.prisma.purchaseOrderItem.findMany({
+            where: {
+              productId: { in: productIds },
+              purchaseOrder: { status: 'received' },
+            },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['productId'],
+            include: {
+              purchaseOrder: {
+                select: { supplier: { select: { id: true, name: true } } },
+              },
+            },
+          })
+        : [];
+
+    const poItemMap = new Map(lastPOItems.map((item) => [item.productId, item]));
+
+    const alerts = [];
+    for (const sl of filteredItems) {
+      const currentStock = Number(sl.quantity);
+
+      let recommendedSupplier = null;
+      const lastPOItem = poItemMap.get(sl.productId);
+      if (lastPOItem) {
+        recommendedSupplier = {
+          id: lastPOItem.purchaseOrder.supplier.id,
+          name: lastPOItem.purchaseOrder.supplier.name,
+          lastPrice: Number(lastPOItem.unitCost),
+        };
+      }
+
+      alerts.push({
+        productId: sl.productId,
+        productName: sl.product!.name,
+        sku: sl.product!.sku || '',
+        outletName: sl.outlet.name,
+        currentStock,
+        recommendedSupplier,
+        suggestedOrderQuantity: Math.max(sl.lowStockAlert * 2 - currentStock, 1),
+      });
+    }
+
+    alerts.sort((a, b) => a.currentStock - b.currentStock);
+
+    return {
+      alerts,
+      totalAlerts: alerts.length,
+      criticalAlerts: alerts.filter((a) => a.currentStock <= 5).length,
+    };
   }
 
   private async findPreferredSupplier(productId: string): Promise<string | null> {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import type {
   ISupplierRepository,
@@ -12,6 +12,10 @@ import { PrismaService } from '../database/prisma.service';
 @Injectable()
 export class PrismaSupplierRepository implements ISupplierRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findById(id: string): Promise<SupplierRecord | null> {
+    return this.prisma.supplier.findUnique({ where: { id } });
+  }
 
   async findByBusinessId(businessId: string): Promise<SupplierRecord[]> {
     return this.prisma.supplier.findMany({
@@ -96,6 +100,14 @@ export class PrismaSupplierRepository implements ISupplierRepository {
   }
 
   async receivePurchaseOrder(id: string): Promise<PurchaseOrderRecord> {
+    const existing = await this.prisma.purchaseOrder.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Purchase order not found');
+    if (existing.status !== 'ordered') {
+      throw new BadRequestException(
+        `Cannot receive PO with status "${existing.status}". Only ordered POs can be received.`,
+      );
+    }
+
     const po = await this.prisma.purchaseOrder.update({
       where: { id },
       data: { status: 'received', receivedAt: new Date() },

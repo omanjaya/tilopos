@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { promotionsApi } from '@/api/endpoints/promotions.api';
@@ -17,8 +17,7 @@ import { toast } from '@/lib/toast-utils';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Promotion } from '@/types/promotion.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 function getDiscountTypeLabel(type: string): string {
   switch (type) {
@@ -86,12 +85,7 @@ export function PromotionsPage() {
       toast.success({ title: 'Promosi dinonaktifkan' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus promosi'),
   });
 
   const columns: Column<Promotion>[] = [
@@ -173,22 +167,6 @@ export function PromotionsPage() {
     },
   ];
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/promotions/new');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
-
   return (
     <div>
       <PageHeader title="Promosi" description="Kelola promosi dan diskon">
@@ -204,7 +182,12 @@ export function PromotionsPage() {
         searchPlaceholder="Cari promosi..."
         onSearch={setSearch}
         emptyTitle="Belum ada promosi"
-        emptyDescription="Tambahkan promosi pertama Anda."
+        emptyDescription="Buat promosi dan diskon untuk menarik pelanggan dan meningkatkan penjualan."
+        emptyAction={
+          <Button onClick={() => navigate('/app/promotions/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Promosi
+          </Button>
+        }
       />
 
       <ConfirmDialog

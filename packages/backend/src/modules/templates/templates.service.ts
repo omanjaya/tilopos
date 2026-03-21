@@ -72,10 +72,7 @@ interface ApplySections {
 @Injectable()
 export class TemplatesService {
   private readonly logger = new Logger(TemplatesService.name);
-  private readonly templatesDir = path.join(
-    __dirname,
-    '../../infrastructure/database/templates',
-  );
+  private readonly templatesDir = path.join(__dirname, '../../infrastructure/database/templates');
 
   constructor(private readonly prisma: PrismaService) {}
 

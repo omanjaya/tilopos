@@ -35,26 +35,33 @@ export class BumpOrderUseCase {
       throw new AppError(ErrorCode.ORDER_NOT_FOUND, `Order item ${input.orderItemId} not found`);
     }
 
-    await this.prisma.orderItem.update({
-      where: { id: input.orderItemId },
-      data: { status: 'ready', completedAt: new Date() },
-    });
-
-    const allItems = await this.prisma.orderItem.findMany({
-      where: { orderId: orderItem.orderId },
-    });
-
-    const allCompleted = allItems.every(
-      (item) =>
-        item.id === input.orderItemId || item.status === 'ready' || item.status === 'served',
-    );
-
-    if (allCompleted) {
-      await this.prisma.order.update({
-        where: { id: orderItem.orderId },
-        data: { status: 'ready' },
+    // Wrap in transaction to prevent race conditions when multiple items are bumped concurrently
+    const allCompleted = await this.prisma.$transaction(async (tx) => {
+      await tx.orderItem.update({
+        where: { id: input.orderItemId },
+        data: { status: 'ready', completedAt: new Date() },
       });
 
+      const allItems = await tx.orderItem.findMany({
+        where: { orderId: orderItem.orderId },
+      });
+
+      const completed = allItems.every(
+        (item) =>
+          item.id === input.orderItemId || item.status === 'ready' || item.status === 'served',
+      );
+
+      if (completed) {
+        await tx.order.update({
+          where: { id: orderItem.orderId },
+          data: { status: 'ready' },
+        });
+      }
+
+      return completed;
+    });
+
+    if (allCompleted) {
       this.eventBus.publish(
         new OrderStatusChangedEvent(
           orderItem.orderId,

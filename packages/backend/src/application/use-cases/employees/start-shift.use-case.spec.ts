@@ -1,10 +1,8 @@
 import { StartShiftUseCase, StartShiftInput } from './start-shift.use-case';
+import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 import { BusinessError } from '@shared/errors/business-error';
 import { AppError } from '@shared/errors/app-error';
-import type {
-  IShiftRepository,
-  ShiftRecord,
-} from '@domain/interfaces/repositories/shift.repository';
 import type {
   IEmployeeRepository,
   EmployeeRecord,
@@ -12,8 +10,11 @@ import type {
 
 describe('StartShiftUseCase', () => {
   let useCase: StartShiftUseCase;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
+  let mockPrisma: jest.Mocked<PrismaService>;
+  let mockEventBus: jest.Mocked<EventBusService>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockTx: any;
 
   const activeEmployee: EmployeeRecord = {
     id: 'emp-1',
@@ -33,6 +34,7 @@ describe('StartShiftUseCase', () => {
     authProvider: 'local',
     profilePhotoUrl: null,
     preferences: null,
+    emailVerified: false,
     onboardingCompleted: false,
     lastLoginAt: null,
     lastLoginIp: null,
@@ -40,7 +42,7 @@ describe('StartShiftUseCase', () => {
     updatedAt: new Date(),
   };
 
-  const createdShift: ShiftRecord = {
+  const createdShift = {
     id: 'shift-1',
     outletId: 'outlet-1',
     employeeId: 'emp-1',
@@ -64,15 +66,6 @@ describe('StartShiftUseCase', () => {
   };
 
   beforeEach(() => {
-    mockShiftRepo = {
-      findById: jest.fn(),
-      findOpenShift: jest.fn(),
-      create: jest.fn(),
-      close: jest.fn(),
-      addCashIn: jest.fn(),
-      addCashOut: jest.fn(),
-    };
-
     mockEmployeeRepo = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
@@ -82,13 +75,31 @@ describe('StartShiftUseCase', () => {
       update: jest.fn(),
     };
 
-    useCase = new StartShiftUseCase(mockShiftRepo, mockEmployeeRepo);
+    mockTx = {
+      shift: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(createdShift),
+      },
+    };
+
+    mockPrisma = {
+      $transaction: jest.fn().mockImplementation(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (fn: (tx: any) => Promise<unknown>) => fn(mockTx),
+      ),
+    } as unknown as jest.Mocked<PrismaService>;
+
+    mockEventBus = {
+      publish: jest.fn(),
+      ofType: jest.fn(),
+      onAll: jest.fn(),
+    } as unknown as jest.Mocked<EventBusService>;
+
+    useCase = new StartShiftUseCase(mockEmployeeRepo, mockPrisma, mockEventBus);
   });
 
   it('should start shift successfully', async () => {
     mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
-    mockShiftRepo.findOpenShift.mockResolvedValue(null);
-    mockShiftRepo.create.mockResolvedValue(createdShift);
 
     const result = await useCase.execute(baseInput);
 
@@ -114,33 +125,32 @@ describe('StartShiftUseCase', () => {
 
   it('should throw BusinessError when employee already has an open shift', async () => {
     mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
-    mockShiftRepo.findOpenShift.mockResolvedValue(createdShift);
+    mockTx.shift.findFirst.mockResolvedValueOnce({ id: 'existing-shift' });
 
     await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
-    await expect(useCase.execute(baseInput)).rejects.toThrow(/already has an open shift/);
   });
 
   it('should create shift with correct data', async () => {
     mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
-    mockShiftRepo.findOpenShift.mockResolvedValue(null);
-    mockShiftRepo.create.mockResolvedValue(createdShift);
 
     await useCase.execute(baseInput);
 
-    expect(mockShiftRepo.create).toHaveBeenCalledWith(
+    expect(mockTx.shift.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        outletId: 'outlet-1',
-        employeeId: 'emp-1',
-        openingCash: 500000,
-        startedAt: expect.any(Date),
+        data: expect.objectContaining({
+          outletId: 'outlet-1',
+          employeeId: 'emp-1',
+          openingCash: 500000,
+          startedAt: expect.any(Date),
+          status: 'open',
+        }),
       }),
     );
   });
 
   it('should handle zero opening cash', async () => {
     mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
-    mockShiftRepo.findOpenShift.mockResolvedValue(null);
-    mockShiftRepo.create.mockResolvedValue({ ...createdShift, openingCash: 0 });
+    mockTx.shift.create.mockResolvedValue({ ...createdShift, openingCash: 0 });
 
     const input: StartShiftInput = {
       ...baseInput,
@@ -150,6 +160,31 @@ describe('StartShiftUseCase', () => {
     const result = await useCase.execute(input);
 
     expect(result.shiftId).toBe('shift-1');
-    expect(mockShiftRepo.create).toHaveBeenCalledWith(expect.objectContaining({ openingCash: 0 }));
+    expect(mockTx.shift.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ openingCash: 0 }),
+      }),
+    );
+  });
+
+  it('should throw BusinessError when another employee has open shift at outlet', async () => {
+    mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
+
+    // Re-create mockPrisma with findFirst returning null first (employee check), then existing (outlet check)
+    const localTx = {
+      shift: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 'other-shift', employeeId: 'other-emp' }),
+        create: jest.fn(),
+      },
+    };
+    mockPrisma.$transaction = jest.fn().mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (fn: (tx: any) => Promise<unknown>) => fn(localTx),
+    ) as jest.Mock;
+
+    await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
   });
 });

@@ -31,6 +31,12 @@ export interface ConvertedQuantity {
 export class UnitConversionService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findById(id: string) {
+    const conv = await this.prisma.unitConversion.findUnique({ where: { id } });
+    if (!conv) throw new NotFoundException('Unit conversion not found');
+    return conv;
+  }
+
   async listByProduct(productId: string) {
     return this.prisma.unitConversion.findMany({
       where: { productId },

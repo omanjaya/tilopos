@@ -81,10 +81,7 @@ export class SupplierAnalyticsController {
     });
 
     // Calculate statistics
-    const totalPurchases = purchaseOrders.reduce(
-      (sum, po) => sum + po.totalAmount.toNumber(),
-      0,
-    );
+    const totalPurchases = purchaseOrders.reduce((sum, po) => sum + po.totalAmount.toNumber(), 0);
 
     const totalOrders = purchaseOrders.length;
 
@@ -126,10 +123,7 @@ export class SupplierAnalyticsController {
 
   @Get(':id/payment-status')
   @ApiOperation({ summary: 'Payment status and outstanding balance for supplier' })
-  async getPaymentStatus(
-    @Param('id') supplierId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async getPaymentStatus(@Param('id') supplierId: string, @CurrentUser() user: AuthUser) {
     // Verify supplier belongs to business
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: supplierId },
@@ -165,7 +159,13 @@ export class SupplierAnalyticsController {
     let totalPaid = 0;
     let totalDebt = 0;
     let totalPurchases = 0;
-    const unpaidOrders: any[] = [];
+    const unpaidOrders: Array<{
+      id: string;
+      orderNumber: string;
+      totalAmount: number;
+      status: string;
+      orderDate: Date;
+    }> = [];
 
     for (const po of purchaseOrders) {
       const total = po.totalAmount.toNumber();
@@ -196,8 +196,8 @@ export class SupplierAnalyticsController {
         unpaidOrdersCount: unpaidOrders.length,
         overdueOrdersCount: 0,
       },
-      unpaidOrders: unpaidOrders.sort((a, b) =>
-        new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime()
+      unpaidOrders: unpaidOrders.sort(
+        (a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime(),
       ),
       overdueOrders: [],
     };

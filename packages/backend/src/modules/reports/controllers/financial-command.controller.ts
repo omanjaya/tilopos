@@ -1,9 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
@@ -14,6 +9,7 @@ import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
 import { getDateRange } from '../utils/date-range.util';
+import { PurchaseOrderStatus } from '@prisma/client';
 
 /**
  * Financial Command Controller
@@ -121,7 +117,7 @@ export class FinancialCommandController {
     const purchaseOrders = await this.prisma.purchaseOrder.aggregate({
       where: {
         outletId: { in: outletIds },
-        status: 'COMPLETED' as any,
+        status: PurchaseOrderStatus.received,
         createdAt: { gte: start, lte: end },
       },
       _sum: {
@@ -145,11 +141,14 @@ export class FinancialCommandController {
 
     const totalRefunds = Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
 
-    // Total Expenses = COGS + Purchases + Refunds + Discounts
-    const totalExpenses = totalCOGS + totalPurchases + totalRefunds + totalDiscounts;
+    // Total Expenses = COGS + Purchases + Refunds (discounts reduce revenue, not added to expenses)
+    const totalExpenses = totalCOGS + totalPurchases + totalRefunds;
+
+    // Net Revenue = Revenue - Discounts
+    const netRevenue = totalRevenue - totalDiscounts;
 
     // Net Profit
-    const netProfit = totalRevenue - totalExpenses;
+    const netProfit = netRevenue - totalExpenses;
     const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
     // Revenue & Expenses by Date for chart
@@ -307,8 +306,10 @@ export class FinancialCommandController {
 
       const refundAmount = Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
 
-      const expenses = cogs + refundAmount + discounts;
-      const profit = revenue - expenses;
+      // Discounts reduce revenue, not added to expenses
+      const expenses = cogs + refundAmount;
+      const netRevenue = revenue - discounts;
+      const profit = netRevenue - expenses;
       const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
       outletProfits.push({
@@ -386,7 +387,7 @@ export class FinancialCommandController {
     const purchaseOrders = await this.prisma.purchaseOrder.findMany({
       where: {
         outletId: { in: outletIds },
-        status: 'COMPLETED' as any,
+        status: PurchaseOrderStatus.received,
         createdAt: { gte: start, lte: end },
       },
       select: {
@@ -485,8 +486,7 @@ export class FinancialCommandController {
       method: p.paymentMethod,
       totalAmount: p._sum.amount?.toNumber() || 0,
       transactionCount: p._count,
-      avgTransactionValue:
-        p._count > 0 ? (p._sum.amount?.toNumber() || 0) / p._count : 0,
+      avgTransactionValue: p._count > 0 ? (p._sum.amount?.toNumber() || 0) / p._count : 0,
     }));
 
     // Sort by total amount descending
@@ -552,7 +552,7 @@ export class FinancialCommandController {
     const purchases = await this.prisma.purchaseOrder.aggregate({
       where: {
         outletId: { in: outletIds },
-        status: 'COMPLETED' as any,
+        status: PurchaseOrderStatus.received,
         createdAt: { gte: start, lte: end },
       },
       _sum: {

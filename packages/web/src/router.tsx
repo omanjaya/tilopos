@@ -5,18 +5,22 @@ import { AppLayout } from '@/components/layout/app-layout';
 import { RouteErrorPage } from './routes/route-error';
 import { LazyRoute } from './routes/shared';
 import { appRoutes } from './routes/app-routes';
-import { POSPage, KDSPage, RegisterPage } from './routes/lazy-imports';
+import { POSPage, KDSPage, RegisterPage, VerifyEmailPage, StorefrontPage } from './routes/lazy-imports';
 
 // Public pages (eager loading for fast initial load)
 import { LoginPage } from '@/features/auth/login-page';
 import { LandingPage } from '@/pages/landing-page';
+import { PricingPage } from '@/pages/pricing-page';
 import { CustomerSelfOrderPage } from '@/features/self-order/customer-self-order-page';
 
 export const router = createBrowserRouter([
   { path: '/', element: <LandingPage /> },
+  { path: '/pricing', element: <PricingPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <LazyRoute><RegisterPage /></LazyRoute> },
+  { path: '/auth/verify-email', element: <LazyRoute><VerifyEmailPage /></LazyRoute> },
   { path: '/order/:sessionCode', element: <CustomerSelfOrderPage /> },
+  { path: '/store/:slug', element: <LazyRoute><StorefrontPage /></LazyRoute> },
 
   // POS & KDS (fullscreen, no sidebar)
   {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -23,12 +23,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { Plus, MoreHorizontal, Pencil, Trash2, Loader2, Save } from 'lucide-react';
 import type { ModifierGroup, CreateModifierGroupRequest } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface ModifierFormItem {
   name: string;
@@ -39,7 +38,6 @@ interface ModifierFormItem {
 
 export function ModifierGroupsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ModifierGroup | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -67,16 +65,10 @@ export function ModifierGroupsPage() {
     mutationFn: (data: CreateModifierGroupRequest) => settingsApi.createModifierGroup(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modifierGroups'] });
-      toast({ title: 'Grup modifier berhasil dibuat' });
+      toast.success({ title: 'Grup modifier berhasil dibuat' });
       handleCloseDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan grup modifier'),
   });
 
   const updateMutation = useMutation({
@@ -84,32 +76,20 @@ export function ModifierGroupsPage() {
       settingsApi.updateModifierGroup(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modifierGroups'] });
-      toast({ title: 'Grup modifier berhasil diperbarui' });
+      toast.success({ title: 'Grup modifier berhasil diperbarui' });
       handleCloseDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui grup modifier'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => settingsApi.deleteModifierGroup(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modifierGroups'] });
-      toast({ title: 'Grup modifier berhasil dihapus' });
+      toast.success({ title: 'Grup modifier berhasil dihapus' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menghapus',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus grup modifier'),
   });
 
   const resetForm = () => {
@@ -189,23 +169,6 @@ export function ModifierGroupsPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handleOpenCreate();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const columns: Column<ModifierGroup>[] = [
     {
       key: 'name',
@@ -281,7 +244,12 @@ export function ModifierGroupsPage() {
         searchPlaceholder="Cari modifier..."
         onSearch={setSearch}
         emptyTitle="Belum ada grup modifier"
-        emptyDescription="Tambahkan grup modifier pertama Anda."
+        emptyDescription="Buat grup modifier untuk menambahkan opsi tambahan pada produk seperti tingkat kepedesan, ukuran, atau topping."
+        emptyAction={
+          <Button onClick={handleOpenCreate}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Grup
+          </Button>
+        }
       />
 
       {/* Create/Edit Dialog */}

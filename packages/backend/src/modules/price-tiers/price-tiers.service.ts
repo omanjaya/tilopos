@@ -31,6 +31,12 @@ export interface ResolvedPrice {
 export class PriceTiersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findById(id: string) {
+    const tier = await this.prisma.priceTier.findUnique({ where: { id } });
+    if (!tier) throw new NotFoundException('Price tier not found');
+    return tier;
+  }
+
   async listByProduct(productId: string) {
     return this.prisma.priceTier.findMany({
       where: { productId, isActive: true },

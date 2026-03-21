@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/api/endpoints/auth.api';
+import { subscriptionApi } from '@/api/endpoints/subscription.api';
+import { useAuthStore } from '@/stores/auth.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -27,10 +30,18 @@ import {
   Clock,
   MapPin,
   AlertCircle,
+  Crown,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+const BILLING_ROLES = ['owner', 'super_admin'];
+
 export function MyProfilePage() {
+  const navigate = useNavigate();
+  const authUser = useAuthStore((s) => s.user);
+  const canSeeBilling = authUser?.role && BILLING_ROLES.includes(authUser.role);
   const queryClient = useQueryClient();
   const { data: user, isLoading } = useQuery({
     queryKey: ['auth', 'me'],
@@ -68,6 +79,14 @@ export function MyProfilePage() {
   const { data: activityLogData, isLoading: isLoadingActivity } = useQuery({
     queryKey: ['auth', 'activity'],
     queryFn: () => authApi.getActivityLog({ page: 1, limit: 20 }),
+  });
+
+  const { data: subscription } = useQuery({
+    queryKey: ['subscription'],
+    queryFn: subscriptionApi.get,
+    enabled: !!canSeeBilling,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 
   const [activeTab, setActiveTab] = useState('personal');
@@ -237,10 +256,10 @@ export function MyProfilePage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <Label>Role</Label>
-                  <p className="mt-1 flex items-center gap-2">
+                  <div className="mt-1 flex items-center gap-2">
                     <Shield className="h-4 w-4 text-muted-foreground" />
                     <Badge>{user?.role?.replace('_', ' ')}</Badge>
-                  </p>
+                  </div>
                 </div>
                 <div>
                   <Label>Outlet Assignment</Label>
@@ -263,6 +282,79 @@ export function MyProfilePage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Subscription Info (owner/manager only) */}
+          {canSeeBilling && subscription && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {subscription.plan === 'premium' ? (
+                    <Crown className="h-5 w-5 text-primary" />
+                  ) : (
+                    <Sparkles className="h-5 w-5 text-muted-foreground" />
+                  )}
+                  Langganan
+                </CardTitle>
+                <CardDescription>
+                  Informasi paket langganan bisnis kamu
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label>Paket</Label>
+                    <div className="mt-1">
+                      <Badge variant={subscription.plan === 'premium' ? 'default' : 'secondary'}>
+                        {subscription.planConfig.name}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Status</Label>
+                    <div className="mt-1">
+                      <Badge variant={
+                        subscription.status === 'active' ? 'default' :
+                        subscription.status === 'trial' ? 'secondary' :
+                        'destructive'
+                      }>
+                        {subscription.status === 'active' ? 'Aktif' :
+                         subscription.status === 'trial' ? 'Trial' :
+                         subscription.status === 'expired' ? 'Expired' :
+                         'Dibatalkan'}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                {subscription.isTrialActive && subscription.daysRemaining !== null && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+                    <p className="text-sm text-amber-900 dark:text-amber-100">
+                      <Clock className="mr-1 inline h-4 w-4" />
+                      Trial berakhir dalam {subscription.daysRemaining} hari
+                    </p>
+                  </div>
+                )}
+                {subscription.endDate && (
+                  <div>
+                    <Label>Berlaku Sampai</Label>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {new Date(subscription.endDate).toLocaleDateString('id-ID', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => navigate('/app/subscription')}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Kelola Langganan
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Security Tab */}

@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Inject } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -16,10 +27,12 @@ import type { ICustomerRepository } from '../../domain/interfaces/repositories/c
 import { AppError } from '../../shared/errors/app-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
 import { LoyaltyCronService } from './loyalty-cron.service';
+import { RequireFeature } from '../../common/guards/feature.guard';
 
 @ApiTags('Loyalty')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@RequireFeature('customer_loyalty')
 @Controller('loyalty')
 export class LoyaltyController {
   constructor(
@@ -64,7 +77,8 @@ export class LoyaltyController {
 
   @Get('customer/:customerId')
   @ApiOperation({ summary: 'Get customer loyalty info (points, tier, program status)' })
-  async getCustomerLoyalty(@Param('customerId') customerId: string) {
+  async getCustomerLoyalty(@Param('customerId') customerId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCustomerAccess(customerId, user.businessId);
     return this.getLoyaltyBalanceUseCase.execute({ customerId });
   }
 
@@ -72,8 +86,10 @@ export class LoyaltyController {
   @ApiOperation({ summary: 'Get customer loyalty transaction history' })
   async getCustomerHistory(
     @Param('customerId') customerId: string,
+    @CurrentUser() user: AuthUser,
     @Query('limit') limit?: string,
   ) {
+    await this.verifyCustomerAccess(customerId, user.businessId);
     return this.getLoyaltyHistoryUseCase.execute({
       customerId,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -91,6 +107,9 @@ export class LoyaltyController {
     const customer = await this.customerRepo.findById(dto.customerId);
     if (!customer) {
       throw new AppError(ErrorCode.CUSTOMER_NOT_FOUND, 'Customer not found');
+    }
+    if (customer.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this customer');
     }
 
     const newBalance = Math.max(0, customer.loyaltyPoints + dto.points);
@@ -175,5 +194,12 @@ export class LoyaltyController {
   })
   async checkTiers(@CurrentUser() user: AuthUser) {
     return this.loyaltyCronService.evaluateTiersForBusiness(user.businessId);
+  }
+
+  private async verifyCustomerAccess(customerId: string, businessId: string): Promise<void> {
+    const customer = await this.customerRepo.findById(customerId);
+    if (!customer || customer.businessId !== businessId) {
+      throw new ForbiddenException('Access denied to this customer');
+    }
   }
 }

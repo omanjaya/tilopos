@@ -41,6 +41,14 @@ import { cn } from '@/lib/utils';
  * ```
  */
 
+export interface MobileTablePagination {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  onPageChange: (page: number) => void;
+}
+
 interface MobileTableProps<T> {
   /** Array of data items */
   data: T[];
@@ -68,6 +76,8 @@ interface MobileTableProps<T> {
   cardClassName?: string;
   /** Gap between cards (default: 3 = 12px) */
   gap?: 1 | 2 | 3 | 4 | 6 | 8;
+  /** Optional pagination */
+  pagination?: MobileTablePagination;
 }
 
 export function MobileTable<T>({
@@ -84,6 +94,7 @@ export function MobileTable<T>({
   className,
   cardClassName,
   gap = 3,
+  pagination,
 }: MobileTableProps<T>) {
   const gapClasses = {
     1: 'space-y-1',
@@ -225,6 +236,48 @@ export function MobileTable<T>({
             {renderCard(item, index)}
           </div>
         ))}
+      </div>
+
+      {/* Pagination */}
+      {pagination && pagination.totalPages > 1 && (
+        <MobileTablePaginationControls pagination={pagination} />
+      )}
+    </div>
+  );
+}
+
+function MobileTablePaginationControls({ pagination }: { pagination: MobileTablePagination }) {
+  const { page, totalPages, total, limit, onPageChange } = pagination;
+  const start = (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+
+  return (
+    <div className="flex flex-col items-center gap-3 pt-4 pb-2">
+      <p className="text-xs text-muted-foreground">
+        {start}–{end} dari {total.toLocaleString('id-ID')}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          className="h-9 px-4"
+        >
+          Sebelumnya
+        </Button>
+        <span className="text-sm text-muted-foreground min-w-[60px] text-center">
+          {page} / {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          className="h-9 px-4"
+        >
+          Berikutnya
+        </Button>
       </div>
     </div>
   );

@@ -159,4 +159,20 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
       grandTotal: order.grandTotal.toNumber(),
     };
   }
+
+  async findOrderById(id: string): Promise<StoreOrderRecord | null> {
+    const order = await this.prisma.storeOrder.findUnique({ where: { id } });
+    if (!order) return null;
+    return {
+      ...order,
+      shippingCost: order.shippingCost.toNumber(),
+      subtotal: order.subtotal.toNumber(),
+      discountAmount: order.discountAmount.toNumber(),
+      grandTotal: order.grandTotal.toNumber(),
+    };
+  }
+
+  async findStoreById(id: string): Promise<OnlineStoreRecord | null> {
+    return this.prisma.onlineStore.findUnique({ where: { id } });
+  }
 }

@@ -47,8 +47,16 @@ export class EarnLoyaltyPointsUseCase {
     const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
     const multiplier = currentTier ? currentTier.pointMultiplier : 1;
 
+    if (!program.pointsPerAmount || program.pointsPerAmount <= 0) {
+      return {
+        pointsEarned: 0,
+        totalPoints: customer.loyaltyPoints,
+        tierChanged: false,
+      };
+    }
+
     const pointsEarned = Math.floor(
-      (params.transactionTotal / program.amountPerPoint) * multiplier,
+      (params.transactionTotal / program.pointsPerAmount) * multiplier,
     );
     if (pointsEarned <= 0) {
       return {

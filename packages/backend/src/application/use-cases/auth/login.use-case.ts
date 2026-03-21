@@ -1,7 +1,8 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { IEmployeeRepository } from '@domain/interfaces/repositories/employee.repository';
 
 export interface LoginInput {
@@ -17,7 +18,9 @@ export interface LoginOutput {
   role: string;
   businessId: string;
   outletId: string | null;
+  outletName: string | null;
   onboardingCompleted: boolean;
+  emailVerified: boolean;
 }
 
 export interface MfaRequiredOutput {
@@ -27,10 +30,13 @@ export interface MfaRequiredOutput {
 
 @Injectable()
 export class LoginUseCase {
+  private readonly logger = new Logger(LoginUseCase.name);
+
   constructor(
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: LoginInput): Promise<LoginOutput | MfaRequiredOutput> {
@@ -44,10 +50,28 @@ export class LoginUseCase {
     const pinValid = await bcrypt.compare(input.pin, pinToCompare);
 
     if (!employee || !employee.isActive || !employee.pin || !pinValid) {
+      this.logger.warn(`Failed login attempt for email: ${input.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const outletId = input.outletId || employee.outletId;
+    let outletId = input.outletId || employee.outletId;
+
+    // Validate that user-supplied outletId belongs to the employee's business
+    if (input.outletId && input.outletId !== employee.outletId) {
+      // Only Owner, Manager, or Super Admin can override their assigned outlet
+      const allowedRoles = ['super_admin', 'owner', 'manager'];
+      if (!allowedRoles.includes(employee.role)) {
+        throw new UnauthorizedException('Not authorized to switch outlets');
+      }
+
+      const outlet = await this.prisma.outlet.findFirst({
+        where: { id: input.outletId, businessId: employee.businessId },
+      });
+      if (!outlet) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      outletId = outlet.id;
+    }
 
     if (employee.mfaEnabled) {
       const mfaPayload = {
@@ -66,11 +90,22 @@ export class LoginUseCase {
       };
     }
 
+    // Resolve outlet name
+    let outletName: string | null = null;
+    if (outletId) {
+      const outlet = await this.prisma.outlet.findUnique({
+        where: { id: outletId },
+        select: { name: true },
+      });
+      outletName = outlet?.name ?? null;
+    }
+
     const payload = {
       sub: employee.id,
       businessId: employee.businessId,
       outletId,
       role: employee.role,
+      emailVerified: employee.emailVerified ?? false,
     };
 
     const accessToken = this.jwtService.sign(payload);
@@ -82,7 +117,9 @@ export class LoginUseCase {
       role: employee.role,
       businessId: employee.businessId,
       outletId,
+      outletName,
       onboardingCompleted: employee.onboardingCompleted ?? false,
+      emailVerified: employee.emailVerified ?? false,
     };
   }
 }

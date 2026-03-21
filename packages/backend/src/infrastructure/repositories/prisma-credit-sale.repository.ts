@@ -36,6 +36,9 @@ export class PrismaCreditSaleRepository implements ICreditSaleRepository {
 
   async findAll(filters: CreditSaleFilters): Promise<CreditSaleRecord[]> {
     const where: Record<string, unknown> = {};
+    if (filters.businessId) {
+      where.transaction = { outlet: { businessId: filters.businessId } };
+    }
     if (filters.outletId) where.outletId = filters.outletId;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.status) where.status = filters.status;
@@ -57,9 +60,16 @@ export class PrismaCreditSaleRepository implements ICreditSaleRepository {
     return records.map((r) => this.mapToRecord(r));
   }
 
-  async findByCustomerId(customerId: string, status?: string): Promise<CreditSaleRecord[]> {
+  async findByCustomerId(
+    customerId: string,
+    status?: string,
+    businessId?: string,
+  ): Promise<CreditSaleRecord[]> {
     const where: Record<string, unknown> = { customerId };
     if (status) where.status = status;
+    if (businessId) {
+      where.transaction = { outlet: { businessId } };
+    }
 
     const records = await this.prisma.creditSale.findMany({
       where,

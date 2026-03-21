@@ -42,6 +42,7 @@ export interface TransactionItemRecord {
   transactionId: string;
   productId: string | null;
   variantId: string | null;
+  bundleId?: string | null;
   productName: string;
   variantName: string | null;
   quantity: number;

@@ -1,9 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { OfflineBanner } from '@/components/shared/offline-banner';
 import { OnboardingProvider } from '@/features/onboarding/onboarding-provider';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { router } from './router';
 
 const ONBOARDING_KEY = 'tilo_onboarding_completed';
@@ -16,6 +17,13 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
   },
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      // Skip if mutation has its own onError handler
+      if (mutation.options.onError) return;
+      handleMutationError(error);
+    },
+  }),
 });
 
 function getOnboardingCompleted(): boolean {

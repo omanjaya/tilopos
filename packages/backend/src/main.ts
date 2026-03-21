@@ -1,7 +1,9 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './shared/filters/global-exception.filter';
 import { RequestLoggerMiddleware } from './infrastructure/logging/request-logger.middleware';
@@ -35,7 +37,7 @@ function validateEnvironment() {
 async function bootstrap() {
   validateEnvironment();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.setGlobalPrefix('api/v1');
 
@@ -51,7 +53,19 @@ async function bootstrap() {
 
   app.use(new RequestLoggerMiddleware().use.bind(new RequestLoggerMiddleware()));
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:', '*'],
+          connectSrc: ["'self'", 'ws:', 'wss:'],
+        },
+      },
+    }),
+  );
 
   const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
   app.enableCors({
@@ -59,15 +73,19 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const config = new DocumentBuilder()
-    .setTitle('TiloPOS API')
-    .setDescription('Point of Sale system for Indonesian SME/UMKM')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('TiloPOS API')
+      .setDescription('Point of Sale system for Indonesian SME/UMKM')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
+  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   const port = process.env.PORT || 3000;
   await app.listen(port);

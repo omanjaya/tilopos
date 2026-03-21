@@ -37,6 +37,10 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   getUrl(filepath: string): string {
+    const cdnUrl = process.env.CDN_URL;
+    if (cdnUrl) {
+      return `${cdnUrl}/uploads/${filepath}`;
+    }
     return `/uploads/${filepath}`;
   }
 }

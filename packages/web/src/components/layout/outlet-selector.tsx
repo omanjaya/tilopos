@@ -16,7 +16,7 @@ export function OutletSelector() {
   const user = useAuthStore((s) => s.user);
 
   // Only owner/manager can switch outlets
-  const canSwitchOutlets = user?.role && ['owner', 'manager', 'supervisor'].includes(user.role);
+  const canSwitchOutlets = user?.role && ['super_admin', 'owner', 'manager', 'supervisor'].includes(user.role);
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],

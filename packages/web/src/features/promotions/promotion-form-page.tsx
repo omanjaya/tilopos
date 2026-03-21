@@ -16,10 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import type { CreatePromotionRequest, DiscountType } from '@/types/promotion.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function PromotionFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -64,12 +63,7 @@ export function PromotionFormPage() {
       toast.success({ title: 'Promosi berhasil dibuat' });
       navigate('/app/promotions');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal'),
   });
 
   const updateMutation = useMutation({
@@ -79,12 +73,7 @@ export function PromotionFormPage() {
       toast.success({ title: 'Promosi berhasil diperbarui' });
       navigate('/app/promotions');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal'),
   });
 
   const isPending = createMutation.isPending || updateMutation.isPending;

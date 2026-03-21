@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { productsApi } from '@/api/endpoints/products.api';
+import type { TransferTemplateData } from '@/types/inventory.types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +19,7 @@ import {
 import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import type { TransferTemplate } from '@/types/transfer-template.types';
-import type { AxiosError } from 'axios';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 interface TransferTemplateFormModalProps {
   open: boolean;
@@ -85,7 +86,7 @@ export function TransferTemplateFormModal({
   }, [template, open]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: TransferTemplateData) => {
       if (template) {
         return inventoryApi.updateTransferTemplate(template.id, data);
       }
@@ -98,12 +99,7 @@ export function TransferTemplateFormModal({
       });
       onOpenChange(false);
     },
-    onError: (error: AxiosError<any>) => {
-      toast.error({
-        title: 'Gagal menyimpan template',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan template'),
   });
 
   const handleAddItem = () => {

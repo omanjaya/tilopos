@@ -3,16 +3,20 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
 import { BusinessTypeService } from '../business/services/business-type.service';
 import { randomBytes } from 'crypto';
-import type {
-  OnboardingProgressResponse,
-  OnboardingStepStatus,
-} from './dto/onboarding.dto';
+import type { OnboardingProgressResponse, OnboardingStepStatus } from './dto/onboarding.dto';
 import type { GuidedSetupDto } from './dto/guided-setup.dto';
 
 export interface GuidedSetupResult {
   business: { updated: boolean };
   businessType: { set: boolean; type: string | null; featuresEnabled: number };
-  template: { applied: boolean; categories: number; products: number; modifierGroups: number; modifiers: number; tables: number };
+  template: {
+    applied: boolean;
+    categories: number;
+    products: number;
+    modifierGroups: number;
+    modifiers: number;
+    tables: number;
+  };
   paymentMethods: { configured: boolean; count: number };
   employee: { created: boolean; id: string | null };
   onboarding: { completed: boolean };
@@ -145,7 +149,14 @@ export class OnboardingService {
     const result: GuidedSetupResult = {
       business: { updated: false },
       businessType: { set: false, type: null, featuresEnabled: 0 },
-      template: { applied: false, categories: 0, products: 0, modifierGroups: 0, modifiers: 0, tables: 0 },
+      template: {
+        applied: false,
+        categories: 0,
+        products: 0,
+        modifierGroups: 0,
+        modifiers: 0,
+        tables: 0,
+      },
       paymentMethods: { configured: false, count: 0 },
       employee: { created: false, id: null },
       onboarding: { completed: false },
@@ -169,7 +180,10 @@ export class OnboardingService {
 
     // 2. Set business type + enable features
     if (dto.businessType) {
-      const typeResult = await this.businessTypeService.changeBusinessType(businessId, dto.businessType);
+      const typeResult = await this.businessTypeService.changeBusinessType(
+        businessId,
+        dto.businessType,
+      );
       result.businessType = {
         set: typeResult.success,
         type: dto.businessType,
@@ -178,7 +192,7 @@ export class OnboardingService {
     }
 
     // 3. Apply template
-    const resolvedOutletId = outletId ?? await this.getFirstOutletId(businessId);
+    const resolvedOutletId = outletId ?? (await this.getFirstOutletId(businessId));
     if (dto.businessType && dto.template?.sections && resolvedOutletId) {
       const templateResult = await this.templatesService.applyTemplate(
         businessId,
@@ -343,7 +357,9 @@ export class OnboardingService {
     }
 
     const settings = business.settings as Record<string, unknown> | null;
-    const businessPaymentMethods = settings?.businessPaymentMethods as Array<{ isActive: boolean }> | undefined;
+    const businessPaymentMethods = settings?.businessPaymentMethods as
+      | Array<{ isActive: boolean }>
+      | undefined;
 
     // Check if at least one payment method is active
     if (businessPaymentMethods && Array.isArray(businessPaymentMethods)) {
@@ -442,7 +458,9 @@ export class OnboardingService {
    * @param businessId - Business ID
    * @returns Business settings or null
    */
-  private async getBusinessSettings(businessId: string): Promise<{ settings: Record<string, unknown> } | null> {
+  private async getBusinessSettings(
+    businessId: string,
+  ): Promise<{ settings: Record<string, unknown> } | null> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { settings: true },

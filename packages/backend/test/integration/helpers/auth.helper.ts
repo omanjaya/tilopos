@@ -62,31 +62,19 @@ export async function loginAs(role: RoleKey): Promise<RoleAuth> {
 export function authRequest(app: INestApplication, role: RoleKey) {
   const auth = testContext.auth[role];
   if (!auth) {
-    throw new Error(
-      `No auth token for role "${role}". Call loginAs("${role}") first.`,
-    );
+    throw new Error(`No auth token for role "${role}". Call loginAs("${role}") first.`);
   }
 
   return {
     get: (url: string) =>
-      request(app.getHttpServer())
-        .get(url)
-        .set('Authorization', `Bearer ${auth.accessToken}`),
+      request(app.getHttpServer()).get(url).set('Authorization', `Bearer ${auth.accessToken}`),
     post: (url: string) =>
-      request(app.getHttpServer())
-        .post(url)
-        .set('Authorization', `Bearer ${auth.accessToken}`),
+      request(app.getHttpServer()).post(url).set('Authorization', `Bearer ${auth.accessToken}`),
     put: (url: string) =>
-      request(app.getHttpServer())
-        .put(url)
-        .set('Authorization', `Bearer ${auth.accessToken}`),
+      request(app.getHttpServer()).put(url).set('Authorization', `Bearer ${auth.accessToken}`),
     patch: (url: string) =>
-      request(app.getHttpServer())
-        .patch(url)
-        .set('Authorization', `Bearer ${auth.accessToken}`),
+      request(app.getHttpServer()).patch(url).set('Authorization', `Bearer ${auth.accessToken}`),
     delete: (url: string) =>
-      request(app.getHttpServer())
-        .delete(url)
-        .set('Authorization', `Bearer ${auth.accessToken}`),
+      request(app.getHttpServer()).delete(url).set('Authorization', `Bearer ${auth.accessToken}`),
   };
 }

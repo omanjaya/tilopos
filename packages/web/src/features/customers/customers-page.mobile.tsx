@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -28,8 +29,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 /**
  * CustomersPage Mobile Version
@@ -44,7 +43,6 @@ import type { ApiErrorResponse } from '@/types/api.types';
 export function CustomersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
@@ -61,17 +59,11 @@ export function CustomersPage() {
     mutationFn: (id: string) => customersApi.update(id, { isActive: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      toast({ title: 'Pelanggan dinonaktifkan' });
+      toast.success({ title: 'Pelanggan dinonaktifkan' });
       setDeleteTarget(null);
       setSelectedCustomer(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menonaktifkan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menonaktifkan'),
   });
 
   const customers = customersData || [];

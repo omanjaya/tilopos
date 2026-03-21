@@ -26,43 +26,41 @@ describe('Suite 9: Stock Transfer', () => {
   describe('Setup', () => {
     it('should ensure a second outlet exists for transfers', async () => {
       // List existing outlets
-      const listRes = await authRequest(app, 'owner')
-        .get('/api/v1/settings/outlets');
+      const listRes = await authRequest(app, 'owner').get('/api/v1/settings/outlets');
 
       expect(listRes.status).toBeLessThan(400);
 
-      const outlets = Array.isArray(listRes.body)
-        ? listRes.body
-        : listRes.body.data || [];
+      const outlets = Array.isArray(listRes.body) ? listRes.body : listRes.body.data || [];
 
       if (!testContext.created['outletIds']) {
         testContext.created['outletIds'] = [];
       }
 
       // Store primary outlet
-      if (outlets.length > 0 && testContext.outletId && !testContext.created['outletIds'].includes(testContext.outletId)) {
+      if (
+        outlets.length > 0 &&
+        testContext.outletId &&
+        !testContext.created['outletIds'].includes(testContext.outletId)
+      ) {
         testContext.created['outletIds'].push(testContext.outletId);
       }
 
       if (outlets.length >= 2) {
         // Use existing second outlet
-        const secondOutlet = outlets.find(
-          (o: any) => o.id !== testContext.outletId,
-        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const secondOutlet = outlets.find((o: any) => o.id !== testContext.outletId);
         if (secondOutlet && !testContext.created['outletIds'].includes(secondOutlet.id)) {
           testContext.created['outletIds'].push(secondOutlet.id);
         }
         console.log('Using existing second outlet:', secondOutlet?.name);
       } else {
         // Create a second outlet
-        const createRes = await authRequest(app, 'owner')
-          .post('/api/v1/settings/outlets')
-          .send({
-            name: 'Outlet Cabang B',
-            code: 'OUT-B',
-            address: 'Jl. Test No. 2',
-            phone: '081234567891',
-          });
+        const createRes = await authRequest(app, 'owner').post('/api/v1/settings/outlets').send({
+          name: 'Outlet Cabang B',
+          code: 'OUT-B',
+          address: 'Jl. Test No. 2',
+          phone: '081234567891',
+        });
 
         if (createRes.status >= 400) {
           console.log('Create outlet error:', createRes.status, createRes.body);
@@ -82,8 +80,7 @@ describe('Suite 9: Stock Transfer', () => {
     it('should ensure productIds exist in context', async () => {
       if (!testContext.created.productIds.length) {
         // Fetch products from API if not populated by earlier suites
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/inventory/products');
+        const res = await authRequest(app, 'owner').get('/api/v1/inventory/products');
 
         expect(res.status).toBeLessThan(400);
         const products = Array.isArray(res.body)
@@ -91,6 +88,7 @@ describe('Suite 9: Stock Transfer', () => {
           : res.body.data || res.body.products || [];
 
         expect(products.length).toBeGreaterThan(0);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.productIds = products.map((p: any) => p.id);
         saveContext();
       }
@@ -103,8 +101,9 @@ describe('Suite 9: Stock Transfer', () => {
       const productId = testContext.created.productIds[0]; // Nasi Goreng
 
       // Check current stock
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${sourceOutletId}`);
+      const stockRes = await authRequest(app, 'owner').get(
+        `/api/v1/inventory/stock/${sourceOutletId}`,
+      );
 
       if (stockRes.status >= 400) {
         console.log('Stock check error:', stockRes.status, stockRes.body);
@@ -116,9 +115,8 @@ describe('Suite 9: Stock Transfer', () => {
         : stockRes.body.data || stockRes.body.items || [];
 
       // Find stock for our product
-      const productStock = stockItems.find(
-        (s: any) => s.productId === productId,
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const productStock = stockItems.find((s: any) => s.productId === productId);
 
       // If no stock or insufficient, adjust stock
       const currentQty = productStock ? Number(productStock.quantity) : 0;
@@ -156,24 +154,24 @@ describe('Suite 9: Stock Transfer', () => {
       const productId = testContext.created.productIds[0];
 
       // Get stock for outlet A
-      const resA = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletA}`);
+      const resA = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletA}`);
 
       expect(resA.status).toBeLessThan(400);
       const stocksA = Array.isArray(resA.body)
         ? resA.body
         : resA.body.data || resA.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemA = stocksA.find((s: any) => s.productId === productId);
       stockSnapshotA = itemA ? Number(itemA.quantity) : 0;
 
       // Get stock for outlet B
-      const resB = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletB}`);
+      const resB = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletB}`);
 
       expect(resB.status).toBeLessThan(400);
       const stocksB = Array.isArray(resB.body)
         ? resB.body
         : resB.body.data || resB.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemB = stocksB.find((s: any) => s.productId === productId);
       stockSnapshotB = itemB ? Number(itemB.quantity) : 0;
 
@@ -222,8 +220,9 @@ describe('Suite 9: Stock Transfer', () => {
     it('9.3 - should approve transfer (manager)', async () => {
       expect(transferId).toBeDefined();
 
-      const res = await authRequest(app, 'manager')
-        .put(`/api/v1/stock-transfers/${transferId}/approve`);
+      const res = await authRequest(app, 'manager').put(
+        `/api/v1/stock-transfers/${transferId}/approve`,
+      );
 
       if (res.status >= 400) {
         console.log('9.3 approve error:', res.status, res.body);
@@ -235,8 +234,7 @@ describe('Suite 9: Stock Transfer', () => {
     it('9.4 - should ship transfer', async () => {
       expect(transferId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .put(`/api/v1/stock-transfers/${transferId}/ship`);
+      const res = await authRequest(app, 'owner').put(`/api/v1/stock-transfers/${transferId}/ship`);
 
       if (res.status >= 400) {
         console.log('9.4 ship error:', res.status, res.body);
@@ -249,13 +247,11 @@ describe('Suite 9: Stock Transfer', () => {
       const outletA = testContext.created['outletIds'][0];
       const productId = testContext.created.productIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletA}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletA}`);
 
       expect(res.status).toBeLessThan(400);
-      const stocks = Array.isArray(res.body)
-        ? res.body
-        : res.body.data || res.body.items || [];
+      const stocks = Array.isArray(res.body) ? res.body : res.body.data || res.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => s.productId === productId);
       const currentQty = item ? Number(item.quantity) : 0;
 
@@ -268,8 +264,9 @@ describe('Suite 9: Stock Transfer', () => {
     it('9.6 - should receive transfer', async () => {
       expect(transferId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .put(`/api/v1/stock-transfers/${transferId}/receive`);
+      const res = await authRequest(app, 'owner').put(
+        `/api/v1/stock-transfers/${transferId}/receive`,
+      );
 
       if (res.status >= 400) {
         console.log('9.6 receive error:', res.status, res.body);
@@ -284,26 +281,28 @@ describe('Suite 9: Stock Transfer', () => {
       const productId = testContext.created.productIds[0];
 
       // Outlet A stock should have decreased
-      const resA = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletA}`);
+      const resA = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletA}`);
       expect(resA.status).toBeLessThan(400);
       const stocksA = Array.isArray(resA.body)
         ? resA.body
         : resA.body.data || resA.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemA = stocksA.find((s: any) => s.productId === productId);
       const newQtyA = itemA ? Number(itemA.quantity) : 0;
 
       // Outlet B stock should have increased
-      const resB = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletB}`);
+      const resB = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletB}`);
       expect(resB.status).toBeLessThan(400);
       const stocksB = Array.isArray(resB.body)
         ? resB.body
         : resB.body.data || resB.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemB = stocksB.find((s: any) => s.productId === productId);
       const newQtyB = itemB ? Number(itemB.quantity) : 0;
 
-      console.log(`9.7 After receive - A: ${newQtyA} (was ${stockSnapshotA}), B: ${newQtyB} (was ${stockSnapshotB})`);
+      console.log(
+        `9.7 After receive - A: ${newQtyA} (was ${stockSnapshotA}), B: ${newQtyB} (was ${stockSnapshotB})`,
+      );
 
       // NOTE: The standard workflow (pending → approved → in_transit → received)
       // only updates the transfer status. Stock levels are NOT adjusted by the
@@ -319,8 +318,7 @@ describe('Suite 9: Stock Transfer', () => {
 
     it('9.8 - should verify stock movements exist for both outlets', async () => {
       // Get transfer detail to check items/movements
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/stock-transfers/${transferId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/stock-transfers/${transferId}`);
 
       if (res.status >= 400) {
         console.log('9.8 get transfer error:', res.status, res.body);
@@ -335,12 +333,8 @@ describe('Suite 9: Stock Transfer', () => {
       expect(items.length).toBeGreaterThanOrEqual(1);
 
       // Verify the transfer has source and destination info
-      expect(
-        res.body.sourceOutletId || res.body.sourceOutlet,
-      ).toBeDefined();
-      expect(
-        res.body.destinationOutletId || res.body.destinationOutlet,
-      ).toBeDefined();
+      expect(res.body.sourceOutletId || res.body.sourceOutlet).toBeDefined();
+      expect(res.body.destinationOutletId || res.body.destinationOutlet).toBeDefined();
     });
   });
 
@@ -358,21 +352,21 @@ describe('Suite 9: Stock Transfer', () => {
       const productId = testContext.created.productIds[0];
 
       // Snapshot before direct transfer
-      const resA = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletA}`);
+      const resA = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletA}`);
       expect(resA.status).toBeLessThan(400);
       const stocksA = Array.isArray(resA.body)
         ? resA.body
         : resA.body.data || resA.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemA = stocksA.find((s: any) => s.productId === productId);
       stockBeforeA = itemA ? Number(itemA.quantity) : 0;
 
-      const resB = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletB}`);
+      const resB = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletB}`);
       expect(resB.status).toBeLessThan(400);
       const stocksB = Array.isArray(resB.body)
         ? resB.body
         : resB.body.data || resB.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemB = stocksB.find((s: any) => s.productId === productId);
       stockBeforeB = itemB ? Number(itemB.quantity) : 0;
 
@@ -407,25 +401,27 @@ describe('Suite 9: Stock Transfer', () => {
       const outletB = testContext.created['outletIds'][1];
       const productId = testContext.created.productIds[0];
 
-      const resA = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletA}`);
+      const resA = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletA}`);
       expect(resA.status).toBeLessThan(400);
       const stocksA = Array.isArray(resA.body)
         ? resA.body
         : resA.body.data || resA.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemA = stocksA.find((s: any) => s.productId === productId);
       const newQtyA = itemA ? Number(itemA.quantity) : 0;
 
-      const resB = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletB}`);
+      const resB = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletB}`);
       expect(resB.status).toBeLessThan(400);
       const stocksB = Array.isArray(resB.body)
         ? resB.body
         : resB.body.data || resB.body.items || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemB = stocksB.find((s: any) => s.productId === productId);
       const newQtyB = itemB ? Number(itemB.quantity) : 0;
 
-      console.log(`9.10 After direct - A: ${newQtyA} (was ${stockBeforeA}), B: ${newQtyB} (was ${stockBeforeB})`);
+      console.log(
+        `9.10 After direct - A: ${newQtyA} (was ${stockBeforeA}), B: ${newQtyB} (was ${stockBeforeB})`,
+      );
 
       // Stock should have updated immediately
       expect(newQtyA).toBe(stockBeforeA - DIRECT_QTY);
@@ -470,10 +466,9 @@ describe('Suite 9: Stock Transfer', () => {
       const to = new Date(now);
       to.setDate(to.getDate() + 1);
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/stock-transfers/discrepancies?from=${from.toISOString().split('T')[0]}&to=${to.toISOString().split('T')[0]}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/stock-transfers/discrepancies?from=${from.toISOString().split('T')[0]}&to=${to.toISOString().split('T')[0]}`,
+      );
 
       if (res.status >= 400) {
         console.log('9.12 discrepancies error:', res.status, res.body);

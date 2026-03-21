@@ -23,19 +23,25 @@ import { useFeatureStore } from '@/stores/feature.store';
  */
 export function useFeatureGate(feature: string | string[], requireAll = false) {
     const isFeatureEnabled = useFeatureStore((s) => s.isFeatureEnabled);
+    const isFeatureRestricted = useFeatureStore((s) => s.isFeatureRestricted);
     const isLoaded = useFeatureStore((s) => s.isLoaded);
     const businessType = useFeatureStore((s) => s.businessType);
-
-    // For custom business type, all features are considered enabled
-    if (businessType === 'custom') {
-        return { isEnabled: true, isLoaded: true };
-    }
 
     if (!isLoaded) {
         return { isEnabled: true, isLoaded: false };
     }
 
     const features = Array.isArray(feature) ? feature : [feature];
+
+    // For custom business type, bypass business-type feature filtering
+    // but still enforce subscription restrictions
+    if (businessType === 'custom') {
+        const hasRestricted = requireAll
+            ? features.some((f) => isFeatureRestricted(f))
+            : features.every((f) => isFeatureRestricted(f));
+
+        return { isEnabled: !hasRestricted, isLoaded: true };
+    }
 
     const isEnabled = requireAll
         ? features.every((f) => isFeatureEnabled(f))

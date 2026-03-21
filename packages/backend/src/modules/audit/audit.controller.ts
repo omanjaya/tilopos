@@ -14,11 +14,13 @@ import {
   ExportFormat,
   SuspiciousActivityType,
 } from '../../application/dtos/audit.dto';
+import { RequireFeature } from '../../common/guards/feature.guard';
 
 @ApiTags('Audit')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+@RequireFeature('audit_log')
 @Controller('audit')
 export class AuditController {
   constructor(
@@ -45,8 +47,12 @@ export class AuditController {
   @ApiOperation({ summary: 'Get audit logs by entity' })
   @ApiQuery({ name: 'entityType', required: true })
   @ApiQuery({ name: 'entityId', required: true })
-  async byEntity(@Query('entityType') entityType: string, @Query('entityId') entityId: string) {
-    return this.auditRepo.findByEntity(entityType, entityId);
+  async byEntity(
+    @Query('entityType') entityType: string,
+    @Query('entityId') entityId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.auditRepo.findByEntity(entityType, entityId, user.businessId);
   }
 
   // ======================================================================
@@ -65,17 +71,23 @@ export class AuditController {
   @ApiQuery({ name: 'outletId', required: false })
   async getSuspiciousActivities(
     @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
     @Query('types') types?: SuspiciousActivityType | SuspiciousActivityType[],
     @Query('outletId') outletId?: string,
   ) {
     const typesArray = types ? (Array.isArray(types) ? types : [types]) : undefined;
 
+    const now = new Date();
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate) : now;
+
     return this.auditService.detectSuspiciousActivities(
       user.businessId,
-      new Date(startDate),
-      new Date(endDate),
+      start,
+      end,
       typesArray,
       outletId,
     );

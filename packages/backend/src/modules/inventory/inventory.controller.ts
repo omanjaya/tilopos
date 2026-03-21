@@ -14,6 +14,7 @@ import {
   Inject,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -36,7 +37,10 @@ import {
   StockDiscrepancyQueryDto,
   AutoRequestTransferDto,
 } from '../../application/dtos/inventory-import-export.dto';
-import { BulkUpdateProductsDto, BulkDeleteProductsDto } from '../../application/dtos/bulk-product.dto';
+import {
+  BulkUpdateProductsDto,
+  BulkDeleteProductsDto,
+} from '../../application/dtos/bulk-product.dto';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { IProductRepository } from '../../domain/interfaces/repositories/product.repository';
 import type { IInventoryRepository } from '../../domain/interfaces/repositories/inventory.repository';
@@ -153,7 +157,7 @@ export class InventoryController {
   @Post('products')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async createProduct(@Body() dto: CreateProductDto, @CurrentUser() user: AuthUser) {
-    return this.createProductUseCase.execute({
+    const result = await this.createProductUseCase.execute({
       businessId: user.businessId,
       categoryId: dto.categoryId,
       sku: dto.sku,
@@ -166,6 +170,12 @@ export class InventoryController {
       variants: dto.variants,
       modifierGroupIds: dto.modifierGroupIds,
     });
+
+    // Return full product so frontend has name, basePrice, etc.
+    return this.prisma.product.findUnique({
+      where: { id: result.productId },
+      include: { variants: { where: { isActive: true } }, category: true },
+    });
   }
 
   // ==================== Bulk Operations ====================
@@ -174,20 +184,14 @@ export class InventoryController {
   @Patch('products/bulk')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Bulk update products (category, price, status, etc.)' })
-  async bulkUpdateProducts(
-    @Body() dto: BulkUpdateProductsDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async bulkUpdateProducts(@Body() dto: BulkUpdateProductsDto, @CurrentUser() user: AuthUser) {
     return this.inventoryService.bulkUpdateProducts(user.businessId, dto);
   }
 
   @Delete('products/bulk')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Bulk delete products (soft or hard delete)' })
-  async bulkDeleteProducts(
-    @Body() dto: BulkDeleteProductsDto,
-    @CurrentUser() user: AuthUser,
-  ) {
+  async bulkDeleteProducts(@Body() dto: BulkDeleteProductsDto, @CurrentUser() user: AuthUser) {
     return this.inventoryService.bulkDeleteProducts(user.businessId, dto);
   }
 
@@ -203,13 +207,13 @@ export class InventoryController {
   @BusinessScoped({ resource: 'product', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async updateProduct(@Param('id') id: string, @Body() dto: Partial<CreateProductDto>) {
-    const product = await this.productRepo.findById(id);
-    if (!product) throw new NotFoundException('Product not found');
+    const existing = await this.productRepo.findById(id);
+    if (!existing) throw new NotFoundException('Product not found');
     return this.productRepo.update(id, {
-      name: dto.name ?? product.name,
+      name: dto.name ?? existing.name,
       description: dto.description,
       imageUrl: dto.imageUrl,
-      basePrice: dto.basePrice ?? product.basePrice,
+      basePrice: dto.basePrice ?? existing.basePrice,
       costPrice: dto.costPrice,
     });
   }
@@ -302,12 +306,9 @@ export class InventoryController {
 
   @Delete('products/:id/variants/:variantId')
   @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPERVISOR, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Soft delete (deactivate) a product variant' })
-  async deleteVariant(
-    @Param('id') productId: string,
-    @Param('variantId') variantId: string,
-  ) {
+  async deleteVariant(@Param('id') productId: string, @Param('variantId') variantId: string) {
     const variant = await this.prisma.productVariant.findFirst({
       where: { id: variantId, productId },
     });
@@ -332,10 +333,27 @@ export class InventoryController {
 
   @Get('categories')
   async listCategories(@CurrentUser() user: AuthUser) {
-    return this.prisma.category.findMany({
+    const categories = await this.prisma.category.findMany({
       where: { businessId: user.businessId, isActive: true },
       orderBy: { sortOrder: 'asc' },
+      include: { _count: { select: { products: { where: { isActive: true } } } } },
     });
+    return categories.map((c) => ({
+      ...c,
+      productCount: c._count.products,
+      _count: undefined,
+    }));
+  }
+
+  @Get('categories/:id')
+  @BusinessScoped({ resource: 'category', param: 'id' })
+  async getCategory(@Param('id') id: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id },
+      include: { children: { where: { isActive: true } } },
+    });
+    if (!category) throw new NotFoundException('Category not found');
+    return category;
   }
 
   @Post('categories')
@@ -518,12 +536,14 @@ export class InventoryController {
   // ==================== Outlet Product Assignment Endpoints ====================
 
   @Get('outlets/:outletId/products')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Get products assigned to a specific outlet' })
   async getOutletProducts(@Param('outletId') outletId: string) {
     return this.outletProductService.getProductsForOutlet(outletId);
   }
 
   @Get('outlets/:outletId/products/unassigned')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Get products NOT assigned to an outlet' })
   async getUnassignedProducts(@Param('outletId') outletId: string, @CurrentUser() user: AuthUser) {
     return this.outletProductService.getUnassignedProducts(outletId, user.businessId);
@@ -531,6 +551,7 @@ export class InventoryController {
 
   @Post('outlets/:outletId/products/assign')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Assign products to an outlet' })
   async assignProducts(
     @Param('outletId') outletId: string,
@@ -544,6 +565,7 @@ export class InventoryController {
 
   @Delete('outlets/:outletId/products/:productId')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Remove a product from an outlet' })
   async removeOutletProduct(
     @Param('outletId') outletId: string,
@@ -559,13 +581,18 @@ export class InventoryController {
   @Get('stock/discrepancies')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Get stock discrepancy report' })
-  async getStockDiscrepancies(@Query() query: StockDiscrepancyQueryDto) {
+  async getStockDiscrepancies(
+    @Query() query: StockDiscrepancyQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyOutletAccess(query.outletId, user.businessId);
     return this.inventoryService.getStockDiscrepancies(query.outletId);
   }
 
   @Post('stock/adjust')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async adjustStock(@Body() dto: UpdateStockDto, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(dto.outletId, user.businessId);
     return this.updateStockUseCase.execute({
       outletId: dto.outletId,
       productId: dto.productId,
@@ -574,6 +601,7 @@ export class InventoryController {
       quantity: dto.quantity,
       reason: dto.reason,
       employeeId: user.employeeId,
+      unitCost: dto.unitCost,
     });
   }
 
@@ -581,6 +609,8 @@ export class InventoryController {
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Auto-create transfer request for low stock items' })
   async autoRequestTransfer(@Body() dto: AutoRequestTransferDto, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(dto.outletId, user.businessId);
+    await this.verifyOutletAccess(dto.sourceOutletId, user.businessId);
     return this.inventoryService.autoRequestTransfer(
       user.businessId,
       dto.outletId,
@@ -589,12 +619,46 @@ export class InventoryController {
   }
 
   @Get('stock/:outletId')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   async getStockLevels(@Param('outletId') outletId: string) {
     return this.inventoryRepo.findStockLevelsByOutlet(outletId);
   }
 
   @Get('stock/:outletId/low')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   async getLowStockItems(@Param('outletId') outletId: string) {
     return this.inventoryRepo.findLowStockItems(outletId);
+  }
+
+  // ==================== Cost Price History ====================
+
+  @Get('cost-history/:productId')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @ApiOperation({ summary: 'Get cost price history for a product' })
+  async getCostHistory(
+    @Param('productId') productId: string,
+    @Query('variantId') variantId?: string,
+  ) {
+    const where: Record<string, unknown> = {};
+    if (variantId) {
+      where.variantId = variantId;
+    } else {
+      where.productId = productId;
+    }
+
+    return this.prisma.costPriceHistory.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
   }
 }

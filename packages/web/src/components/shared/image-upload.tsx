@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { uploadsApi } from '@/api/endpoints/uploads.api';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { ImagePlus, X, Loader2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ImageCropperModal } from './image-cropper-modal';
@@ -19,32 +20,27 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   const [cropperOpen, setCropperOpen] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
-
   const uploadMutation = useMutation({
     mutationFn: uploadsApi.image,
     onSuccess: (data) => {
       setPreview(data.url);
       onChange(data.url);
-      toast({ title: 'Berhasil!', description: 'Gambar berhasil diupload' });
+      toast.success({ title: 'Berhasil!', description: 'Gambar berhasil diupload' });
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: 'Upload gagal', description: 'Gagal mengupload gambar.' });
-    },
+    onError: (error) => handleMutationError(error, 'Upload gagal'),
   });
 
   const validateAndUpload = async (file: File) => {
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast({ variant: 'destructive', title: 'File tidak valid', description: 'Pilih file gambar (JPG, PNG, GIF)' });
+      toast.error({ title: 'File tidak valid', description: 'Pilih file gambar (JPG, PNG, GIF)' });
       return;
     }
 
     // Validate file size
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > maxSizeMB) {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'File terlalu besar',
         description: `Ukuran maksimal ${maxSizeMB}MB. File ini ${fileSizeMB.toFixed(1)}MB`,
       });

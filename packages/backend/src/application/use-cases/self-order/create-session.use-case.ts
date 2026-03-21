@@ -33,7 +33,7 @@ export class CreateSelfOrderSessionUseCase {
       },
     });
 
-    const qrCodeUrl = `/self-order/${sessionCode}`;
+    const qrCodeUrl = `/order/${sessionCode}`;
 
     return {
       sessionId: session.id,

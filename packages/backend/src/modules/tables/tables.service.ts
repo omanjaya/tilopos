@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 export interface TableDto {
@@ -111,7 +116,7 @@ export class TablesService {
     });
 
     if (existing) {
-      throw new NotFoundException('Table with this name already exists in the outlet');
+      throw new ConflictException('Table with this name already exists in the outlet');
     }
 
     const table = await this.prisma.table.create({
@@ -132,6 +137,16 @@ export class TablesService {
     const existing = await this.prisma.table.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Table ${id} not found`);
+    }
+
+    // Check for duplicate name in same outlet
+    if (data.name !== undefined && data.name !== existing.name) {
+      const duplicate = await this.prisma.table.findFirst({
+        where: { outletId: existing.outletId, name: data.name, isActive: true, id: { not: id } },
+      });
+      if (duplicate) {
+        throw new ConflictException('Table with this name already exists in the outlet');
+      }
     }
 
     const updateData: Record<string, unknown> = {};
@@ -157,7 +172,7 @@ export class TablesService {
     }
 
     if (existing.status === 'occupied') {
-      throw new NotFoundException('Cannot deactivate an occupied table');
+      throw new BadRequestException('Cannot deactivate an occupied table');
     }
 
     await this.prisma.table.update({

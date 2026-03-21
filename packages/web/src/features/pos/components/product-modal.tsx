@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -33,21 +33,49 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
     const [quantity, setQuantity] = useState(1);
     const [notes, setNotes] = useState('');
 
+    // Reset local state when a different product is opened
+    useEffect(() => {
+        setSelectedVariant(null);
+        setSelectedModifiers([]);
+        setQuantity(1);
+        setNotes('');
+    }, [product?.id]);
+
     const hasVariants = product && product.variants.length > 0;
-    const price = selectedVariant?.price ?? product?.basePrice ?? 0;
-    const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + m.price, 0);
+    const price = Number(selectedVariant?.price ?? product?.basePrice ?? 0);
+    const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + Number(m.price), 0);
     const totalPrice = (price + modifiersTotal) * quantity;
+
+    // Check if all required modifier groups have at least one selection
+    const hasUnfulfilledRequired = product?.modifierGroups.some((group) => {
+        if (!group.required) return false;
+        const groupModifierIds = new Set(group.modifiers.map((m) => m.id));
+        return !selectedModifiers.some((m) => groupModifierIds.has(m.id));
+    }) ?? false;
 
     const handleVariantSelect = (variant: POSProductVariant) => {
         setSelectedVariant(variant);
     };
 
-    const handleModifierToggle = (modifier: POSModifier) => {
+    const handleModifierToggle = (modifier: POSModifier, groupId: string) => {
         setSelectedModifiers((prev) => {
             const exists = prev.find((m) => m.id === modifier.id);
             if (exists) {
                 return prev.filter((m) => m.id !== modifier.id);
             }
+
+            // Enforce maxSelect: count how many from this group are already selected
+            const group = product?.modifierGroups.find((g) => g.id === groupId);
+            if (group && group.maxSelect > 0) {
+                const groupModifierIds = new Set(group.modifiers.map((m) => m.id));
+                const selectedInGroup = prev.filter((m) => groupModifierIds.has(m.id));
+                if (selectedInGroup.length >= group.maxSelect) {
+                    // Replace the oldest selection in this group
+                    const oldest = selectedInGroup[0]!;
+                    return [...prev.filter((m) => m.id !== oldest.id), modifier];
+                }
+            }
+
             return [...prev, modifier];
         });
     };
@@ -60,7 +88,7 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
             variantId: selectedVariant?.id,
             name: product.name,
             variantName: selectedVariant?.name,
-            price: selectedVariant?.price ?? product.basePrice,
+            price: Number(selectedVariant?.price ?? product.basePrice),
             quantity,
             modifiers: selectedModifiers.map((m) => ({
                 id: m.id,
@@ -171,7 +199,7 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
                                             key={modifier.id}
                                             variant={isSelected ? 'default' : 'outline'}
                                             className="h-auto py-2 px-3 justify-between"
-                                            onClick={() => handleModifierToggle(modifier)}
+                                            onClick={() => handleModifierToggle(modifier, group.id)}
                                         >
                                             <span className="text-sm">{modifier.name}</span>
                                             <span className="text-sm font-medium">
@@ -238,7 +266,7 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
                             size="lg"
                             className="h-14 px-8 text-lg bg-gradient-to-r from-primary to-primary/80 shadow-lg"
                             onClick={handleAddToCart}
-                            disabled={Boolean(hasVariants && !selectedVariant)}
+                            disabled={Boolean(hasVariants && !selectedVariant) || hasUnfulfilledRequired}
                         >
                             Tambah ke Keranjang
                         </Button>

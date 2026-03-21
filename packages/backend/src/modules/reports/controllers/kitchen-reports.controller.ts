@@ -1,4 +1,11 @@
-import { Controller, Get, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
@@ -29,6 +36,10 @@ export class KitchenReportsController {
     @Query('endDate') endDate?: string,
     @Query('slaTargetMinutes') slaTargetMinutes?: string,
   ) {
+    if (!outletId) {
+      throw new BadRequestException('outletId is required');
+    }
+
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { businessId: true },

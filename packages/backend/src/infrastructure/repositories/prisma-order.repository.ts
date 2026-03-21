@@ -138,6 +138,12 @@ export class PrismaOrderRepository implements IOrderRepository {
     if (data.estimatedTime !== undefined) {
       updateData.estimatedTime = data.estimatedTime;
     }
+    if (data.startedAt !== undefined) {
+      updateData.startedAt = data.startedAt;
+    }
+    if (data.completedAt !== undefined) {
+      updateData.completedAt = data.completedAt;
+    }
 
     const updated = await this.prisma.order.update({
       where: { id },
@@ -158,6 +164,8 @@ export class PrismaOrderRepository implements IOrderRepository {
     priority: number;
     notes: string | null;
     estimatedTime: number | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }): OrderRecord {
@@ -172,6 +180,8 @@ export class PrismaOrderRepository implements IOrderRepository {
       priority: order.priority,
       notes: order.notes,
       estimatedTime: order.estimatedTime,
+      startedAt: order.startedAt ?? null,
+      completedAt: order.completedAt ?? null,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };
@@ -188,6 +198,8 @@ export class PrismaOrderRepository implements IOrderRepository {
     priority: number;
     notes: string | null;
     estimatedTime: number | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
     items?: Array<{

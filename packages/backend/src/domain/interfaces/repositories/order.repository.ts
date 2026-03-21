@@ -17,6 +17,8 @@ export interface OrderRecord {
   priority: number;
   notes: string | null;
   estimatedTime: number | null;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

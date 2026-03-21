@@ -127,7 +127,9 @@ export class SalesReportsController {
   }
 
   @Get('sales/summary')
-  @ApiOperation({ summary: 'Detailed sales summary with breakdown (gross, net, tax, service charge)' })
+  @ApiOperation({
+    summary: 'Detailed sales summary with breakdown (gross, net, tax, service charge)',
+  })
   async salesSummary(
     @CurrentUser() user: AuthUser,
     @Query('outletId') outletId: string,
@@ -166,7 +168,13 @@ export class SalesReportsController {
 
     const saleAggregate = await this.prisma.transaction.aggregate({
       where: saleWhere,
-      _sum: { subtotal: true, discountAmount: true, taxAmount: true, serviceCharge: true, grandTotal: true },
+      _sum: {
+        subtotal: true,
+        discountAmount: true,
+        taxAmount: true,
+        serviceCharge: true,
+        grandTotal: true,
+      },
       _count: true,
     });
 
@@ -287,12 +295,13 @@ export class SalesReportsController {
     }
 
     const promotionIds = Array.from(promoMap.keys());
-    const promotions = promotionIds.length > 0
-      ? await this.prisma.promotion.findMany({
-          where: { id: { in: promotionIds } },
-          select: { id: true, name: true },
-        })
-      : [];
+    const promotions =
+      promotionIds.length > 0
+        ? await this.prisma.promotion.findMany({
+            where: { id: { in: promotionIds } },
+            select: { id: true, name: true },
+          })
+        : [];
 
     const promotionNameMap = new Map(promotions.map((p) => [p.id, p.name]));
 

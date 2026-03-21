@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Verifikasi Email</title>
+</head>
+
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+  <div style="text-align: center; margin-bottom: 30px;">
+    <h1 style="color: #2563eb; margin: 0;">TiloPOS</h1>
+  </div>
+
+  <h2>Halo {{name}},</h2>
+
+  <p>Verifikasi email kamu untuk mengamankan akun TiloPOS.</p>
+
+  <p>Klik tombol di bawah ini untuk memverifikasi alamat email kamu:</p>
+
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="{{verificationLink}}"
+      style="background-color: #2563eb; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+      Verifikasi Email
+    </a>
+  </div>
+
+  <p style="color: #666; font-size: 14px;">Jika tombol di atas tidak berfungsi, salin dan tempel link berikut ke browser
+    kamu:</p>
+  <p style="color: #2563eb; font-size: 13px; word-break: break-all;">{{verificationLink}}</p>
+
+  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+
+  <p style="color: #999; font-size: 12px;">Link ini berlaku selama 24 jam. Jika kamu tidak merasa mendaftar di TiloPOS,
+    abaikan email ini.</p>
+</body>
+
+</html>

@@ -53,28 +53,31 @@ export class PointsManagementService {
       };
     }
 
-    // Create loyalty transaction
+    // Atomically increment points and create transaction to prevent race conditions
+    const updatedCustomer = await this.repository.incrementCustomerPoints(
+      customerId,
+      calculation.totalPoints,
+    );
+    const newBalance = updatedCustomer.loyaltyPoints;
+
     await this.repository.createTransaction({
       customerId,
       transactionId,
       type: 'earned',
       points: calculation.totalPoints,
+      balanceAfter: newBalance,
       description: `Points earned from transaction`,
     });
-
-    // Calculate new balance
-    const newBalance = PointsRules.calculateNewBalance(
-      customer.loyaltyPoints,
-      calculation.totalPoints,
-    );
 
     // Check for tier change
     const tiers = await this.repository.getTiers(businessId);
     const newTier = TierRules.findEligibleTier(newBalance, tiers);
     const tierName = newTier?.name || 'Regular';
 
-    // Update customer points and tier
-    await this.repository.updateCustomerPoints(customerId, newBalance, tierName);
+    // Update tier if changed
+    if (tierName !== (currentTier?.name || 'Regular')) {
+      await this.repository.updateCustomerPoints(customerId, newBalance, tierName);
+    }
 
     this.logger.log(
       `Customer ${customerId} earned ${calculation.totalPoints} points (${calculation.multiplier}x multiplier)`,
@@ -124,24 +127,36 @@ export class PointsManagementService {
     // Calculate discount amount
     const discountAmount = PointsRules.calculateRedemptionValue(pointsToRedeem, program);
 
+    // Atomically decrement points to prevent race conditions
+    const updatedCustomer = await this.repository.incrementCustomerPoints(
+      customerId,
+      -pointsToRedeem,
+    );
+    const newBalance = updatedCustomer.loyaltyPoints;
+
     // Create redemption transaction
     await this.repository.createTransaction({
       customerId,
       transactionId,
       type: 'redeemed',
       points: -pointsToRedeem,
+      balanceAfter: newBalance,
       description: `Redeemed for Rp ${discountAmount.toLocaleString()} discount`,
       employeeId,
     });
 
-    // Calculate new balance
-    const newBalance = PointsRules.calculateBalanceAfterRedemption(
-      customer.loyaltyPoints,
-      pointsToRedeem,
-    );
+    // Check for tier change after point loss
+    const tiers = await this.repository.getTiers(businessId);
+    const newTier = TierRules.findEligibleTier(newBalance, tiers);
+    const tierName = newTier?.name || 'Regular';
 
-    // Update customer points
-    await this.repository.updateCustomerPoints(customerId, newBalance);
+    // Update tier if changed
+    const currentTierName =
+      (await this.repository.getCustomerTier(businessId, customer.loyaltyPoints))?.name ||
+      'Regular';
+    if (tierName !== currentTierName) {
+      await this.repository.updateCustomerPoints(customerId, newBalance, tierName);
+    }
 
     this.logger.log(
       `Customer ${customerId} redeemed ${pointsToRedeem} points for Rp ${discountAmount}`,
@@ -177,25 +192,31 @@ export class PointsManagementService {
 
     const previousBalance = customer.loyaltyPoints;
 
+    // Atomically increment/decrement points to prevent race conditions
+    const updatedCustomer = await this.repository.incrementCustomerPoints(customerId, points);
+    const newBalance = updatedCustomer.loyaltyPoints;
+
     // Create adjustment transaction
     await this.repository.createTransaction({
       customerId,
       type: 'adjusted',
       points,
+      balanceAfter: newBalance,
       description: reason,
       employeeId,
     });
-
-    // Calculate new balance
-    const newBalance = PointsRules.calculateBalanceAfterAdjustment(previousBalance, points);
 
     // Check for tier change
     const tiers = await this.repository.getTiers(businessId);
     const newTier = TierRules.findEligibleTier(newBalance, tiers);
     const tierName = newTier?.name || 'Regular';
 
-    // Update customer points and tier
-    await this.repository.updateCustomerPoints(customerId, newBalance, tierName);
+    // Update tier if changed
+    const currentTierName =
+      (await this.repository.getCustomerTier(businessId, previousBalance))?.name || 'Regular';
+    if (tierName !== currentTierName) {
+      await this.repository.updateCustomerPoints(customerId, newBalance, tierName);
+    }
 
     this.logger.log(
       `Customer ${customerId} points adjusted by ${points} (${reason}). Balance: ${previousBalance} -> ${newBalance}`,

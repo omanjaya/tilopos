@@ -15,12 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Loader2, Wand2, Download } from 'lucide-react';
 import type { GeneratedVoucher, DiscountType } from '@/types/promotion.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 function getVoucherStatusBadge(voucher: GeneratedVoucher): { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' } {
   if (!voucher.isActive) {
@@ -52,7 +51,6 @@ function getDiscountTypeLabel(type: DiscountType): string {
 
 export function VoucherGeneratorPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
 
   // Form state
@@ -82,7 +80,7 @@ export function VoucherGeneratorPage() {
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['vouchers'] });
-      toast({ title: `${data.length} voucher berhasil dibuat` });
+      toast.success({ title: `${data.length} voucher berhasil dibuat` });
       setPrefix('');
       setQuantity(10);
       setDiscountValue(0);
@@ -90,13 +88,7 @@ export function VoucherGeneratorPage() {
       setValidTo('');
       setUsageLimit(1);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal membuat voucher',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membuat voucher'),
   });
 
   const handleExport = async () => {
@@ -108,10 +100,9 @@ export function VoucherGeneratorPage() {
       a.download = 'vouchers.csv';
       a.click();
       URL.revokeObjectURL(url);
-      toast({ title: 'Voucher berhasil diekspor' });
+      toast.success({ title: 'Voucher berhasil diekspor' });
     } catch {
-      toast({
-        variant: 'destructive',
+      toast.error({
         title: 'Gagal mengekspor',
         description: 'Terjadi kesalahan saat mengekspor voucher',
       });
@@ -121,15 +112,15 @@ export function VoucherGeneratorPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!prefix.trim()) {
-      toast({ variant: 'destructive', title: 'Prefix wajib diisi' });
+      toast.error({ title: 'Prefix wajib diisi' });
       return;
     }
     if (!validFrom || !validTo) {
-      toast({ variant: 'destructive', title: 'Periode berlaku wajib diisi' });
+      toast.error({ title: 'Periode berlaku wajib diisi' });
       return;
     }
     if (discountValue <= 0) {
-      toast({ variant: 'destructive', title: 'Nilai diskon harus lebih dari 0' });
+      toast.error({ title: 'Nilai diskon harus lebih dari 0' });
       return;
     }
     generateMutation.mutate();

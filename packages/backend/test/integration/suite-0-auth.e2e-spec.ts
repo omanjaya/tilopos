@@ -98,9 +98,7 @@ describe('Suite 0: Auth', () => {
   // ----------------------------------------------------------------
   describe('0.5 - Get profile with valid token', () => {
     it('should return 200 with owner profile', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/auth/me')
-        .expect(200);
+      const res = await authRequest(app, 'owner').get('/api/v1/auth/me').expect(200);
 
       expect(res.body.id).toBe(testContext.auth.owner!.employeeId);
       expect(res.body.email).toBe('budi@brewbites.id');
@@ -116,9 +114,7 @@ describe('Suite 0: Auth', () => {
     });
 
     it('should return 401 without token', async () => {
-      await request(app.getHttpServer())
-        .get('/api/v1/auth/me')
-        .expect(401);
+      await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
     });
 
     it('should return 401 with invalid token', async () => {

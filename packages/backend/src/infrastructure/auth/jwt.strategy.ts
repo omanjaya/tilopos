@@ -9,6 +9,7 @@ interface JwtPayload {
   businessId: string;
   outletId: string | null;
   role: string;
+  emailVerified?: boolean;
 }
 
 @Injectable()
@@ -32,6 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       businessId: payload.businessId,
       outletId: payload.outletId,
       role: payload.role,
+      emailVerified: payload.emailVerified ?? false,
     };
   }
 }

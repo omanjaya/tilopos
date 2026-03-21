@@ -42,6 +42,7 @@ const BREADCRUMB_LABELS: Record<string, string> = {
   create: 'Create',
   transfers: 'Stock Transfers',
   adjustments: 'Stock Adjustments',
+  'stock-opname': 'Stock Opname',
   purchase: 'Purchase Orders',
   suppliers: 'Suppliers',
   categories: 'Categories',

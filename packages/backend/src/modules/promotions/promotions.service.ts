@@ -96,6 +96,7 @@ export interface AppliedPromotion {
   appliedToItems?: string[]; // Product IDs affected
   freeItems?: CartItem[]; // Free items to add
   description: string;
+  voucherId?: string; // Voucher ID to be consumed during transaction commit
 }
 
 export interface PromotionResult {
@@ -276,10 +277,9 @@ export class PromotionsService {
           now,
         );
         if (result) {
-          appliedPromotions.push(result);
+          appliedPromotions.push({ ...result, voucherId: voucher.id });
           totalDiscount += result.discountAmount;
           if (result.freeItems) freeItems.push(...result.freeItems);
-          await this.useVoucher(voucher.id);
         }
       }
     }
@@ -375,10 +375,16 @@ export class PromotionsService {
       if (!rules.dayOfWeek.includes(now.getDay())) return false;
     }
 
-    // Check time range
+    // Check time range (supports cross-midnight ranges like 22:00 - 02:00)
     if (rules.startTime && rules.endTime) {
       const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      if (currentTime < rules.startTime || currentTime > rules.endTime) return false;
+      if (rules.startTime <= rules.endTime) {
+        // Normal range (e.g., 09:00 - 17:00)
+        if (currentTime < rules.startTime || currentTime > rules.endTime) return false;
+      } else {
+        // Cross-midnight range (e.g., 22:00 - 02:00)
+        if (currentTime < rules.startTime && currentTime > rules.endTime) return false;
+      }
     }
 
     return true;
@@ -452,13 +458,14 @@ export class PromotionsService {
   private applyFixedDiscount(
     promo: Promotion,
     rules: PromotionRule,
-    _subtotal: number,
+    subtotal: number,
   ): AppliedPromotion | null {
+    const discountAmount = Math.min(rules.discountValue || 0, subtotal);
     return {
       promotionId: promo.id,
       promotionName: promo.name,
       type: rules.type,
-      discountAmount: rules.discountValue || 0,
+      discountAmount,
       description: `Rp ${(rules.discountValue || 0).toLocaleString()} off`,
     };
   }
@@ -472,15 +479,15 @@ export class PromotionsService {
     const getQty = rules.getQuantity || 1;
 
     // Find cheapest applicable item for free
-    const applicableItems = items.filter((i) => i.quantity >= buyQty);
+    const applicableItems = items.filter((i) => i.quantity >= buyQty + getQty);
     if (applicableItems.length === 0) return null;
 
     const cheapest = applicableItems.reduce((min, item) =>
       item.unitPrice < min.unitPrice ? item : min,
     );
 
-    const freeItemsCount = Math.floor(cheapest.quantity / buyQty) * getQty;
-    const discount = cheapest.unitPrice * Math.min(freeItemsCount, cheapest.quantity);
+    const freeItemsCount = Math.floor(cheapest.quantity / (buyQty + getQty)) * getQty;
+    const discount = cheapest.unitPrice * freeItemsCount;
 
     return {
       promotionId: promo.id,

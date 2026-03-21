@@ -19,7 +19,7 @@ export interface Table {
     id: string;
     name: string;
     capacity: number;
-    status: 'available' | 'occupied' | 'reserved' | 'maintenance';
+    status: 'available' | 'occupied' | 'reserved' | 'cleaning';
     section?: string;
     currentOrderId?: string;
     occupiedAt?: string;
@@ -156,7 +156,7 @@ export function TableSelector({
                     </div>
                     <div className="flex items-center gap-1.5">
                         <div className="h-3 w-3 rounded-full bg-gray-400" />
-                        <span>Maintenance</span>
+                        <span>Dibersihkan</span>
                     </div>
                 </div>
 
@@ -225,7 +225,7 @@ function TableCard({ table, isSelected, onSelect }: TableCardProps) {
         available: 'border-green-500 bg-green-500/10 hover:bg-green-500/20',
         occupied: 'border-red-500 bg-red-500/10 opacity-60',
         reserved: 'border-yellow-500 bg-yellow-500/10 opacity-60',
-        maintenance: 'border-gray-400 bg-gray-400/10 opacity-40',
+        cleaning: 'border-gray-400 bg-gray-400/10 opacity-40',
     };
 
     const isDisabled = table.status !== 'available' && !isSelected;

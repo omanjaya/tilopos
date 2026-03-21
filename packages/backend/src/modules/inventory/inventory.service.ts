@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { StorageService } from '../../infrastructure/storage/storage.service';
 import type {
   ImportProductRow,
   ImportProductsResult,
@@ -8,13 +9,19 @@ import type {
   AutoRequestTransferResult,
 } from '../../application/dtos/inventory-import-export.dto';
 import { BulkUpdateAction } from '../../application/dtos/bulk-product.dto';
-import type { BulkUpdateProductsDto, BulkDeleteProductsDto } from '../../application/dtos/bulk-product.dto';
+import type {
+  BulkUpdateProductsDto,
+  BulkDeleteProductsDto,
+} from '../../application/dtos/bulk-product.dto';
 
 @Injectable()
 export class InventoryService {
   private readonly logger = new Logger(InventoryService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   /**
    * Batch import products. Uses a Prisma transaction for atomicity.
@@ -63,16 +70,8 @@ export class InventoryService {
         continue;
       }
 
-      // Check duplicate SKU within the import batch
+      // Check duplicate SKU within the import batch only
       if (row.sku) {
-        const existing = await this.prisma.product.findFirst({
-          where: { businessId, sku: row.sku },
-        });
-        if (existing) {
-          errors.push({ row: rowNum, field: 'sku', message: `SKU "${row.sku}" already exists` });
-          continue;
-        }
-
         const duplicateInBatch = validRows.find((vr) => vr.row.sku && vr.row.sku === row.sku);
         if (duplicateInBatch) {
           errors.push({
@@ -87,7 +86,7 @@ export class InventoryService {
       validRows.push({ index: i, row });
     }
 
-    // Bulk create in a transaction
+    // Bulk create in a transaction (SKU uniqueness checked atomically inside tx)
     let imported = 0;
 
     if (validRows.length > 0) {
@@ -95,6 +94,21 @@ export class InventoryService {
         await this.prisma.$transaction(async (tx) => {
           for (const { row, index } of validRows) {
             try {
+              // Check SKU uniqueness inside transaction to prevent TOCTOU race
+              if (row.sku) {
+                const existing = await tx.product.findFirst({
+                  where: { businessId, sku: row.sku },
+                });
+                if (existing) {
+                  errors.push({
+                    row: index + 1,
+                    field: 'sku',
+                    message: `SKU "${row.sku}" already exists`,
+                  });
+                  continue;
+                }
+              }
+
               await tx.product.create({
                 data: {
                   businessId,
@@ -183,7 +197,7 @@ export class InventoryService {
   async exportProductsCsv(businessId: string, categoryId?: string): Promise<string> {
     const products = await this.fetchProductsForExport(businessId, categoryId);
 
-    const header = 'name,sku,category,basePrice,costPrice,description,isActive';
+    const header = 'name,sku,categoryName,basePrice,costPrice,description,isActive';
     const rows = products.map((p) =>
       [
         this.escapeCsvField(p.name),
@@ -230,44 +244,53 @@ export class InventoryService {
       },
     });
 
+    // Batch query: sum all stock movements grouped by productId+variantId (avoids N+1)
+    const productIds = stockLevels.map((sl) => sl.productId).filter(Boolean) as string[];
+    if (productIds.length === 0) return [];
+
+    const movementSums = await this.prisma.stockMovement.groupBy({
+      by: ['productId', 'variantId'],
+      where: { outletId, productId: { in: productIds } },
+      _sum: { quantity: true },
+    });
+
+    // Build lookup map for movement sums
+    const movementMap = new Map<string, number>();
+    for (const m of movementSums) {
+      const key = `${m.productId || ''}:${m.variantId || ''}`;
+      movementMap.set(key, Number(m._sum.quantity ?? 0));
+    }
+
+    // Batch query: find last adjustment per product
+    const lastAdjustments = await this.prisma.stockMovement.findMany({
+      where: { outletId, productId: { in: productIds }, movementType: 'adjustment' },
+      orderBy: { createdAt: 'desc' },
+      distinct: ['productId'],
+      select: { productId: true, createdAt: true },
+    });
+    const adjustmentMap = new Map<string, Date>();
+    for (const a of lastAdjustments) {
+      if (a.productId) adjustmentMap.set(a.productId, a.createdAt);
+    }
+
     const discrepancies: StockDiscrepancyItem[] = [];
 
     for (const sl of stockLevels) {
       if (!sl.productId || !sl.product) continue;
 
-      // Sum all stock movements for this product at this outlet
-      const movements = await this.prisma.stockMovement.aggregate({
-        where: {
-          outletId,
-          productId: sl.productId,
-          variantId: sl.variantId,
-        },
-        _sum: { quantity: true },
-      });
-
-      const expectedQuantity = movements._sum.quantity ? Number(movements._sum.quantity) : 0;
+      const key = `${sl.productId}:${sl.variantId || ''}`;
+      const expectedQuantity = movementMap.get(key) ?? 0;
       const actualQuantity = Number(sl.quantity);
       const discrepancy = actualQuantity - expectedQuantity;
 
       if (Math.abs(discrepancy) > 0.001) {
-        // Find last adjustment
-        const lastAdjustment = await this.prisma.stockMovement.findFirst({
-          where: {
-            outletId,
-            productId: sl.productId,
-            movementType: 'adjustment',
-          },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        });
-
         discrepancies.push({
           productId: sl.product.id,
           productName: sl.product.name,
           expectedQuantity,
           actualQuantity,
           discrepancy,
-          lastAdjusted: lastAdjustment?.createdAt ?? null,
+          lastAdjusted: adjustmentMap.get(sl.productId) ?? null,
         });
       }
     }
@@ -283,6 +306,10 @@ export class InventoryService {
     outletId: string,
     sourceOutletId: string,
   ): Promise<AutoRequestTransferResult> {
+    if (sourceOutletId === outletId) {
+      throw new BadRequestException('Source outlet must be different from destination outlet');
+    }
+
     // Find all low stock items at the destination outlet
     const lowStockItems = await this.prisma.stockLevel.findMany({
       where: {
@@ -303,34 +330,36 @@ export class InventoryService {
       throw new BadRequestException('No low stock items found');
     }
 
-    // Generate transfer number
-    const transferCount = await this.prisma.stockTransfer.count({
-      where: { businessId },
-    });
-    const transferNumber = `AT${(transferCount + 1).toString().padStart(6, '0')}`;
+    // Generate transfer number with timestamp to avoid collision under concurrency
+    const transfer = await this.prisma.$transaction(async (tx) => {
+      const transferCount = await tx.stockTransfer.count({
+        where: { businessId },
+      });
+      const suffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+      const transferNumber = `AT${(transferCount + 1).toString().padStart(6, '0')}-${suffix}`;
 
-    // Create transfer request with items
-    const transfer = await this.prisma.stockTransfer.create({
-      data: {
-        businessId,
-        transferNumber,
-        sourceOutletId,
-        destinationOutletId: outletId,
-        status: 'pending',
-        notes: 'Auto-generated transfer request for low stock items',
-        items: {
-          create: itemsToTransfer.map((sl) => ({
-            productId: sl.productId,
-            variantId: sl.variantId,
-            itemName: sl.product!.name,
-            quantitySent: Math.max(sl.lowStockAlert - Number(sl.quantity), 1),
-          })),
+      return tx.stockTransfer.create({
+        data: {
+          businessId,
+          transferNumber,
+          sourceOutletId,
+          destinationOutletId: outletId,
+          status: 'pending',
+          notes: 'Auto-generated transfer request for low stock items',
+          items: {
+            create: itemsToTransfer.map((sl) => ({
+              productId: sl.productId,
+              variantId: sl.variantId,
+              itemName: sl.product!.name,
+              quantitySent: Math.max(sl.lowStockAlert - Number(sl.quantity), 1),
+            })),
+          },
         },
-      },
+      });
     });
 
     this.logger.log(
-      `Auto transfer request created: ${transferNumber} with ${itemsToTransfer.length} items`,
+      `Auto transfer request created: ${transfer.transferNumber} with ${itemsToTransfer.length} items`,
     );
 
     return {
@@ -377,7 +406,9 @@ export class InventoryService {
     if (action === BulkUpdateAction.PRICE || action === BulkUpdateAction.COST_PRICE) {
       const { operation, priceType, value } = dto;
       if (!operation || !priceType || value === undefined) {
-        throw new BadRequestException('operation, priceType, and value are required for price updates');
+        throw new BadRequestException(
+          'operation, priceType, and value are required for price updates',
+        );
       }
 
       const products = await this.prisma.product.findMany({
@@ -389,9 +420,10 @@ export class InventoryService {
 
       await this.prisma.$transaction(async (tx) => {
         for (const product of products) {
-          const currentPrice = action === BulkUpdateAction.PRICE
-            ? Number(product.basePrice)
-            : Number(product.costPrice ?? 0);
+          const currentPrice =
+            action === BulkUpdateAction.PRICE
+              ? Number(product.basePrice)
+              : Number(product.costPrice ?? 0);
 
           let newPrice: number;
           if (priceType === 'percentage') {
@@ -403,9 +435,8 @@ export class InventoryService {
 
           newPrice = Math.max(0, Math.round(newPrice));
 
-          const data = action === BulkUpdateAction.PRICE
-            ? { basePrice: newPrice }
-            : { costPrice: newPrice };
+          const data =
+            action === BulkUpdateAction.PRICE ? { basePrice: newPrice } : { costPrice: newPrice };
 
           await tx.product.update({ where: { id: product.id }, data });
           updated++;
@@ -451,9 +482,34 @@ export class InventoryService {
       );
     }
 
+    // Fetch products to get their image URLs before deletion
+    const productsToDelete = await this.prisma.product.findMany({
+      where: { id: { in: productIds }, businessId },
+      select: { id: true, imageUrl: true },
+    });
+
     const result = await this.prisma.product.deleteMany({
       where: { id: { in: productIds }, businessId },
     });
+
+    // Clean up orphaned image files after successful deletion
+    for (const product of productsToDelete) {
+      if (product.imageUrl) {
+        try {
+          // Extract the image ID from the URL (e.g., /uploads/images/{id}/medium.jpg)
+          const match = product.imageUrl.match(/images\/([^/]+)\//);
+          if (match) {
+            const imageId = match[1];
+            await this.storage.delete(`images/${imageId}/original.jpg`);
+            await this.storage.delete(`images/${imageId}/thumbnail.jpg`);
+            await this.storage.delete(`images/${imageId}/medium.jpg`);
+            this.logger.log(`Deleted image files for product ${product.id}`);
+          }
+        } catch (err) {
+          this.logger.warn(`Failed to delete image for product ${product.id}: ${err}`);
+        }
+      }
+    }
 
     return { deleted: result.count };
   }

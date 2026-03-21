@@ -70,12 +70,13 @@ export class DashboardReportsController {
     // Aggregate KPIs
     const aggregate = await this.prisma.transaction.aggregate({
       where: whereClause,
-      _sum: { grandTotal: true, subtotal: true },
+      _sum: { grandTotal: true, subtotal: true, discountAmount: true },
       _count: true,
     });
 
     const grossSales = aggregate._sum.subtotal?.toNumber() || 0;
-    const netSales = aggregate._sum.grandTotal?.toNumber() || 0;
+    const totalDiscounts = aggregate._sum.discountAmount?.toNumber() || 0;
+    const netSales = grossSales - totalDiscounts;
     const transactions = aggregate._count;
     const averageSalePerTransaction = transactions > 0 ? netSales / transactions : 0;
 
@@ -209,7 +210,16 @@ export class DashboardReportsController {
     });
 
     // Aggregate by product
-    const productMap = new Map<string, { productId: string; name: string; category: string; quantitySold: number; grossSales: number }>();
+    const productMap = new Map<
+      string,
+      {
+        productId: string;
+        name: string;
+        category: string;
+        quantitySold: number;
+        grossSales: number;
+      }
+    >();
     for (const item of items) {
       const key = item.productId ?? item.productName;
       const existing = productMap.get(key);
@@ -264,7 +274,10 @@ export class DashboardReportsController {
       .sort((a, b) => b.totalSales - a.totalSales);
 
     // Top items by category
-    const catProductMap = new Map<string, { name: string; quantitySold: number; grossSales: number }[]>();
+    const catProductMap = new Map<
+      string,
+      { name: string; quantitySold: number; grossSales: number }[]
+    >();
     for (const p of allProducts) {
       const list = catProductMap.get(p.category) ?? [];
       list.push({ name: p.name, quantitySold: p.quantitySold, grossSales: p.grossSales });
@@ -318,12 +331,13 @@ export class DashboardReportsController {
 
         const agg = await this.prisma.transaction.aggregate({
           where: whereClause,
-          _sum: { grandTotal: true, subtotal: true },
+          _sum: { grandTotal: true, subtotal: true, discountAmount: true },
           _count: true,
         });
 
         const grossSales = agg._sum.subtotal?.toNumber() || 0;
-        const netSales = agg._sum.grandTotal?.toNumber() || 0;
+        const totalOutletDiscounts = agg._sum.discountAmount?.toNumber() || 0;
+        const netSales = grossSales - totalOutletDiscounts;
         const txCount = agg._count;
         const averageSale = txCount > 0 ? netSales / txCount : 0;
 
@@ -341,7 +355,8 @@ export class DashboardReportsController {
 
         // Cost via product's costPrice
         const totalCost = txItems.reduce(
-          (sum, item) => sum + (item.product?.costPrice?.toNumber() || 0) * item.quantity.toNumber(),
+          (sum, item) =>
+            sum + (item.product?.costPrice?.toNumber() || 0) * item.quantity.toNumber(),
           0,
         );
         const grossProfit = grossSales - totalCost;

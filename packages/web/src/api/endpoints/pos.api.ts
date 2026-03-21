@@ -27,8 +27,8 @@ interface HoldBillRequest {
 
 export const posApi = {
     // Products for POS display
-    getProducts: async (_outletId: string): Promise<POSProduct[]> => {
-        const { data } = await apiClient.get<Product[]>('/inventory/products');
+    getProducts: async (outletId: string): Promise<POSProduct[]> => {
+        const { data } = await apiClient.get<Product[]>(`/inventory/outlets/${outletId}/products`);
         // Transform to POSProduct format - only return active products
         return data
             .filter((product) => product.isActive)
@@ -36,14 +36,14 @@ export const posApi = {
                 id: product.id,
                 name: product.name,
                 sku: product.sku,
-                basePrice: product.basePrice,
+                basePrice: Number(product.basePrice),
                 imageUrl: product.imageUrl ?? undefined,
                 categoryId: product.categoryId ?? undefined,
                 categoryName: product.category?.name ?? undefined,
                 variants: (product.variants || []).map((v) => ({
                     id: v.id,
                     name: v.name,
-                    price: v.price,
+                    price: Number(v.price),
                 })),
                 modifierGroups: [], // Will be fetched separately if needed
                 trackStock: product.trackStock,
@@ -121,7 +121,7 @@ export const posApi = {
 
     processRefund: async (
         transactionId: string,
-        items: { itemId: string; quantity: number }[],
+        items: { transactionItemId: string; quantity: number; reason: string }[],
         refundMethod: string,
         notes?: string,
     ): Promise<void> => {

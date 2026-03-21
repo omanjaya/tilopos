@@ -1,5 +1,8 @@
 import type { EmployeeRole } from './auth.types';
 
+/** Roles assignable via the employee form (excludes super_admin) */
+export type AssignableRole = Exclude<EmployeeRole, 'super_admin'>;
+
 export interface Employee {
   id: string;
   name: string;
@@ -20,7 +23,7 @@ export interface CreateEmployeeRequest {
   email: string;
   phone?: string;
   pin: string;
-  role: EmployeeRole;
+  role: AssignableRole;
   outletId: string;
   hourlyRate?: number;
 }
@@ -30,7 +33,7 @@ export interface UpdateEmployeeRequest {
   email?: string;
   phone?: string;
   pin?: string;
-  role?: EmployeeRole;
+  role?: AssignableRole;
   outletId?: string;
   hourlyRate?: number;
   isActive?: boolean;

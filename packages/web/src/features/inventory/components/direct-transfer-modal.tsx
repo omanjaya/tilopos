@@ -24,8 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/lib/toast-utils';
 import { Loader2, Plus, Trash2, Zap } from 'lucide-react';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 interface TransferItem {
   productId: string;
@@ -79,12 +78,7 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
       resetForm();
       onOpenChange(false);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal melakukan transfer',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal melakukan transfer'),
   });
 
   const resetForm = () => {

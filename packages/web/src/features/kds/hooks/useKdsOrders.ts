@@ -1,8 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { kdsApi } from '@/api/endpoints/kds.api';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function useKdsOrders(outletId: string) {
   const queryClient = useQueryClient();
@@ -24,16 +23,9 @@ export function useKdsOrders(outletId: string) {
     mutationFn: kdsApi.bumpItem,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kds-orders'] });
-      toast({ title: 'Item selesai', duration: 2000 });
+      toast.success({ title: 'Item selesai', duration: 2000 });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal bump item',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-        duration: 5000,
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal bump item'),
   });
 
   const notifyMutation = useMutation({
@@ -42,21 +34,14 @@ export function useKdsOrders(outletId: string) {
       const order = orders.find((o) => o.id === orderId);
       const orderNum = order?.orderNumber ?? orderId;
 
-      toast({
+      toast.success({
         title: `Order #${orderNum} siap disajikan`,
         description: 'Kasir telah diberitahu.',
         duration: 3000,
       });
       queryClient.invalidateQueries({ queryKey: ['kds-orders'] });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal memberitahu kasir',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-        duration: 5000,
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memberitahu kasir'),
   });
 
   return {

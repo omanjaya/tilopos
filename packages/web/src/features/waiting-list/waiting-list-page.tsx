@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { waitingListApi } from '@/api/endpoints/waiting-list.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -18,10 +18,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, MoreHorizontal, Bell, Armchair, XCircle, UserX, Clock, Users, Timer } from 'lucide-react';
 import type { WaitingListEntry, WaitingListStatus } from '@/types/waiting-list.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 import { AddCustomerDialog } from './components/add-customer-dialog';
 import { SeatCustomerDialog } from './components/seat-customer-dialog';
 
@@ -81,12 +80,7 @@ export function WaitingListPage() {
       });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal mengirim notifikasi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mengirim notifikasi'),
   });
 
   // Cancel mutation
@@ -101,12 +95,7 @@ export function WaitingListPage() {
       });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal membatalkan antrian',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membatalkan antrian'),
   });
 
   // No-show mutation
@@ -121,12 +110,7 @@ export function WaitingListPage() {
       });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menandai tidak datang',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menandai tidak datang'),
   });
 
   const handleAction = () => {
@@ -258,36 +242,6 @@ export function WaitingListPage() {
       },
     },
   ];
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setAddDialogOpen(true);
-      }
-
-      // Number keys 1-4 for tab switching
-      const tabMap: Record<string, string> = {
-        '1': 'all',
-        '2': 'waiting',
-        '3': 'seated',
-        '4': 'cancelled',
-      };
-
-      const newFilter = tabMap[e.key];
-      if (newFilter) {
-        e.preventDefault();
-        setStatusFilter(newFilter);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
 
   return (
     <div>

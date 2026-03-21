@@ -24,29 +24,55 @@ export class GenerateSalesReportUseCase {
     const start = new Date(input.startDate);
     const end = new Date(input.endDate);
 
-    const transactions = await this.prisma.transaction.groupBy({
-      by: ['createdAt'],
+    const transactions = await this.prisma.transaction.findMany({
       where: {
         outletId: input.outletId,
         transactionType: 'sale',
         status: 'completed',
         createdAt: { gte: start, lte: end },
       },
-      _sum: { grandTotal: true, subtotal: true, discountAmount: true, taxAmount: true },
-      _count: true,
+      select: {
+        createdAt: true,
+        grandTotal: true,
+        subtotal: true,
+        discountAmount: true,
+        taxAmount: true,
+      },
     });
 
-    const rows = transactions.map((t) => ({
-      date: t.createdAt.toISOString().split('T')[0],
-      transactions: t._count,
-      totalSales: t._sum.grandTotal?.toNumber() || 0,
-      discount: t._sum.discountAmount?.toNumber() || 0,
-      tax: t._sum.taxAmount?.toNumber() || 0,
-      netSales: (t._sum.subtotal?.toNumber() || 0) - (t._sum.discountAmount?.toNumber() || 0),
+    // Group by date string instead of exact timestamp
+    const grouped = new Map<
+      string,
+      { count: number; grandTotal: number; subtotal: number; discount: number; tax: number }
+    >();
+    for (const t of transactions) {
+      const dateKey = t.createdAt.toISOString().split('T')[0];
+      const existing = grouped.get(dateKey) || {
+        count: 0,
+        grandTotal: 0,
+        subtotal: 0,
+        discount: 0,
+        tax: 0,
+      };
+      existing.count++;
+      existing.grandTotal += t.grandTotal?.toNumber?.() ?? Number(t.grandTotal) ?? 0;
+      existing.subtotal += t.subtotal?.toNumber?.() ?? Number(t.subtotal) ?? 0;
+      existing.discount += t.discountAmount?.toNumber?.() ?? Number(t.discountAmount) ?? 0;
+      existing.tax += t.taxAmount?.toNumber?.() ?? Number(t.taxAmount) ?? 0;
+      grouped.set(dateKey, existing);
+    }
+
+    const rows = Array.from(grouped.entries()).map(([date, data]) => ({
+      date,
+      transactions: data.count,
+      totalSales: data.grandTotal,
+      discount: data.discount,
+      tax: data.tax,
+      netSales: data.subtotal - data.discount,
     }));
 
     const totals = {
-      transactions: rows.reduce((s, r) => s + (r.transactions as number), 0),
+      transactions: rows.reduce((s, r) => s + r.transactions, 0),
       totalSales: rows.reduce((s, r) => s + r.totalSales, 0),
       discount: rows.reduce((s, r) => s + r.discount, 0),
       tax: rows.reduce((s, r) => s + r.tax, 0),

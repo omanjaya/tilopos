@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import {
   Plus,
   Pencil,
@@ -35,8 +36,6 @@ import {
   Building2,
 } from 'lucide-react';
 import type { PaymentMethod, PaymentMethodType, CreatePaymentMethodRequest } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const TYPE_CONFIG: Record<PaymentMethodType, { label: string; icon: typeof Banknote; color: string }> = {
   cash: { label: 'Tunai', icon: Banknote, color: 'bg-success/10 text-success' },
@@ -72,12 +71,7 @@ export function PaymentSettingsPage() {
       toast.success({ title: 'Metode pembayaran ditambahkan' });
       closeForm();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan'),
   });
 
   const updateMutation = useMutation({
@@ -88,12 +82,7 @@ export function PaymentSettingsPage() {
       toast.success({ title: 'Metode pembayaran diperbarui' });
       closeForm();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memperbarui',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui'),
   });
 
   const deleteMutation = useMutation({
@@ -103,12 +92,7 @@ export function PaymentSettingsPage() {
       toast.success({ title: 'Metode pembayaran dinonaktifkan' });
       setDeleteConfirm(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menonaktifkan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menonaktifkan'),
   });
 
   const toggleMutation = useMutation({
@@ -117,12 +101,7 @@ export function PaymentSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal mengubah status',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mengubah status'),
   });
 
   function closeForm() {

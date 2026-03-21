@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Inject,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -23,6 +24,7 @@ import type { IOrderRepository } from '../../domain/interfaces/repositories/orde
 import { OrdersService } from './orders.service';
 import type { OrderPriorityLevel } from '../../application/dtos/order-priority.dto';
 import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -37,6 +39,7 @@ export class OrdersController {
     @Inject(REPOSITORY_TOKENS.ORDER)
     private readonly orderRepo: IOrderRepository,
     private readonly ordersService: OrdersService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -68,7 +71,13 @@ export class OrdersController {
 
   @Get()
   @ApiOperation({ summary: 'List active orders for an outlet' })
-  async listOrders(@Query('outletId') outletId: string) {
+  async listOrders(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId: user.businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
     return this.orderRepo.findActiveByOutletId(outletId);
   }
 

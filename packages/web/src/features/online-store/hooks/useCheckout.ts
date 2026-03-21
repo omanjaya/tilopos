@@ -23,6 +23,7 @@ export function useCheckout(slug: string) {
   // Submit order
   const submitOrder = async (cart: CartItem[], onSuccess?: () => void) => {
     if (cart.length === 0) return;
+    if (orderStatus === 'submitting') return; // Prevent double-submit
 
     setOrderStatus('submitting');
     try {
@@ -30,7 +31,7 @@ export function useCheckout(slug: string) {
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
         customerEmail: customerInfo.email || undefined,
-        deliveryAddress: deliveryMethod === 'delivery' ? customerInfo.address : undefined,
+        shippingAddress: deliveryMethod === 'delivery' ? customerInfo.address : undefined,
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,

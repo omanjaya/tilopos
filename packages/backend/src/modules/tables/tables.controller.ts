@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -23,6 +24,7 @@ import { DeleteTableUseCase } from '../../application/use-cases/tables/delete-ta
 import { MergeBillDto } from '../../application/dtos/merge-bill.dto';
 import { TablesService } from './tables.service';
 import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @ApiTags('Tables')
 @ApiBearerAuth()
@@ -37,13 +39,24 @@ export class TablesController {
     private readonly splitBillUseCase: SplitBillUseCase,
     private readonly mergeBillUseCase: MergeBillUseCase,
     private readonly tablesService: TablesService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
 
   // ==================== Table CRUD ====================
 
   @Get('sections')
   @ApiOperation({ summary: 'Get unique sections for an outlet' })
-  async getSections(@Query('outletId') outletId: string) {
+  async getSections(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.tablesService.getSections(outletId);
   }
 
@@ -54,7 +67,9 @@ export class TablesController {
     @Query('section') section?: string,
     @Query('status') status?: 'available' | 'occupied' | 'reserved' | 'cleaning',
     @Query('activeOnly') activeOnly?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
+    if (user) await this.verifyOutletAccess(outletId, user.businessId);
     return this.getTablesUseCase.execute({
       outletId,
       section,
@@ -82,7 +97,9 @@ export class TablesController {
       positionX?: number;
       positionY?: number;
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOutletAccess(dto.outletId, user.businessId);
     return this.createTableUseCase.execute(dto);
   }
 
@@ -143,7 +160,15 @@ export class TablesController {
         paymentMethod: string;
       }[];
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: dto.transactionId },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!tx || tx.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.splitBillUseCase.execute(dto);
   }
 
@@ -174,7 +199,15 @@ export class TablesController {
       reservedAt: string;
       notes?: string;
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    const table = await this.prisma.table.findUnique({
+      where: { id: dto.tableId },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!table || table.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.tablesService.createReservation({
       tableId: dto.tableId,
       customerName: dto.customerName,
@@ -187,19 +220,38 @@ export class TablesController {
 
   @Get('reservations')
   @ApiOperation({ summary: 'List reservations for an outlet on a given date' })
-  async getReservations(@Query('outletId') outletId: string, @Query('date') date: string) {
+  async getReservations(
+    @Query('outletId') outletId: string,
+    @Query('date') date: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.tablesService.getReservations(outletId, new Date(date));
   }
 
   @Put('reservations/:id/cancel')
   @ApiOperation({ summary: 'Cancel a reservation' })
-  async cancelReservation(@Param('id') id: string) {
+  async cancelReservation(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!entry || entry.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.tablesService.cancelReservation(id);
   }
 
   @Put('reservations/:id/check-in')
   @ApiOperation({ summary: 'Check in a reservation (mark table as occupied)' })
-  async checkInReservation(@Param('id') id: string) {
+  async checkInReservation(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!entry || entry.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.tablesService.checkInReservation(id);
   }
 
@@ -207,7 +259,8 @@ export class TablesController {
 
   @Get('waiting-list')
   @ApiOperation({ summary: 'Get waiting list for outlet' })
-  async waitingList(@Query('outletId') outletId: string) {
+  async waitingList(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.tablesService.getWaitingList(outletId);
   }
 
@@ -222,7 +275,9 @@ export class TablesController {
       phone?: string;
       preferredSection?: string;
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOutletAccess(dto.outletId, user.businessId);
     return this.tablesService.addToWaitingList({
       outletId: dto.outletId,
       customerName: dto.customerName,
@@ -234,13 +289,31 @@ export class TablesController {
 
   @Put('waiting-list/:id/notify')
   @ApiOperation({ summary: 'Notify a customer from waiting list' })
-  async notifyFromWaitingList(@Param('id') id: string) {
+  async notifyFromWaitingList(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!entry || entry.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.tablesService.notifyFromWaitingList(id);
   }
 
   @Put('waiting-list/:id/seat')
   @ApiOperation({ summary: 'Seat a customer from waiting list at a table' })
-  async seatFromWaitingList(@Param('id') id: string, @Body() dto: { tableId: string }) {
+  async seatFromWaitingList(
+    @Param('id') id: string,
+    @Body() dto: { tableId: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!entry || entry.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.tablesService.seatFromWaitingList(id, dto.tableId);
   }
 }

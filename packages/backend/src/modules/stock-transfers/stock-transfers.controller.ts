@@ -41,13 +41,8 @@ export class StockTransfersController {
   ) {}
 
   @Get()
-  async list(
-    @CurrentUser() user: AuthUser,
-    @Query('status') status?: string,
-    @Query('businessId') businessId?: string,
-  ) {
-    const resolvedBusinessId = businessId || user.businessId;
-    const where: Record<string, unknown> = { businessId: resolvedBusinessId };
+  async list(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
+    const where: Record<string, unknown> = { businessId: user.businessId };
     if (status) {
       where.status = status;
     }
@@ -102,8 +97,13 @@ export class StockTransfersController {
       },
     });
 
-    if (!currentTransfer) {
+    if (!currentTransfer || currentTransfer.businessId !== user.businessId) {
       throw new BadRequestException('Transfer not found');
+    }
+    if (currentTransfer.status !== 'pending') {
+      throw new BadRequestException(
+        `Cannot approve transfer with status "${currentTransfer.status}". Only pending transfers can be approved.`,
+      );
     }
 
     const updatedTransfer = await this.prisma.stockTransfer.update({
@@ -145,8 +145,13 @@ export class StockTransfersController {
       },
     });
 
-    if (!currentTransfer) {
+    if (!currentTransfer || currentTransfer.businessId !== user.businessId) {
       throw new BadRequestException('Transfer not found');
+    }
+    if (currentTransfer.status !== 'approved') {
+      throw new BadRequestException(
+        `Cannot ship transfer with status "${currentTransfer.status}". Only approved transfers can be shipped.`,
+      );
     }
 
     const updatedTransfer = await this.prisma.stockTransfer.update({
@@ -173,7 +178,7 @@ export class StockTransfersController {
   @Put(':id/receive')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   async receive(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    // Get current transfer to emit event with correct data
+    // Get current transfer with items for stock movement
     const currentTransfer = await this.prisma.stockTransfer.findUnique({
       where: { id },
       select: {
@@ -181,20 +186,68 @@ export class StockTransfersController {
         sourceOutletId: true,
         destinationOutletId: true,
         businessId: true,
+        items: { select: { productId: true, variantId: true, quantitySent: true } },
       },
     });
 
-    if (!currentTransfer) {
+    if (!currentTransfer || currentTransfer.businessId !== user.businessId) {
       throw new BadRequestException('Transfer not found');
     }
+    if (currentTransfer.status !== 'in_transit') {
+      throw new BadRequestException(
+        `Cannot receive transfer with status "${currentTransfer.status}". Only in-transit transfers can be received.`,
+      );
+    }
 
-    const updatedTransfer = await this.prisma.stockTransfer.update({
-      where: { id },
-      data: {
-        status: 'received',
-        receivedBy: user.employeeId,
-        receivedAt: new Date(),
-      },
+    const updatedTransfer = await this.prisma.$transaction(async (tx) => {
+      const transfer = await tx.stockTransfer.update({
+        where: { id },
+        data: {
+          status: 'received',
+          receivedBy: user.employeeId,
+          receivedAt: new Date(),
+        },
+      });
+
+      // Move stock: decrement source, increment destination
+      for (const item of currentTransfer.items) {
+        const qty = Number(item.quantitySent);
+        // Decrement source outlet stock
+        await tx.stockLevel.updateMany({
+          where: {
+            outletId: currentTransfer.sourceOutletId,
+            productId: item.productId,
+            ...(item.variantId && { variantId: item.variantId }),
+          },
+          data: { quantity: { decrement: qty } },
+        });
+        // Increment destination outlet stock (upsert)
+        const existing = await tx.stockLevel.findFirst({
+          where: {
+            outletId: currentTransfer.destinationOutletId,
+            productId: item.productId,
+            ...(item.variantId && { variantId: item.variantId }),
+          },
+        });
+        if (existing) {
+          await tx.stockLevel.update({
+            where: { id: existing.id },
+            data: { quantity: { increment: qty } },
+          });
+        } else {
+          await tx.stockLevel.create({
+            data: {
+              outletId: currentTransfer.destinationOutletId,
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: qty,
+              lowStockAlert: 0,
+            },
+          });
+        }
+      }
+
+      return transfer;
     });
 
     // Emit event for real-time updates
@@ -243,10 +296,14 @@ export class StockTransfersController {
     return this.prisma.$transaction(async (tx) => {
       // 1. Validate stock availability at source
       for (const item of dto.items) {
+        if (!item.productId) {
+          throw new BadRequestException(`productId is required for item "${item.itemName}"`);
+        }
+
         const stockLevel = await tx.stockLevel.findFirst({
           where: {
             outletId: dto.sourceOutletId,
-            productId: item.productId || null,
+            productId: item.productId,
             variantId: item.variantId || null,
           },
         });
@@ -415,7 +472,7 @@ export class StockTransfersController {
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     const transfer = await this.prisma.stockTransfer
       .findUnique({
         where: { id },
@@ -427,7 +484,7 @@ export class StockTransfersController {
       })
       .catch(() => null);
 
-    if (!transfer) {
+    if (!transfer || transfer.businessId !== user.businessId) {
       throw new NotFoundException('Transfer not found');
     }
 

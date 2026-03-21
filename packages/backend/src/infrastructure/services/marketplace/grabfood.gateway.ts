@@ -7,7 +7,7 @@
  * - Settlement reconciliation
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotImplementedException } from '@nestjs/common';
 import {
   IMarketplaceGateway,
   MarketplaceCredentials,
@@ -21,6 +21,12 @@ import {
 export class GrabFoodGateway implements IMarketplaceGateway {
   readonly platform = 'grabfood' as const;
   private readonly logger = new Logger(GrabFoodGateway.name);
+
+  constructor() {
+    this.logger.warn(
+      'GrabFood gateway is using stub implementation — real API integration not configured',
+    );
+  }
 
   async authenticate(credentials: MarketplaceCredentials): Promise<MarketplaceCredentials> {
     this.logger.log('Authenticating with GrabFood...');
@@ -128,8 +134,10 @@ export class GrabFoodGateway implements IMarketplaceGateway {
     endpoint: string,
     options: RequestInit = {},
   ): Promise<Record<string, unknown>> {
-    this.logger.debug(`GrabFood API: ${options.method || 'GET'} ${endpoint}`);
-    return { success: true, orders: [], settlements: [] };
+    this.logger.warn(`GrabFood API stub called: ${options.method || 'GET'} ${endpoint}`);
+    throw new NotImplementedException(
+      'GrabFood API integration is not yet implemented. Configure GRABFOOD_API_KEY to enable.',
+    );
   }
 
   private groupByCategory(items: MarketplaceMenuItem[]): Array<Record<string, unknown>> {

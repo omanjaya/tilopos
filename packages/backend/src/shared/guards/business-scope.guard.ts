@@ -10,6 +10,15 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 
+/** Minimal interface for dynamically accessed Prisma model delegates */
+interface PrismaDelegate {
+  findUnique(args: { where: Record<string, unknown>; select: Record<string, unknown> }): Promise<{
+    businessId?: string;
+    outlet?: { businessId: string };
+    product?: { businessId: string };
+  } | null>;
+}
+
 export const BUSINESS_SCOPE_KEY = 'businessScope';
 
 export interface BusinessScopeOptions {
@@ -25,7 +34,9 @@ export interface BusinessScopeOptions {
     | 'category'
     | 'ingredient'
     | 'recipe'
-    | 'workOrder';
+    | 'workOrder'
+    | 'modifierGroup'
+    | 'loyaltyTier';
   param: string; // e.g., 'id', 'productId', 'customerId'
   optional?: boolean; // Allow if resource not found (for list endpoints)
 }
@@ -153,9 +164,13 @@ export class BusinessScopeGuard implements CanActivate {
       // Some resources (order, table) don't have businessId directly;
       // they belong to an outlet which has the businessId.
       const needsOutletJoin = ['order', 'table'].includes(resource);
+      const needsProductJoin = ['recipe'].includes(resource);
+
+      // Dynamic Prisma model access requires index signature access
+      const delegate = (this.prisma as unknown as Record<string, PrismaDelegate>)[table];
 
       if (needsOutletJoin) {
-        const result = await ((this.prisma as any)[table] as any).findUnique({
+        const result = await delegate.findUnique({
           where: { id: resourceId },
           select: { outlet: { select: { businessId: true } } },
         });
@@ -163,7 +178,16 @@ export class BusinessScopeGuard implements CanActivate {
         return result.outlet.businessId === businessId;
       }
 
-      const result = await ((this.prisma as any)[table] as any).findUnique({
+      if (needsProductJoin) {
+        const result = await delegate.findUnique({
+          where: { id: resourceId },
+          select: { product: { select: { businessId: true } } },
+        });
+        if (!result?.product) return false;
+        return result.product.businessId === businessId;
+      }
+
+      const result = await delegate.findUnique({
         where: { id: resourceId },
         select: { businessId: true },
       });
@@ -196,10 +220,12 @@ export class BusinessScopeGuard implements CanActivate {
       supplier: 'supplier',
       employee: 'employee',
       outlet: 'outlet',
-      category: 'productCategory',
+      category: 'category',
       ingredient: 'ingredient',
       recipe: 'recipe',
       workOrder: 'workOrder',
+      modifierGroup: 'modifierGroup',
+      loyaltyTier: 'loyaltyTier',
     };
 
     const tableName = tableMap[resource];

@@ -7,72 +7,84 @@ import { ProductsPage } from '../products-page';
 
 // ---- Mock Data ----
 
-const mockProducts = [
-  {
-    id: 'prod-1',
-    name: 'Nasi Goreng Spesial',
-    sku: 'FOOD-001',
-    description: 'Nasi goreng dengan topping lengkap',
-    categoryId: 'cat-1',
-    category: { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    basePrice: 35000,
-    costPrice: 15000,
-    trackStock: true,
-    imageUrl: null,
-    isActive: true,
-    variants: [],
-    businessId: 'b1',
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
-  },
-  {
-    id: 'prod-2',
-    name: 'Es Teh Manis',
-    sku: 'DRINK-001',
-    description: 'Teh manis dingin',
-    categoryId: 'cat-2',
-    category: { id: 'cat-2', name: 'Minuman', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    basePrice: 8000,
-    costPrice: 3000,
-    trackStock: false,
-    imageUrl: null,
-    isActive: true,
-    variants: [],
-    businessId: 'b1',
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
-  },
-  {
-    id: 'prod-3',
-    name: 'Mie Ayam Bakso',
-    sku: 'FOOD-002',
-    description: null,
-    categoryId: 'cat-1',
-    category: { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    basePrice: 25000,
-    costPrice: 12000,
-    trackStock: true,
-    imageUrl: null,
-    isActive: false,
-    variants: [],
-    businessId: 'b1',
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
-  },
-];
+const { mockProducts, mockCategories, mockProductsList } = vi.hoisted(() => {
+  const products = [
+    {
+      id: 'prod-1',
+      name: 'Nasi Goreng Spesial',
+      sku: 'FOOD-001',
+      description: 'Nasi goreng dengan topping lengkap',
+      categoryId: 'cat-1',
+      category: { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      basePrice: 35000,
+      costPrice: 15000,
+      trackStock: true,
+      imageUrl: null,
+      isActive: true,
+      variants: [],
+      businessId: 'b1',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    },
+    {
+      id: 'prod-2',
+      name: 'Es Teh Manis',
+      sku: 'DRINK-001',
+      description: 'Teh manis dingin',
+      categoryId: 'cat-2',
+      category: { id: 'cat-2', name: 'Minuman', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      basePrice: 8000,
+      costPrice: 3000,
+      trackStock: false,
+      imageUrl: null,
+      isActive: true,
+      variants: [],
+      businessId: 'b1',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    },
+    {
+      id: 'prod-3',
+      name: 'Mie Ayam Bakso',
+      sku: 'FOOD-002',
+      description: null,
+      categoryId: 'cat-1',
+      category: { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      basePrice: 25000,
+      costPrice: 12000,
+      trackStock: true,
+      imageUrl: null,
+      isActive: false,
+      variants: [],
+      businessId: 'b1',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    },
+  ];
 
-const mockCategories = [
-  { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-  { id: 'cat-2', name: 'Minuman', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-];
+  const categories = [
+    { id: 'cat-1', name: 'Makanan', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { id: 'cat-2', name: 'Minuman', description: null, isActive: true, businessId: 'b1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+  ];
 
-// ---- Mocks ----
-
-const mockProductsList = vi.fn().mockResolvedValue(mockProducts);
+  return {
+    mockProducts: products,
+    mockCategories: categories,
+    mockProductsList: vi.fn().mockResolvedValue(products),
+  };
+});
 
 vi.mock('@/api/endpoints/products.api', () => ({
   productsApi: {
     list: (...args: unknown[]) => mockProductsList(...args),
+    listPaginated: (...args: unknown[]) =>
+      mockProductsList(...args).then((data: unknown[]) => ({
+        data,
+        total: data.length,
+        page: 1,
+        limit: 15,
+        totalPages: 1,
+      })),
     delete: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -83,9 +95,24 @@ vi.mock('@/api/endpoints/categories.api', () => ({
   },
 }));
 
-// Mock the CategoryManager component to avoid complex dialog rendering
+// Mock complex child components to avoid rendering issues
 vi.mock('../components/category-manager', () => ({
   CategoryManager: () => null,
+}));
+vi.mock('../components/product-quick-add-modal', () => ({
+  ProductQuickAddModal: () => null,
+}));
+vi.mock('../components/product-bulk-add-modal', () => ({
+  ProductBulkAddModal: () => null,
+}));
+vi.mock('../components/bulk-edit-modal', () => ({
+  BulkEditModal: () => null,
+}));
+vi.mock('../components/product-templates-modal', () => ({
+  ProductTemplatesModal: () => null,
+}));
+vi.mock('../components/barcode-generator', () => ({
+  BarcodePrintModal: () => null,
 }));
 
 // ---- Helpers ----

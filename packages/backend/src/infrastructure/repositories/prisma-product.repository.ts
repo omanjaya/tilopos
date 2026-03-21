@@ -127,6 +127,17 @@ export class PrismaProductRepository implements IProductRepository {
       isActive: product.isActive,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
+      variants: product.variants?.map((v) => ({
+        id: v.id,
+        productId: v.productId,
+        sku: v.sku,
+        barcode: v.barcode,
+        name: v.name,
+        price: decimalToNumberRequired(v.price),
+        costPrice: decimalToNumber(v.costPrice),
+        isActive: v.isActive,
+        createdAt: v.createdAt,
+      })),
     };
   }
 }

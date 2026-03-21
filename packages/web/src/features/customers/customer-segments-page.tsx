@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -37,12 +37,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Plus, MoreHorizontal, Eye, Trash2, Loader2, X } from 'lucide-react';
 import type { CustomerSegment, SegmentCriteria, Customer } from '@/types/customer.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 type CriteriaField = 'minSpend' | 'maxSpend' | 'minVisits' | 'maxVisits' | 'loyaltyTier' | 'daysSinceLastVisit' | 'maxDaysSinceLastVisit';
 
@@ -90,7 +89,6 @@ function rulesToCriteria(rules: CriteriaRule[]): SegmentCriteria {
 
 export function CustomerSegmentsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<CustomerSegment | null>(null);
   const [viewTarget, setViewTarget] = useState<CustomerSegment | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -120,32 +118,20 @@ export function CustomerSegmentsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customerSegments'] });
-      toast({ title: 'Segmen berhasil dibuat' });
+      toast.success({ title: 'Segmen berhasil dibuat' });
       resetCreateForm();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal membuat segmen',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membuat segmen'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => customersApi.deleteSegment(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customerSegments'] });
-      toast({ title: 'Segmen berhasil dihapus' });
+      toast.success({ title: 'Segmen berhasil dihapus' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menghapus segmen',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus segmen'),
   });
 
   const resetCreateForm = () => {
@@ -171,12 +157,12 @@ export function CustomerSegmentsPage() {
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!segmentName.trim()) {
-      toast({ variant: 'destructive', title: 'Nama segmen wajib diisi' });
+      toast.error({ title: 'Nama segmen wajib diisi' });
       return;
     }
     const validRules = rules.filter((r) => r.value.trim() !== '');
     if (validRules.length === 0) {
-      toast({ variant: 'destructive', title: 'Minimal satu kriteria harus diisi' });
+      toast.error({ title: 'Minimal satu kriteria harus diisi' });
       return;
     }
     createMutation.mutate();
@@ -244,22 +230,6 @@ export function CustomerSegmentsPage() {
     },
   ];
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setIsCreateOpen(true);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
-
   const customerColumns: Column<Customer>[] = [
     { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
     { key: 'email', header: 'Email', cell: (row) => <span className="text-muted-foreground">{row.email ?? '-'}</span> },
@@ -281,7 +251,12 @@ export function CustomerSegmentsPage() {
         data={segments ?? []}
         isLoading={isLoading}
         emptyTitle="Belum ada segmen"
-        emptyDescription="Buat segmen pertama Anda untuk mengelompokkan pelanggan."
+        emptyDescription="Buat segmen untuk mengelompokkan pelanggan berdasarkan kriteria seperti total belanja, frekuensi kunjungan, atau tier loyalitas."
+        emptyAction={
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Buat Segmen
+          </Button>
+        }
       />
 
       {/* Create Segment Dialog */}

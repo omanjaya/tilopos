@@ -312,12 +312,12 @@ export class LoyaltyCronService {
         '', // tier will be re-evaluated by the monthly cron; pass empty to keep current
       );
 
-      // Mark original earned transactions so they won't be processed again
-      // by setting points to 0 (consumed/expired)
+      // Mark original earned transactions as processed by clearing expiresAt
+      // to prevent re-processing, without destroying the original point data
       const txIds = data.txDetails.map((d) => d.transactionId);
       await this.prisma.loyaltyTransaction.updateMany({
         where: { id: { in: txIds } },
-        data: { points: 0, description: 'Points expired' },
+        data: { expiresAt: null },
       });
 
       result.expired += data.txDetails.length;

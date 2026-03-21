@@ -6,6 +6,8 @@ import { toast } from '@/lib/toast-utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUIStore } from '@/stores/ui.store';
 import { useCartStore } from '@/stores/cart.store';
+import { useFeatureStore } from '@/stores/feature.store';
+import { featuresApi } from '@/api/endpoints/features.api';
 import { useOfflinePOS } from '@/hooks/use-offline-pos';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import {
@@ -39,6 +41,23 @@ export function POSPage() {
     const { products, categories, bundles, isLoading, refetchProducts } = usePosData({ outletId });
     const modals = usePosModals();
     const { currentShift, refetchShift, isLoading: isShiftLoading } = useShiftStatus();
+
+    // Load business features for POS (FeatureGate needs this)
+    const featureStoreLoaded = useFeatureStore((s) => s.isLoaded);
+    useEffect(() => {
+        if (featureStoreLoaded || !outletId) return;
+        const { setEnabledFeatures, setBusinessType, setOutletType } = useFeatureStore.getState();
+        featuresApi.getOutletEnabledFeatures(outletId).then(setEnabledFeatures).catch(() => {
+            featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+        });
+        featuresApi.getOutletType(outletId).then((data) => {
+            setOutletType(data.outletType?.code ?? null);
+        }).catch(() => {
+            featuresApi.getBusinessType().then((data) => {
+                setBusinessType(data.businessType?.code ?? null);
+            }).catch(() => {});
+        });
+    }, [outletId, featureStoreLoaded]);
 
     // Derive shift modal state from the hook instead of a duplicate API call
     useEffect(() => {
@@ -122,6 +141,7 @@ export function POSPage() {
                 onHeldBillsClick={modals.openHeldBills} onShortcutHelpClick={modals.openShortcutHelp}
                 onCartClick={modals.openCartSheet} onRefreshProducts={() => void refetchProducts()}
                 onTodayTransactionsClick={modals.openTodayTransactions}
+                onStartShift={() => setShowShiftStart(true)}
                 currentShift={currentShift ? {
                     id: currentShift.shiftId,
                     startedAt: currentShift.startedAt,

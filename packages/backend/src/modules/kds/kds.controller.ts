@@ -1,4 +1,14 @@
-import { Controller, Post, Body, UseGuards, Get, Query, Put, Param } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Get,
+  Query,
+  Put,
+  Param,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -11,6 +21,7 @@ import { GetStationOrdersUseCase } from '../../application/use-cases/kds/get-sta
 import { KitchenStation } from './kds.gateway';
 import { KdsAnalyticsService } from './kds-analytics.service';
 import { KdsService, type CookingTimerSettings } from './kds.service';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @ApiTags('KDS')
 @ApiBearerAuth()
@@ -22,7 +33,27 @@ export class KdsController {
     private readonly getStationOrdersUseCase: GetStationOrdersUseCase,
     private readonly analyticsService: KdsAnalyticsService,
     private readonly kdsService: KdsService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
+
+  private async verifyOrderItemAccess(orderItemId: string, businessId: string): Promise<void> {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: orderItemId },
+      include: { order: { include: { outlet: { select: { businessId: true } } } } },
+    });
+    if (!item || item.order.outlet.businessId !== businessId) {
+      throw new ForbiddenException('Access denied');
+    }
+  }
 
   @Post('bump')
   @ApiOperation({ summary: 'Bump an order item (mark as completed)' })
@@ -30,6 +61,7 @@ export class KdsController {
     @Body() dto: { orderItemId: string; station: string },
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOrderItemAccess(dto.orderItemId, user.businessId);
     return this.bumpOrderUseCase.execute({
       orderItemId: dto.orderItemId,
       employeeId: user.employeeId,
@@ -59,11 +91,13 @@ export class KdsController {
   @ApiQuery({ name: 'includeCompleted', required: false, type: Boolean })
   async getStationOrders(
     @Query('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
     @Query('station') station?: KitchenStation,
     @Query('status') status?: string,
     @Query('priority') priority?: 'normal' | 'urgent' | 'vip',
     @Query('includeCompleted') includeCompleted?: boolean,
   ) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     const result = await this.getStationOrdersUseCase.execute({
       outletId,
       station,
@@ -93,7 +127,8 @@ export class KdsController {
   @Get('stations')
   @ApiOperation({ summary: 'Get available stations for an outlet' })
   @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getAvailableStations(@Query('outletId') outletId: string) {
+  async getAvailableStations(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.getStationOrdersUseCase.getAvailableStations(outletId);
   }
 
@@ -107,7 +142,12 @@ export class KdsController {
     type: String,
     description: 'Date in ISO format (defaults to today)',
   })
-  async getAnalytics(@Query('outletId') outletId: string, @Query('date') date?: string) {
+  async getAnalytics(
+    @Query('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
+    @Query('date') date?: string,
+  ) {
+    await this.verifyOutletAccess(outletId, user.businessId);
     const targetDate = date ? new Date(date) : undefined;
     return this.analyticsService.getAnalytics(outletId, targetDate);
   }
@@ -119,14 +159,17 @@ export class KdsController {
   @ApiQuery({ name: 'endDate', required: true, type: String })
   async getPerformanceReport(
     @Query('outletId') outletId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    @CurrentUser() user: AuthUser,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.analyticsService.getPerformanceReport(
-      outletId,
-      new Date(startDate),
-      new Date(endDate),
-    );
+    await this.verifyOutletAccess(outletId, user.businessId);
+    const now = new Date();
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = endDate ? new Date(endDate) : now;
+    return this.analyticsService.getPerformanceReport(outletId, start, end);
   }
 
   @Put('items/:id/preparing')
@@ -136,18 +179,25 @@ export class KdsController {
     @Body() dto: { station: string },
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOrderItemAccess(orderItemId, user.businessId);
     return this.analyticsService.markItemPreparing(orderItemId, user.employeeId, dto.station);
   }
 
   @Put('items/:id/ready')
   @ApiOperation({ summary: 'Mark order item as ready' })
   async markItemReady(@Param('id') orderItemId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyOrderItemAccess(orderItemId, user.businessId);
     return this.analyticsService.markItemReady(orderItemId, user.employeeId);
   }
 
   @Put('items/:id/recall')
   @ApiOperation({ summary: 'Recall order item (send back for re-preparation)' })
-  async recallItem(@Param('id') orderItemId: string, @Body() dto: { reason?: string }) {
+  async recallItem(
+    @Param('id') orderItemId: string,
+    @Body() dto: { reason?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyOrderItemAccess(orderItemId, user.businessId);
     return this.analyticsService.recallItem(orderItemId, dto.reason);
   }
 
@@ -189,7 +239,14 @@ export class KdsController {
 
   @Post('orders/:id/notify-ready')
   @ApiOperation({ summary: 'Notify cashier that an order is ready (WebSocket event)' })
-  async notifyOrderReady(@Param('id') orderId: string) {
+  async notifyOrderReady(@Param('id') orderId: string, @CurrentUser() user: AuthUser) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { outlet: { select: { businessId: true } } },
+    });
+    if (!order || order.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.kdsService.notifyCashierOrderReady(orderId);
   }
 }

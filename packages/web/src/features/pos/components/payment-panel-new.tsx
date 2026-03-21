@@ -78,15 +78,15 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
 
         addPayment(payment);
 
-        const newTotalPayments = totalPayments + amount;
+        // Read fresh state after addPayment
+        const freshTotal = useCartStore.getState().total;
+        const freshTotalPayments = useCartStore.getState().totalPayments;
 
-        if (newTotalPayments >= total) {
-            // Auto-complete when payment covers total
-            setTimeout(() => onComplete(), 0);
-        } else {
-            setAmount(total - newTotalPayments);
+        if (freshTotalPayments < freshTotal) {
+            setAmount(freshTotal - freshTotalPayments);
             setReference('');
         }
+        // When fully paid, the "Selesai" button appears — user clicks it explicitly
     };
 
     const quickAmounts = selectedMethod.id === 'cash'
@@ -268,6 +268,11 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                                         <p className="text-2xl font-bold">
                                             Rp {amount.toLocaleString('id-ID')}
                                         </p>
+                                        {amount > remaining && remaining > 0 && (
+                                            <p className="text-sm font-semibold text-green-600 mt-0.5">
+                                                Kembalian: {formatCurrency(amount - remaining)}
+                                            </p>
+                                        )}
                                     </div>
                                     <NumPad
                                         value={amount.toString()}

@@ -28,6 +28,7 @@ describe('MfaService', () => {
     authProvider: 'local',
     profilePhotoUrl: null,
     preferences: null,
+    emailVerified: false,
     onboardingCompleted: false,
     lastLoginAt: null,
     lastLoginIp: null,

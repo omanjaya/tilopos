@@ -8,6 +8,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { OnModuleInit, Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { EventBusService } from '../../infrastructure/events/event-bus.service';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
@@ -36,7 +37,7 @@ interface JoinRoomData {
 
 @WebSocketGateway({
   namespace: '/notifications',
-  cors: { origin: '*' },
+  cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:5173' },
 })
 export class NotificationsGateway
   implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect
@@ -50,6 +51,7 @@ export class NotificationsGateway
   constructor(
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
   ) {}
 
   onModuleInit() {
@@ -61,6 +63,25 @@ export class NotificationsGateway
         newStatus: event.newStatus,
         occurredOn: event.occurredOn,
       });
+
+      // Emit order:new when a new order is created (pending status from empty previous)
+      if (event.newStatus === 'pending' && !event.previousStatus) {
+        this.server.to(`outlet:${event.outletId}`).emit('order:new', {
+          orderId: event.orderId,
+          outletId: event.outletId,
+          createdAt: event.occurredOn.toISOString(),
+        });
+      }
+
+      // Emit order:ready to /notifications namespace so POS (cashier) receives it
+      if (event.newStatus === 'ready') {
+        this.server.to(`outlet:${event.outletId}`).emit('order:ready', {
+          orderId: event.orderId,
+          outletId: event.outletId,
+          previousStatus: event.previousStatus,
+          readyAt: event.occurredOn.toISOString(),
+        });
+      }
     });
 
     // Transaction events
@@ -193,7 +214,26 @@ export class NotificationsGateway
   }
 
   handleConnection(client: AuthenticatedSocket) {
-    this.logger.debug(`Client connected: ${client.id}`);
+    const token =
+      client.handshake.auth?.token ||
+      client.handshake.headers?.authorization?.replace('Bearer ', '');
+    if (!token) {
+      this.logger.warn(`Notifications client rejected - no token: ${client.id}`);
+      client.disconnect();
+      return;
+    }
+    try {
+      const payload = this.jwtService.verify(token as string);
+      client.userId = payload.sub;
+      client.businessId = payload.businessId;
+      client.outletId = payload.outletId;
+      client.role = payload.role;
+      this.logger.debug(`Notifications client authenticated: ${client.id} user=${payload.sub}`);
+    } catch {
+      this.logger.warn(`Notifications client rejected - invalid token: ${client.id}`);
+      client.disconnect();
+      return;
+    }
   }
 
   handleDisconnect(client: AuthenticatedSocket) {
@@ -213,11 +253,33 @@ export class NotificationsGateway
     @MessageBody() data: JoinRoomData,
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
+    if (!client.businessId) {
+      return { error: 'Not authenticated' };
+    }
+
     const { room, businessId, outletId } = data;
 
-    // Store user context
-    if (businessId) client.businessId = businessId;
-    if (outletId) client.outletId = outletId;
+    // Validate that client can only join rooms for their own business/outlet
+    if (businessId && businessId !== client.businessId) {
+      this.logger.warn(
+        `Client ${client.id} tried to join room for different business: ${businessId}`,
+      );
+      return { error: 'Unauthorized: cannot join rooms for a different business' };
+    }
+
+    // Validate outletId belongs to client's business when joining outlet-scoped rooms
+    if (outletId && (room === 'outlet' || room === 'kds')) {
+      const outlet = await this.prisma.outlet.findFirst({
+        where: { id: outletId, businessId: client.businessId },
+        select: { id: true },
+      });
+      if (!outlet) {
+        this.logger.warn(
+          `Client ${client.id} tried to join room for unauthorized outlet: ${outletId}`,
+        );
+        return { error: 'Unauthorized: outlet does not belong to your business' };
+      }
+    }
 
     // Build room name with context
     let roomName = room;
@@ -227,13 +289,13 @@ export class NotificationsGateway
         roomName = `outlet:${outletId}`;
         break;
       case 'business':
-        roomName = `business:${businessId}`;
+        roomName = `business:${client.businessId}`;
         break;
       case 'kds':
         roomName = `kds:${outletId}`;
         break;
       default:
-        roomName = `${room}:${businessId || 'global'}`;
+        roomName = `${room}:${client.businessId}`;
     }
 
     await client.join(roomName);

@@ -55,10 +55,7 @@ export class BundlePackagesController {
     EmployeeRole.OWNER,
     EmployeeRole.SUPER_ADMIN,
   )
-  async getForPOS(
-    @CurrentUser() user: AuthUser,
-    @Param('outletId') outletId: string,
-  ) {
+  async getForPOS(@CurrentUser() user: AuthUser, @Param('outletId') outletId: string) {
     return this.service.findForPOS(outletId, user.businessId);
   }
 
@@ -75,10 +72,7 @@ export class BundlePackagesController {
 
   @Post()
   @Roles(EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN, EmployeeRole.MANAGER)
-  async create(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateBundlePackageDto,
-  ) {
+  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateBundlePackageDto) {
     return this.service.create(user.businessId, dto);
   }
 

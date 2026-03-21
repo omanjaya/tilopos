@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Wrench, Plus, Search, ChevronRight, User, Phone } from 'lucide-react';
 import type { WorkOrder } from '@/api/endpoints/work-orders.api';
 
@@ -52,14 +53,13 @@ function formatDate(date: string) {
 }
 
 function WorkOrderDetail({ workOrder, onBack }: { workOrder: WorkOrder; onBack: () => void }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => workOrdersApi.updateStatus(workOrder.id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['work-orders'] });
-      toast({ title: 'Status diperbarui' });
+      toast.success({ title: 'Status diperbarui' });
     },
   });
 
@@ -153,7 +153,6 @@ function WorkOrderDetail({ workOrder, onBack }: { workOrder: WorkOrder; onBack: 
 }
 
 export function WorkOrdersPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
@@ -201,7 +200,7 @@ export function WorkOrdersPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['work-orders'] });
-      toast({ title: 'Work order berhasil dibuat' });
+      toast.success({ title: 'Work order berhasil dibuat' });
       setShowForm(false);
       setTitle('');
       setItemDesc('');
@@ -213,7 +212,7 @@ export function WorkOrdersPage() {
       setCustPhone('');
       setWoNotes('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal membuat work order' }),
+    onError: (error) => handleMutationError(error, 'Gagal membuat work order'),
   });
 
   if (!outletId) {

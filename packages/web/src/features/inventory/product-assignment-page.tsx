@@ -28,8 +28,7 @@ import { formatCurrency } from '@/lib/format';
 import { Store, Package, Search, CheckCircle2, XCircle } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { Outlet } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 export function ProductAssignmentPage() {
   const queryClient = useQueryClient();
@@ -77,12 +76,7 @@ export function ProductAssignmentPage() {
       });
       setSelectedProducts(new Set());
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal assign produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal assign produk'),
   });
 
   // Remove product mutation
@@ -97,12 +91,7 @@ export function ProductAssignmentPage() {
         description: 'Produk telah dihapus dari outlet',
       });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus produk'),
   });
 
   // Get assigned product IDs set for quick lookup

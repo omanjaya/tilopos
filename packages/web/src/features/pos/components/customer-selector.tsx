@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, User, Phone, Mail, Star, Plus, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,16 +38,8 @@ export function CustomerSelector({
         enabled: open,
     });
 
-    const filteredCustomers = useMemo(() => {
-        if (!search) return customers;
-        const q = search.toLowerCase();
-        return customers.filter(
-            (c) =>
-                c.name.toLowerCase().includes(q) ||
-                c.phone?.toLowerCase().includes(q) ||
-                c.email?.toLowerCase().includes(q)
-        );
-    }, [customers, search]);
+    // API already filters by search term, no need for client-side re-filtering
+    const filteredCustomers = customers;
 
     const handleSelect = (customer: Customer) => {
         onSelect(customer);

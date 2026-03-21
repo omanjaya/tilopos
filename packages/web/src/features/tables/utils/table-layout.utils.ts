@@ -17,7 +17,7 @@ export const STATUS_COLORS: Record<TableStatus, string> = {
   occupied: 'bg-red-500/20 border-red-500 text-red-700 dark:text-red-300',
   reserved: 'bg-yellow-500/20 border-yellow-500 text-yellow-700 dark:text-yellow-300',
   merged: 'bg-blue-500/20 border-blue-500 text-blue-700 dark:text-blue-300',
-  maintenance: 'bg-gray-400/20 border-gray-400 text-gray-600 dark:text-gray-400',
+  cleaning: 'bg-gray-400/20 border-gray-400 text-gray-600 dark:text-gray-400',
 };
 
 export const STATUS_FILL: Record<TableStatus, string> = {
@@ -25,7 +25,7 @@ export const STATUS_FILL: Record<TableStatus, string> = {
   occupied: 'bg-red-500',
   reserved: 'bg-yellow-500',
   merged: 'bg-blue-500',
-  maintenance: 'bg-gray-400',
+  cleaning: 'bg-gray-400',
 };
 
 export const STATUS_LABELS: Record<TableStatus, string> = {
@@ -33,7 +33,7 @@ export const STATUS_LABELS: Record<TableStatus, string> = {
   occupied: 'Terisi',
   reserved: 'Reserved',
   merged: 'Merged',
-  maintenance: 'Maintenance',
+  cleaning: 'Dibersihkan',
 };
 
 // ---------------------------------------------------------------------------

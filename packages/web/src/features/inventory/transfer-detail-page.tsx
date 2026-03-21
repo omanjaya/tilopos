@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
+import type { TransferDiscrepancy } from '@/types/inventory.types';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,8 +25,7 @@ import { toast } from '@/lib/toast-utils';
 import { formatDateTime } from '@/lib/format';
 import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2, AlertTriangle } from 'lucide-react';
 import type { TransferStatus } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 const STATUS_CONFIG: Record<TransferStatus, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
   requested: { label: 'Diminta', variant: 'info' },
@@ -69,12 +69,7 @@ export function TransferDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       toast.success({ title: 'Transfer disetujui' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyetujui transfer',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyetujui transfer'),
   });
 
   const shipMutation = useMutation({
@@ -84,19 +79,14 @@ export function TransferDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       toast.success({ title: 'Transfer ditandai dikirim' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menandai pengiriman',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menandai pengiriman'),
   });
 
   const receiveMutation = useMutation({
     mutationFn: () => {
       const items = transfer!.items.map((item) => ({
         stockTransferItemId: item.id,
-        receivedQuantity: Number(receivedQuantities[item.id] ?? item.requestedQuantity),
+        receivedQuantity: Number(receivedQuantities[item.id] ?? item.quantitySent),
       }));
       return inventoryApi.receiveTransfer(id!, items);
     },
@@ -105,12 +95,7 @@ export function TransferDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       toast.success({ title: 'Transfer diterima' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menerima transfer',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menerima transfer'),
   });
 
   const isMutating = approveMutation.isPending || shipMutation.isPending || receiveMutation.isPending;
@@ -121,8 +106,8 @@ export function TransferDetailPage() {
 
     return transfer.items
       .map((item) => {
-        const receivedQty = Number(receivedQuantities[item.id] ?? item.requestedQuantity);
-        const sentQty = item.requestedQuantity;
+        const receivedQty = Number(receivedQuantities[item.id] ?? item.quantitySent);
+        const sentQty = item.quantitySent;
         const diff = receivedQty - sentQty;
 
         if (diff !== 0) {
@@ -193,11 +178,11 @@ export function TransferDetailPage() {
             currentStatus={transfer.status}
             requestedAt={transfer.createdAt}
             requestedBy={transfer.requestedBy}
-            approvedAt={(transfer as any).approvedAt}
+            approvedAt={transfer.approvedAt}
             approvedBy={transfer.approvedBy}
-            shippedAt={(transfer as any).shippedAt}
-            receivedAt={(transfer as any).receivedAt}
-            receivedBy={(transfer as any).receivedBy}
+            shippedAt={transfer.shippedAt}
+            receivedAt={transfer.receivedAt}
+            receivedBy={transfer.receivedBy}
           />
         </CardContent>
       </Card>
@@ -251,7 +236,7 @@ export function TransferDetailPage() {
               Ada {discrepancies.length} item dengan quantity berbeda dari yang dikirim:
             </p>
             <ul className="list-disc list-inside space-y-1 text-sm">
-              {discrepancies.map((disc: any, idx: number) => (
+              {discrepancies.map((disc: TransferDiscrepancy, idx: number) => (
                 <li key={idx}>
                   <strong>{disc.itemName}</strong>: Dikirim {disc.sent}, Diterima {disc.received}
                   {disc.difference > 0 && <span className="text-green-700"> (+{disc.difference})</span>}
@@ -283,8 +268,8 @@ export function TransferDetailPage() {
               </TableHeader>
               <TableBody>
                 {transfer.items.map((item) => {
-                  const receivedQty = Number(receivedQuantities[item.id] ?? item.requestedQuantity);
-                  const hasDiff = receivedQty !== item.requestedQuantity;
+                  const receivedQty = Number(receivedQuantities[item.id] ?? item.quantitySent);
+                  const hasDiff = receivedQty !== item.quantitySent;
 
                   return (
                     <TableRow key={item.id} className={hasDiff && transfer.status === 'shipped' ? 'bg-yellow-50' : ''}>
@@ -294,14 +279,14 @@ export function TransferDetailPage() {
                           <AlertTriangle className="inline ml-2 h-3 w-3 text-yellow-600" />
                         )}
                       </TableCell>
-                      <TableCell>{item.requestedQuantity}</TableCell>
+                      <TableCell>{item.quantitySent}</TableCell>
                       <TableCell>
                         {transfer.status === 'shipped' ? (
                           <Input
                             type="number"
                             min={0}
                             className={`w-24 ${hasDiff ? 'border-yellow-500 border-2' : ''}`}
-                            value={receivedQuantities[item.id] ?? String(item.requestedQuantity)}
+                            value={receivedQuantities[item.id] ?? String(item.quantitySent)}
                             onChange={(e) =>
                               setReceivedQuantities((prev) => ({
                                 ...prev,

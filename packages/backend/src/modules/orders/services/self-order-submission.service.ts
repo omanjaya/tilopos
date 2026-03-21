@@ -48,40 +48,48 @@ export class SelfOrderSubmissionService {
       throw new BadRequestException('Cart is empty');
     }
 
-    // Generate order number
-    const orderCount = await this.prisma.order.count({
-      where: { outletId: session.outletId },
-    });
-    const orderNumber = `SO${(orderCount + 1).toString().padStart(4, '0')}`;
+    // Generate order number using timestamp + random to avoid race conditions
+    const orderNumber = `SO${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    // Create KDS order
-    const order = await this.prisma.order.create({
-      data: {
-        outletId: session.outletId,
-        orderNumber,
-        orderType: session.tableId ? 'dine_in' : 'takeaway',
-        tableId: session.tableId,
-        status: 'pending',
-        notes: `Self-order from ${session.table?.name || 'counter'}`,
-        items: {
-          create: session.items.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            productName: item.product.name,
-            quantity: item.quantity,
-            status: 'pending',
-            notes: item.notes,
-          })),
+    // Wrap order creation + session update in a transaction for atomicity
+    const order = await this.prisma.$transaction(async (tx) => {
+      const createdOrder = await tx.order.create({
+        data: {
+          outletId: session.outletId,
+          orderNumber,
+          orderType: session.tableId ? 'dine_in' : 'takeaway',
+          tableId: session.tableId,
+          status: 'pending',
+          notes: `Self-order from ${session.table?.name || 'counter'}`,
+          items: {
+            create: session.items.map((item) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              productName: item.product.name,
+              quantity: item.quantity,
+              status: 'pending',
+              notes: item.notes,
+            })),
+          },
         },
-      },
-    });
+      });
 
-    // Update session status
-    await this.prisma.selfOrderSession.update({
-      where: { id: sessionId },
-      data: {
-        status: 'submitted',
-      },
+      // Update table status if the session has a table
+      if (session.tableId) {
+        await tx.table.update({
+          where: { id: session.tableId },
+          data: { status: 'occupied', currentOrderId: createdOrder.id, occupiedAt: new Date() },
+        });
+      }
+
+      await tx.selfOrderSession.update({
+        where: { id: sessionId },
+        data: {
+          status: 'submitted',
+        },
+      });
+
+      return createdOrder;
     });
 
     // Emit event so KDS picks up the new order

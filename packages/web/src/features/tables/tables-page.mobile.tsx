@@ -13,10 +13,9 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Scissors, Merge, Loader2, Info } from 'lucide-react';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 /**
  * TablesPage Mobile Version
@@ -29,8 +28,6 @@ import type { ApiErrorResponse } from '@/types/api.types';
  */
 
 export function TablesPage() {
-  const { toast } = useToast();
-
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitTransactionId, setSplitTransactionId] = useState('');
   const [splitCount, setSplitCount] = useState('2');
@@ -42,32 +39,20 @@ export function TablesPage() {
     mutationFn: (data: { transactionId: string; numberOfSplits: number }) =>
       tablesApi.splitBill(data),
     onSuccess: () => {
-      toast({ title: 'Bill berhasil di-split' });
+      toast.success({ title: 'Bill berhasil di-split' });
       closeSplitSheet();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal split bill',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal split bill'),
   });
 
   const mergeBillMutation = useMutation({
     mutationFn: (data: { transactionIds: string[] }) =>
       tablesApi.mergeBill(data),
     onSuccess: () => {
-      toast({ title: 'Bill berhasil di-merge' });
+      toast.success({ title: 'Bill berhasil di-merge' });
       closeMergeSheet();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal merge bill',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal merge bill'),
   });
 
   function closeSplitSheet() {

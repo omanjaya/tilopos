@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
 import {
@@ -63,7 +64,8 @@ export class BatchTrackingController {
 
   @Get('expiring/:outletId')
   async getExpiringBatches(@Param('outletId') outletId: string, @Query('days') days?: string) {
-    const daysAhead = days ? parseInt(days, 10) : 7;
+    const parsed = days ? parseInt(days, 10) : 7;
+    const daysAhead = isNaN(parsed) ? 7 : Math.min(Math.max(parsed, 1), 365);
     const batches = await this.service.getExpiringBatches(outletId, daysAhead);
     return { batches, daysAhead };
   }
@@ -76,6 +78,16 @@ export class BatchTrackingController {
 
   @Post('deduct')
   async deductFIFO(@Body() body: { productId: string; outletId: string; quantity: number }) {
+    if (!body.quantity || body.quantity <= 0) {
+      throw new BadRequestException('Quantity must be greater than 0');
+    }
     return this.service.deductFIFO(body.productId, body.outletId, body.quantity);
+  }
+
+  // Must be AFTER all static routes
+  @Get(':id')
+  async findById(@Param('id') id: string) {
+    const batch = await this.service.findById(id);
+    return { batch };
   }
 }

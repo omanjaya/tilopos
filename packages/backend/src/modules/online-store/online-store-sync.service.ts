@@ -360,36 +360,41 @@ export class OnlineStoreSyncService {
     items: { productId: string; variantId?: string; quantity: number }[],
     outletId: string,
   ): Promise<boolean> {
-    // Check stock for all items first
-    for (const item of items) {
-      const hasStock = await this.checkStock(
-        item.productId,
-        item.variantId || null,
-        outletId,
-        item.quantity,
-      );
-      if (!hasStock) {
-        return false;
-      }
-    }
+    // Atomic check-and-reserve to prevent race conditions
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        for (const item of items) {
+          const stockLevel = await tx.stockLevel.findFirst({
+            where: {
+              outletId,
+              productId: item.productId,
+              variantId: item.variantId || null,
+            },
+          });
 
-    // Reserve stock (decrement temporarily)
-    for (const item of items) {
-      await this.prisma.stockLevel.updateMany({
-        where: {
-          outletId,
-          productId: item.productId,
-          variantId: item.variantId || null,
-        },
-        data: {
-          quantity: {
-            decrement: item.quantity,
-          },
-        },
+          if (!stockLevel || Number(stockLevel.quantity) < item.quantity) {
+            throw new Error(`Insufficient stock for product ${item.productId}`);
+          }
+
+          await tx.stockLevel.updateMany({
+            where: {
+              outletId,
+              productId: item.productId,
+              variantId: item.variantId || null,
+            },
+            data: {
+              quantity: {
+                decrement: item.quantity,
+              },
+            },
+          });
+        }
       });
-    }
 
-    return true;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

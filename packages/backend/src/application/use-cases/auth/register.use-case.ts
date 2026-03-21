@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { FeatureService } from '../../../modules/business/services/feature.service';
 import { SubscriptionService } from '../../../modules/subscription/subscription.service';
+import { AuthService } from '../../../modules/auth/auth.service';
 import { isValidBusinessType } from '@config/business-types.config';
 import type { RegisterDto } from '../../dtos/register.dto';
 
@@ -17,6 +18,7 @@ export interface RegisterOutput {
   businessType: string;
   featuresEnabled: number;
   enabledFeatures: string[];
+  emailVerified: boolean;
 }
 
 @Injectable()
@@ -28,6 +30,7 @@ export class RegisterUseCase {
     private readonly jwtService: JwtService,
     private readonly featureService: FeatureService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly authService: AuthService,
   ) {}
 
   async execute(dto: RegisterDto): Promise<RegisterOutput> {
@@ -47,7 +50,7 @@ export class RegisterUseCase {
       throw new ConflictException('Email sudah terdaftar');
     }
 
-    const hashedPin = await bcrypt.hash(dto.pin, 10);
+    const hashedPin = await bcrypt.hash(dto.pin, 12);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
@@ -106,9 +109,18 @@ export class RegisterUseCase {
       businessId: result.business.id,
       outletId: result.outlet.id,
       role: result.employee.role,
+      emailVerified: false,
     };
 
     const accessToken = this.jwtService.sign(payload);
+
+    // Send verification email (non-blocking)
+    this.authService.sendVerificationEmail(result.employee.id).catch((error) => {
+      this.logger.warn(
+        `Failed to send verification email for employee ${result.employee.id}`,
+        error,
+      );
+    });
 
     return {
       accessToken,
@@ -120,6 +132,7 @@ export class RegisterUseCase {
       businessType: dto.businessType,
       featuresEnabled: enabledFeatures.length,
       enabledFeatures,
+      emailVerified: false,
     };
   }
 }

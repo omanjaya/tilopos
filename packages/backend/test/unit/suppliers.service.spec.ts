@@ -18,6 +18,7 @@ describe('SuppliersService', () => {
         update: jest.fn(),
         create: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
       },
       purchaseOrderItem: {
         findFirst: jest.fn(),
@@ -192,6 +193,10 @@ describe('SuppliersService', () => {
   describe('approvePurchaseOrder', () => {
     it('should approve a purchase order and set status to ordered', async () => {
       // Arrange
+      (mockPrisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+        status: 'draft',
+      });
       const updatedPO = {
         id: 'po-1',
         poNumber: 'PO-001',
@@ -226,6 +231,10 @@ describe('SuppliersService', () => {
 
     it('should approve without notes when notes are not provided', async () => {
       // Arrange
+      (mockPrisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        id: 'po-2',
+        status: 'draft',
+      });
       const updatedPO = {
         id: 'po-2',
         poNumber: 'PO-002',
@@ -262,6 +271,10 @@ describe('SuppliersService', () => {
   describe('rejectPurchaseOrder', () => {
     it('should reject a purchase order and set status to cancelled', async () => {
       // Arrange
+      (mockPrisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+        status: 'draft',
+      });
       const updatedPO = {
         id: 'po-1',
         poNumber: 'PO-001',

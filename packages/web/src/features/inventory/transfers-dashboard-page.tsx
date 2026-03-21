@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -36,40 +37,38 @@ export function TransfersDashboardPage() {
     queryFn: () => inventoryApi.listTransfers(),
   });
 
+  // Capture render timestamp outside the pure computation
+  const [renderTime] = useState(() => Date.now());
+
   // Calculate metrics
-  const metrics = {
-    inTransit: allTransfers?.filter((t) => t.status === 'in_transit' || t.status === 'shipped').length || 0,
-    pendingApproval: allTransfers?.filter((t) => t.status === 'requested').length || 0,
-    completedToday: allTransfers?.filter((t) => {
-      const receivedAt = (t as any).receivedAt;
-      if (t.status !== 'received' || !receivedAt) return false;
-      const today = new Date();
-      const receivedDate = new Date(receivedAt);
-      return receivedDate.toDateString() === today.toDateString();
-    }).length || 0,
-    totalThisMonth: allTransfers?.filter((t) => {
-      const date = new Date(t.createdAt);
-      const now = new Date();
-      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-    }).length || 0,
-  };
-
-  // Get stuck transfers (approved > 24 hours ago but not shipped)
-  const stuckTransfers = allTransfers?.filter((t) => {
-    const approvedAt = (t as any).approvedAt;
-    if (t.status !== 'approved' || !approvedAt) return false;
-    const approvedDate = new Date(approvedAt);
-    const hoursSinceApproved = (Date.now() - approvedDate.getTime()) / (1000 * 60 * 60);
-    return hoursSinceApproved > 24;
-  }) || [];
-
-  // Get pending approvals
-  const pendingTransfers = allTransfers?.filter((t) => t.status === 'requested').slice(0, 5) || [];
-
-  // Get recent in-transit
-  const inTransitTransfers = allTransfers
-    ?.filter((t) => t.status === 'in_transit' || t.status === 'shipped')
-    .slice(0, 5) || [];
+  const { metrics, stuckTransfers, pendingTransfers, inTransitTransfers } = useMemo(() => {
+    const today = new Date(renderTime);
+    return {
+      metrics: {
+        inTransit: allTransfers?.filter((t) => t.status === 'in_transit' || t.status === 'shipped').length || 0,
+        pendingApproval: allTransfers?.filter((t) => t.status === 'requested').length || 0,
+        completedToday: allTransfers?.filter((t) => {
+          if (t.status !== 'received' || !t.receivedAt) return false;
+          const receivedDate = new Date(t.receivedAt);
+          return receivedDate.toDateString() === today.toDateString();
+        }).length || 0,
+        totalThisMonth: allTransfers?.filter((t) => {
+          const date = new Date(t.createdAt);
+          return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
+        }).length || 0,
+      },
+      stuckTransfers: allTransfers?.filter((t) => {
+        if (t.status !== 'approved' || !t.approvedAt) return false;
+        const approvedDate = new Date(t.approvedAt);
+        const hoursSinceApproved = (renderTime - approvedDate.getTime()) / (1000 * 60 * 60);
+        return hoursSinceApproved > 24;
+      }) || [],
+      pendingTransfers: allTransfers?.filter((t) => t.status === 'requested').slice(0, 5) || [],
+      inTransitTransfers: allTransfers
+        ?.filter((t) => t.status === 'in_transit' || t.status === 'shipped')
+        .slice(0, 5) || [],
+    };
+  }, [allTransfers, renderTime]);
 
   // Calculate most transferred routes
   const routeStats = allTransfers?.reduce(
@@ -300,7 +299,7 @@ export function TransfersDashboardPage() {
                         {transfer.sourceOutletName} → {transfer.destinationOutletName}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Dikirim: {(transfer as any).shippedAt ? formatDateTime((transfer as any).shippedAt) : '-'}
+                        Dikirim: {transfer.shippedAt ? formatDateTime(transfer.shippedAt) : '-'}
                       </p>
                     </div>
                     <Badge variant="outline" className="bg-purple-50 text-purple-700">

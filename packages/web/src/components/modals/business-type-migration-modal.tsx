@@ -10,7 +10,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useFeatureStore } from '@/stores/feature.store';
 import { featuresApi } from '@/api/endpoints/features.api';
 import { cn } from '@/lib/utils';
@@ -69,7 +70,6 @@ export function BusinessTypeMigrationModal({
     onComplete,
 }: BusinessTypeMigrationModalProps) {
     const [selected, setSelected] = useState<string | null>(null);
-    const { toast } = useToast();
     const setBusinessType = useFeatureStore((s) => s.setBusinessType);
 
     const { data: presetsData, isLoading } = useQuery({
@@ -82,20 +82,13 @@ export function BusinessTypeMigrationModal({
         mutationFn: (businessType: string) => featuresApi.changeBusinessType(businessType),
         onSuccess: (data) => {
             setBusinessType(data.newType);
-            // Refetch enabled features after type change
-            toast({
+            toast.success({
                 title: 'Tipe Bisnis Diperbarui',
                 description: `${data.featuresEnabled} fitur telah diaktifkan`,
             });
             onComplete();
         },
-        onError: () => {
-            toast({
-                variant: 'destructive',
-                title: 'Gagal',
-                description: 'Tidak dapat memperbarui tipe bisnis',
-            });
-        },
+        onError: (error) => handleMutationError(error, 'Gagal memperbarui tipe bisnis'),
     });
 
     const handleSkip = () => {

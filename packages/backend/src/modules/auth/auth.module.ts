@@ -11,12 +11,15 @@ import { RegisterUseCase } from '../../application/use-cases/auth/register.use-c
 import { UpdateProfileUseCase } from '../../application/use-cases/auth/update-profile.use-case';
 import { ChangePinUseCase } from '../../application/use-cases/auth/change-pin.use-case';
 import { GetActivityLogUseCase } from '../../application/use-cases/auth/get-activity-log.use-case';
+import { LogAuditEventUseCase } from '../../application/use-cases/audit/log-audit-event.use-case';
 import { JwtStrategy } from '../../infrastructure/auth/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaEmployeeRepository } from '../../infrastructure/repositories/prisma-employee.repository';
+import { PrismaAuditRepository } from '../../infrastructure/repositories/prisma-audit.repository';
 import { BusinessModule } from '../business/business.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
+import { EmailModule } from '../../infrastructure/notifications/email/email.module';
 
 @Module({
   imports: [
@@ -37,6 +40,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     }),
     BusinessModule,
     SubscriptionModule,
+    EmailModule,
   ],
   controllers: [AuthController, MfaController],
   providers: [
@@ -47,9 +51,11 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     UpdateProfileUseCase,
     ChangePinUseCase,
     GetActivityLogUseCase,
+    LogAuditEventUseCase,
     JwtStrategy,
     GoogleStrategy,
     { provide: REPOSITORY_TOKENS.EMPLOYEE, useClass: PrismaEmployeeRepository },
+    { provide: REPOSITORY_TOKENS.AUDIT, useClass: PrismaAuditRepository },
   ],
   exports: [AuthService, JwtStrategy, PassportModule, JwtModule],
 })

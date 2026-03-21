@@ -21,6 +21,7 @@ import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { ISettingsRepository } from '../../domain/interfaces/repositories/settings.repository';
+import { UpdateOutletDto } from '../../application/dtos/settings.dto';
 import { UpdateTaxConfigDto } from '../../application/dtos/settings.dto';
 import { UpdateReceiptTemplateDto } from '../../application/dtos/settings.dto';
 import { UpdateOperatingHoursDto } from '../../application/dtos/settings.dto';
@@ -102,8 +103,16 @@ export class SettingsController {
 
   @Put('outlets/:id')
   @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async updateOutlet(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
-    return this.settingsRepo.updateOutlet(id, dto);
+  async updateOutlet(@Param('id') id: string, @Body() dto: UpdateOutletDto) {
+    return this.settingsRepo.updateOutlet(id, {
+      name: dto.name,
+      code: dto.code,
+      address: dto.address,
+      phone: dto.phone,
+      taxRate: dto.taxRate,
+      serviceCharge: dto.serviceCharge,
+      isActive: dto.isActive,
+    });
   }
 
   @Get('modifier-groups')
@@ -136,6 +145,7 @@ export class SettingsController {
   }
 
   @Put('modifier-groups/:id')
+  @BusinessScoped({ resource: 'modifierGroup', param: 'id' })
   async updateModifierGroup(
     @Param('id') id: string,
     @Body() dto: { name?: string; isActive?: boolean },
@@ -147,6 +157,7 @@ export class SettingsController {
   }
 
   @Delete('modifier-groups/:id')
+  @BusinessScoped({ resource: 'modifierGroup', param: 'id' })
   async deleteModifierGroup(@Param('id') id: string) {
     await this.settingsRepo.deleteModifierGroup(id);
     return { message: 'Modifier group deactivated' };
@@ -234,6 +245,7 @@ export class SettingsController {
   }
 
   @Put('loyalty/tiers/:id')
+  @BusinessScoped({ resource: 'loyaltyTier', param: 'id' })
   async updateLoyaltyTier(
     @Param('id') id: string,
     @Body()
@@ -251,6 +263,7 @@ export class SettingsController {
   }
 
   @Delete('loyalty/tiers/:id')
+  @BusinessScoped({ resource: 'loyaltyTier', param: 'id' })
   async deleteLoyaltyTier(@Param('id') id: string) {
     await this.settingsRepo.deleteLoyaltyTier(id);
     return { message: 'Loyalty tier deactivated' };
@@ -424,12 +437,14 @@ export class SettingsController {
   // ==================== Operating Hours API ====================
 
   @Get('hours/:outletId')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Get operating hours for outlet' })
   async getOutletOperatingHours(@Param('outletId') outletId: string) {
     return this.settingsRepo.getOutletOperatingHours(outletId);
   }
 
   @Put('hours/:outletId')
+  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Update operating hours for outlet' })
   async updateOutletOperatingHours(
     @Param('outletId') outletId: string,
@@ -527,10 +542,7 @@ export class SettingsController {
 
   @Post('printers')
   @ApiOperation({ summary: 'Create a new printer config' })
-  async createPrinterConfig(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreatePrinterConfigDto,
-  ) {
+  async createPrinterConfig(@CurrentUser() user: AuthUser, @Body() dto: CreatePrinterConfigDto) {
     return this.settingsRepo.createPrinterConfig(user.businessId, {
       name: dto.name,
       type: dto.type,
@@ -580,10 +592,7 @@ export class SettingsController {
 
   @Post('report-schedules')
   @ApiOperation({ summary: 'Create a new report schedule' })
-  async createReportSchedule(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateReportScheduleDto,
-  ) {
+  async createReportSchedule(@CurrentUser() user: AuthUser, @Body() dto: CreateReportScheduleDto) {
     return this.settingsRepo.createReportSchedule(user.businessId, {
       reportType: dto.reportType,
       frequency: dto.frequency,

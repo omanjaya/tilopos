@@ -36,4 +36,5 @@ export interface CloseShiftData {
   expectedCash: number;
   cashDifference: number;
   endedAt: Date;
+  notes?: string;
 }

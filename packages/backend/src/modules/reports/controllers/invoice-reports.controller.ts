@@ -78,7 +78,9 @@ export class InvoiceReportsController {
       outletId,
       transactionType: 'sale' as const,
       createdAt: { gte: start, lte: end },
-      ...(status && status !== 'all' ? { status: status as 'completed' | 'voided' | 'refunded' } : {}),
+      ...(status && status !== 'all'
+        ? { status: status as 'completed' | 'voided' | 'refunded' }
+        : {}),
       ...(search
         ? {
             OR: [
@@ -174,9 +176,7 @@ export class InvoiceReportsController {
       createdAt: { gte: start, lte: end },
       ...(search
         ? {
-            OR: [
-              { receiptNumber: { contains: search, mode: 'insensitive' as const } },
-            ],
+            OR: [{ receiptNumber: { contains: search, mode: 'insensitive' as const } }],
           }
         : {}),
     };

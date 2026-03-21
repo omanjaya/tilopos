@@ -11,6 +11,7 @@ import { OnModuleInit, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { EventBusService } from '../../infrastructure/events/event-bus.service';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
 
 // Define standard kitchen stations
@@ -42,6 +43,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
   constructor(
     private readonly eventBus: EventBusService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit() {
@@ -122,7 +124,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
   }
 
   @SubscribeMessage('joinOutlet')
-  handleJoinOutlet(
+  async handleJoinOutlet(
     @MessageBody() data: { outletId: string },
     @ConnectedSocket() client: KdsSocket,
   ) {
@@ -132,6 +134,14 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
 
     if (this.isRateLimited(client.id)) {
       return { error: 'Rate limit exceeded. Try again later.' };
+    }
+
+    // Validate outlet belongs to user's business
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: data.outletId, businessId: client.businessId },
+    });
+    if (!outlet) {
+      return { error: 'Access denied to this outlet' };
     }
 
     const room = `outlet:${data.outletId}`;
@@ -145,7 +155,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
   }
 
   @SubscribeMessage('joinStation')
-  handleJoinStation(
+  async handleJoinStation(
     @MessageBody() data: { outletId: string; station: KitchenStation },
     @ConnectedSocket() client: KdsSocket,
   ) {
@@ -155,6 +165,14 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
 
     if (this.isRateLimited(client.id)) {
       return { error: 'Rate limit exceeded. Try again later.' };
+    }
+
+    // Validate outlet belongs to user's business
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: data.outletId, businessId: client.businessId },
+    });
+    if (!outlet) {
+      return { error: 'Access denied to this outlet' };
     }
 
     const room = `station:${data.outletId}:${data.station}`;

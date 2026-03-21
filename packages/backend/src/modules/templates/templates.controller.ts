@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -35,10 +28,7 @@ export class TemplatesController {
   }
 
   @Post('apply')
-  async applyTemplate(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ApplyTemplateDto,
-  ) {
+  async applyTemplate(@CurrentUser() user: AuthUser, @Body() dto: ApplyTemplateDto) {
     return this.templatesService.applyTemplate(
       user.businessId,
       dto.outletId,

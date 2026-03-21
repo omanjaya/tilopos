@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { OAuth2Client } from 'google-auth-library';
@@ -7,8 +13,15 @@ import type {
   IEmployeeRepository,
   EmployeeRecord,
 } from '@domain/interfaces/repositories/employee.repository';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { EmailService } from '@infrastructure/notifications/email/email.service';
 import type { GoogleOAuthProfile } from './dto/oauth-login.dto';
 import { verifyTotp } from './mfa/totp.util';
+
+interface EmailVerificationPayload {
+  sub: string;
+  purpose: 'email_verification';
+}
 
 export interface OAuthLoginResult {
   accessToken: string;
@@ -42,6 +55,8 @@ export class AuthService {
     private readonly employeeRepo: IEmployeeRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
   ) {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     this.googleClient = new OAuth2Client(clientId);
@@ -165,6 +180,7 @@ export class AuthService {
       businessId: employee.businessId,
       outletId: employee.outletId,
       role: employee.role,
+      emailVerified: employee.emailVerified ?? false,
     };
 
     const accessToken = this.jwtService.sign(jwtPayload);
@@ -188,10 +204,21 @@ export class AuthService {
       throw new UnauthorizedException('Employee not found');
     }
 
+    // Resolve outlet name
+    let outletName: string | null = null;
+    if (employee.outletId) {
+      const outlet = await this.prisma.outlet.findUnique({
+        where: { id: employee.outletId },
+        select: { name: true },
+      });
+      outletName = outlet?.name ?? null;
+    }
+
     return {
       id: employee.id,
       businessId: employee.businessId,
       outletId: employee.outletId,
+      outletName,
       name: employee.name,
       email: employee.email,
       phone: employee.phone,
@@ -200,6 +227,7 @@ export class AuthService {
       onboardingCompleted: employee.onboardingCompleted ?? false,
       isActive: employee.isActive,
       mfaEnabled: employee.mfaEnabled,
+      emailVerified: employee.emailVerified ?? false,
     };
   }
 
@@ -212,5 +240,76 @@ export class AuthService {
     });
 
     return { success: true, message: 'Onboarding completed successfully' };
+  }
+
+  /**
+   * Send verification email to employee
+   */
+  async sendVerificationEmail(employeeId: string): Promise<{ success: boolean; message: string }> {
+    const employee = await this.employeeRepo.findById(employeeId);
+    if (!employee) {
+      throw new UnauthorizedException('Employee not found');
+    }
+
+    if (employee.emailVerified) {
+      return { success: true, message: 'Email sudah terverifikasi' };
+    }
+
+    if (!employee.email) {
+      throw new BadRequestException('Employee does not have an email address');
+    }
+
+    const payload: EmailVerificationPayload = {
+      sub: employee.id,
+      purpose: 'email_verification',
+    };
+
+    const token = this.jwtService.sign(payload, { expiresIn: '24h' });
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const verificationLink = `${frontendUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
+
+    await this.emailService.send({
+      to: employee.email,
+      subject: 'Verifikasi Email - TiloPOS',
+      template: 'verify-email',
+      context: {
+        name: employee.name,
+        verificationLink,
+      },
+    });
+
+    return { success: true, message: 'Email verifikasi telah dikirim' };
+  }
+
+  /**
+   * Verify email using token from email link
+   */
+  async verifyEmail(token: string): Promise<{ success: boolean; message: string }> {
+    let payload: EmailVerificationPayload;
+
+    try {
+      payload = this.jwtService.verify<EmailVerificationPayload>(token);
+    } catch {
+      throw new BadRequestException('Token verifikasi tidak valid atau sudah kadaluarsa');
+    }
+
+    if (payload.purpose !== 'email_verification') {
+      throw new BadRequestException('Token tidak valid');
+    }
+
+    const employee = await this.employeeRepo.findById(payload.sub);
+    if (!employee) {
+      throw new BadRequestException('Akun tidak ditemukan');
+    }
+
+    if (employee.emailVerified) {
+      return { success: true, message: 'Email sudah terverifikasi sebelumnya' };
+    }
+
+    await this.employeeRepo.update(payload.sub, {
+      emailVerified: true,
+    });
+
+    return { success: true, message: 'Email berhasil diverifikasi' };
   }
 }

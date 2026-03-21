@@ -325,8 +325,12 @@ export class MidtransGateway implements IPaymentGateway {
   }
 
   private getVaNumberForBank(bank: string): string {
-    // In production, you would fetch this from Midtrans API
-    // For now, return a placeholder
+    // PLACEHOLDER: VA number generation is using a temporary implementation.
+    // In production, this should be fetched from the Midtrans API or use pre-configured VA numbers.
+    this.logger.warn(
+      `VA number generation for bank "${bank}" is using placeholder implementation. ` +
+        'This produces non-functional VA numbers. Integrate with Midtrans API for production use.',
+    );
     return `VA-${bank.toUpperCase()}-${Date.now()}`;
   }
 

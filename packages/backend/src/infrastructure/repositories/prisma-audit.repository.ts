@@ -31,9 +31,34 @@ export class PrismaAuditRepository implements IAuditLogRepository {
     return this.mapToRecord(created);
   }
 
-  async findByEntity(entityType: string, entityId: string): Promise<AuditLogRecord[]> {
+  async findByEmployee(
+    employeeId: string,
+    options?: { page?: number; limit?: number },
+  ): Promise<{ data: AuditLogRecord[]; total: number }> {
+    const page = options?.page ?? 1;
+    const limit = options?.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const [logs, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({
+        where: { employeeId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.auditLog.count({ where: { employeeId } }),
+    ]);
+
+    return { data: logs.map((log) => this.mapToRecord(log)), total };
+  }
+
+  async findByEntity(
+    entityType: string,
+    entityId: string,
+    businessId?: string,
+  ): Promise<AuditLogRecord[]> {
     const logs = await this.prisma.auditLog.findMany({
-      where: { entityType, entityId },
+      where: { entityType, entityId, ...(businessId && { businessId }) },
       orderBy: { createdAt: 'desc' },
     });
 

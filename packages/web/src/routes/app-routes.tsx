@@ -19,6 +19,7 @@ import {
   SuppliersPage, PurchaseOrdersPage, PriceTiersPage,
   UnitConversionPage, BatchTrackingPage, SerialNumbersPage,
   ProductAssignmentPage,
+  StockOpnamePage, StockOpnamePageMobile, StockOpnameDetailPage, StockOpnameDetailPageMobile,
   OrdersPage, OrdersPageMobile, OrderDetailPage,
   TablesPage, TablesPageMobile,
   WaitingListPage, WaitingListPageMobile,
@@ -30,9 +31,12 @@ import {
   OnlineStorePage, SelfOrderPage,
   AppointmentsPage, WorkOrdersPage, ItemTrackingPage,
   HelpCenterPage, TutorialLibraryPage, MyProfilePage,
+  SubscriptionPage,
 } from './lazy-imports';
 
-/** Shorthand: wrap element with FeatureGuard for a specific path */
+/** Shorthand: wrap element with FeatureGuard for a specific path
+ * @internal - helper for route definitions, not a standalone component */
+// eslint-disable-next-line react-refresh/only-export-components
 function FG({ path, children }: { path: string; children: React.ReactNode }) {
   return <FeatureGuard path={path}>{children}</FeatureGuard>;
 }
@@ -96,6 +100,8 @@ export const appRoutes: RouteObject[] = [
   { path: 'inventory/batch-tracking', element: <LazyRoute><FG path="/app/inventory/batch-tracking"><BatchTrackingPage /></FG></LazyRoute> },
   { path: 'inventory/serial-numbers', element: <LazyRoute><FG path="/app/inventory/serial-numbers"><SerialNumbersPage /></FG></LazyRoute> },
   { path: 'inventory/product-assignment', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><ProductAssignmentPage /></RoleGuard></LazyRoute> },
+  { path: 'inventory/stock-opname', element: <LazyRoute><FG path="/app/inventory/stock-opname"><DeviceRoute desktop={StockOpnamePage} mobile={StockOpnamePageMobile} /></FG></LazyRoute> },
+  { path: 'inventory/stock-opname/:id', element: <LazyRoute><FG path="/app/inventory/stock-opname"><DeviceRoute desktop={StockOpnameDetailPage} mobile={StockOpnameDetailPageMobile} /></FG></LazyRoute> },
 
   // Import
   { path: 'import', element: <LazyRoute><ExcelImportPage /></LazyRoute> },
@@ -125,6 +131,9 @@ export const appRoutes: RouteObject[] = [
 
   // Audit
   { path: 'audit', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><FG path="/app/audit"><AuditPage /></FG></RoleGuard></LazyRoute> },
+
+  // Subscription
+  { path: 'subscription', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><SubscriptionPage /></RoleGuard></LazyRoute> },
 
   // Profile & Help (always visible)
   { path: 'profile', element: <LazyRoute><MyProfilePage /></LazyRoute> },

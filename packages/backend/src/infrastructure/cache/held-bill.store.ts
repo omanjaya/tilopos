@@ -13,8 +13,12 @@ export interface HeldBillData {
     variantId?: string;
     quantity: number;
     notes?: string;
+    unitPrice?: number;
+    productName?: string;
+    modifierIds?: string[];
   }>;
   notes?: string;
+  subtotal?: number;
   heldAt: string;
 }
 
@@ -36,9 +40,9 @@ export class HeldBillStore {
 
   async resume(outletId: string, billId: string): Promise<HeldBillData | null> {
     const key = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, billId);
-    const data = await this.redis.get<HeldBillData>(key);
+    // Atomic get-and-delete to prevent two cashiers resuming the same bill
+    const data = await this.redis.getdel<HeldBillData>(key);
     if (data) {
-      await this.redis.del(key);
       const listKey = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, 'list');
       const list = (await this.redis.get<string[]>(listKey)) || [];
       const filtered = list.filter((id) => id !== billId);
@@ -51,10 +55,18 @@ export class HeldBillStore {
     const listKey = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, 'list');
     const ids = (await this.redis.get<string[]>(listKey)) || [];
     const bills: HeldBillData[] = [];
+    const validIds: string[] = [];
     for (const id of ids) {
       const key = buildCacheKey(CACHE_KEYS.HELD_BILL, outletId, id);
       const data = await this.redis.get<HeldBillData>(key);
-      if (data) bills.push(data);
+      if (data) {
+        bills.push(data);
+        validIds.push(id);
+      }
+    }
+    // Clean up orphaned IDs whose bill data has expired
+    if (validIds.length < ids.length) {
+      await this.redis.set(listKey, validIds, CACHE_DEFAULTS.HELD_BILL_TTL);
     }
     return bills;
   }

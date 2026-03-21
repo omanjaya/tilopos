@@ -99,30 +99,6 @@ export function useGlobalShortcuts({ enabled = true }: UseGlobalShortcutsOptions
   ];
 
   useKeyboardShortcuts({ shortcuts, enabled });
-
-  // First-use hint for command palette
-  useEffect(() => {
-    if (!enabled) return;
-
-    const hasSeenHint = localStorage.getItem('tilo-shortcut-hint-seen');
-    if (!hasSeenHint) {
-      // Delay hint to avoid showing immediately on page load
-      const timer = setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent('toast-info', {
-            detail: {
-              title: 'Quick Actions',
-              message: `Press ${modKey}K to open command palette`,
-              duration: 4000,
-            },
-          })
-        );
-        localStorage.setItem('tilo-shortcut-hint-seen', 'true');
-      }, 2000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [enabled, modKey]);
 }
 
 /**

@@ -35,7 +35,7 @@ import {
   Package,
   DollarSign,
 } from 'lucide-react';
-import { AxiosError } from 'axios';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 const REPORT_TYPE_CONFIG: Record<ReportType, { label: string; icon: typeof BarChart3; color: string }> = {
   sales: { label: 'Penjualan', icon: BarChart3, color: 'bg-success/10 text-success' },
@@ -90,10 +90,7 @@ export function ReportSchedulePage() {
       toast.success({ title: 'Jadwal ditambahkan' });
       closeForm();
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal menambahkan jadwal';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan jadwal'),
   });
 
   const updateMutation = useMutation({
@@ -104,10 +101,7 @@ export function ReportSchedulePage() {
       toast.success({ title: 'Jadwal diperbarui' });
       closeForm();
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal memperbarui jadwal';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui jadwal'),
   });
 
   const deleteMutation = useMutation({
@@ -117,10 +111,7 @@ export function ReportSchedulePage() {
       toast.success({ title: 'Jadwal dihapus' });
       setDeleteConfirm(null);
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal menghapus jadwal';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus jadwal'),
   });
 
   const toggleMutation = useMutation({

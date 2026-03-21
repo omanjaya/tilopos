@@ -1,21 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { settingsApi } from '@/api/endpoints/settings.api';
+import { useUIStore } from '@/stores/ui.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { FormFieldError } from '@/components/shared/form-field-error';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Save, Plus, Trash2 } from 'lucide-react';
 import type { UpdateTaxConfigRequest, TaxExemptionRule } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 // Zod schema for tax settings validation
 const taxSettingsSchema = z.object({
@@ -24,6 +32,7 @@ const taxSettingsSchema = z.object({
     .number()
     .min(0, 'Tarif biaya layanan tidak boleh negatif')
     .max(100, 'Tarif biaya layanan maksimal 100%'),
+  isTaxInclusive: z.boolean(),
 });
 
 type TaxSettingsFormData = z.infer<typeof taxSettingsSchema>;
@@ -31,16 +40,18 @@ type TaxSettingsFormData = z.infer<typeof taxSettingsSchema>;
 export function TaxSettingsPage() {
   const queryClient = useQueryClient();
 
-  const [taxRate, setTaxRate] = useState(11);
-  const [serviceChargeRate, setServiceChargeRate] = useState(0);
-  const [isTaxInclusive, setIsTaxInclusive] = useState(true);
   const [exemptionRules, setExemptionRules] = useState<Omit<TaxExemptionRule, 'id'>[]>([]);
   const [newRuleName, setNewRuleName] = useState('');
   const [newRuleDescription, setNewRuleDescription] = useState('');
 
-  // Form validation states
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const form = useForm<TaxSettingsFormData>({
+    resolver: zodResolver(taxSettingsSchema),
+    defaultValues: {
+      taxRate: 11,
+      serviceChargeRate: 0,
+      isTaxInclusive: true,
+    },
+  });
 
   const { data: taxConfig, isLoading } = useQuery({
     queryKey: ['taxConfig'],
@@ -49,9 +60,11 @@ export function TaxSettingsPage() {
 
   useEffect(() => {
     if (taxConfig) {
-      setTaxRate(taxConfig.taxRate ?? 11);
-      setServiceChargeRate(taxConfig.serviceChargeRate ?? 0);
-      setIsTaxInclusive(taxConfig.isTaxInclusive ?? true);
+      form.reset({
+        taxRate: taxConfig.taxRate ?? 11,
+        serviceChargeRate: taxConfig.serviceChargeRate ?? 0,
+        isTaxInclusive: taxConfig.isTaxInclusive ?? true,
+      });
       setExemptionRules(
         (taxConfig.taxExemptionRules ?? []).map((r) => ({
           name: r.name,
@@ -59,69 +72,12 @@ export function TaxSettingsPage() {
           isActive: r.isActive ?? true,
         })),
       );
+      // Sync tax settings to UI store for POS usage
+      useUIStore.getState().setTaxRate((taxConfig.taxRate ?? 11) / 100);
+      useUIStore.getState().setServiceChargeRate((taxConfig.serviceChargeRate ?? 0) / 100);
+      useUIStore.getState().setTaxInclusive(taxConfig.isTaxInclusive ?? true);
     }
-  }, [taxConfig]);
-
-  // Validate a single field
-  const validateField = (fieldName: keyof TaxSettingsFormData, value: number) => {
-    try {
-      // Create a partial schema for single field validation
-      const fieldSchema = taxSettingsSchema.shape[fieldName];
-      const result = fieldSchema.safeParse(value);
-
-      if (!result.success) {
-        const errorMessage = result.error.errors[0]?.message || 'Nilai tidak valid';
-        setFieldErrors((prev) => ({ ...prev, [fieldName]: errorMessage }));
-      } else {
-        setFieldErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors[fieldName];
-          return newErrors;
-        });
-      }
-    } catch {
-      // If validation fails, clear the error
-      setFieldErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[fieldName];
-        return newErrors;
-      });
-    }
-  };
-
-  // Handle field blur - mark as touched and validate
-  const handleFieldBlur = (fieldName: keyof TaxSettingsFormData, value: number) => {
-    setTouched((prev) => ({ ...prev, [fieldName]: true }));
-    validateField(fieldName, value);
-  };
-
-  // Validate all fields on submit
-  const validateForm = (): boolean => {
-    const formData: TaxSettingsFormData = { taxRate, serviceChargeRate };
-    const result = taxSettingsSchema.safeParse(formData);
-
-    if (!result.success) {
-      const errors: Record<string, string> = {};
-      result.error.errors.forEach((error) => {
-        if (error.path[0]) {
-          errors[error.path[0] as string] = error.message;
-        }
-      });
-      setFieldErrors(errors);
-
-      // Mark all fields with errors as touched
-      const touchedFields: Record<string, boolean> = {};
-      Object.keys(errors).forEach((key) => {
-        touchedFields[key] = true;
-      });
-      setTouched((prev) => ({ ...prev, ...touchedFields }));
-
-      return false;
-    }
-
-    setFieldErrors({});
-    return true;
-  };
+  }, [taxConfig, form]);
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateTaxConfigRequest) => settingsApi.updateTaxConfig(data),
@@ -129,26 +85,14 @@ export function TaxSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['taxConfig'] });
       toast.success({ title: 'Pengaturan pajak berhasil disimpan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan'),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validate form before submit
-    if (!validateForm()) {
-      return;
-    }
-
+  const onSubmit = (data: TaxSettingsFormData) => {
     updateMutation.mutate({
-      taxRate,
-      serviceChargeRate,
-      isTaxInclusive,
+      taxRate: data.taxRate,
+      serviceChargeRate: data.serviceChargeRate,
+      isTaxInclusive: data.isTaxInclusive,
       taxExemptionRules: exemptionRules,
     });
   };
@@ -197,155 +141,163 @@ export function TaxSettingsPage() {
     <div>
       <PageHeader title="Pengaturan Pajak" description="Kelola konfigurasi pajak dan biaya layanan" />
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Tarif Pajak & Biaya Layanan</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="taxRate">Tarif PPN (%)</Label>
-                <Input
-                  id="taxRate"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
-                  onBlur={() => handleFieldBlur('taxRate', taxRate)}
-                  placeholder="Contoh: 11"
-                  aria-invalid={!!fieldErrors.taxRate && touched.taxRate}
-                  aria-describedby={fieldErrors.taxRate && touched.taxRate ? 'taxRate-error' : undefined}
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Tarif Pajak & Biaya Layanan</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="taxRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tarif PPN (%)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          placeholder="Contoh: 11"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <FormFieldError error={fieldErrors.taxRate} touched={touched.taxRate} id="taxRate-error" />
+                <FormField
+                  control={form.control}
+                  name="serviceChargeRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Biaya Layanan (%)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          placeholder="Contoh: 5"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="serviceCharge">Biaya Layanan (%)</Label>
-                <Input
-                  id="serviceCharge"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={serviceChargeRate}
-                  onChange={(e) => setServiceChargeRate(parseFloat(e.target.value) || 0)}
-                  onBlur={() => handleFieldBlur('serviceChargeRate', serviceChargeRate)}
-                  placeholder="Contoh: 5"
-                  aria-invalid={!!fieldErrors.serviceChargeRate && touched.serviceChargeRate}
-                  aria-describedby={
-                    fieldErrors.serviceChargeRate && touched.serviceChargeRate
-                      ? 'serviceChargeRate-error'
-                      : undefined
-                  }
-                />
-                <FormFieldError
-                  error={fieldErrors.serviceChargeRate}
-                  touched={touched.serviceChargeRate}
-                  id="serviceChargeRate-error"
-                />
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between rounded-lg border p-4">
-              <div>
-                <Label htmlFor="taxInclusive" className="text-sm font-medium">
-                  Harga Termasuk Pajak
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Jika aktif, harga produk sudah termasuk pajak (tax-inclusive)
-                </p>
-              </div>
-              <Switch
-                id="taxInclusive"
-                checked={isTaxInclusive}
-                onCheckedChange={setIsTaxInclusive}
+              <FormField
+                control={form.control}
+                name="isTaxInclusive"
+                render={({ field }) => (
+                  <div className="flex items-center justify-between rounded-lg border p-4">
+                    <div>
+                      <label htmlFor="taxInclusive" className="text-sm font-medium">
+                        Harga Termasuk Pajak
+                      </label>
+                      <p className="text-sm text-muted-foreground">
+                        Jika aktif, harga produk sudah termasuk pajak (tax-inclusive)
+                      </p>
+                    </div>
+                    <Switch
+                      id="taxInclusive"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </div>
+                )}
               />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Aturan Pembebasan Pajak</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {exemptionRules.length > 0 && (
-              <div className="space-y-2">
-                {exemptionRules.map((rule, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Switch
-                        checked={rule.isActive}
-                        onCheckedChange={() => handleToggleRule(index)}
-                      />
-                      <div>
-                        <span className="text-sm font-medium">{rule.name}</span>
-                        {rule.description && (
-                          <p className="text-xs text-muted-foreground">{rule.description}</p>
-                        )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Aturan Pembebasan Pajak</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {exemptionRules.length > 0 && (
+                <div className="space-y-2">
+                  {exemptionRules.map((rule, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          checked={rule.isActive}
+                          onCheckedChange={() => handleToggleRule(index)}
+                        />
+                        <div>
+                          <span className="text-sm font-medium">{rule.name}</span>
+                          {rule.description && (
+                            <p className="text-xs text-muted-foreground">{rule.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={rule.isActive ? 'default' : 'outline'}>
+                          {rule.isActive ? 'Aktif' : 'Nonaktif'}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleRemoveRule(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={rule.isActive ? 'default' : 'outline'}>
-                        {rule.isActive ? 'Aktif' : 'Nonaktif'}
-                      </Badge>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleRemoveRule(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
 
-            <div className="rounded-lg border p-4 space-y-3">
-              <p className="text-sm font-medium">Tambah Aturan Baru</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  value={newRuleName}
-                  onChange={(e) => setNewRuleName(e.target.value)}
-                  placeholder="Nama aturan"
-                />
-                <Input
-                  value={newRuleDescription}
-                  onChange={(e) => setNewRuleDescription(e.target.value)}
-                  placeholder="Deskripsi (opsional)"
-                />
+              <div className="rounded-lg border p-4 space-y-3">
+                <p className="text-sm font-medium">Tambah Aturan Baru</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    value={newRuleName}
+                    onChange={(e) => setNewRuleName(e.target.value)}
+                    placeholder="Nama aturan"
+                  />
+                  <Input
+                    value={newRuleDescription}
+                    onChange={(e) => setNewRuleDescription(e.target.value)}
+                    placeholder="Deskripsi (opsional)"
+                  />
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={handleAddRule}>
+                  <Plus className="mr-2 h-4 w-4" /> Tambah Aturan
+                </Button>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddRule}>
-                <Plus className="mr-2 h-4 w-4" /> Tambah Aturan
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <div className="flex justify-end">
-          <Button
-            type="submit"
-            disabled={updateMutation.isPending}
-            aria-busy={updateMutation.isPending}
-            aria-label={updateMutation.isPending ? 'Menyimpan...' : undefined}
-          >
-            {updateMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-4 w-4" />
-            )}
-            Simpan
-          </Button>
-        </div>
-      </form>
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              disabled={updateMutation.isPending}
+              aria-busy={updateMutation.isPending}
+              aria-label={updateMutation.isPending ? 'Menyimpan...' : undefined}
+            >
+              {updateMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Simpan
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   );
 }

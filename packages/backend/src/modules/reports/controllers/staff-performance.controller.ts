@@ -1,9 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
@@ -78,38 +73,45 @@ export class StaffPerformanceController {
       },
     });
 
+    // Single groupBy query instead of N+1 per-employee queries
+    const salesByEmployee = await this.prisma.transaction.groupBy({
+      by: ['employeeId'],
+      where: {
+        outletId: { in: outletIds },
+        transactionType: 'sale',
+        status: 'completed',
+        createdAt: { gte: start, lte: end },
+        employeeId: { not: null },
+      },
+      _sum: { grandTotal: true },
+      _count: true,
+    });
+
+    // Build a lookup map from employeeId -> sales data
+    const salesMap = new Map<string, { totalSales: number; transactionCount: number }>();
+    for (const entry of salesByEmployee) {
+      if (entry.employeeId) {
+        salesMap.set(entry.employeeId, {
+          totalSales: entry._sum.grandTotal?.toNumber() || 0,
+          transactionCount: entry._count,
+        });
+      }
+    }
+
+    // Merge employee data with sales data
     const staffPerformance = [];
-
     for (const employee of employees) {
-      // Get sales data
-      const salesData = await this.prisma.transaction.aggregate({
-        where: {
-          outletId: { in: outletIds },
-          employeeId: employee.id,
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: start, lte: end },
-        },
-        _sum: {
-          grandTotal: true,
-        },
-        _count: true,
-      });
-
-      const totalSales = salesData._sum.grandTotal?.toNumber() || 0;
-      const transactionCount = salesData._count;
-      const avgTransactionValue = transactionCount > 0 ? totalSales / transactionCount : 0;
-
-      // Only include staff with sales
-      if (totalSales > 0) {
+      const sales = salesMap.get(employee.id);
+      if (sales && sales.totalSales > 0) {
         staffPerformance.push({
           employeeId: employee.id,
           employeeName: employee.name,
           role: employee.role,
           outletName: employee.outlet?.name || 'N/A',
-          totalSales,
-          transactionCount,
-          avgTransactionValue,
+          totalSales: sales.totalSales,
+          transactionCount: sales.transactionCount,
+          avgTransactionValue:
+            sales.transactionCount > 0 ? sales.totalSales / sales.transactionCount : 0,
         });
       }
     }

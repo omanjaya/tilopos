@@ -13,6 +13,8 @@ describe('LoginUseCase', () => {
   let useCase: LoginUseCase;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
   let mockJwtService: jest.Mocked<JwtService>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockPrisma: any;
 
   const activeEmployee: EmployeeRecord = {
     id: 'emp-1',
@@ -32,6 +34,7 @@ describe('LoginUseCase', () => {
     authProvider: 'local',
     profilePhotoUrl: null,
     preferences: null,
+    emailVerified: false,
     onboardingCompleted: false,
     lastLoginAt: null,
     lastLoginIp: null,
@@ -62,7 +65,14 @@ describe('LoginUseCase', () => {
       decode: jest.fn(),
     } as unknown as jest.Mocked<JwtService>;
 
-    useCase = new LoginUseCase(mockEmployeeRepo, mockJwtService);
+    mockPrisma = {
+      outlet: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({ name: 'Main Outlet' }),
+      },
+    };
+
+    useCase = new LoginUseCase(mockEmployeeRepo, mockJwtService, mockPrisma);
   });
 
   afterEach(() => {
@@ -110,7 +120,7 @@ describe('LoginUseCase', () => {
     });
 
     await expect(useCase.execute(baseInput)).rejects.toThrow(UnauthorizedException);
-    await expect(useCase.execute(baseInput)).rejects.toThrow('PIN not configured');
+    await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid credentials');
   });
 
   it('should throw UnauthorizedException when PIN is wrong', async () => {
@@ -132,12 +142,18 @@ describe('LoginUseCase', () => {
       businessId: 'biz-1',
       outletId: 'outlet-1',
       role: 'cashier',
+      emailVerified: false,
     });
   });
 
-  it('should use input outletId if provided', async () => {
-    mockEmployeeRepo.findByEmail.mockResolvedValue(activeEmployee);
+  it('should use input outletId if provided by allowed role', async () => {
+    const ownerEmployee: EmployeeRecord = {
+      ...activeEmployee,
+      role: 'owner',
+    };
+    mockEmployeeRepo.findByEmail.mockResolvedValue(ownerEmployee);
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    mockPrisma.outlet.findFirst.mockResolvedValue({ id: 'outlet-2', businessId: 'biz-1' });
 
     const inputWithOutlet: LoginInput = {
       ...baseInput,
@@ -154,6 +170,21 @@ describe('LoginUseCase', () => {
       expect.objectContaining({
         outletId: 'outlet-2',
       }),
+    );
+  });
+
+  it('should throw UnauthorizedException when cashier tries to switch outlets', async () => {
+    mockEmployeeRepo.findByEmail.mockResolvedValue(activeEmployee);
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+    const inputWithOutlet: LoginInput = {
+      ...baseInput,
+      outletId: 'outlet-2',
+    };
+
+    await expect(useCase.execute(inputWithOutlet)).rejects.toThrow(UnauthorizedException);
+    await expect(useCase.execute(inputWithOutlet)).rejects.toThrow(
+      'Not authorized to switch outlets',
     );
   });
 

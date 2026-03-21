@@ -42,6 +42,7 @@ describe('PrismaProductRepository', () => {
     isActive: true,
     createdAt: now,
     updatedAt: now,
+    variants: [],
   };
 
   beforeEach(() => {

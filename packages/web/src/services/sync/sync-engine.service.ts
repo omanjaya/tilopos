@@ -197,8 +197,8 @@ class SyncEngine {
             await this.executorService.executeSyncOperation(item);
           },
           item,
-          (attempt, delay) => {
-            console.log(`Retry attempt ${attempt} for ${item.id} in ${delay}ms`);
+          (_attempt, _delay) => {
+            // Retry logging handled by emit below
           }
         );
 

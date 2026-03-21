@@ -29,7 +29,7 @@ export function StockRealtimeBadge() {
         void queryClient.invalidateQueries({ queryKey: ['stock-levels', outletId] });
       }
     },
-    [outletId, toast, queryClient],
+    [outletId, queryClient],
   );
 
   const handleTransferStatusChanged = useCallback(
@@ -61,7 +61,7 @@ export function StockRealtimeBadge() {
         void queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       }
     },
-    [outletId, toast, queryClient],
+    [outletId, queryClient],
   );
 
   const { isConnected } = useRealtimeInventory({

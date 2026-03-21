@@ -49,6 +49,6 @@ export const shiftsApi = {
   cashIn: (data: { shiftId: string; amount: number; notes?: string }) =>
     apiClient.post('/pos/cash-in', data).then((r) => r.data),
 
-  cashOut: (data: { shiftId: string; amount: number; notes?: string }) =>
+  cashOut: (data: { shiftId: string; amount: number; reason: string; notes?: string }) =>
     apiClient.post('/pos/cash-out', data).then((r) => r.data),
 };

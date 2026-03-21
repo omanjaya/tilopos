@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Grid3X3, List, Layers } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -62,53 +62,6 @@ export function ProductGrid({
     };
 
     const productAreaRef = useRef<HTMLDivElement>(null);
-
-    const handleProductKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-        const area = productAreaRef.current;
-        if (!area) return;
-
-        const buttons = Array.from(area.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
-        const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        if (currentIndex === -1) return;
-
-        let cols = 1;
-        if (viewMode === 'grid') {
-            const gridEl = area.querySelector<HTMLElement>('.grid');
-            if (gridEl) {
-                const templateCols = window.getComputedStyle(gridEl).getPropertyValue('grid-template-columns');
-                cols = templateCols.split(' ').filter(Boolean).length;
-            }
-        }
-
-        let nextIndex = currentIndex;
-        switch (e.key) {
-            case 'ArrowRight':
-                nextIndex = Math.min(currentIndex + 1, buttons.length - 1);
-                break;
-            case 'ArrowLeft':
-                nextIndex = Math.max(currentIndex - 1, 0);
-                break;
-            case 'ArrowDown':
-                nextIndex = Math.min(currentIndex + cols, buttons.length - 1);
-                break;
-            case 'ArrowUp':
-                nextIndex = Math.max(currentIndex - cols, 0);
-                break;
-            case 'Home':
-                nextIndex = 0;
-                break;
-            case 'End':
-                nextIndex = buttons.length - 1;
-                break;
-            default:
-                return;
-        }
-
-        if (nextIndex !== currentIndex) {
-            e.preventDefault();
-            buttons[nextIndex]?.focus();
-        }
-    }, [viewMode]);
 
     const isBundleCategory = selectedCategoryId === BUNDLE_CATEGORY_ID;
 
@@ -257,7 +210,6 @@ export function ProductGrid({
             <div
                 ref={productAreaRef}
                 className="flex-1 overflow-auto p-4"
-                onKeyDown={handleProductKeyDown}
                 role="region"
                 aria-label="Daftar produk"
             >

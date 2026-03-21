@@ -45,8 +45,8 @@ export interface XenditInvoiceRequest {
   payment_methods: XenditPaymentMethod[];
   customer?: {
     given_names: string;
-    email: string;
-    mobile_number: string;
+    email?: string;
+    mobile_number?: string;
   };
   items?: Array<{
     name: string;

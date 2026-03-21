@@ -38,39 +38,65 @@ export class SplitBillUseCase {
       throw new TransactionNotFoundException(input.transactionId);
     }
 
-    const childTransactions: SplitBillOutput['childTransactions'] = [];
-    const splitCount = input.splits.length;
+    if (transaction.status !== 'completed') {
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Only completed transactions can be split',
+      );
+    }
 
+    const splitCount = input.splits.length;
+    if (splitCount < 2) {
+      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Must split into at least 2 parts');
+    }
+
+    // Pre-calculate all split amounts and validate BEFORE writing to DB
+    const splitData: Array<{ amount: number; receiptNumber: string }> = [];
     for (let i = 0; i < splitCount; i++) {
       const split = input.splits[i];
       let amount: number;
 
       if (input.splitType === 'equal') {
-        amount = Math.round(transaction.grandTotal / splitCount);
+        const baseAmount = Math.floor(transaction.grandTotal / splitCount);
+        const remainder = transaction.grandTotal - baseAmount * splitCount;
+        // First split gets the remainder to ensure exact total
+        amount = i === 0 ? baseAmount + remainder : baseAmount;
       } else if (input.splitType === 'by_amount' && split.amount !== undefined) {
         amount = split.amount;
       } else {
-        amount = Math.round(transaction.grandTotal / splitCount);
+        const baseAmount = Math.floor(transaction.grandTotal / splitCount);
+        const remainder = transaction.grandTotal - baseAmount * splitCount;
+        amount = i === 0 ? baseAmount + remainder : baseAmount;
       }
 
-      const receiptNumber = `SPL-${Date.now()}-${i + 1}`;
+      splitData.push({ amount, receiptNumber: `SPL-${Date.now()}-${i + 1}` });
+    }
 
+    const totalSplit = splitData.reduce((sum, s) => sum + s.amount, 0);
+    if (totalSplit < transaction.grandTotal) {
+      throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'Split amounts do not cover the total');
+    }
+
+    // All validations passed — now create child transactions
+    const childTransactions: SplitBillOutput['childTransactions'] = [];
+    for (const data of splitData) {
       const childTx = await this.transactionRepo.save({
         id: '',
+        businessId: transaction.businessId,
         outletId: transaction.outletId,
         employeeId: transaction.employeeId,
         customerId: null,
         shiftId: transaction.shiftId,
-        receiptNumber,
+        receiptNumber: data.receiptNumber,
         transactionType: 'sale',
         orderType: transaction.orderType,
         tableId: transaction.tableId,
-        subtotal: amount,
+        subtotal: data.amount,
         discountAmount: 0,
         taxAmount: 0,
         serviceCharge: 0,
-        grandTotal: amount,
-        notes: `Split ${i + 1} of ${splitCount} from ${transaction.receiptNumber}`,
+        grandTotal: data.amount,
+        notes: `Split from ${transaction.receiptNumber}`,
         status: 'completed',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -78,15 +104,13 @@ export class SplitBillUseCase {
 
       childTransactions.push({
         transactionId: childTx.id,
-        receiptNumber,
-        amount,
+        receiptNumber: data.receiptNumber,
+        amount: data.amount,
       });
     }
 
-    const totalSplit = childTransactions.reduce((sum, c) => sum + c.amount, 0);
-    if (totalSplit < transaction.grandTotal) {
-      throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'Split amounts do not cover the total');
-    }
+    // Mark parent as split to prevent double-splitting
+    await this.transactionRepo.update(input.transactionId, { status: 'split' });
 
     return {
       parentTransactionId: input.transactionId,

@@ -6,7 +6,21 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
+
+/** Body payload from Midtrans webhook notifications */
+interface MidtransWebhookBody {
+  order_id: string;
+  status_code: string;
+  gross_amount: string;
+  signature_key?: string;
+}
+
+/** Minimal request shape for webhook verification */
+interface WebhookRequest {
+  headers: Record<string, string | undefined>;
+  body: Record<string, unknown>;
+}
 
 /**
  * WebhookGuard - Authenticates payment gateway webhooks
@@ -61,7 +75,7 @@ export class WebhookGuard implements CanActivate {
    * @returns true if signature is valid
    * @throws UnauthorizedException if verification fails
    */
-  private verifyMidtrans(body: any): boolean {
+  private verifyMidtrans(body: MidtransWebhookBody): boolean {
     const { order_id, status_code, gross_amount, signature_key } = body;
 
     if (!signature_key) {
@@ -79,12 +93,10 @@ export class WebhookGuard implements CanActivate {
     const payload = `${order_id}${status_code}${gross_amount}${serverKey}`;
     const expectedSignature = createHash('sha512').update(payload).digest('hex');
 
-    if (signature_key !== expectedSignature) {
-      this.logger.error(
-        `Invalid Midtrans signature for order ${order_id}. ` +
-          `Expected: ${expectedSignature.substring(0, 10)}..., ` +
-          `Got: ${signature_key.substring(0, 10)}...`,
-      );
+    const sigBuffer = Buffer.from(String(signature_key));
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
+      this.logger.error(`Invalid Midtrans signature for order ${order_id}`);
       throw new UnauthorizedException('Invalid signature');
     }
 
@@ -102,7 +114,7 @@ export class WebhookGuard implements CanActivate {
    * @returns true if callback token is valid
    * @throws UnauthorizedException if verification fails
    */
-  private verifyXendit(request: any): boolean {
+  private verifyXendit(request: WebhookRequest): boolean {
     const callbackToken = request.headers['x-callback-token'];
 
     if (!callbackToken) {
@@ -116,12 +128,13 @@ export class WebhookGuard implements CanActivate {
       throw new UnauthorizedException('Webhook verification not configured');
     }
 
-    if (callbackToken !== webhookToken) {
-      this.logger.error(
-        `Invalid Xendit callback token. ` +
-          `Expected: ${webhookToken.substring(0, 8)}..., ` +
-          `Got: ${callbackToken.substring(0, 8)}...`,
-      );
+    const tokenBuffer = Buffer.from(String(callbackToken));
+    const expectedBuffer = Buffer.from(webhookToken);
+    if (
+      tokenBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(tokenBuffer, expectedBuffer)
+    ) {
+      this.logger.error('Invalid Xendit callback token');
       throw new UnauthorizedException('Invalid callback token');
     }
 

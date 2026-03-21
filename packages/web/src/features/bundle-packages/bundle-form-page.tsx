@@ -11,10 +11,9 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, Trash2, GripVertical } from 'lucide-react';
 import { BundleItemPicker } from './components/bundle-item-picker';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface BundleItem {
   productId: string;
@@ -86,12 +85,7 @@ export function BundleFormPage() {
       toast.success({ title: 'Paket bundle berhasil dibuat' });
       navigate('/app/bundle-packages');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal membuat paket bundle',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membuat paket bundle'),
   });
 
   const updateMutation = useMutation({
@@ -102,12 +96,7 @@ export function BundleFormPage() {
       toast.success({ title: 'Paket bundle berhasil diperbarui' });
       navigate('/app/bundle-packages');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memperbarui paket bundle',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui paket bundle'),
   });
 
   const handleAddItem = (item: { productId: string; productName: string; variantId?: string; variantName?: string; quantity: number }) => {

@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import type { IAuditLogRepository } from '@domain/interfaces/repositories/audit.repository';
 
 export interface ActivityLogEntry {
   id: string;
@@ -28,21 +30,35 @@ export interface GetActivityLogOutput {
 
 @Injectable()
 export class GetActivityLogUseCase {
+  constructor(
+    @Inject(REPOSITORY_TOKENS.AUDIT)
+    private readonly auditRepo: IAuditLogRepository,
+  ) {}
+
   async execute(input: GetActivityLogInput): Promise<GetActivityLogOutput> {
     const page = input.page ?? 1;
     const limit = input.limit ?? 20;
 
-    // Get audit logs for the employee
-    // This would need to be implemented in the repository
-    // For now, returning a stub response
-    const activities: ActivityLogEntry[] = [];
+    const { data, total } = await this.auditRepo.findByEmployee(input.employeeId, { page, limit });
+
+    const activities: ActivityLogEntry[] = data.map((log) => ({
+      id: log.id,
+      action: log.action,
+      entityType: log.entityType,
+      entityId: log.entityId,
+      ipAddress: log.ipAddress,
+      userAgent: ((log.metadata as Record<string, unknown>)?.userAgent as string | null) ?? null,
+      createdAt: log.createdAt,
+      oldValue: log.oldValue as Record<string, unknown> | null,
+      newValue: log.newValue as Record<string, unknown> | null,
+    }));
 
     return {
       activities,
-      total: 0,
+      total,
       page,
       limit,
-      totalPages: 0,
+      totalPages: Math.ceil(total / limit),
     };
   }
 }

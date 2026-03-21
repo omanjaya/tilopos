@@ -51,7 +51,10 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { BundlePackagesModule } from './modules/bundle-packages/bundle-packages.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { SubscriptionModule } from './modules/subscription/subscription.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { StockOpnameModule } from './modules/stock-opname/stock-opname.module';
 import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
+import { FeatureGuard } from './common/guards/feature.guard';
 
 @Module({
   imports: [
@@ -108,6 +111,8 @@ import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
     BundlePackagesModule,
     TemplatesModule,
     SubscriptionModule,
+    IntegrationsModule,
+    StockOpnameModule,
   ],
   providers: [
     {
@@ -117,6 +122,10 @@ import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
     {
       provide: APP_GUARD,
       useClass: BusinessScopeGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: FeatureGuard,
     },
   ],
 })

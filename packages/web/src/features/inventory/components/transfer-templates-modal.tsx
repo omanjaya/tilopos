@@ -18,7 +18,7 @@ import {
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { TransferTemplateFormModal } from './transfer-template-form-modal';
 import type { TransferTemplate } from '@/types/transfer-template.types';
-import type { AxiosError } from 'axios';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 interface TransferTemplatesModalProps {
   open: boolean;
@@ -49,12 +49,7 @@ export function TransferTemplatesModal({
       toast.success({ title: 'Template dihapus' });
       setDeleteConfirmId(null);
     },
-    onError: (error: AxiosError<any>) => {
-      toast.error({
-        title: 'Gagal menghapus template',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus template'),
   });
 
   const handleUseTemplate = (template: TransferTemplate) => {

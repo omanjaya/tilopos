@@ -16,7 +16,8 @@ export class AppointmentsController {
     @Query('date') date: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.appointmentsService.listByDate(outletId, user.businessId, date);
+    const effectiveDate = date || new Date().toISOString().split('T')[0];
+    return this.appointmentsService.listByDate(outletId, user.businessId, effectiveDate);
   }
 
   @Get('employee/:employeeId')
@@ -46,6 +47,7 @@ export class AppointmentsController {
     @Query('startTime') startTime: string,
     @Query('durationMinutes') durationMinutes: string,
     @Query('excludeId') excludeId?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
     return this.appointmentsService.checkAvailability(
       outletId,
@@ -53,6 +55,7 @@ export class AppointmentsController {
       startTime,
       parseInt(durationMinutes, 10),
       excludeId,
+      user?.businessId,
     );
   }
 

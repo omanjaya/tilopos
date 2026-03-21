@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { InventoryController } from '../inventory.controller';
 import { CreateProductUseCase } from '../../../application/use-cases/inventory/create-product.use-case';
 import { UpdateStockUseCase } from '../../../application/use-cases/inventory/update-stock.use-case';
@@ -27,6 +28,9 @@ describe('Inventory IDOR Prevention', () => {
   let mockInventoryRepo: jest.Mocked<IInventoryRepository>;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockReflector: jest.Mocked<Reflector>;
+  let mockJwtService: jest.Mocked<JwtService>;
+  let mockProductFindUnique: jest.Mock;
+  let mockCategoryFindUnique: jest.Mock;
 
   // Test data
   const businessA = 'business-a-id';
@@ -36,13 +40,6 @@ describe('Inventory IDOR Prevention', () => {
     businessId: businessA,
     employeeId: 'emp-a',
     outletId: 'outlet-a',
-    role: 'owner',
-  };
-
-  const userFromBusinessB: AuthUser = {
-    businessId: businessB,
-    employeeId: 'emp-b',
-    outletId: 'outlet-b',
     role: 'owner',
   };
 
@@ -69,32 +66,36 @@ describe('Inventory IDOR Prevention', () => {
       update: jest.fn(),
       delete: jest.fn(),
       findByBusinessId: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<IProductRepository>;
 
-    mockInventoryRepo = {} as any;
+    mockInventoryRepo = {} as unknown as jest.Mocked<IInventoryRepository>;
 
+    mockProductFindUnique = jest.fn();
+    mockCategoryFindUnique = jest.fn();
     mockPrisma = {
       product: {
-        findUnique: jest.fn(),
+        findUnique: mockProductFindUnique,
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
       },
-      productCategory: {
-        findUnique: jest.fn(),
+      category: {
+        findUnique: mockCategoryFindUnique,
+        findMany: jest.fn(),
         update: jest.fn(),
       },
-      category: {
-        findMany: jest.fn(),
-      },
-    } as any;
+    } as unknown as jest.Mocked<PrismaService>;
 
     mockReflector = {
       get: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Reflector>;
+
+    mockJwtService = {
+      verify: jest.fn(),
+    } as unknown as jest.Mocked<JwtService>;
 
     // Create guard
-    guard = new BusinessScopeGuard(mockReflector, mockPrisma);
+    guard = new BusinessScopeGuard(mockReflector, mockPrisma, mockJwtService);
 
     // Create test module
     const module: TestingModule = await Test.createTestingModule({
@@ -141,7 +142,7 @@ describe('Inventory IDOR Prevention', () => {
   describe('GET /products/:id - Cross-Business Access Prevention', () => {
     it('should prevent user from business A accessing product from business B', async () => {
       // Guard sees product belongs to business B
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessB as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessB as Record<string, unknown>);
 
       // Simulate guard execution
       mockReflector.get.mockReturnValue({
@@ -160,7 +161,8 @@ describe('Inventory IDOR Prevention', () => {
 
     it('should allow user from business A to access their own product', async () => {
       // Guard sees product belongs to business A
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessA as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessA as Record<string, unknown>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockProductRepo.findById.mockResolvedValue(productFromBusinessA as any);
 
       mockReflector.get.mockReturnValue({
@@ -182,7 +184,7 @@ describe('Inventory IDOR Prevention', () => {
 
     it('should prevent enumeration by treating not-found as forbidden', async () => {
       // Resource doesn't exist
-      mockPrisma.product.findUnique.mockResolvedValue(null);
+      mockProductFindUnique.mockResolvedValue(null);
 
       mockReflector.get.mockReturnValue({
         resource: 'product',
@@ -198,7 +200,7 @@ describe('Inventory IDOR Prevention', () => {
 
   describe('PUT /products/:id - Cross-Business Modification Prevention', () => {
     it('should prevent user from business A modifying product from business B', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessB as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'product',
@@ -215,9 +217,13 @@ describe('Inventory IDOR Prevention', () => {
     });
 
     it('should allow user to modify their own product', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessA as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessA as Record<string, unknown>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockProductRepo.findById.mockResolvedValue(productFromBusinessA as any);
-      mockProductRepo.update.mockResolvedValue({ ...productFromBusinessA, name: 'Updated' } as any);
+      mockProductRepo.update.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { ...productFromBusinessA, name: 'Updated' } as any,
+      );
 
       mockReflector.get.mockReturnValue({
         resource: 'product',
@@ -236,7 +242,7 @@ describe('Inventory IDOR Prevention', () => {
 
   describe('DELETE /products/:id - Cross-Business Deletion Prevention', () => {
     it('should prevent user from business A deleting product from business B', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessB as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'product',
@@ -250,7 +256,7 @@ describe('Inventory IDOR Prevention', () => {
     });
 
     it('should allow user to delete their own product', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue(productFromBusinessA as any);
+      mockProductFindUnique.mockResolvedValue(productFromBusinessA as Record<string, unknown>);
       mockProductRepo.delete.mockResolvedValue(undefined);
 
       mockReflector.get.mockReturnValue({
@@ -276,7 +282,7 @@ describe('Inventory IDOR Prevention', () => {
         name: 'Category B',
       };
 
-      mockPrisma.productCategory.findUnique.mockResolvedValue(categoryFromBusinessB as any);
+      mockCategoryFindUnique.mockResolvedValue(categoryFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'category',
@@ -293,7 +299,7 @@ describe('Inventory IDOR Prevention', () => {
 /**
  * Helper to create mock ExecutionContext
  */
-function createMockContext(user: AuthUser, params: Record<string, string>): any {
+function createMockContext(user: AuthUser, params: Record<string, string>): ExecutionContext {
   return {
     switchToHttp: () => ({
       getRequest: () => ({
@@ -303,5 +309,5 @@ function createMockContext(user: AuthUser, params: Record<string, string>): any 
       }),
     }),
     getHandler: () => ({}),
-  };
+  } as unknown as ExecutionContext;
 }

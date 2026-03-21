@@ -53,13 +53,41 @@ export class TransactionItemDto {
 }
 
 export class PaymentDto {
-  @ApiProperty({ enum: ['cash', 'card', 'debit_card', 'credit_card', 'gopay', 'ovo', 'dana', 'shopeepay', 'linkaja', 'qris', 'bank_transfer', 'credit_note'] })
-  @IsIn(['cash', 'card', 'debit_card', 'credit_card', 'gopay', 'ovo', 'dana', 'shopeepay', 'linkaja', 'qris', 'bank_transfer', 'credit_note'])
+  @ApiProperty({
+    enum: [
+      'cash',
+      'card',
+      'debit_card',
+      'credit_card',
+      'gopay',
+      'ovo',
+      'dana',
+      'shopeepay',
+      'linkaja',
+      'qris',
+      'bank_transfer',
+      'credit_note',
+    ],
+  })
+  @IsIn([
+    'cash',
+    'card',
+    'debit_card',
+    'credit_card',
+    'gopay',
+    'ovo',
+    'dana',
+    'shopeepay',
+    'linkaja',
+    'qris',
+    'bank_transfer',
+    'credit_note',
+  ])
   method!: string;
 
   @ApiProperty()
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(1)
   @Max(99999999999)
   amount!: number;
 

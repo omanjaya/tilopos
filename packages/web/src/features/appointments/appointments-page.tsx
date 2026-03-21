@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Calendar, Clock, Plus, User, Phone, X } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -39,7 +40,6 @@ function formatCurrency(value: number) {
 }
 
 export function AppointmentsPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
@@ -75,7 +75,7 @@ export function AppointmentsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast({ title: 'Appointment berhasil dibuat' });
+      toast.success({ title: 'Appointment berhasil dibuat' });
       setShowForm(false);
       setServiceName('');
       setServicePrice('');
@@ -85,7 +85,7 @@ export function AppointmentsPage() {
       setCustomerPhone('');
       setNotes('');
     },
-    onError: () => toast({ variant: 'destructive', title: 'Gagal membuat appointment' }),
+    onError: (error) => handleMutationError(error, 'Gagal membuat appointment'),
   });
 
   const statusMutation = useMutation({
@@ -93,7 +93,7 @@ export function AppointmentsPage() {
       status === 'cancelled' ? appointmentsApi.cancel(id) : appointmentsApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast({ title: 'Status berhasil diperbarui' });
+      toast.success({ title: 'Status berhasil diperbarui' });
     },
   });
 

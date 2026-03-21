@@ -123,8 +123,10 @@ export class LoyaltyRepository implements ILoyaltyRepository {
     transactionId?: string;
     type: LoyaltyTransactionType;
     points: number;
+    balanceAfter?: number;
     description?: string;
     employeeId?: string;
+    expiresAt?: Date;
   }): Promise<LoyaltyTransaction> {
     return this.prisma.loyaltyTransaction.create({
       data: {
@@ -134,7 +136,8 @@ export class LoyaltyRepository implements ILoyaltyRepository {
         points: data.points,
         description: data.description,
         createdBy: data.employeeId,
-        balanceAfter: 0, // Will be updated by service
+        balanceAfter: data.balanceAfter ?? 0,
+        ...(data.expiresAt && { expiresAt: data.expiresAt }),
       },
     });
   }
@@ -157,6 +160,15 @@ export class LoyaltyRepository implements ILoyaltyRepository {
       data: {
         loyaltyPoints: points,
         ...(tier && { loyaltyTier: tier }),
+      },
+    });
+  }
+
+  async incrementCustomerPoints(customerId: string, pointsDelta: number): Promise<Customer> {
+    return this.prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        loyaltyPoints: { increment: pointsDelta },
       },
     });
   }

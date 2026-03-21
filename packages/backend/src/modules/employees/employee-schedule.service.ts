@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { BusinessError } from '../../shared/errors/business-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
@@ -33,6 +33,34 @@ export class EmployeeScheduleService {
 
     if (!employee) {
       throw new NotFoundException('Employee not found');
+    }
+
+    // Check for overlapping schedules on the same day
+    const existingSchedule = await this.prisma.employeeSchedule.findFirst({
+      where: {
+        employeeId: data.employeeId,
+        date: new Date(data.date),
+        OR: [
+          {
+            startTime: { lte: data.startTime },
+            endTime: { gt: data.startTime },
+          },
+          {
+            startTime: { lt: data.endTime },
+            endTime: { gte: data.endTime },
+          },
+          {
+            startTime: { gte: data.startTime },
+            endTime: { lte: data.endTime },
+          },
+        ],
+      },
+    });
+
+    if (existingSchedule) {
+      throw new BadRequestException(
+        `Jadwal tumpang tindih: karyawan sudah dijadwalkan ${existingSchedule.startTime} - ${existingSchedule.endTime}`,
+      );
     }
 
     const schedule = await this.prisma.employeeSchedule.create({

@@ -103,11 +103,14 @@ export class SettlementsService {
 
     for (const outlet of outlets) {
       try {
-        // Check if settlement already exists
+        // Check if settlement already exists (use date range to avoid time mismatch)
         const existing = await this.prisma.paymentSettlement.findFirst({
           where: {
             outletId: outlet.id,
-            settlementDate: yesterday,
+            settlementDate: {
+              gte: yesterday,
+              lte: endOfYesterday,
+            },
           },
         });
 
@@ -255,7 +258,25 @@ export class SettlementsService {
     }
 
     const existingMeta = (settlement.metadata as Record<string, unknown>) || {};
-    const variance = data.actualCash - Number(settlement.netAmount);
+
+    // Extract expected cash amount from breakdown (not total netAmount which includes all methods)
+    const breakdown =
+      (existingMeta.breakdown as Array<{
+        method: string;
+        netAmount?: number;
+        totalAmount?: number;
+      }>) || [];
+    let expectedCash = 0;
+    if (breakdown.length > 0) {
+      const cashBreakdown = breakdown.find((b) => b.method === 'cash');
+      expectedCash = cashBreakdown
+        ? (cashBreakdown.netAmount ?? cashBreakdown.totalAmount ?? 0)
+        : 0;
+    } else if (settlement.paymentMethod === 'cash') {
+      expectedCash = Number(settlement.netAmount);
+    }
+
+    const variance = data.actualCash - expectedCash;
 
     const updated = await this.prisma.paymentSettlement.update({
       where: { id },
@@ -265,6 +286,7 @@ export class SettlementsService {
         metadata: {
           ...existingMeta,
           actualCash: data.actualCash,
+          expectedCash,
           variance,
           notes: data.notes,
           settledBy: data.employeeId,
@@ -390,10 +412,16 @@ export class SettlementsService {
       },
     });
 
+    // Extract totalRefunds from metadata breakdown (feeAmount is gateway fees, not refunds)
+    const totalRefunds = settlements.reduce((sum, s) => {
+      const meta = (s.metadata as Record<string, unknown>) || {};
+      return sum + (Number(meta.totalRefunds) || 0);
+    }, 0);
+
     return {
       month: `${year}-${month.toString().padStart(2, '0')}`,
       totalSales: settlements.reduce((sum, s) => sum + Number(s.grossAmount), 0),
-      totalRefunds: settlements.reduce((sum, s) => sum + Number(s.feeAmount), 0),
+      totalRefunds,
       netSales: settlements.reduce((sum, s) => sum + Number(s.netAmount), 0),
       settlementCount: settlements.length,
       pendingCount: settlements.filter((s) => s.status === 'pending').length,

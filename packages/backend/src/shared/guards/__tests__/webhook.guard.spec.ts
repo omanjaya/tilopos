@@ -1,5 +1,4 @@
-import { Test } from '@nestjs/testing';
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { WebhookGuard } from '../webhook.guard';
@@ -11,7 +10,7 @@ describe('WebhookGuard', () => {
   beforeEach(async () => {
     mockConfigService = {
       get: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<ConfigService>;
 
     guard = new WebhookGuard(mockConfigService);
   });
@@ -236,7 +235,7 @@ describe('WebhookGuard', () => {
 function createMockContext(data: {
   path: string;
   headers?: Record<string, string>;
-  body: Record<string, any>;
+  body: Record<string, unknown>;
 }): ExecutionContext {
   return {
     switchToHttp: () => ({
@@ -250,11 +249,5 @@ function createMockContext(data: {
       }),
     }),
     getHandler: () => ({}),
-    getClass: () => ({}),
-    getArgs: () => [],
-    getArgByIndex: () => ({}),
-    switchToRpc: () => ({}) as any,
-    switchToWs: () => ({}) as any,
-    getType: () => 'http' as any,
-  } as ExecutionContext;
+  } as unknown as ExecutionContext;
 }

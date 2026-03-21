@@ -91,7 +91,18 @@ export class SettingsRepository implements ISettingsRepository {
     return this.outletSettings.createOutlet(data);
   }
 
-  async updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord> {
+  async updateOutlet(
+    id: string,
+    data: {
+      name?: string;
+      code?: string;
+      address?: string;
+      phone?: string;
+      taxRate?: number;
+      serviceCharge?: number;
+      isActive?: boolean;
+    },
+  ): Promise<OutletRecord> {
     return this.outletSettings.updateOutlet(id, data);
   }
 

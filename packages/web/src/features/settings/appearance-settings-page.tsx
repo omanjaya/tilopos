@@ -7,16 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { BRAND_PRESETS, DEFAULT_BRAND_COLOR, isValidHex, applyBrandTheme } from '@/lib/color-utils';
 import { cn } from '@/lib/utils';
 import { Check, Loader2, Save, Palette, RotateCcw } from 'lucide-react';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function AppearanceSettingsPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const theme = useUIStore((s) => s.theme);
   const setBrandColor = useUIStore((s) => s.setBrandColor);
   const currentBrandColor = useUIStore((s) => s.brandColor);
@@ -52,15 +50,9 @@ export function AppearanceSettingsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['business'] });
-      toast({ title: 'Warna brand berhasil disimpan' });
+      toast.success({ title: 'Warna brand berhasil disimpan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menyimpan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan'),
   });
 
   const handleSelectPreset = (hex: string) => {
@@ -87,7 +79,7 @@ export function AppearanceSettingsPage() {
 
   const handleSave = () => {
     if (!isValidHex(selectedColor)) {
-      toast({ variant: 'destructive', title: 'Warna tidak valid' });
+      toast.error({ title: 'Warna tidak valid' });
       return;
     }
     setBrandColor(selectedColor);

@@ -22,6 +22,7 @@ import { RegisterUseCase } from '../../application/use-cases/auth/register.use-c
 import { UpdateProfileUseCase } from '../../application/use-cases/auth/update-profile.use-case';
 import { ChangePinUseCase } from '../../application/use-cases/auth/change-pin.use-case';
 import { GetActivityLogUseCase } from '../../application/use-cases/auth/get-activity-log.use-case';
+import { LogAuditEventUseCase } from '../../application/use-cases/audit/log-audit-event.use-case';
 import { LoginDto, UpdateProfileDto, ChangePinDto } from '../../application/dtos/auth.dto';
 import { RegisterDto } from '../../application/dtos/register.dto';
 import { AuthService } from './auth.service';
@@ -45,6 +46,7 @@ export class AuthController {
     private readonly updateProfileUseCase: UpdateProfileUseCase,
     private readonly changePinUseCase: ChangePinUseCase,
     private readonly getActivityLogUseCase: GetActivityLogUseCase,
+    private readonly logAuditEventUseCase: LogAuditEventUseCase,
     private readonly authService: AuthService,
     private readonly businessTypeService: BusinessTypeService,
   ) {}
@@ -52,12 +54,35 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
-  async login(@Body() dto: LoginDto) {
-    return this.loginUseCase.execute({
+  async login(@Body() dto: LoginDto, @Req() req: Request) {
+    const result = await this.loginUseCase.execute({
       email: dto.email,
       pin: dto.pin,
       outletId: dto.outletId,
     });
+
+    // Log successful login (non-blocking)
+    if ('accessToken' in result) {
+      const ipAddress =
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
+      const userAgent = req.headers['user-agent'] || null;
+      this.logAuditEventUseCase
+        .execute({
+          businessId: result.businessId,
+          outletId: result.outletId || undefined,
+          employeeId: result.employeeId,
+          action: 'LOGIN',
+          entityType: 'auth',
+          entityId: result.employeeId,
+          ipAddress: ipAddress || undefined,
+          metadata: { userAgent },
+        })
+        .catch(() => {
+          /* ignore audit log failures */
+        });
+    }
+
+    return result;
   }
 
   @Post('register')
@@ -143,14 +168,36 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update user profile' })
-  async updateProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
-    return this.updateProfileUseCase.execute({
+  async updateProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateProfileDto,
+    @Req() req: Request,
+  ) {
+    const result = await this.updateProfileUseCase.execute({
       employeeId: user.employeeId,
       name: dto.name,
       phone: dto.phone,
       profilePhotoUrl: dto.profilePhotoUrl,
       preferences: dto.preferences,
     });
+
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
+    const userAgent = req.headers['user-agent'] || null;
+    this.logAuditEventUseCase
+      .execute({
+        businessId: user.businessId,
+        outletId: user.outletId || undefined,
+        employeeId: user.employeeId,
+        action: 'UPDATE_PROFILE',
+        entityType: 'auth',
+        entityId: user.employeeId,
+        ipAddress: ipAddress || undefined,
+        metadata: { userAgent, updatedFields: Object.keys(dto) },
+      })
+      .catch(() => {});
+
+    return result;
   }
 
   /**
@@ -162,12 +209,56 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Change user PIN' })
-  async changePin(@CurrentUser() user: AuthUser, @Body() dto: ChangePinDto) {
-    return this.changePinUseCase.execute({
+  async changePin(@CurrentUser() user: AuthUser, @Body() dto: ChangePinDto, @Req() req: Request) {
+    const result = await this.changePinUseCase.execute({
       employeeId: user.employeeId,
       currentPin: dto.currentPin,
       newPin: dto.newPin,
     });
+
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
+    const userAgent = req.headers['user-agent'] || null;
+    this.logAuditEventUseCase
+      .execute({
+        businessId: user.businessId,
+        outletId: user.outletId || undefined,
+        employeeId: user.employeeId,
+        action: 'CHANGE_PIN',
+        entityType: 'auth',
+        entityId: user.employeeId,
+        ipAddress: ipAddress || undefined,
+        metadata: { userAgent },
+      })
+      .catch(() => {});
+
+    return result;
+  }
+
+  /**
+   * Send/resend verification email
+   * POST /api/v1/auth/send-verification-email
+   */
+  @Post('send-verification-email')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Send or resend verification email' })
+  async sendVerificationEmail(@CurrentUser() user: AuthUser) {
+    return this.authService.sendVerificationEmail(user.employeeId);
+  }
+
+  /**
+   * Verify email from link (public)
+   * GET /api/v1/auth/verify-email?token=xxx
+   */
+  @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email address using token' })
+  @ApiQuery({ name: 'token', required: true, type: String })
+  async verifyEmail(@Query('token') token: string) {
+    return this.authService.verifyEmail(token);
   }
 
   /**

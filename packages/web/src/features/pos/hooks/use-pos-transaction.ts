@@ -1,4 +1,5 @@
-import { useMutation } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { posApi } from '@/api/endpoints/pos.api';
 import { creditApi } from '@/api/endpoints/credit.api';
 import type { CreateCreditTransactionRequest } from '@/api/endpoints/credit.api';
@@ -35,8 +36,10 @@ export function usePosTransaction({
     queueTransaction,
     onSuccess,
 }: UsePosTransactionProps) {
+    const queryClient = useQueryClient();
     const user = useAuthStore((s) => s.user);
     const { clearCart, clearPayments } = useCartStore();
+    const isSubmittingRef = useRef(false);
 
     // Create transaction mutation
     const createTransaction = useMutation({
@@ -57,8 +60,14 @@ export function usePosTransaction({
 
             onSuccess?.(null, receiptData);
 
+            // Invalidate caches so inventory/product screens reflect updated data
+            void queryClient.invalidateQueries({ queryKey: ['products'] });
+            void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+            void queryClient.invalidateQueries({ queryKey: ['shifts'] });
+            void queryClient.invalidateQueries({ queryKey: ['today-transactions'] });
+
             clearCart();
-            clearPayments();
         },
         onError: (error: Error) => {
             toast.error({
@@ -68,10 +77,14 @@ export function usePosTransaction({
         },
     });
 
-    // Handle checkout complete
-    const handleCheckoutComplete = async () => {
+    // Handle checkout complete — memoized to prevent stale closures in consumers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const handleCheckoutComplete = useCallback(async () => {
+        // Prevent double-click duplicate transactions (ref-based lock + isPending check)
+        if (isSubmittingRef.current || createTransaction.isPending) return;
+
         // Read fresh state at checkout time to avoid stale closures
-        const { items, payments, orderType, customerId, tableId, notes } = useCartStore.getState();
+        const { items, payments, orderType, customerId, tableId, notes, discountAmount, discountPercent } = useCartStore.getState();
 
         if (items.length === 0) return;
 
@@ -100,46 +113,60 @@ export function usePosTransaction({
             return;
         }
 
-        // Build transaction request
-        const request = {
-            outletId,
-            employeeId: user?.employeeId ?? '',
-            shiftId,
-            orderType,
-            items: items.map((item) => ({
-                productId: item.bundleId ? undefined : item.productId,
-                variantId: item.variantId,
-                bundleId: item.bundleId,
-                quantity: item.quantity,
-                modifierIds: item.modifiers.map((m) => m.id),
-                notes: item.notes,
-                unitPrice: item.originalPrice ? item.price : undefined,
-            })),
-            payments: payments.map((p) => ({
-                method: p.method,
-                amount: p.amount,
-                referenceNumber: p.referenceNumber,
-            })),
-            customerId,
-            tableId,
-            notes,
-        };
+        // Lock only after all validations pass
+        isSubmittingRef.current = true;
 
-        if (isOffline) {
-            // Queue transaction locally when offline
-            void queueTransaction(request).then(() => {
-                toast.info({
-                    title: 'Transaksi Disimpan Offline',
-                    description: 'Akan otomatis disinkronkan saat koneksi pulih.',
+        try {
+
+            // Build transaction request
+            const request = {
+                outletId,
+                employeeId: user?.employeeId ?? '',
+                shiftId,
+                orderType,
+                items: items.map((item) => ({
+                    productId: item.bundleId ? undefined : item.productId,
+                    variantId: item.variantId,
+                    bundleId: item.bundleId,
+                    quantity: item.quantity,
+                    modifierIds: item.modifiers.map((m) => m.id),
+                    notes: item.notes,
+                    unitPrice: item.originalPrice ? item.price : undefined,
+                })),
+                payments: payments.map((p) => ({
+                    method: p.method,
+                    amount: p.amount,
+                    referenceNumber: p.referenceNumber,
+                })),
+                customerId,
+                tableId,
+                notes,
+                discounts: (discountAmount > 0 || discountPercent > 0) ? [
+                    {
+                        type: discountPercent > 0 ? 'percentage' as const : 'fixed' as const,
+                        value: discountPercent > 0 ? discountPercent : discountAmount,
+                    },
+                ] : undefined,
+            };
+
+            if (isOffline) {
+                // Queue transaction locally when offline
+                void queueTransaction(request).then(() => {
+                    toast.info({
+                        title: 'Transaksi Disimpan Offline',
+                        description: 'Akan otomatis disinkronkan saat koneksi pulih.',
+                    });
+                    clearCart();
+                    clearPayments();
+                    onSuccess?.(null, null);
                 });
-                clearCart();
-                clearPayments();
-                onSuccess?.(null, null);
-            });
-        } else {
-            createTransaction.mutate(request);
+            } else {
+                createTransaction.mutate(request);
+            }
+        } finally {
+            isSubmittingRef.current = false;
         }
-    };
+    }, [outletId, user?.employeeId, isOffline, createTransaction, queueTransaction, clearCart, clearPayments, onSuccess]);
 
     // Create credit transaction mutation
     const createCreditTransaction = useMutation({
@@ -151,8 +178,16 @@ export function usePosTransaction({
             });
 
             onSuccess?.(null, null);
+
+            // Invalidate caches so inventory/product/credit screens reflect updated data
+            void queryClient.invalidateQueries({ queryKey: ['products'] });
+            void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+            void queryClient.invalidateQueries({ queryKey: ['credits'] });
+            void queryClient.invalidateQueries({ queryKey: ['customers'] });
+            void queryClient.invalidateQueries({ queryKey: ['today-transactions'] });
+
             clearCart();
-            clearPayments();
         },
         onError: (error: Error) => {
             toast.error({
@@ -164,7 +199,10 @@ export function usePosTransaction({
 
     // Handle credit/BON checkout
     const handleCreditCheckout = async (creditData: CreditCheckoutParams) => {
-        const { items, orderType, tableId, notes } = useCartStore.getState();
+        // Prevent double-click duplicate transactions
+        if (createCreditTransaction.isPending) return;
+
+        const { items, orderType, tableId, notes, discountAmount, discountPercent } = useCartStore.getState();
 
         if (items.length === 0) return;
 
@@ -205,6 +243,8 @@ export function usePosTransaction({
             notes,
             dueDate: creditData.dueDate,
             creditNotes: creditData.creditNotes,
+            discountAmount: discountPercent > 0 ? undefined : (discountAmount > 0 ? discountAmount : undefined),
+            discountPercent: discountPercent > 0 ? discountPercent : undefined,
         };
 
         // Add down payment if provided

@@ -15,10 +15,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, MoreHorizontal, Pencil, Trash2, Package } from 'lucide-react';
 import type { BundlePackage } from '@/types/bundle.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function BundlePackagesPage() {
   const navigate = useNavigate();
@@ -41,12 +40,7 @@ export function BundlePackagesPage() {
       });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus paket bundle',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus paket bundle'),
   });
 
   const columns: Column<BundlePackage>[] = [

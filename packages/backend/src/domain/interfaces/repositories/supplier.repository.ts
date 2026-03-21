@@ -28,6 +28,7 @@ export interface PurchaseOrderRecord {
 }
 
 export interface ISupplierRepository {
+  findById(id: string): Promise<SupplierRecord | null>;
   findByBusinessId(businessId: string): Promise<SupplierRecord[]>;
   save(data: CreateSupplierData): Promise<SupplierRecord>;
   update(id: string, data: Record<string, unknown>): Promise<SupplierRecord>;

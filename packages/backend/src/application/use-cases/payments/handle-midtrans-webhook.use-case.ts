@@ -42,15 +42,18 @@ export class HandleMidtransWebhookUseCase {
       throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Webhook verification not configured');
     }
 
-    if (params.signatureKey) {
-      const expectedSignature = createHash('sha512')
-        .update(`${params.orderId}${params.statusCode}${params.grossAmount}${this.serverKey}`)
-        .digest('hex');
+    if (!params.signatureKey) {
+      this.logger.error(`Missing signature_key for order ${params.orderId}`);
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Missing webhook signature');
+    }
 
-      if (params.signatureKey !== expectedSignature) {
-        this.logger.error(`Invalid webhook signature for order ${params.orderId}`);
-        throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Invalid webhook signature');
-      }
+    const expectedSignature = createHash('sha512')
+      .update(`${params.orderId}${params.statusCode}${params.grossAmount}${this.serverKey}`)
+      .digest('hex');
+
+    if (params.signatureKey !== expectedSignature) {
+      this.logger.error(`Invalid webhook signature for order ${params.orderId}`);
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Invalid webhook signature');
     }
 
     // Find payment by referenceNumber (order_id from Midtrans)
@@ -167,17 +170,17 @@ export class HandleMidtransWebhookUseCase {
     payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
-    // Update transaction status to completed
-    await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'completed' },
-    });
-
-    // Update payment record
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'completed' },
-    });
+    // Update both atomically to prevent partial state
+    await this.prisma.$transaction([
+      this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'completed' },
+      }),
+      this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'completed' },
+      }),
+    ]);
 
     this.logger.log(`Payment successful for order ${params.orderId}`);
   }
@@ -187,17 +190,17 @@ export class HandleMidtransWebhookUseCase {
     payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
-    // Update transaction status to voided (closest to failed for transactions)
-    await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'voided' },
-    });
-
-    // Update payment record
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'failed' },
-    });
+    // Update both atomically to prevent partial state
+    await this.prisma.$transaction([
+      this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'voided' },
+      }),
+      this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'failed' },
+      }),
+    ]);
 
     this.logger.log(`Payment failed for order ${params.orderId}`);
   }
@@ -207,17 +210,17 @@ export class HandleMidtransWebhookUseCase {
     payment: Payment,
     params: HandleWebhookParams,
   ): Promise<void> {
-    // Update transaction to refunded
-    await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'refunded' },
-    });
-
-    // Update payment record
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'refunded' },
-    });
+    // Update both atomically to prevent partial state
+    await this.prisma.$transaction([
+      this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'refunded' },
+      }),
+      this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'refunded' },
+      }),
+    ]);
 
     this.logger.log(`Payment refunded for order ${params.orderId}`);
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCartStore } from '../cart.store';
+import { useUIStore } from '../ui.store';
 import type { CartItem } from '@/types/pos.types';
 
 // Helper to create a cart item (without 'id' — the store generates it)
@@ -18,6 +19,9 @@ describe('cart.store', () => {
   beforeEach(() => {
     localStorage.clear();
     useCartStore.getState().clearCart();
+    // Set default tax/service charge rates for tests
+    useUIStore.getState().setTaxRate(0.11);
+    useUIStore.getState().setServiceChargeRate(0.05);
   });
 
   describe('addItem', () => {
@@ -207,11 +211,12 @@ describe('cart.store', () => {
       expect(state.taxAmount).toBe(11000);
     });
 
-    it('calculates total as subtotal - discount + service charge + tax', () => {
+    it('calculates total as subtotal - discount + service charge + tax (rounded to Rp500)', () => {
       useCartStore.getState().addItem(createCartItemInput({ price: 100000, quantity: 1 }));
 
       const state = useCartStore.getState();
-      const expectedTotal = state.subtotal - state.discountTotal + state.serviceCharge + state.taxAmount;
+      const rawTotal = state.subtotal - state.discountTotal + state.serviceCharge + state.taxAmount;
+      const expectedTotal = Math.round(rawTotal / 500) * 500;
       expect(state.total).toBe(expectedTotal);
     });
   });

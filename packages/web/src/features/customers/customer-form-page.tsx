@@ -1,24 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FormFieldError } from '@/components/shared/form-field-error';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { Loader2, ArrowLeft, Wallet, Footprints, Trophy } from 'lucide-react';
-import type { CreateCustomerRequest, UpdateCustomerRequest } from '@/types/customer.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import type { CreateCustomerRequest } from '@/types/customer.types';
 
-// Zod schema for customer validation with Indonesian error messages
 const customerSchema = z.object({
   name: z
     .string()
@@ -38,8 +37,6 @@ const customerSchema = z.object({
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
-type CustomerFieldErrors = Partial<Record<keyof CustomerFormData, string>>;
-type CustomerTouched = Partial<Record<keyof CustomerFormData, boolean>>;
 
 export function CustomerFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -47,16 +44,17 @@ export function CustomerFormPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [notes, setNotes] = useState('');
-
-  // Validation states
-  const [fieldErrors, setFieldErrors] = useState<CustomerFieldErrors>({});
-  const [touched, setTouched] = useState<CustomerTouched>({});
+  const form = useForm<CustomerFormData>({
+    resolver: zodResolver(customerSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+      dateOfBirth: '',
+      address: '',
+      notes: '',
+    },
+  });
 
   const { data: customer } = useQuery({
     queryKey: ['customers', id],
@@ -66,14 +64,16 @@ export function CustomerFormPage() {
 
   useEffect(() => {
     if (customer) {
-      setName(customer.name);
-      setEmail(customer.email ?? '');
-      setPhone(customer.phone ?? '');
-      setAddress(customer.address ?? '');
-      setDateOfBirth(customer.dateOfBirth ?? '');
-      setNotes(customer.notes ?? '');
+      form.reset({
+        name: customer.name,
+        email: customer.email ?? '',
+        phone: customer.phone ?? '',
+        address: customer.address ?? '',
+        dateOfBirth: customer.dateOfBirth ?? '',
+        notes: customer.notes ?? '',
+      });
     }
-  }, [customer]);
+  }, [customer, form]);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateCustomerRequest) => customersApi.create(data),
@@ -82,105 +82,35 @@ export function CustomerFormPage() {
       toast.success({ title: 'Pelanggan berhasil ditambahkan' });
       navigate('/app/customers');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambah pelanggan'),
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: UpdateCustomerRequest) => customersApi.update(id!, data),
+    mutationFn: (data: CreateCustomerRequest) => customersApi.update(id!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success({ title: 'Pelanggan berhasil diperbarui' });
       navigate('/app/customers');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({ title: 'Gagal', description: error.response?.data?.message || 'Terjadi kesalahan' });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui pelanggan'),
   });
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
-  // Validate a single field
-  const validateField = (fieldName: keyof CustomerFormData, value: string) => {
-    try {
-      customerSchema.shape[fieldName].parse(value);
-      setFieldErrors((prev) => ({ ...prev, [fieldName]: undefined }));
-      return true;
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const errorMessage = error.errors[0]?.message || 'Nilai tidak valid';
-        setFieldErrors((prev) => ({ ...prev, [fieldName]: errorMessage }));
-        return false;
-      }
-      return true;
-    }
-  };
-
-  // Validate all fields
-  const validateForm = (): boolean => {
-    const formData: CustomerFormData = {
-      name,
-      email,
-      phone,
-      dateOfBirth,
-      address,
-      notes,
-    };
-
-    const result = customerSchema.safeParse(formData);
-
-    if (!result.success) {
-      const errors: CustomerFieldErrors = {};
-      result.error.errors.forEach((error) => {
-        if (error.path[0]) {
-          errors[error.path[0] as keyof CustomerFormData] = error.message;
-        }
-      });
-      setFieldErrors(errors);
-      // Mark all fields as touched to show errors
-      setTouched({
-        name: true,
-        email: true,
-        phone: true,
-        dateOfBirth: true,
-        address: true,
-        notes: true,
-      });
-      return false;
-    }
-
-    setFieldErrors({});
-    return true;
-  };
-
-  // Handle field blur
-  const handleFieldBlur = (fieldName: keyof CustomerFormData, value: string) => {
-    setTouched((prev) => ({ ...prev, [fieldName]: true }));
-    validateField(fieldName, value);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Run full validation before submit
-    if (!validateForm()) {
-      return;
-    }
-
-    const data: CreateCustomerRequest = {
-      name,
-      email: email || undefined,
-      phone: phone || undefined,
-      address: address || undefined,
-      dateOfBirth: dateOfBirth || undefined,
-      notes: notes || undefined,
+  const onSubmit = (data: CustomerFormData) => {
+    const payload: CreateCustomerRequest = {
+      name: data.name,
+      email: data.email || undefined,
+      phone: data.phone || undefined,
+      address: data.address || undefined,
+      dateOfBirth: data.dateOfBirth || undefined,
+      notes: data.notes || undefined,
     };
 
     if (isEdit) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(payload);
     }
   };
 
@@ -232,116 +162,117 @@ export function CustomerFormPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Informasi Pelanggan</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="name">Nama Pelanggan</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onBlur={() => handleFieldBlur('name', name)}
-                  aria-invalid={!!fieldErrors.name && touched.name}
-                  aria-describedby={fieldErrors.name && touched.name ? 'name-error' : undefined}
-                  required
-                  autoFocus={!isEdit}
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Informasi Pelanggan</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nama Pelanggan</FormLabel>
+                      <FormControl>
+                        <Input {...field} autoFocus={!isEdit} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <FormFieldError error={fieldErrors.name} touched={touched.name ?? false} id="name-error" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onBlur={() => handleFieldBlur('email', email)}
-                  aria-invalid={!!fieldErrors.email && touched.email}
-                  aria-describedby={fieldErrors.email && touched.email ? 'email-error' : undefined}
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <FormFieldError error={fieldErrors.email} touched={touched.email ?? false} id="email-error" />
               </div>
-            </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telepon</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  onBlur={() => handleFieldBlur('phone', phone)}
-                  aria-invalid={!!fieldErrors.phone && touched.phone}
-                  aria-describedby={fieldErrors.phone && touched.phone ? 'phone-error' : undefined}
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Telepon</FormLabel>
+                      <FormControl>
+                        <Input type="tel" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <FormFieldError error={fieldErrors.phone} touched={touched.phone ?? false} id="phone-error" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Tanggal Lahir</Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
-                  onBlur={() => handleFieldBlur('dateOfBirth', dateOfBirth)}
-                  aria-invalid={!!fieldErrors.dateOfBirth && touched.dateOfBirth}
-                  aria-describedby={fieldErrors.dateOfBirth && touched.dateOfBirth ? 'dateOfBirth-error' : undefined}
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tanggal Lahir</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-                <FormFieldError error={fieldErrors.dateOfBirth} touched={touched.dateOfBirth ?? false} id="dateOfBirth-error" />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="address">Alamat</Label>
-              <Textarea
-                id="address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                onBlur={() => handleFieldBlur('address', address)}
-                rows={3}
-                aria-invalid={!!fieldErrors.address && touched.address}
-                aria-describedby={fieldErrors.address && touched.address ? 'address-error' : undefined}
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Alamat</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-              <FormFieldError error={fieldErrors.address} touched={touched.address ?? false} id="address-error" />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="notes">Catatan</Label>
-              <Textarea
-                id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                onBlur={() => handleFieldBlur('notes', notes)}
-                rows={3}
-                aria-invalid={!!fieldErrors.notes && touched.notes}
-                aria-describedby={fieldErrors.notes && touched.notes ? 'notes-error' : undefined}
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Catatan</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-              <FormFieldError error={fieldErrors.notes} touched={touched.notes ?? false} id="notes-error" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => navigate('/app/customers')}>
-            Batal
-          </Button>
-          <Button
-            type="submit"
-            disabled={isPending}
-            aria-busy={isPending}
-            aria-label={isPending ? (isEdit ? 'Menyimpan perubahan...' : 'Menambah pelanggan...') : undefined}
-          >
-            {isPending && <Loader2 className="animate-spin" />}
-            {isEdit ? 'Simpan Perubahan' : 'Tambah Pelanggan'}
-          </Button>
-        </div>
-      </form>
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="outline" onClick={() => navigate('/app/customers')}>
+              Batal
+            </Button>
+            <Button
+              type="submit"
+              disabled={isPending}
+              aria-busy={isPending}
+              aria-label={isPending ? (isEdit ? 'Menyimpan perubahan...' : 'Menambah pelanggan...') : undefined}
+            >
+              {isPending && <Loader2 className="animate-spin" />}
+              {isEdit ? 'Simpan Perubahan' : 'Tambah Pelanggan'}
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   );
 }

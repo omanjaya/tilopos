@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -31,8 +32,6 @@ import {
   Phone,
 } from 'lucide-react';
 import type { WaitingListEntry, WaitingListStatus } from '@/types/waiting-list.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 import { AddCustomerDialog } from './components/add-customer-dialog';
 import { SeatCustomerDialog } from './components/seat-customer-dialog';
 
@@ -67,7 +66,6 @@ interface ActionState {
 
 export function WaitingListPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -99,17 +97,11 @@ export function WaitingListPage() {
     mutationFn: (id: string) => waitingListApi.notify(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['waiting-list'] });
-      toast({ title: 'Notifikasi berhasil dikirim' });
+      toast.success({ title: 'Notifikasi berhasil dikirim' });
       setConfirmAction(null);
       setSelectedEntry(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal mengirim notifikasi',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal mengirim notifikasi'),
   });
 
   // Cancel mutation
@@ -118,17 +110,11 @@ export function WaitingListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['waiting-list'] });
       queryClient.invalidateQueries({ queryKey: ['waiting-list-stats'] });
-      toast({ title: 'Antrian berhasil dibatalkan' });
+      toast.success({ title: 'Antrian berhasil dibatalkan' });
       setConfirmAction(null);
       setSelectedEntry(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal membatalkan antrian',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membatalkan antrian'),
   });
 
   // No-show mutation
@@ -137,17 +123,11 @@ export function WaitingListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['waiting-list'] });
       queryClient.invalidateQueries({ queryKey: ['waiting-list-stats'] });
-      toast({ title: 'Ditandai tidak datang' });
+      toast.success({ title: 'Ditandai tidak datang' });
       setConfirmAction(null);
       setSelectedEntry(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal menandai tidak datang',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menandai tidak datang'),
   });
 
   const handleAction = () => {

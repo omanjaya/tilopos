@@ -3,4 +3,5 @@ export interface AuthUser {
   businessId: string;
   outletId: string | null;
   role: string;
+  emailVerified?: boolean;
 }

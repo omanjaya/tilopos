@@ -28,8 +28,7 @@ describe('Suite 10: Shift & Settlement', () => {
   describe('Setup', () => {
     it('should open a shift for cashier', async () => {
       // Check if there's already an open shift
-      const currentRes = await authRequest(app, 'cashier')
-        .get('/api/v1/employees/shifts/current');
+      const currentRes = await authRequest(app, 'cashier').get('/api/v1/employees/shifts/current');
 
       if (currentRes.status < 400 && currentRes.body?.id) {
         // Shift already open, reuse it
@@ -43,12 +42,10 @@ describe('Suite 10: Shift & Settlement', () => {
       }
 
       // Open a new shift
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/employees/shifts/start')
-        .send({
-          outletId: testContext.outletId,
-          openingCash: 500000,
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/employees/shifts/start').send({
+        outletId: testContext.outletId,
+        openingCash: 500000,
+      });
 
       if (res.status >= 400) {
         console.log('Open shift error:', res.status, res.body);
@@ -72,13 +69,11 @@ describe('Suite 10: Shift & Settlement', () => {
       const shiftId = activeShiftId;
       expect(shiftId).toBeDefined();
 
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/pos/cash-in')
-        .send({
-          shiftId,
-          amount: 100000,
-          notes: 'Cash in test',
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/pos/cash-in').send({
+        shiftId,
+        amount: 100000,
+        notes: 'Cash in test',
+      });
 
       if (res.status >= 400) {
         console.log('10.1 cash-in error:', res.status, res.body);
@@ -93,14 +88,12 @@ describe('Suite 10: Shift & Settlement', () => {
       const shiftId = activeShiftId;
       expect(shiftId).toBeDefined();
 
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/pos/cash-out')
-        .send({
-          shiftId,
-          amount: 50000,
-          reason: 'drop',
-          notes: 'Cash out test',
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/pos/cash-out').send({
+        shiftId,
+        amount: 50000,
+        reason: 'drop',
+        notes: 'Cash out test',
+      });
 
       if (res.status >= 400) {
         console.log('10.2 cash-out error:', res.status, res.body);
@@ -112,8 +105,7 @@ describe('Suite 10: Shift & Settlement', () => {
     });
 
     it('10.3 - should get current shift with cash in/out values', async () => {
-      const res = await authRequest(app, 'cashier')
-        .get('/api/v1/employees/shifts/current');
+      const res = await authRequest(app, 'cashier').get('/api/v1/employees/shifts/current');
 
       if (res.status >= 400) {
         console.log('10.3 current shift error:', res.status, res.body);
@@ -127,7 +119,9 @@ describe('Suite 10: Shift & Settlement', () => {
       expect(cashIn).toBeGreaterThanOrEqual(100000);
       expect(cashOut).toBeGreaterThanOrEqual(50000);
 
-      console.log(`10.3 Current shift - cashIn: ${cashIn}, cashOut: ${cashOut}, openingCash: ${res.body.openingCash}`);
+      console.log(
+        `10.3 Current shift - cashIn: ${cashIn}, cashOut: ${cashOut}, openingCash: ${res.body.openingCash}`,
+      );
     });
   });
 
@@ -135,6 +129,7 @@ describe('Suite 10: Shift & Settlement', () => {
   // 10B. End Shift & Reconciliation
   // ================================================================
   describe('10B - End Shift & Reconciliation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let endShiftResult: any;
 
     it('10.4 - should end shift with actual cash amount', async () => {
@@ -187,7 +182,9 @@ describe('Suite 10: Shift & Settlement', () => {
       }
 
       // Difference should be negative (short on cash)
-      console.log(`10.6 difference: ${difference}, actual: ${actualCash}, expected: ${expectedCash}`);
+      console.log(
+        `10.6 difference: ${difference}, actual: ${actualCash}, expected: ${expectedCash}`,
+      );
     });
 
     it('10.7 - should get shift report', async () => {
@@ -200,8 +197,9 @@ describe('Suite 10: Shift & Settlement', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/employees/${employeeId}/shifts/report?from=${today}&to=${tomorrowStr}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/employees/${employeeId}/shifts/report?from=${today}&to=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('10.7 shift report error:', res.status, res.body);
@@ -228,8 +226,9 @@ describe('Suite 10: Shift & Settlement', () => {
   // ================================================================
   describe('10C - Settlement Reconciliation', () => {
     it('10.8 - should get settlements list', async () => {
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/settlements?outletId=${testContext.outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/settlements?outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('10.8 settlements error:', res.status, res.body);
@@ -252,10 +251,9 @@ describe('Suite 10: Shift & Settlement', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
+      );
 
       if (res.status >= 400) {
         console.log('10.9 reconciliation error:', res.status, res.body);
@@ -286,10 +284,9 @@ describe('Suite 10: Shift & Settlement', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
+      );
 
       expect(res.status).toBeLessThan(400);
 
@@ -306,7 +303,11 @@ describe('Suite 10: Shift & Settlement', () => {
           expect(Number(m.total)).toBeGreaterThanOrEqual(0);
         }
 
-        console.log('10.10 Payment methods:', methods.map((m: any) => `${m.method}: ${m.total}`).join(', '));
+        console.log(
+          '10.10 Payment methods:',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          methods.map((m: any) => `${m.method}: ${m.total}`).join(', '),
+        );
       } else {
         console.log('10.10 No payment method breakdown available');
       }
@@ -319,10 +320,9 @@ describe('Suite 10: Shift & Settlement', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/settlements/reconciliation?startDate=${today}&endDate=${tomorrowStr}&outletId=${testContext.outletId}`,
+      );
 
       expect(res.status).toBeLessThan(400);
 

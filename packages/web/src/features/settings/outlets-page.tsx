@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { templatesApi, type TemplateSummary } from '@/api/endpoints/templates.api';
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { cn } from '@/lib/utils';
 import {
   Plus, MoreHorizontal, Pencil, Ban, Loader2,
@@ -32,8 +33,6 @@ import {
   Smartphone, Scissors, WashingMachine, Wrench, Warehouse,
 } from 'lucide-react';
 import type { Outlet, CreateOutletRequest } from '@/types/settings.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 const iconMap: Record<string, React.ElementType> = {
   UtensilsCrossed, Coffee, Flame, ShoppingBasket, Shirt, Hammer,
@@ -116,12 +115,7 @@ export function OutletsPage() {
       queryClient.invalidateQueries({ queryKey: ['tables'] });
       closeDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan outlet',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan outlet'),
   });
 
   const updateMutation = useMutation({
@@ -132,27 +126,16 @@ export function OutletsPage() {
       toast.success({ title: 'Outlet berhasil diperbarui' });
       closeDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memperbarui outlet',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui outlet'),
   });
 
   const deactivateMutation = useMutation({
-    mutationFn: (id: string) =>
-      settingsApi.updateOutlet(id, { name: undefined }),
+    mutationFn: (id: string) => settingsApi.deleteOutlet(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['outlets'] });
       toast.success({ title: 'Outlet dinonaktifkan' });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menonaktifkan outlet',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menonaktifkan outlet'),
   });
 
   const openCreate = () => {
@@ -201,22 +184,6 @@ export function OutletsPage() {
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending || applyTemplateMutation.isPending;
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        openCreate();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
 
   const columns: Column<Outlet>[] = [
     {

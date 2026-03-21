@@ -14,6 +14,7 @@ import {
   NotFoundException,
   Res,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
@@ -67,15 +68,45 @@ export class CustomersController {
   }
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Create a new customer' })
   async create(
     @Body() dto: { name: string; email?: string; phone?: string },
     @CurrentUser() user: AuthUser,
   ) {
+    if (!dto.name || dto.name.trim().length === 0) {
+      throw new BadRequestException('Customer name must not be empty');
+    }
+    if (dto.name.length > 255) {
+      throw new BadRequestException('Customer name must not exceed 255 characters');
+    }
+    if (dto.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dto.email)) {
+      throw new BadRequestException('Invalid email format');
+    }
+
+    // Check for duplicate customer by email or phone within the same business
+    if (dto.email) {
+      const existingByEmail = await this.prisma.customer.findFirst({
+        where: { businessId: user.businessId, email: dto.email },
+      });
+      if (existingByEmail) {
+        throw new ConflictException('A customer with this email already exists');
+      }
+    }
+    if (dto.phone) {
+      const existingByPhone = await this.prisma.customer.findFirst({
+        where: { businessId: user.businessId, phone: dto.phone },
+      });
+      if (existingByPhone) {
+        throw new ConflictException('A customer with this phone number already exists');
+      }
+    }
+
     return this.prisma.customer.create({
       data: {
         businessId: user.businessId,
-        name: dto.name,
+        name: dto.name.trim(),
         email: dto.email || null,
         phone: dto.phone || null,
         loyaltyPoints: 0,
@@ -273,6 +304,8 @@ export class CustomersController {
   }
 
   @Put(':id')
+  @UseGuards(RolesGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Update customer' })
   async update(
@@ -283,6 +316,8 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Soft delete (deactivate) customer' })
   async remove(@Param('id') id: string) {

@@ -30,8 +30,7 @@ describe('Suite 7: Loyalty & Customer', () => {
       const customerId = testContext.created.customerIds[0];
       expect(customerId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       if (res.status >= 400) {
         console.log('7.1 loyalty balance error:', res.status, res.body);
@@ -49,8 +48,9 @@ describe('Suite 7: Loyalty & Customer', () => {
     it('7.2 - should get loyalty history', async () => {
       const customerId = testContext.created.customerIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}/history`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/loyalty/customer/${customerId}/history`,
+      );
 
       if (res.status >= 400) {
         console.log('7.2 loyalty history error:', res.status, res.body);
@@ -62,9 +62,8 @@ describe('Suite 7: Loyalty & Customer', () => {
 
       // May have earned records from Suite 3 transaction
       if (transactions.length > 0) {
-        const earned = transactions.filter(
-          (t: any) => t.type === 'earned',
-        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const earned = transactions.filter((t: any) => t.type === 'earned');
         // Verify structure
         if (earned.length > 0) {
           expect(earned[0].points).toBeDefined();
@@ -78,13 +77,11 @@ describe('Suite 7: Loyalty & Customer', () => {
       // Use one of the transaction IDs from Suite 3
       const txId = testContext.created.transactionIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/loyalty/earn')
-        .send({
-          customerId,
-          transactionId: txId,
-          transactionTotal: 50000,
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/loyalty/earn').send({
+        customerId,
+        transactionId: txId,
+        transactionTotal: 50000,
+      });
 
       if (res.status >= 400) {
         console.log('7.3 earn error:', res.status, res.body);
@@ -99,8 +96,7 @@ describe('Suite 7: Loyalty & Customer', () => {
     it('7.4 - should verify balance updated after earn', async () => {
       const customerId = testContext.created.customerIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       expect(res.status).toBeLessThan(400);
 
@@ -119,8 +115,7 @@ describe('Suite 7: Loyalty & Customer', () => {
       const customerId = testContext.created.customerIds[0];
 
       // First get current balance
-      const balRes = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const balRes = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
       expect(balRes.status).toBeLessThan(400);
       balanceBefore = Number(balRes.body.currentPoints || balRes.body.loyaltyPoints || 0);
 
@@ -132,16 +127,13 @@ describe('Suite 7: Loyalty & Customer', () => {
       }
 
       // Need a transaction ID for the redemption
-      const txId = testContext.created.transactionIds[1] ||
-        testContext.created.transactionIds[0];
+      const txId = testContext.created.transactionIds[1] || testContext.created.transactionIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/loyalty/redeem')
-        .send({
-          customerId,
-          transactionId: txId,
-          pointsToRedeem,
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/loyalty/redeem').send({
+        customerId,
+        transactionId: txId,
+        pointsToRedeem,
+      });
 
       if (res.status >= 400) {
         console.log('7.5 redeem error:', res.status, res.body);
@@ -158,8 +150,7 @@ describe('Suite 7: Loyalty & Customer', () => {
     it('7.6 - should verify balance decreased after redeem', async () => {
       const customerId = testContext.created.customerIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       expect(res.status).toBeLessThan(400);
       const newBalance = Number(res.body.currentPoints || res.body.loyaltyPoints || 0);
@@ -174,13 +165,11 @@ describe('Suite 7: Loyalty & Customer', () => {
       const customerId = testContext.created.customerIds[0];
       const txId = testContext.created.transactionIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/loyalty/redeem')
-        .send({
-          customerId,
-          transactionId: txId,
-          pointsToRedeem: 999999,
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/loyalty/redeem').send({
+        customerId,
+        transactionId: txId,
+        pointsToRedeem: 999999,
+      });
 
       expect(res.status).toBeGreaterThanOrEqual(400);
     });
@@ -196,27 +185,22 @@ describe('Suite 7: Loyalty & Customer', () => {
       // Earn large amounts to trigger tier upgrade
       // Use multiple earn calls with different transaction amounts
       for (let i = 0; i < 3; i++) {
-        const txId = testContext.created.transactionIds[i] ||
-          testContext.created.transactionIds[0];
+        const txId = testContext.created.transactionIds[i] || testContext.created.transactionIds[0];
 
-        await authRequest(app, 'owner')
-          .post('/api/v1/loyalty/earn')
-          .send({
-            customerId,
-            transactionId: txId,
-            transactionTotal: 500000,
-          });
+        await authRequest(app, 'owner').post('/api/v1/loyalty/earn').send({
+          customerId,
+          transactionId: txId,
+          transactionTotal: 500000,
+        });
       }
 
       // Trigger tier evaluation
-      const evalRes = await authRequest(app, 'owner')
-        .post('/api/v1/loyalty/tiers/evaluate');
+      const evalRes = await authRequest(app, 'owner').post('/api/v1/loyalty/tiers/evaluate');
 
       if (evalRes.status >= 400) {
         console.log('7.8 tier evaluate error:', evalRes.status, evalRes.body);
         // Try alternative endpoint
-        const altRes = await authRequest(app, 'owner')
-          .post('/api/v1/loyalty/check-tiers');
+        const altRes = await authRequest(app, 'owner').post('/api/v1/loyalty/check-tiers');
         if (altRes.status >= 400) {
           console.log('7.8 check-tiers error:', altRes.status, altRes.body);
         }
@@ -228,8 +212,7 @@ describe('Suite 7: Loyalty & Customer', () => {
     it('7.9 - should verify customer tier', async () => {
       const customerId = testContext.created.customerIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/loyalty/customer/${customerId}`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/loyalty/customer/${customerId}`);
 
       expect(res.status).toBeLessThan(400);
 
@@ -246,8 +229,7 @@ describe('Suite 7: Loyalty & Customer', () => {
   // ================================================================
   describe('7D - Customer Segments', () => {
     it('7.10 - should get customer segments', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/customers/segments');
+      const res = await authRequest(app, 'owner').get('/api/v1/customers/segments');
 
       if (res.status >= 400) {
         console.log('7.10 segments error:', res.status, res.body);
@@ -267,8 +249,7 @@ describe('Suite 7: Loyalty & Customer', () => {
     });
 
     it('7.11 - should get returning customer segment', async () => {
-      const res = await authRequest(app, 'owner')
-        .get('/api/v1/customers/segments/returning');
+      const res = await authRequest(app, 'owner').get('/api/v1/customers/segments/returning');
 
       if (res.status >= 400) {
         console.log('7.11 returning segment error:', res.status, res.body);
@@ -284,9 +265,8 @@ describe('Suite 7: Loyalty & Customer', () => {
         // Budi has transactions so may appear in returning
         if (Array.isArray(customers) && customers.length > 0) {
           const budi = customers.find(
-            (c: any) =>
-              c.id === testContext.created.customerIds[0] ||
-              c.name?.includes('Budi'),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (c: any) => c.id === testContext.created.customerIds[0] || c.name?.includes('Budi'),
           );
           // Budi may or may not be classified as returning
           if (budi) {
@@ -299,8 +279,7 @@ describe('Suite 7: Loyalty & Customer', () => {
     it('7.12 - should get purchase history for Budi', async () => {
       const customerId = testContext.created.customerIds[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/customers/${customerId}/history`);
+      const res = await authRequest(app, 'owner').get(`/api/v1/customers/${customerId}/history`);
 
       if (res.status >= 400) {
         console.log('7.12 history error:', res.status, res.body);

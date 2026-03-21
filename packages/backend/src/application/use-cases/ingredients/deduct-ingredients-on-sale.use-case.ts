@@ -18,6 +18,7 @@ export interface DeductIngredientsOutput {
     quantityDeducted: number;
     remainingStock: number;
     isBelowAlert: boolean;
+    insufficientStock: boolean;
   }[];
 }
 
@@ -45,7 +46,10 @@ export class DeductIngredientsOnSaleUseCase {
 
         if (!stockLevel) continue;
 
-        const newQty = stockLevel.quantity.toNumber() - qtyNeeded;
+        const currentStock = stockLevel.quantity.toNumber();
+        const insufficientStock = qtyNeeded > currentStock;
+        const actualDeducted = Math.min(qtyNeeded, currentStock);
+        const newQty = currentStock - actualDeducted;
 
         await this.prisma.ingredientStockLevel.update({
           where: { id: stockLevel.id },
@@ -57,18 +61,22 @@ export class DeductIngredientsOnSaleUseCase {
             outletId: input.outletId,
             ingredientId: recipeItem.ingredientId,
             movementType: 'usage',
-            quantity: -qtyNeeded,
+            quantity: -actualDeducted,
             referenceId: input.transactionId,
             referenceType: 'transaction',
+            ...(insufficientStock && {
+              notes: `Insufficient stock: needed ${qtyNeeded}, available ${currentStock}`,
+            }),
           },
         });
 
         deductions.push({
           ingredientId: recipeItem.ingredientId,
           ingredientName: recipeItem.ingredient.name,
-          quantityDeducted: qtyNeeded,
+          quantityDeducted: actualDeducted,
           remainingStock: Math.max(0, newQty),
           isBelowAlert: newQty <= stockLevel.lowStockAlert.toNumber(),
+          insufficientStock,
         });
       }
     }

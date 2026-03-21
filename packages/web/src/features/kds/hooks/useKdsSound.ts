@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
 import type { KDSOrder } from '@/types/kds.types';
 
 let audioContextRef: AudioContext | null = null;
@@ -101,7 +101,7 @@ export function useKdsSound(orders: KDSOrder[]) {
       }
       if (hasNew) {
         playNewOrderBeep();
-        toast({
+        toast.info({
           title: 'Pesanan baru!',
           description: 'Pesanan baru telah masuk ke dapur.',
         });

@@ -28,10 +28,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Plus, Trash2, FileStack } from 'lucide-react';
 import type { CreateProductRequest } from '@/types/product.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface ProductBulkAddModalProps {
   open: boolean;
@@ -81,6 +80,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
     },
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
 
       const successful = results.filter((r) => r.status === 'fulfilled').length;
       const failed = results.filter((r) => r.status === 'rejected').length;
@@ -116,12 +116,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
         });
       }
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan produk',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan produk'),
   });
 
   const updateRow = (id: string, field: keyof BulkProductRow, value: string) => {

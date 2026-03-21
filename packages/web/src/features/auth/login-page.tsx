@@ -3,14 +3,12 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
-import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -31,8 +29,10 @@ export function LoginPage() {
           role: data.role,
           businessId: data.businessId,
           outletId: data.outletId,
+          outletName: data.outletName ?? undefined,
           employeeId: data.employeeId,
           onboardingCompleted: data.onboardingCompleted ?? false,
+          emailVerified: data.emailVerified ?? false,
         },
         data.accessToken,
       );
@@ -50,12 +50,7 @@ export function LoginPage() {
       const redirectTo = redirectMap[data.role] ?? '/app';
       navigate(redirectTo, { replace: true });
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Login gagal',
-        description: error.response?.data?.message || 'Email atau PIN salah',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Login gagal'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

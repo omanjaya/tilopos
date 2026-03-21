@@ -11,6 +11,7 @@ export interface EndShiftInput {
   shiftId: string;
   employeeId: string;
   closingCash: number;
+  notes?: string;
 }
 
 export interface EndShiftOutput {
@@ -49,7 +50,11 @@ export class EndShiftUseCase {
 
     const cashPayments = await this.prisma.payment.aggregate({
       where: {
-        transaction: { shiftId: input.shiftId, transactionType: 'sale' },
+        transaction: {
+          shiftId: input.shiftId,
+          transactionType: 'sale',
+          status: { not: 'voided' },
+        },
         paymentMethod: 'cash',
         status: 'completed',
       },
@@ -58,7 +63,11 @@ export class EndShiftUseCase {
 
     const cashRefunds = await this.prisma.payment.aggregate({
       where: {
-        transaction: { shiftId: input.shiftId, transactionType: 'refund' },
+        transaction: {
+          shiftId: input.shiftId,
+          transactionType: 'refund',
+          status: { not: 'voided' },
+        },
         paymentMethod: 'cash',
         status: 'completed',
       },
@@ -67,7 +76,11 @@ export class EndShiftUseCase {
 
     const totalCashIn = cashPayments._sum.amount?.toNumber() || 0;
     const totalCashOut = Math.abs(cashRefunds._sum.amount?.toNumber() || 0);
-    const expectedCash = shift.openingCash + totalCashIn - totalCashOut;
+    // Include cash drawer adjustments (petty cash in/out during shift)
+    const shiftCashIn = Number(shift.cashIn ?? 0);
+    const shiftCashOut = Number(shift.cashOut ?? 0);
+    const expectedCash =
+      shift.openingCash + totalCashIn - totalCashOut + shiftCashIn - shiftCashOut;
     const difference = input.closingCash - expectedCash;
     const endedAt = new Date();
 
@@ -83,6 +96,7 @@ export class EndShiftUseCase {
       expectedCash,
       cashDifference: difference,
       endedAt,
+      notes: input.notes,
     });
 
     // Get employee name for event

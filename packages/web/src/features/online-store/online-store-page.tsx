@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/shared/page-header';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -19,11 +19,10 @@ import {
 } from '@/components/ui/dialog';
 import { Store, Plus, ExternalLink, Globe, Loader2 } from 'lucide-react';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useAuthStore } from '@/stores/auth.store';
 import { onlineStoreApi } from '@/api/endpoints/online-store.api';
 import type { OnlineStore } from '@/types/online-store.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 function slugify(text: string): string {
   return text
@@ -124,12 +123,7 @@ export function OnlineStorePage() {
       toast.success({ title: 'Toko berhasil dibuat' });
       closeDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal membuat toko',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal membuat toko'),
   });
 
   function openDialog() {
@@ -160,23 +154,6 @@ export function OnlineStorePage() {
       description: storeDescription.trim() || undefined,
     });
   }
-
-  // Keyboard shortcut: N to open create dialog
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        openDialog();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div>

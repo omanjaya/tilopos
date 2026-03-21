@@ -134,6 +134,10 @@ export class WaitingListService {
   }
 
   async seat(id: string, tableId: string) {
+    if (!tableId) {
+      throw new Error('tableId is required to seat a customer');
+    }
+
     // Update waiting list entry
     const entry = await this.prisma.waitingList.update({
       where: { id },

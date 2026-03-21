@@ -8,6 +8,7 @@ interface UIState {
   brandColor: string | null;
   taxRate: number;
   serviceChargeRate: number;
+  taxInclusive: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleMobileSidebar: () => void;
@@ -18,6 +19,7 @@ interface UIState {
   setBrandColor: (color: string | null) => void;
   setTaxRate: (rate: number) => void;
   setServiceChargeRate: (rate: number) => void;
+  setTaxInclusive: (inclusive: boolean) => void;
 }
 
 const savedTheme = (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
@@ -34,8 +36,19 @@ export const useUIStore = create<UIState>((set) => ({
   theme: savedTheme,
   selectedOutletId: localStorage.getItem('selectedOutletId'),
   brandColor: localStorage.getItem('brandColor'),
-  taxRate: 0.11,
-  serviceChargeRate: 0.05,
+  taxRate: (() => {
+    const stored = localStorage.getItem('taxRate');
+    if (stored === null) return 0.11;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) ? parsed : 0.11;
+  })(),
+  serviceChargeRate: (() => {
+    const stored = localStorage.getItem('serviceChargeRate');
+    if (stored === null) return 0;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) ? parsed : 0;
+  })(),
+  taxInclusive: localStorage.getItem('taxInclusive') === 'true',
   toggleSidebar: () => set((s) => {
     const newCollapsed = !s.sidebarCollapsed;
     localStorage.setItem('sidebarCollapsed', String(newCollapsed));
@@ -71,6 +84,16 @@ export const useUIStore = create<UIState>((set) => ({
     }
     set({ brandColor: color });
   },
-  setTaxRate: (rate) => set({ taxRate: rate }),
-  setServiceChargeRate: (rate) => set({ serviceChargeRate: rate }),
+  setTaxRate: (rate) => {
+    localStorage.setItem('taxRate', String(rate));
+    set({ taxRate: rate });
+  },
+  setServiceChargeRate: (rate) => {
+    localStorage.setItem('serviceChargeRate', String(rate));
+    set({ serviceChargeRate: rate });
+  },
+  setTaxInclusive: (inclusive) => {
+    localStorage.setItem('taxInclusive', String(inclusive));
+    set({ taxInclusive: inclusive });
+  },
 }));

@@ -12,10 +12,10 @@ import { useAuthStore } from '@/stores/auth.store';
 // Configuration
 // -------------------------------------------------------------------
 
-// Use backend URL from env, or default to API base URL (Vite proxies this)
+// Use backend URL from env, or default to current origin (nginx proxies /socket.io)
 const SOCKET_URL = import.meta.env.VITE_WS_URL ||
                    import.meta.env.VITE_API_URL ||
-                   'http://localhost:3001';
+                   '';
 const SOCKET_NAMESPACE = '/notifications';
 
 // -------------------------------------------------------------------
@@ -50,7 +50,10 @@ export function getSharedSocket(): Socket | null {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10000,
-      auth: { token },
+      // Use a function so reconnections always use the latest token
+      auth: (cb) => {
+        cb({ token: useAuthStore.getState().token });
+      },
     });
   }
 
@@ -75,6 +78,23 @@ export function releaseSharedSocket(): void {
       disconnectTimer = null;
     }, 100);
   }
+}
+
+/**
+ * Force disconnect and destroy the shared socket.
+ * Call this when the auth token changes (e.g. on logout or re-login)
+ * so the next getSharedSocket() creates a fresh connection with the new token.
+ */
+export function destroySharedSocket(): void {
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
+  if (sharedSocket) {
+    sharedSocket.disconnect();
+    sharedSocket = null;
+  }
+  refCount = 0;
 }
 
 /**

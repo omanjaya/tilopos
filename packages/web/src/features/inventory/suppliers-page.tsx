@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -31,8 +31,8 @@ import { SupplierDetailModal } from './components/supplier-detail-modal';
 import { SupplierComparisonModal } from './components/supplier-comparison-modal';
 import { ReorderAlertsModal } from './components/reorder-alerts-modal';
 import type { Supplier, CreateSupplierRequest } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { useRowHighlight } from '@/hooks/use-row-highlight';
 
 const EMPTY_FORM: CreateSupplierRequest = {
   name: '',
@@ -44,6 +44,7 @@ const EMPTY_FORM: CreateSupplierRequest = {
 
 export function SuppliersPage() {
   const queryClient = useQueryClient();
+  const { highlightedRowId, highlightRow } = useRowHighlight();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
@@ -63,33 +64,25 @@ export function SuppliersPage() {
 
   const createMutation = useMutation({
     mutationFn: inventoryApi.createSupplier,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      highlightRow(data.id);
       toast.success({ title: 'Supplier berhasil ditambahkan' });
       closeDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan supplier',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan supplier'),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateSupplierRequest> }) =>
       inventoryApi.updateSupplier(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      highlightRow(variables.id);
       toast.success({ title: 'Supplier berhasil diperbarui' });
       closeDialog();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal memperbarui supplier',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui supplier'),
   });
 
   const deleteMutation = useMutation({
@@ -99,12 +92,7 @@ export function SuppliersPage() {
       toast.success({ title: 'Supplier berhasil dihapus' });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus supplier',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus supplier'),
   });
 
   function openCreateDialog() {
@@ -145,22 +133,6 @@ export function SuppliersPage() {
   }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        openCreateDialog();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
 
   const columns: Column<Supplier>[] = [
     {
@@ -242,6 +214,8 @@ export function SuppliersPage() {
         isLoading={isLoading}
         searchPlaceholder="Cari supplier..."
         onSearch={setSearch}
+        highlightedRowId={highlightedRowId}
+        rowId={(row) => row.id}
         emptyTitle="Belum ada supplier"
         emptyDescription="Tambahkan supplier pertama Anda."
         emptyAction={

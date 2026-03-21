@@ -7,7 +7,12 @@ export interface IInventoryRepository {
   findStockLevelsByOutlet(outletId: string): Promise<StockLevelRecord[]>;
   findLowStockItems(outletId: string): Promise<StockLevelRecord[]>;
   updateStockLevel(id: string, quantity: number): Promise<StockLevelRecord>;
+  incrementStockLevel(id: string, incrementBy: number): Promise<StockLevelRecord>;
   createStockMovement(movement: StockMovementRecord): Promise<StockMovementRecord>;
+  findStockMovements(filter: {
+    referenceId: string;
+    referenceType: string;
+  }): Promise<StockMovementRecord[]>;
 }
 
 export interface StockLevelRecord {

@@ -3,6 +3,8 @@ import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.token
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { OrderStatusChangedEvent } from '@domain/events/order-status-changed.event';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { AppError } from '@shared/errors/app-error';
+import { ErrorCode } from '@shared/constants/error-codes';
 import type { IOrderRepository } from '@domain/interfaces/repositories/order.repository';
 
 export interface OrderItemInput {
@@ -77,6 +79,12 @@ export class CreateOrderUseCase {
     }
 
     if (input.tableId) {
+      const table = await this.prisma.table.findFirst({
+        where: { id: input.tableId, outletId: input.outletId, status: 'available' },
+      });
+      if (!table) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Table not available or not found');
+      }
       await this.prisma.table.update({
         where: { id: input.tableId },
         data: { status: 'occupied', currentOrderId: order.id, occupiedAt: new Date() },

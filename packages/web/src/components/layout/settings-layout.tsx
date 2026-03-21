@@ -52,7 +52,7 @@ const settingsGroups: SettingsNavGroup[] = [
       { to: '/app/settings/notifications', label: 'Notifikasi', icon: Bell },
       { to: '/app/settings/appearance', label: 'Tampilan', icon: Palette },
       { to: '/app/settings/report-schedule', label: 'Jadwal Laporan', icon: CalendarClock, roles: ['owner', 'super_admin'] },
-      { to: '/app/settings/billing', label: 'Langganan', icon: Crown, roles: ['owner', 'super_admin'] },
+      { to: '/app/subscription', label: 'Langganan', icon: Crown, roles: ['owner', 'super_admin'] },
     ],
   },
 ];

@@ -29,10 +29,12 @@ import { GenerateVoucherBatchUseCase } from '../../application/use-cases/promoti
 import { GenerateVoucherBatchDto } from '../../application/dtos/voucher-batch.dto';
 import { randomBytes } from 'crypto';
 import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { RequireFeature } from '../../common/guards/feature.guard';
 
 @ApiTags('Promotions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@RequireFeature('promotions')
 @Controller('promotions')
 export class PromotionsController {
   constructor(
@@ -242,8 +244,12 @@ export class PromotionsController {
 
   @Post('vouchers/:voucherId/use')
   @ApiOperation({ summary: 'Mark voucher as used' })
-  async useVoucher(@Param('voucherId') voucherId: string, @Body() dto: { customerId: string }) {
-    await this.validateVoucherUseCase.markVoucherAsUsed(voucherId, dto.customerId);
+  async useVoucher(
+    @Param('voucherId') voucherId: string,
+    @Body() dto: { customerId: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.validateVoucherUseCase.markVoucherAsUsed(voucherId, dto.customerId, user.businessId);
     return { message: 'Voucher marked as used' };
   }
 

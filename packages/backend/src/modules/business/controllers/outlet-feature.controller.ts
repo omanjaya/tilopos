@@ -1,6 +1,19 @@
-import { Controller, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  ForbiddenException,
+} from '@nestjs/common';
 import { IsBoolean, IsString, IsNotEmpty } from 'class-validator';
 import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
+import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 import { OutletFeatureService, type OutletFeatureDto } from '../services/outlet-feature.service';
 import { OutletTypeService, type OutletTypeInfo } from '../services/outlet-type.service';
 
@@ -46,7 +59,17 @@ export class OutletFeatureController {
   constructor(
     private readonly outletFeatureService: OutletFeatureService,
     private readonly outletTypeService: OutletTypeService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
 
   // ============================================================================
   // OUTLET FEATURE ENDPOINTS
@@ -57,7 +80,11 @@ export class OutletFeatureController {
    * Get all features with status for a specific outlet
    */
   @Get(':outletId/features')
-  async getOutletFeatures(@Param('outletId') outletId: string): Promise<OutletFeaturesResponse> {
+  async getOutletFeatures(
+    @Param('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<OutletFeaturesResponse> {
+    await this.verifyOutletAccess(outletId, user.businessId);
     const features = await this.outletFeatureService.getOutletFeatures(outletId);
     return { features };
   }
@@ -67,7 +94,11 @@ export class OutletFeatureController {
    * Get only enabled feature keys for an outlet (lightweight)
    */
   @Get(':outletId/features/enabled')
-  async getEnabledFeatures(@Param('outletId') outletId: string): Promise<{ features: string[] }> {
+  async getEnabledFeatures(
+    @Param('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ features: string[] }> {
+    await this.verifyOutletAccess(outletId, user.businessId);
     const features = await this.outletFeatureService.getEnabledFeatureKeys(outletId);
     return { features };
   }
@@ -82,7 +113,9 @@ export class OutletFeatureController {
     @Param('outletId') outletId: string,
     @Param('featureKey') featureKey: string,
     @Body() dto: ToggleOutletFeatureDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<ToggleOutletFeatureResponse> {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.outletFeatureService.toggleFeature(outletId, featureKey, dto.isEnabled);
   }
 
@@ -95,7 +128,11 @@ export class OutletFeatureController {
    * Get current outlet type
    */
   @Get(':outletId/type')
-  async getOutletType(@Param('outletId') outletId: string): Promise<OutletTypeResponse> {
+  async getOutletType(
+    @Param('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<OutletTypeResponse> {
+    await this.verifyOutletAccess(outletId, user.businessId);
     const outletType = await this.outletTypeService.getOutletType(outletId);
     return { outletType };
   }
@@ -109,7 +146,9 @@ export class OutletFeatureController {
   async changeOutletType(
     @Param('outletId') outletId: string,
     @Body() dto: ChangeOutletTypeDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<ChangeOutletTypeResponse> {
+    await this.verifyOutletAccess(outletId, user.businessId);
     return this.outletTypeService.changeOutletType(outletId, dto.outletType);
   }
 }

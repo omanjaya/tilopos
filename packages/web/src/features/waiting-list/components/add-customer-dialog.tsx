@@ -15,10 +15,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, UserPlus } from 'lucide-react';
 import type { AddWaitingListRequest } from '@/types/waiting-list.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 interface AddCustomerDialogProps {
   open: boolean;
@@ -51,12 +50,7 @@ export function AddCustomerDialog({ open, onOpenChange, onSuccess }: AddCustomer
       });
       onSuccess();
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menambahkan pelanggan',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan pelanggan'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -20,7 +20,6 @@ export function useSidebarState() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const isPathVisible = useFeatureStore((s) => s.isPathVisible);
-  const enabledFeatures = useFeatureStore((s) => s.enabledFeatures);
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
 
@@ -75,7 +74,7 @@ export function useSidebarState() {
         }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [isPathVisible, userRole, pinnedSet, enabledFeatures]);
+  }, [isPathVisible, userRole, pinnedSet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pinnedNavItems = useMemo(() => {
     const allowedPaths = ROLE_ALLOWED_PATHS[userRole];
@@ -88,7 +87,7 @@ export function useSidebarState() {
         if (hasRoleFilter && !allowedPaths.includes(item.to)) return false;
         return isPathVisible(item.to);
       });
-  }, [pinnedPaths, isPathVisible, userRole, enabledFeatures]);
+  }, [pinnedPaths, isPathVisible, userRole]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Section expand/collapse ────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { employeesApi } from '@/api/endpoints/employees.api';
@@ -23,13 +23,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ROLE_LABELS, ROLE_OPTIONS, STATUS_OPTIONS } from '@/lib/constants';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Employee } from '@/types/employee.types';
 import type { EmployeeRole } from '@/types/auth.types';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 export function EmployeesPage() {
   const navigate = useNavigate();
@@ -63,12 +62,7 @@ export function EmployeesPage() {
       });
       setDeleteTarget(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menghapus karyawan',
-        description: error.response?.data?.message || 'Terjadi kesalahan saat menghapus karyawan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus karyawan'),
   });
 
   const columns: Column<Employee>[] = [
@@ -116,22 +110,6 @@ export function EmployeesPage() {
       ),
     },
   ];
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/employees/new');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
 
   return (
     <div>

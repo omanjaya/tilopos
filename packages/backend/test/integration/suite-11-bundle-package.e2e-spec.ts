@@ -30,12 +30,10 @@ describe('Suite 11: Bundle Package', () => {
   describe('Setup', () => {
     it('should ensure productIds exist in context', async () => {
       if (!testContext.created.productIds.length) {
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/inventory/products');
+        const res = await authRequest(app, 'owner').get('/api/v1/inventory/products');
         expect(res.status).toBeLessThan(400);
-        const products = Array.isArray(res.body)
-          ? res.body
-          : res.body.data || [];
+        const products = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.productIds = products.map((p: any) => p.id);
         saveContext();
       }
@@ -44,22 +42,19 @@ describe('Suite 11: Bundle Package', () => {
 
     it('should create or find a bundle package', async () => {
       // Check existing bundles
-      const listRes = await authRequest(app, 'owner')
-        .get('/api/v1/bundle-packages');
+      const listRes = await authRequest(app, 'owner').get('/api/v1/bundle-packages');
 
       if (listRes.status < 400) {
-        const bundles = Array.isArray(listRes.body)
-          ? listRes.body
-          : listRes.body.data || [];
+        const bundles = Array.isArray(listRes.body) ? listRes.body : listRes.body.data || [];
 
         if (bundles.length > 0) {
           // Use existing bundle
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const existingBundle = bundles.find((b: any) => b.isActive);
           if (existingBundle) {
             bundleId = existingBundle.id;
-            componentProductIds = (existingBundle.items || []).map(
-              (i: any) => i.productId,
-            );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            componentProductIds = (existingBundle.items || []).map((i: any) => i.productId);
             console.log(`Using existing bundle: ${existingBundle.name} (${bundleId})`);
 
             if (!testContext.created['bundleIds']) {
@@ -113,14 +108,14 @@ describe('Suite 11: Bundle Package', () => {
       const outletId = testContext.outletId!;
 
       for (const productId of componentProductIds) {
-        const stockRes = await authRequest(app, 'owner')
-          .get(`/api/v1/inventory/stock/${outletId}`);
+        const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
         expect(stockRes.status).toBeLessThan(400);
         const stocks = Array.isArray(stockRes.body)
           ? stockRes.body
           : stockRes.body.data || stockRes.body.items || [];
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const item = stocks.find((s: any) => s.productId === productId);
         const currentQty = item ? Number(item.quantity) : 0;
 
@@ -144,8 +139,7 @@ describe('Suite 11: Bundle Package', () => {
     });
 
     it('should ensure an open shift exists', async () => {
-      const currentRes = await authRequest(app, 'cashier')
-        .get('/api/v1/employees/shifts/current');
+      const currentRes = await authRequest(app, 'cashier').get('/api/v1/employees/shifts/current');
 
       if (currentRes.status < 400 && currentRes.body?.id) {
         activeShiftId = currentRes.body.id;
@@ -153,12 +147,10 @@ describe('Suite 11: Bundle Package', () => {
         return;
       }
 
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/employees/shifts/start')
-        .send({
-          outletId: testContext.outletId,
-          openingCash: 500000,
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/employees/shifts/start').send({
+        outletId: testContext.outletId,
+        openingCash: 500000,
+      });
 
       if (res.status >= 400) {
         console.log('Open shift error:', res.status, res.body);
@@ -181,8 +173,7 @@ describe('Suite 11: Bundle Package', () => {
     it('11.1 - should snapshot stock of all components BEFORE bundle transaction', async () => {
       const outletId = testContext.outletId!;
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
       expect(stockRes.status).toBeLessThan(400);
       const stocks = Array.isArray(stockRes.body)
@@ -190,6 +181,7 @@ describe('Suite 11: Bundle Package', () => {
         : stockRes.body.data || stockRes.body.items || [];
 
       for (const productId of componentProductIds) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const item = stocks.find((s: any) => s.productId === productId);
         stockBefore[productId] = item ? Number(item.quantity) : 0;
       }
@@ -206,8 +198,7 @@ describe('Suite 11: Bundle Package', () => {
       expect(activeShiftId).toBeDefined();
 
       // Get bundle price first
-      const bundleRes = await authRequest(app, 'owner')
-        .get(`/api/v1/bundle-packages/${bundleId}`);
+      const bundleRes = await authRequest(app, 'owner').get(`/api/v1/bundle-packages/${bundleId}`);
       expect(bundleRes.status).toBeLessThan(400);
       const bundlePrice = Number(bundleRes.body.price);
       // Grand total includes tax/service charge, so overpay to cover it
@@ -254,20 +245,22 @@ describe('Suite 11: Bundle Package', () => {
       const productId = componentProductIds[0];
       expect(productId).toBeDefined();
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
       expect(stockRes.status).toBeLessThan(400);
       const stocks = Array.isArray(stockRes.body)
         ? stockRes.body
         : stockRes.body.data || stockRes.body.items || [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => s.productId === productId);
       const currentQty = item ? Number(item.quantity) : 0;
 
       // Each bundle has 1 of this product, bought 3 bundles → -3
       const expectedQty = stockBefore[productId] - BUNDLE_QTY;
-      console.log(`11.3 Component A: before=${stockBefore[productId]}, after=${currentQty}, expected=${expectedQty}`);
+      console.log(
+        `11.3 Component A: before=${stockBefore[productId]}, after=${currentQty}, expected=${expectedQty}`,
+      );
 
       expect(currentQty).toBe(expectedQty);
     });
@@ -281,19 +274,21 @@ describe('Suite 11: Bundle Package', () => {
       const outletId = testContext.outletId!;
       const productId = componentProductIds[1];
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
       expect(stockRes.status).toBeLessThan(400);
       const stocks = Array.isArray(stockRes.body)
         ? stockRes.body
         : stockRes.body.data || stockRes.body.items || [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => s.productId === productId);
       const currentQty = item ? Number(item.quantity) : 0;
 
       const expectedQty = stockBefore[productId] - BUNDLE_QTY;
-      console.log(`11.4 Component B: before=${stockBefore[productId]}, after=${currentQty}, expected=${expectedQty}`);
+      console.log(
+        `11.4 Component B: before=${stockBefore[productId]}, after=${currentQty}, expected=${expectedQty}`,
+      );
 
       expect(currentQty).toBe(expectedQty);
     });
@@ -302,8 +297,9 @@ describe('Suite 11: Bundle Package', () => {
       // Ingredient stock deduction depends on recipes being configured
       const outletId = testContext.outletId!;
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/ingredients/stock?outletId=${outletId}`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/inventory/ingredients/stock?outletId=${outletId}`,
+      );
 
       if (res.status >= 400) {
         // Ingredient stock endpoint may not exist or return 404
@@ -312,9 +308,7 @@ describe('Suite 11: Bundle Package', () => {
         return;
       }
 
-      const ingredientStocks = Array.isArray(res.body)
-        ? res.body
-        : res.body.data || [];
+      const ingredientStocks = Array.isArray(res.body) ? res.body : res.body.data || [];
 
       if (ingredientStocks.length > 0) {
         console.log(`11.5 Ingredient stocks found: ${ingredientStocks.length}`);
@@ -342,10 +336,9 @@ describe('Suite 11: Bundle Package', () => {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/reports/dashboard/items?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
-        );
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/reports/dashboard/items?outletId=${testContext.outletId}&startDate=${today}&endDate=${tomorrowStr}`,
+      );
 
       if (res.status >= 400) {
         console.log('11.7 dashboard items error:', res.status, res.body);
@@ -363,6 +356,7 @@ describe('Suite 11: Bundle Package', () => {
       // Look for the bundle in the items report
       if (Array.isArray(items) && items.length > 0) {
         const bundleItem = items.find(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (i: any) =>
             i.bundleId === bundleId ||
             i.name?.includes('Paket Hemat') ||
@@ -372,7 +366,13 @@ describe('Suite 11: Bundle Package', () => {
         if (bundleItem) {
           console.log('11.7 Bundle found in dashboard:', bundleItem.name || bundleItem.productName);
           // Quantity may be tracked as totalQuantity, quantity, sold, etc.
-          const qty = Number(bundleItem.quantity || bundleItem.totalQuantity || bundleItem.sold || bundleItem.totalSold || 0);
+          const qty = Number(
+            bundleItem.quantity ||
+              bundleItem.totalQuantity ||
+              bundleItem.sold ||
+              bundleItem.totalSold ||
+              0,
+          );
           expect(qty).toBeGreaterThanOrEqual(0);
         } else {
           console.log('11.7 Bundle not found in dashboard items (may be aggregated differently)');

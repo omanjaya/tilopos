@@ -91,6 +91,15 @@ export class PrismaInventoryRepository implements IInventoryRepository {
     return this.toStockLevelRecord(updated);
   }
 
+  async incrementStockLevel(id: string, incrementBy: number): Promise<StockLevelRecord> {
+    const updated = await this.prisma.stockLevel.update({
+      where: { id },
+      data: { quantity: { increment: incrementBy } },
+    });
+
+    return this.toStockLevelRecord(updated);
+  }
+
   async createStockMovement(movement: StockMovementRecord): Promise<StockMovementRecord> {
     const created = await this.prisma.stockMovement.create({
       data: {
@@ -115,6 +124,19 @@ export class PrismaInventoryRepository implements IInventoryRepository {
     });
 
     return this.toStockMovementRecord(created);
+  }
+
+  async findStockMovements(filter: {
+    referenceId: string;
+    referenceType: string;
+  }): Promise<StockMovementRecord[]> {
+    const movements = await this.prisma.stockMovement.findMany({
+      where: {
+        referenceId: filter.referenceId,
+        referenceType: filter.referenceType,
+      },
+    });
+    return movements.map((m) => this.toStockMovementRecord(m));
   }
 
   private toStockLevelRecord(stockLevel: StockLevelWithProduct): StockLevelRecord {

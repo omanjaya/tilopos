@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -33,8 +34,6 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import type { Order, OrderStatus } from '@/types/order.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 
 /**
  * OrdersPage Mobile Version
@@ -58,7 +57,6 @@ const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'des
 
 const ORDER_TYPE_MAP: Record<string, { label: string; icon: React.ReactNode }> = {
   dine_in: { label: 'Dine In', icon: <ChefHat className="h-4 w-4" /> },
-  take_away: { label: 'Take Away', icon: <ShoppingBag className="h-4 w-4" /> },
   takeaway: { label: 'Take Away', icon: <ShoppingBag className="h-4 w-4" /> },
   delivery: { label: 'Delivery', icon: <ShoppingBag className="h-4 w-4" /> },
 };
@@ -104,7 +102,6 @@ function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
 export function OrdersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -126,17 +123,11 @@ export function OrdersPage() {
       ordersApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
-      toast({ title: 'Status pesanan berhasil diperbarui' });
+      toast.success({ title: 'Status pesanan berhasil diperbarui' });
       setConfirmAction(null);
       setSelectedOrder(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal memperbarui status',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status'),
   });
 
   // Filter by search

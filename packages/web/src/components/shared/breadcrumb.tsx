@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getPageTitle } from '@/components/layout/header/page-titles';
@@ -81,7 +81,7 @@ function parseBreadcrumb(pathname: string, homePath = '/app', homeLabel = 'Dashb
  * ```
  */
 export function Breadcrumb({ className, homePath = '/app', homeLabel = 'Dashboard' }: BreadcrumbProps) {
-  const pathname = window.location.pathname;
+  const { pathname } = useLocation();
   const items = parseBreadcrumb(pathname, homePath, homeLabel);
 
   if (items.length === 1 && items[0]?.isLast) {

@@ -96,16 +96,23 @@ export class SplitBillUseCase {
       );
     }
 
-    const childTransactions: SplitBillOutput['childTransactions'] = [];
+    // Pre-calculate all splits and validate totals BEFORE writing to DB
+    const taxRatio = transaction.subtotal !== 0 ? transaction.taxAmount / transaction.subtotal : 0;
+    const splitData: Array<{
+      subtotal: number;
+      taxAmount: number;
+      grandTotal: number;
+      discountAmount: number;
+      receiptNumber: string;
+    }> = [];
 
     for (let i = 0; i < input.splits.length; i++) {
       const split = input.splits[i];
       const splitItems = items.filter((item) => split.itemIds.includes(item.id));
       const subtotal = splitItems.reduce((sum, item) => sum + item.subtotal, 0);
-      const taxRatio = transaction.taxAmount / transaction.subtotal;
       const taxAmount = Math.round(subtotal * taxRatio);
-      const grandTotal =
-        subtotal - splitItems.reduce((sum, item) => sum + item.discountAmount, 0) + taxAmount;
+      const discountAmount = splitItems.reduce((sum, item) => sum + item.discountAmount, 0);
+      const grandTotal = subtotal - discountAmount + taxAmount;
 
       if (split.paymentAmount < grandTotal) {
         throw new BusinessError(
@@ -114,15 +121,36 @@ export class SplitBillUseCase {
         );
       }
 
-      const receiptNumber = `${transaction.receiptNumber}-S${i + 1}`;
-      const child = await this.transactionRepo.save({
-        ...transaction,
-        id: '',
-        receiptNumber,
+      splitData.push({
         subtotal,
         taxAmount,
         grandTotal,
-        discountAmount: splitItems.reduce((sum, item) => sum + item.discountAmount, 0),
+        discountAmount,
+        receiptNumber: `${transaction.receiptNumber}-S${i + 1}`,
+      });
+    }
+
+    // Validate total matches BEFORE creating any child transactions
+    const totalSplit = splitData.reduce((sum, s) => sum + s.grandTotal, 0);
+    if (totalSplit !== transaction.grandTotal) {
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Split totals do not match original transaction total',
+      );
+    }
+
+    // Now create child transactions (totals already validated)
+    const childTransactions: SplitBillOutput['childTransactions'] = [];
+
+    for (const data of splitData) {
+      const child = await this.transactionRepo.save({
+        ...transaction,
+        id: '',
+        receiptNumber: data.receiptNumber,
+        subtotal: data.subtotal,
+        taxAmount: data.taxAmount,
+        grandTotal: data.grandTotal,
+        discountAmount: data.discountAmount,
         notes: `Split from ${transaction.receiptNumber}`,
         status: 'completed',
         createdAt: new Date(),
@@ -131,19 +159,13 @@ export class SplitBillUseCase {
 
       childTransactions.push({
         transactionId: child.id,
-        receiptNumber,
-        grandTotal,
+        receiptNumber: data.receiptNumber,
+        grandTotal: data.grandTotal,
       });
     }
 
-    // Validate total matches
-    const totalSplit = childTransactions.reduce((sum, c) => sum + c.grandTotal, 0);
-    if (totalSplit !== transaction.grandTotal) {
-      throw new BusinessError(
-        ErrorCode.INVALID_TRANSACTION,
-        'Split totals do not match original transaction total',
-      );
-    }
+    // Mark parent as split to prevent double-splitting
+    await this.transactionRepo.update(input.transactionId, { status: 'split' });
 
     return {
       parentTransactionId: input.transactionId,
@@ -170,8 +192,7 @@ export class SplitBillUseCase {
     const splitAmount = Math.floor(transaction.grandTotal / input.numberOfSplits);
     const remainder = transaction.grandTotal - splitAmount * input.numberOfSplits;
 
-    const childTransactions: SplitBillOutput['childTransactions'] = [];
-
+    // Pre-validate all payments before creating any DB records
     for (let i = 0; i < input.numberOfSplits; i++) {
       const grandTotal = i === 0 ? splitAmount + remainder : splitAmount;
       const payment = input.payments[i];
@@ -182,6 +203,12 @@ export class SplitBillUseCase {
           `Payment for split ${i + 1} is insufficient`,
         );
       }
+    }
+
+    const childTransactions: SplitBillOutput['childTransactions'] = [];
+
+    for (let i = 0; i < input.numberOfSplits; i++) {
+      const grandTotal = i === 0 ? splitAmount + remainder : splitAmount;
 
       const receiptNumber = `${transaction.receiptNumber}-S${i + 1}`;
       const child = await this.transactionRepo.save({
@@ -205,14 +232,8 @@ export class SplitBillUseCase {
       });
     }
 
-    // Validate total matches
-    const totalSplit = childTransactions.reduce((sum, c) => sum + c.grandTotal, 0);
-    if (totalSplit !== transaction.grandTotal) {
-      throw new BusinessError(
-        ErrorCode.INVALID_TRANSACTION,
-        'Split totals do not match original transaction total',
-      );
-    }
+    // Mark parent as split to prevent double-splitting
+    await this.transactionRepo.update(input.transactionId, { status: 'split' });
 
     return {
       parentTransactionId: input.transactionId,

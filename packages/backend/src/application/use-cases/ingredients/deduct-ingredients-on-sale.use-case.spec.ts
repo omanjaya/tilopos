@@ -99,6 +99,7 @@ describe('DeductIngredientsOnSaleUseCase', () => {
       quantityDeducted: 0.4,
       remainingStock: 9.6,
       isBelowAlert: false,
+      insufficientStock: false,
     });
 
     // Oil: 0.05 liter per serving * 2 = 0.1 liter deducted
@@ -109,6 +110,7 @@ describe('DeductIngredientsOnSaleUseCase', () => {
       quantityDeducted: 0.1,
       remainingStock: 4.9,
       isBelowAlert: false,
+      insufficientStock: false,
     });
 
     // Verify stock level update for rice

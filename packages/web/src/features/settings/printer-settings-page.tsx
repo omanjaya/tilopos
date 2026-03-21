@@ -35,7 +35,7 @@ import {
   Bluetooth,
   TestTube,
 } from 'lucide-react';
-import { AxiosError } from 'axios';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 const TYPE_OPTIONS: { value: PrinterType; label: string }[] = [
   { value: 'receipt', label: 'Struk (Receipt)' },
@@ -112,10 +112,7 @@ export function PrinterSettingsPage() {
       toast.success({ title: 'Printer ditambahkan' });
       closeForm();
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal menambahkan printer';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menambahkan printer'),
   });
 
   const updateMutation = useMutation({
@@ -135,10 +132,7 @@ export function PrinterSettingsPage() {
       toast.success({ title: 'Printer diperbarui' });
       closeForm();
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal memperbarui printer';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui printer'),
   });
 
   const deleteMutation = useMutation({
@@ -148,10 +142,7 @@ export function PrinterSettingsPage() {
       toast.success({ title: 'Printer dihapus' });
       setDeleteConfirm(null);
     },
-    onError: (err) => {
-      const msg = err instanceof AxiosError ? err.response?.data?.message : 'Gagal menghapus printer';
-      toast.error({ title: 'Gagal', description: String(msg) });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menghapus printer'),
   });
 
   const toggleMutation = useMutation({

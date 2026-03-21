@@ -59,6 +59,7 @@ export class PrismaShiftRepository implements IShiftRepository {
         cashDifference: new Decimal(data.cashDifference),
         endedAt: data.endedAt,
         status: 'closed',
+        ...(data.notes !== undefined && { notes: data.notes }),
       },
     });
 

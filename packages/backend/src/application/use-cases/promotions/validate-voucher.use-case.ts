@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 
 export interface ValidateVoucherParams {
@@ -133,7 +133,17 @@ export class ValidateVoucherUseCase {
     };
   }
 
-  async markVoucherAsUsed(voucherId: string, customerId: string): Promise<void> {
+  async markVoucherAsUsed(
+    voucherId: string,
+    customerId: string,
+    businessId: string,
+  ): Promise<void> {
+    const voucher = await this.prisma.voucher.findFirst({
+      where: { id: voucherId, businessId },
+    });
+    if (!voucher) {
+      throw new NotFoundException('Voucher not found');
+    }
     await this.prisma.voucher.update({
       where: { id: voucherId },
       data: {

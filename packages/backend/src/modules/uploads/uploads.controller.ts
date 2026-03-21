@@ -42,7 +42,7 @@ export class UploadsController {
     }
 
     // Validate actual file content (magic bytes)
-    const magicBytes = file.buffer.slice(0, 4);
+    const magicBytes = file.buffer.slice(0, 12);
     const isJpeg = magicBytes[0] === 0xff && magicBytes[1] === 0xd8;
     const isPng =
       magicBytes[0] === 0x89 &&
@@ -50,10 +50,15 @@ export class UploadsController {
       magicBytes[2] === 0x4e &&
       magicBytes[3] === 0x47;
     const isWebp =
+      magicBytes.length >= 12 &&
       magicBytes[0] === 0x52 &&
       magicBytes[1] === 0x49 &&
       magicBytes[2] === 0x46 &&
-      magicBytes[3] === 0x46;
+      magicBytes[3] === 0x46 &&
+      magicBytes[8] === 0x57 &&
+      magicBytes[9] === 0x45 &&
+      magicBytes[10] === 0x42 &&
+      magicBytes[11] === 0x50;
 
     if (!isJpeg && !isPng && !isWebp) {
       throw new BadRequestException('Invalid image file content');
@@ -69,11 +74,13 @@ export class UploadsController {
     );
     const mediumPath = await this.storage.upload(`images/${id}/medium.jpg`, processed.medium);
 
+    const mediumUrl = this.storage.getUrl(mediumPath);
     return {
       id,
+      url: mediumUrl,
       original: this.storage.getUrl(originalPath),
       thumbnail: this.storage.getUrl(thumbnailPath),
-      medium: this.storage.getUrl(mediumPath),
+      medium: mediumUrl,
     };
   }
 }

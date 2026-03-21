@@ -65,4 +65,11 @@ export class UnitConversionController {
   ) {
     return this.service.getStockInAllUnits(productId, outletId);
   }
+
+  // Must be AFTER all static routes
+  @Get(':id')
+  async findById(@Param('id') id: string) {
+    const conversion = await this.service.findById(id);
+    return { conversion };
+  }
 }

@@ -75,13 +75,17 @@ export class KdsAnalyticsService {
     const ordersByHour = Array.from(hourlyMap.entries()).map(([hour, count]) => ({ hour, count }));
 
     // Orders by station (simplified - using notes or category as station indicator)
-    const stationMap = new Map<string, { count: number; totalTime: number }>();
+    const stationMap = new Map<
+      string,
+      { count: number; completedCount: number; totalTime: number }
+    >();
     orders.forEach((order) => {
       order.items.forEach((item) => {
         const station = (item.station as string) || 'general';
-        const current = stationMap.get(station) || { count: 0, totalTime: 0 };
+        const current = stationMap.get(station) || { count: 0, completedCount: 0, totalTime: 0 };
         current.count++;
         if (order.completedAt && order.createdAt) {
+          current.completedCount++;
           current.totalTime += (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
         }
         stationMap.set(station, current);
@@ -90,32 +94,30 @@ export class KdsAnalyticsService {
     const ordersByStation = Array.from(stationMap.entries()).map(([station, data]) => ({
       station,
       count: data.count,
-      avgTime: data.count > 0 ? Math.round(data.totalTime / data.count) : 0,
+      avgTime: data.completedCount > 0 ? Math.round(data.totalTime / data.completedCount) : 0,
     }));
 
-    // Top delayed items
-    const itemDelays = new Map<string, { totalTime: number; count: number }>();
+    // Top delayed items — only count items where prep time > 10 minutes
+    const itemDelays = new Map<string, { totalTime: number; delayedCount: number }>();
     orders.forEach((order) => {
       order.items.forEach((item) => {
-        const productName = item.product?.name || item.productName;
-        const current = itemDelays.get(productName) || { totalTime: 0, count: 0 };
-        current.count++;
         if (order.completedAt && order.createdAt) {
           const prepTime = (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
           if (prepTime > 10) {
-            // Only count if > 10 minutes
+            const productName = item.product?.name || item.productName;
+            const current = itemDelays.get(productName) || { totalTime: 0, delayedCount: 0 };
+            current.delayedCount++;
             current.totalTime += prepTime;
+            itemDelays.set(productName, current);
           }
         }
-        itemDelays.set(productName, current);
       });
     });
     const topDelayedItems = Array.from(itemDelays.entries())
-      .filter(([_, data]) => data.totalTime > 0)
       .map(([productName, data]) => ({
         productName,
-        avgTime: Math.round(data.totalTime / data.count),
-        count: data.count,
+        avgTime: Math.round(data.totalTime / data.delayedCount),
+        count: data.delayedCount,
       }))
       .sort((a, b) => b.avgTime - a.avgTime)
       .slice(0, 10);
@@ -143,30 +145,35 @@ export class KdsAnalyticsService {
   }
 
   async markItemReady(orderItemId: string, _employeeId: string) {
-    const item = await this.prisma.orderItem.update({
-      where: { id: orderItemId },
-      data: {
-        status: 'ready',
-        completedAt: new Date(),
-      },
-      include: {
-        order: { select: { id: true, outletId: true } },
-      },
-    });
-
-    // Check if all items are ready
-    const allItems = await this.prisma.orderItem.findMany({
-      where: { orderId: item.order.id },
-      select: { status: true },
-    });
-
-    const allReady = allItems.every((i) => i.status === 'ready' || i.status === 'served');
-    if (allReady) {
-      await this.prisma.order.update({
-        where: { id: item.order.id },
-        data: { status: 'ready' },
+    // Wrap in transaction to prevent race conditions when multiple items are marked ready concurrently
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updatedItem = await tx.orderItem.update({
+        where: { id: orderItemId },
+        data: {
+          status: 'ready',
+          completedAt: new Date(),
+        },
+        include: {
+          order: { select: { id: true, outletId: true } },
+        },
       });
-    }
+
+      // Check if all items are ready
+      const allItems = await tx.orderItem.findMany({
+        where: { orderId: updatedItem.order.id },
+        select: { status: true },
+      });
+
+      const allReady = allItems.every((i) => i.status === 'ready' || i.status === 'served');
+      if (allReady) {
+        await tx.order.update({
+          where: { id: updatedItem.order.id },
+          data: { status: 'ready' },
+        });
+      }
+
+      return updatedItem;
+    });
 
     return item;
   }

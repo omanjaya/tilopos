@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
@@ -38,8 +38,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { StockTransfer } from '@/types/inventory.types';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
   requested: { label: 'Diminta', variant: 'info' },
@@ -86,12 +85,7 @@ export function TransfersPage() {
       toast.success({ title: 'Transfer disetujui' });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menyetujui transfer',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyetujui transfer'),
   });
 
   const shipMutation = useMutation({
@@ -101,12 +95,7 @@ export function TransfersPage() {
       toast.success({ title: 'Transfer ditandai dikirim' });
       setConfirmAction(null);
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast.error({
-        title: 'Gagal menandai pengiriman',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menandai pengiriman'),
   });
 
   const bulkApproveMutation = useMutation({
@@ -169,22 +158,6 @@ export function TransfersPage() {
         : [...prev, transfer],
     );
   };
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        navigate('/app/inventory/transfers/new');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate]);
 
   const columns: Column<StockTransfer>[] = [
     {

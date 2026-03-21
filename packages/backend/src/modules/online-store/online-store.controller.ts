@@ -9,6 +9,7 @@ import {
   UseGuards,
   Inject,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -21,12 +22,14 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import type { IOnlineStoreRepository } from '../../domain/interfaces/repositories/online-store.repository';
 import { OnlineStoreSyncService } from './online-store-sync.service';
 import { OnlineStoreService } from './online-store.service';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 import type { StoreSettingsInput, StorefrontOrderInput } from './interfaces';
 import {
   CatalogSyncDto,
   ShippingCalculateDto,
   OnlineOrderFulfillDto,
 } from '../../application/dtos/online-store.dto';
+import { RequireFeature } from '../../common/guards/feature.guard';
 
 @ApiTags('Online Store')
 @Controller('online-store')
@@ -36,10 +39,12 @@ export class OnlineStoreController {
     private readonly onlineStoreRepo: IOnlineStoreRepository,
     private readonly syncService: OnlineStoreSyncService,
     private readonly onlineStoreService: OnlineStoreService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Get('stores')
   @ApiOperation({ summary: 'List all online stores for business' })
   async listStores(@CurrentUser() user: AuthUser) {
@@ -48,6 +53,7 @@ export class OnlineStoreController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Post('stores')
   @ApiOperation({ summary: 'Create a new online store' })
   async createStore(
@@ -71,11 +77,19 @@ export class OnlineStoreController {
     return { store, products };
   }
 
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Get('s/:slug/orders')
   @ApiOperation({ summary: 'Get store orders' })
-  async getStoreOrders(@Param('slug') slug: string, @Query('status') status?: string) {
+  async getStoreOrders(
+    @Param('slug') slug: string,
+    @Query('status') status: string | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
     const store = await this.onlineStoreRepo.findStoreBySlug(slug);
     if (!store) throw new NotFoundException('Store not found');
+    if (store.businessId !== user.businessId) throw new NotFoundException('Store not found');
     return this.onlineStoreRepo.findStoreOrders(store.id, status);
   }
 
@@ -104,8 +118,41 @@ export class OnlineStoreController {
     const store = await this.onlineStoreRepo.findStoreBySlug(slug);
     if (!store) throw new NotFoundException('Store not found');
 
-    // Check stock for all items
+    // Validate outlet belongs to this store's business
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: dto.outletId, businessId: store.businessId },
+    });
+    if (!outlet) throw new NotFoundException('Outlet not found');
+
+    // Validate products belong to this business and verify prices server-side
+    const productIds = dto.items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds }, businessId: store.businessId },
+      include: { variants: { select: { id: true, price: true } } },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
     for (const item of dto.items) {
+      const product = productMap.get(item.productId);
+      if (!product) {
+        throw new NotFoundException(`Product ${item.productName} not found`);
+      }
+
+      // Override client-provided price with server price
+      if (item.variantId) {
+        const variant = product.variants.find((v) => v.id === item.variantId);
+        if (!variant) throw new NotFoundException(`Variant not found for ${item.productName}`);
+        item.unitPrice = Number(variant.price);
+      } else {
+        item.unitPrice = Number(product.basePrice);
+      }
+      item.productName = product.name;
+
+      // Validate quantity
+      if (!item.quantity || item.quantity <= 0 || !Number.isInteger(item.quantity)) {
+        throw new BadRequestException('Quantity must be a positive integer');
+      }
+
       const hasStock = await this.syncService.checkStock(
         item.productId,
         item.variantId || null,
@@ -148,9 +195,31 @@ export class OnlineStoreController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Put('orders/:id/status')
   @ApiOperation({ summary: 'Update order status' })
-  async updateOrderStatus(@Param('id') id: string, @Body() dto: { status: string }) {
+  async updateOrderStatus(
+    @Param('id') id: string,
+    @Body() dto: { status: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    const validStatuses = [
+      'pending',
+      'confirmed',
+      'processing',
+      'shipped',
+      'delivered',
+      'cancelled',
+    ];
+    if (!validStatuses.includes(dto.status)) {
+      throw new BadRequestException(`Invalid status. Valid: ${validStatuses.join(', ')}`);
+    }
+    // Verify order belongs to user's business
+    const order = await this.onlineStoreRepo.findOrderById(id);
+    if (!order) throw new NotFoundException('Order not found');
+    const store = await this.onlineStoreRepo.findStoreById(order.storeId);
+    if (!store || store.businessId !== user.businessId)
+      throw new NotFoundException('Order not found');
     return this.onlineStoreRepo.updateOrderStatus(id, dto.status);
   }
 
@@ -160,14 +229,7 @@ export class OnlineStoreController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Post('stores/:id/sync-catalog')
-  @ApiOperation({ summary: 'Sync full product catalog from POS to online store' })
-  async syncCatalog(@Param('id') storeId: string, @CurrentUser() user: AuthUser) {
-    return this.syncService.syncCatalog(user.businessId, storeId);
-  }
-
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Post('catalog/sync')
   @ApiOperation({
     summary: 'Selectively sync products to online store with optional price overrides',
@@ -187,6 +249,7 @@ export class OnlineStoreController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Post('stores/:id/sync-inventory')
   @ApiOperation({ summary: 'Sync inventory levels from POS to online store' })
   async syncInventory(@Param('id') storeId: string, @Query('outletId') outletId: string) {
@@ -232,9 +295,22 @@ export class OnlineStoreController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @RequireFeature('online_store')
   @Put('orders/:id/fulfill')
   @ApiOperation({ summary: 'Mark order as fulfilled / shipped with tracking number' })
-  async fulfillOrder(@Param('id') orderId: string, @Body() dto: OnlineOrderFulfillDto) {
+  async fulfillOrder(
+    @Param('id') orderId: string,
+    @Body() dto: OnlineOrderFulfillDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Verify order belongs to user's business
+    const order = await this.prisma.storeOrder.findUnique({
+      where: { id: orderId },
+      include: { store: { select: { businessId: true } } },
+    });
+    if (!order || order.store.businessId !== user.businessId) {
+      throw new NotFoundException('Order not found');
+    }
     return this.syncService.fulfillOrder(
       orderId,
       dto.trackingNumber,
@@ -250,6 +326,7 @@ export class OnlineStoreController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @RequireFeature('online_store')
   @Post('stores/:storeId/sync-catalog')
   @ApiOperation({
     summary: 'Sync catalog from main POS to online store with stock availability check',
@@ -265,6 +342,7 @@ export class OnlineStoreController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @RequireFeature('online_store')
   @Get('stores/:storeId/analytics')
   @ApiOperation({ summary: 'Get store analytics: orders, revenue, popular products' })
   async getStoreAnalytics(@Param('storeId') storeId: string, @CurrentUser() user: AuthUser) {
@@ -278,6 +356,7 @@ export class OnlineStoreController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY)
+  @RequireFeature('online_store')
   @Get('stores/:storeId/inventory')
   @ApiOperation({
     summary: 'Get inventory status for store products (in stock, low stock, out of stock)',
@@ -293,6 +372,7 @@ export class OnlineStoreController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @RequireFeature('online_store')
   @Put('stores/:storeId/settings')
   @ApiOperation({ summary: 'Update store settings (delivery radius, min order, fees)' })
   async updateStoreSettings(

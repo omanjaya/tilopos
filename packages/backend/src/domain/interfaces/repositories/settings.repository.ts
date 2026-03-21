@@ -68,7 +68,18 @@ export interface ISettingsRepository {
   findOutlets(businessId: string): Promise<OutletRecord[]>;
   findOutletById(id: string): Promise<OutletRecord | null>;
   createOutlet(data: CreateOutletData): Promise<OutletRecord>;
-  updateOutlet(id: string, data: Record<string, unknown>): Promise<OutletRecord>;
+  updateOutlet(
+    id: string,
+    data: {
+      name?: string;
+      code?: string;
+      address?: string;
+      phone?: string;
+      taxRate?: number;
+      serviceCharge?: number;
+      isActive?: boolean;
+    },
+  ): Promise<OutletRecord>;
   deleteOutlet(id: string): Promise<void>;
   findModifierGroups(businessId: string): Promise<ModifierGroupRecord[]>;
   createModifierGroup(data: CreateModifierGroupData): Promise<ModifierGroupRecord>;
@@ -127,13 +138,27 @@ export interface ISettingsRepository {
   deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void>;
   // Printer Configs
   getPrinterConfigs(businessId: string): Promise<PrinterConfigRecord[]>;
-  createPrinterConfig(businessId: string, data: CreatePrinterConfigInput): Promise<PrinterConfigRecord>;
-  updatePrinterConfig(businessId: string, id: string, data: UpdatePrinterConfigInput): Promise<PrinterConfigRecord>;
+  createPrinterConfig(
+    businessId: string,
+    data: CreatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord>;
+  updatePrinterConfig(
+    businessId: string,
+    id: string,
+    data: UpdatePrinterConfigInput,
+  ): Promise<PrinterConfigRecord>;
   deletePrinterConfig(businessId: string, id: string): Promise<void>;
   // Report Schedules
   getReportSchedules(businessId: string): Promise<ReportScheduleRecord[]>;
-  createReportSchedule(businessId: string, data: CreateReportScheduleInput): Promise<ReportScheduleRecord>;
-  updateReportSchedule(businessId: string, id: string, data: UpdateReportScheduleInput): Promise<ReportScheduleRecord>;
+  createReportSchedule(
+    businessId: string,
+    data: CreateReportScheduleInput,
+  ): Promise<ReportScheduleRecord>;
+  updateReportSchedule(
+    businessId: string,
+    id: string,
+    data: UpdateReportScheduleInput,
+  ): Promise<ReportScheduleRecord>;
   deleteReportSchedule(businessId: string, id: string): Promise<void>;
 }
 

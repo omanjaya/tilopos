@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  UseGuards,
-  HttpCode,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -36,10 +29,7 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Create upgrade invoice and get payment URL' })
-  async createUpgrade(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateUpgradeDto,
-  ) {
+  async createUpgrade(@CurrentUser() user: AuthUser, @Body() dto: CreateUpgradeDto) {
     return this.subscriptionService.createUpgrade(
       user.businessId,
       dto.billingCycle,
@@ -52,10 +42,7 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Cancel subscription' })
-  async cancelSubscription(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CancelSubscriptionDto,
-  ) {
+  async cancelSubscription(@CurrentUser() user: AuthUser, @Body() dto: CancelSubscriptionDto) {
     return this.subscriptionService.cancelSubscription(user.businessId, dto.reason);
   }
 

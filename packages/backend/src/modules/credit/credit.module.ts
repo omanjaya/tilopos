@@ -7,10 +7,12 @@ import { PrismaShiftRepository } from '../../infrastructure/repositories/prisma-
 import { CreateCreditTransactionUseCase } from '../../application/use-cases/credit/create-credit-transaction.use-case';
 import { RecordCreditPaymentUseCase } from '../../application/use-cases/credit/record-credit-payment.use-case';
 import { CreditController } from './credit.controller';
+import { TaxConfigurationRepository } from '../../infrastructure/repositories/settings/tax-configuration.repository';
 
 @Module({
   controllers: [CreditController],
   providers: [
+    TaxConfigurationRepository,
     {
       provide: REPOSITORY_TOKENS.CREDIT_SALE,
       useClass: PrismaCreditSaleRepository,

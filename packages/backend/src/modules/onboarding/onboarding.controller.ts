@@ -33,15 +33,7 @@ export class OnboardingController {
   @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Complete guided setup (all-in-one)' })
-  async guidedSetup(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: GuidedSetupDto,
-  ) {
-    return this.onboardingService.guidedSetup(
-      user.businessId,
-      user.employeeId,
-      user.outletId,
-      dto,
-    );
+  async guidedSetup(@CurrentUser() user: AuthUser, @Body() dto: GuidedSetupDto) {
+    return this.onboardingService.guidedSetup(user.businessId, user.employeeId, user.outletId, dto);
   }
 }

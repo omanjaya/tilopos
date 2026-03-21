@@ -1,10 +1,12 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthUser } from './auth-user.interface';
 import { ROLES_KEY } from './roles.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
+  private readonly logger = new Logger(RolesGuard.name);
+
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -17,11 +19,16 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<{ user: AuthUser }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user: AuthUser; method: string; url: string }>();
     const user = request.user;
 
     // Super admin and owner bypass all role checks
     if (user.role === 'super_admin' || user.role === 'owner') {
+      this.logger.debug(
+        `Role bypass: ${user.role} (${user.employeeId}) accessing ${request.method} ${request.url}`,
+      );
       return true;
     }
 

@@ -71,6 +71,8 @@ export interface CreateCreditTransactionRequest {
   notes?: string;
   dueDate?: string;
   creditNotes?: string;
+  discountAmount?: number;
+  discountPercent?: number;
 }
 
 export interface RecordCreditPaymentRequest {

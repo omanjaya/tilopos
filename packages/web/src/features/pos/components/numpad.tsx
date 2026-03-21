@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Delete, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,7 +20,7 @@ export function NumPad({
     showDecimal = false,
     className,
 }: NumPadProps) {
-    const handleDigit = (digit: string) => {
+    const handleDigit = useCallback((digit: string) => {
         let newValue = value + digit;
 
         // Remove leading zeros (except for decimal)
@@ -37,21 +37,21 @@ export function NumPad({
         }
 
         onChange(newValue);
-    };
+    }, [value, showDecimal, maxValue, onChange]);
 
-    const handleBackspace = () => {
+    const handleBackspace = useCallback(() => {
         onChange(value.slice(0, -1));
-    };
+    }, [onChange, value]);
 
-    const handleClear = () => {
+    const handleClear = useCallback(() => {
         onChange('');
-    };
+    }, [onChange]);
 
-    const handleDecimal = () => {
+    const handleDecimal = useCallback(() => {
         if (!value.includes('.')) {
             onChange(value + '.');
         }
-    };
+    }, [onChange, value]);
 
     const buttons = [
         { label: '1', action: () => handleDigit('1') },

@@ -45,13 +45,15 @@ export class RedeemLoyaltyPointsUseCase {
       throw new AppError(ErrorCode.LOYALTY_NOT_ENABLED, 'Loyalty program not enabled');
     }
 
-    const tiers = await this.loyaltyRepo.findTiersByBusiness(customer.businessId);
-    const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
-    const multiplier = currentTier ? currentTier.pointMultiplier : 1;
+    if (program.redemptionRate && params.pointsToRedeem < program.redemptionRate) {
+      throw new AppError(
+        ErrorCode.INSUFFICIENT_POINTS,
+        `Minimum ${program.redemptionRate} points required for redemption`,
+      );
+    }
 
-    const discountAmount = Math.floor(
-      ((params.pointsToRedeem * program.redemptionRate) / 100) * multiplier,
-    );
+    const valuePerPoint = program.amountPerPoint ?? 0;
+    const discountAmount = Math.floor(params.pointsToRedeem * valuePerPoint);
     const remainingPoints = customer.loyaltyPoints - params.pointsToRedeem;
 
     // Create transaction record

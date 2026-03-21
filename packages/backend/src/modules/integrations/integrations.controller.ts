@@ -7,17 +7,7 @@
  * - Social Commerce (WhatsApp, Instagram, Facebook)
  */
 
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Body,
-  Param,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 
@@ -230,36 +220,7 @@ export class IntegrationsController {
   // Webhooks
   // ===========================================================================
 
-  @Post('webhooks/food-delivery/:platform')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Food delivery webhook endpoint' })
-  async foodDeliveryWebhook(
-    @Param('platform') platform: 'gofood' | 'grabfood' | 'shopeefood',
-    @Body() payload: Record<string, unknown>,
-  ) {
-    console.log(`[Webhook] ${platform}:`, payload);
-    return { success: true };
-  }
-
-  @Post('webhooks/ecommerce/:platform')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'E-commerce webhook endpoint' })
-  async ecommerceWebhook(
-    @Param('platform') platform: 'tokopedia' | 'shopee',
-    @Body() payload: Record<string, unknown>,
-  ) {
-    console.log(`[Webhook] ${platform}:`, payload);
-    return { success: true };
-  }
-
-  @Post('webhooks/social-commerce/:platform')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Social commerce webhook endpoint' })
-  async socialCommerceWebhook(
-    @Param('platform') platform: 'whatsapp' | 'instagram' | 'facebook',
-    @Body() payload: Record<string, unknown>,
-  ) {
-    console.log(`[Webhook] ${platform}:`, payload);
-    return { success: true };
-  }
+  // NOTE: Webhook endpoints for food-delivery, ecommerce, and social-commerce
+  // have been removed until proper per-platform signature verification is implemented.
+  // See: https://github.com/tilopos/tilopos/issues/security-webhooks
 }

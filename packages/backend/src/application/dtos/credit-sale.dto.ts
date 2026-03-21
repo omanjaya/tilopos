@@ -5,6 +5,7 @@ import {
   IsArray,
   IsEnum,
   IsDateString,
+  IsUUID,
   ValidateNested,
   Min,
   ArrayMinSize,
@@ -15,19 +16,19 @@ import { TransactionItemDto, PaymentDto } from './transaction.dto';
 
 export class CreateCreditTransactionDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   employeeId!: string;
 
   @ApiProperty({ description: 'Customer is required for credit sales' })
-  @IsString()
+  @IsUUID()
   customerId!: string;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   shiftId!: string;
 
   @ApiProperty({ enum: ['dine_in', 'takeaway', 'delivery'] })
@@ -67,6 +68,18 @@ export class CreateCreditTransactionDto {
   @IsOptional()
   @IsString()
   creditNotes?: string;
+
+  @ApiPropertyOptional({ description: 'Fixed discount amount' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Percentage discount (0-100)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountPercent?: number;
 }
 
 export class RecordCreditPaymentDto {

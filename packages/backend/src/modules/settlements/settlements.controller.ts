@@ -196,7 +196,7 @@ export class SettlementsController {
     for (const tx of transactions) {
       const amount = decimalToNumberRequired(tx.grandTotal);
       if (tx.transactionType === 'refund') {
-        totalRefundsAmount += amount;
+        totalRefundsAmount += Math.abs(amount);
         refundsCount++;
       } else {
         totalSalesAmount += amount;

@@ -13,35 +13,37 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showThemePicker, setShowThemePicker] = useState(false);
 
-    const navItems = ['Fitur', 'Harga', 'Testimoni', 'FAQ'];
-
     return (
         <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--brand-bg)]/90 backdrop-blur-lg border-b border-gray-100">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex items-center justify-between h-20">
+                <div className="flex items-center justify-between h-16">
                     {/* Logo */}
                     <div className="flex items-center gap-3">
                         <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center"
+                            className="w-9 h-9 rounded-xl flex items-center justify-center"
                             style={{ background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))` }}
                         >
                             <span className="text-white font-bold text-lg">T</span>
                         </div>
-                        <span className="text-xl font-bold" style={{ color: 'var(--brand-heading)' }}>TILO</span>
+                        <span className="text-xl font-bold" style={{ color: 'var(--brand-heading)' }}>TiloPOS</span>
                     </div>
 
                     {/* Desktop Nav */}
                     <div className="hidden md:flex items-center gap-8">
-                        {navItems.map((item) => (
-                            <a
-                                key={item}
-                                href={`#${item.toLowerCase()}`}
-                                className="text-sm font-medium transition-colors hover:text-[var(--brand-primary)]"
-                                style={{ color: 'var(--brand-text)' }}
-                            >
-                                {item}
-                            </a>
-                        ))}
+                        <a
+                            href="#fitur"
+                            className="text-sm font-medium transition-colors hover:text-[var(--brand-primary)]"
+                            style={{ color: 'var(--brand-text)' }}
+                        >
+                            Fitur
+                        </a>
+                        <Link
+                            to="/pricing"
+                            className="text-sm font-medium transition-colors hover:text-[var(--brand-primary)]"
+                            style={{ color: 'var(--brand-text)' }}
+                        >
+                            Harga
+                        </Link>
                     </div>
 
                     {/* CTA Buttons */}
@@ -50,12 +52,12 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                         <div className="relative">
                             <button
                                 onClick={() => setShowThemePicker(!showThemePicker)}
-                                className="w-8 h-8 rounded-full border-2 border-white shadow-md"
+                                className="w-7 h-7 rounded-full border-2 border-white shadow-md"
                                 style={{ background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))` }}
                                 title="Ganti Tema"
                             />
                             {showThemePicker && (
-                                <div className="absolute right-0 top-12 bg-white rounded-xl shadow-xl border border-gray-100 p-3 flex gap-2">
+                                <div className="absolute right-0 top-10 bg-white rounded-xl shadow-xl border border-gray-100 p-3 flex gap-2">
                                     {Object.keys(themes).map((name) => {
                                         const t = themes[name];
                                         if (!t) return null;
@@ -63,7 +65,7 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                                             <button
                                                 key={name}
                                                 onClick={() => { onThemeChange(name); setShowThemePicker(false); }}
-                                                className="w-8 h-8 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform"
+                                                className="w-7 h-7 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform"
                                                 style={{ background: `linear-gradient(135deg, ${t.gradientFrom}, ${t.gradientTo})` }}
                                                 title={name}
                                             />
@@ -75,21 +77,23 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                         <Link to="/login">
                             <Button
                                 variant="ghost"
+                                size="sm"
                                 className="font-medium"
                                 style={{ color: 'var(--brand-text)' }}
                             >
                                 Masuk
                             </Button>
                         </Link>
-                        <Link to="/login">
+                        <Link to="/register">
                             <Button
-                                className="text-white font-medium px-6"
+                                size="sm"
+                                className="text-white font-medium px-5"
                                 style={{
                                     background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))`,
                                     borderRadius: 'var(--brand-button-radius)'
                                 }}
                             >
-                                Coba Gratis
+                                Daftar Gratis
                             </Button>
                         </Link>
                     </div>
@@ -107,26 +111,30 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
             {/* Mobile Menu Dropdown */}
             {isMenuOpen && (
                 <div className="md:hidden bg-white border-t border-gray-100 p-4">
-                    {navItems.map((item) => (
-                        <a
-                            key={item}
-                            href={`#${item.toLowerCase()}`}
-                            className="block py-3 text-gray-600"
-                            onClick={() => setIsMenuOpen(false)}
-                        >
-                            {item}
-                        </a>
-                    ))}
+                    <a
+                        href="#fitur"
+                        className="block py-3 text-gray-600"
+                        onClick={() => setIsMenuOpen(false)}
+                    >
+                        Fitur
+                    </a>
+                    <Link
+                        to="/pricing"
+                        className="block py-3 text-gray-600"
+                        onClick={() => setIsMenuOpen(false)}
+                    >
+                        Harga
+                    </Link>
                     <div className="flex gap-2 mt-4">
                         <Link to="/login" className="flex-1">
                             <Button variant="outline" className="w-full">Masuk</Button>
                         </Link>
-                        <Link to="/login" className="flex-1">
+                        <Link to="/register" className="flex-1">
                             <Button
                                 className="w-full text-white"
                                 style={{ background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))` }}
                             >
-                                Coba Gratis
+                                Daftar Gratis
                             </Button>
                         </Link>
                     </div>

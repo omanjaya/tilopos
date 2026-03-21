@@ -96,7 +96,7 @@ export function useRealtimeSync(): UseRealtimeSyncReturn {
       currentSocket?.off('transaction:created', onTransactionCreated);
       currentSocket?.off('order:status_changed', onOrderStatusChanged);
       currentSocket?.off('inventory:stock_changed', onStockLevelChanged);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom, addTransaction, updateOrderStatus, updateStockLevel]);

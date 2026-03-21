@@ -30,10 +30,10 @@ describe('Suite 14: Online Store', () => {
   describe('Setup', () => {
     it('should ensure productIds exist', async () => {
       if (!testContext.created.productIds.length) {
-        const res = await authRequest(app, 'owner')
-          .get('/api/v1/inventory/products');
+        const res = await authRequest(app, 'owner').get('/api/v1/inventory/products');
         expect(res.status).toBeLessThan(400);
         const products = Array.isArray(res.body) ? res.body : res.body.data || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testContext.created.productIds = products.map((p: any) => p.id);
         saveContext();
       }
@@ -47,12 +47,12 @@ describe('Suite 14: Online Store', () => {
   describe('14A - Store Management', () => {
     it('14.1 - should create an online store', async () => {
       // Check if store already exists
-      const listRes = await authRequest(app, 'owner')
-        .get('/api/v1/online-store/stores');
+      const listRes = await authRequest(app, 'owner').get('/api/v1/online-store/stores');
 
       if (listRes.status < 400) {
         const stores = Array.isArray(listRes.body) ? listRes.body : listRes.body.data || [];
         if (stores.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const existing = stores.find((s: any) => s.isActive);
           if (existing) {
             storeId = existing.id;
@@ -64,13 +64,11 @@ describe('Suite 14: Online Store', () => {
       }
 
       const slug = `test-store-${Date.now().toString(36)}`;
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/online-store/stores')
-        .send({
-          storeName: 'BrewBites Online',
-          slug,
-          description: 'Test online store',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/online-store/stores').send({
+        storeName: 'BrewBites Online',
+        slug,
+        description: 'Test online store',
+      });
 
       if (res.status >= 400) {
         console.log('14.1 create store error:', res.status, res.body);
@@ -93,8 +91,9 @@ describe('Suite 14: Online Store', () => {
     it('14.2 - should sync catalog to online store', async () => {
       expect(storeId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .post(`/api/v1/online-store/stores/${storeId}/sync-catalog`);
+      const res = await authRequest(app, 'owner').post(
+        `/api/v1/online-store/stores/${storeId}/sync-catalog`,
+      );
 
       if (res.status >= 400) {
         console.log('14.2 sync catalog error:', res.status, res.body);
@@ -107,7 +106,9 @@ describe('Suite 14: Online Store', () => {
 
       if (result.synced !== undefined) {
         expect(result.synced).toBeGreaterThanOrEqual(0);
-        console.log(`14.2 Catalog synced: ${result.synced} products, skipped: ${result.skipped || 0}`);
+        console.log(
+          `14.2 Catalog synced: ${result.synced} products, skipped: ${result.skipped || 0}`,
+        );
       } else {
         console.log('14.2 Catalog sync completed:', JSON.stringify(result).slice(0, 200));
       }
@@ -116,8 +117,7 @@ describe('Suite 14: Online Store', () => {
     it('14.3 - should get public storefront', async () => {
       expect(storeSlug).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/s/${storeSlug}`);
+      const res = await request(app.getHttpServer()).get(`/api/v1/online-store/s/${storeSlug}`);
 
       if (res.status >= 400) {
         console.log('14.3 storefront error:', res.status, res.body);
@@ -135,8 +135,9 @@ describe('Suite 14: Online Store', () => {
     it('14.3b - should get detailed storefront data', async () => {
       expect(storeSlug).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/s/${storeSlug}/storefront`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/s/${storeSlug}/storefront`,
+      );
 
       if (res.status >= 400) {
         console.log('14.3b storefront detail error:', res.status, res.body);
@@ -148,7 +149,9 @@ describe('Suite 14: Online Store', () => {
       expect(res.body.categories).toBeDefined();
       expect(res.body.products).toBeDefined();
 
-      console.log(`14.3b Storefront detail: categories=${res.body.categories.length}, products=${res.body.products.length}`);
+      console.log(
+        `14.3b Storefront detail: categories=${res.body.categories.length}, products=${res.body.products.length}`,
+      );
     });
   });
 
@@ -160,8 +163,9 @@ describe('Suite 14: Online Store', () => {
       const productId = testContext.created.productIds[0];
       const outletId = testContext.outletId!;
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/stock-check?productId=${productId}&outletId=${outletId}&quantity=1`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/stock-check?productId=${productId}&outletId=${outletId}&quantity=1`,
+      );
 
       if (res.status >= 400) {
         console.log('14.4 stock check error:', res.status, res.body);
@@ -196,14 +200,18 @@ describe('Suite 14: Online Store', () => {
       expect(Number(quotes[0].cost)).toBeGreaterThan(0);
       expect(quotes[0].courier).toBeDefined();
 
-      console.log(`14.5 Shipping quotes: ${quotes.map((q: any) => `${q.courier}/${q.service}=${q.cost}`).join(', ')}`);
+      console.log(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        `14.5 Shipping quotes: ${quotes.map((q: any) => `${q.courier}/${q.service}=${q.cost}`).join(', ')}`,
+      );
     });
 
     it('14.5b - should get delivery zones', async () => {
       expect(storeId).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/stores/${storeId}/delivery-zones`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/stores/${storeId}/delivery-zones`,
+      );
 
       if (res.status >= 400) {
         console.log('14.5b delivery zones error:', res.status, res.body);
@@ -228,8 +236,7 @@ describe('Suite 14: Online Store', () => {
     it('14.6 - should snapshot stock before order', async () => {
       const outletId = testContext.outletId!;
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
       expect(stockRes.status).toBeLessThan(400);
       const stocks = Array.isArray(stockRes.body)
@@ -237,6 +244,7 @@ describe('Suite 14: Online Store', () => {
         : stockRes.body.data || stockRes.body.items || [];
 
       const productId = testContext.created.productIds[0];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => s.productId === productId);
       stockBefore = item ? Number(item.quantity) : 0;
 
@@ -248,10 +256,12 @@ describe('Suite 14: Online Store', () => {
       const productId = testContext.created.productIds[0];
 
       // Get product price
-      const productRes = await authRequest(app, 'owner')
-        .get('/api/v1/inventory/products');
+      const productRes = await authRequest(app, 'owner').get('/api/v1/inventory/products');
       expect(productRes.status).toBeLessThan(400);
-      const products = Array.isArray(productRes.body) ? productRes.body : productRes.body.data || [];
+      const products = Array.isArray(productRes.body)
+        ? productRes.body
+        : productRes.body.data || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const product = products.find((p: any) => p.id === productId);
       const unitPrice = product ? Number(product.basePrice || product.price || 25000) : 25000;
 
@@ -320,14 +330,14 @@ describe('Suite 14: Online Store', () => {
       const outletId = testContext.outletId!;
       const productId = testContext.created.productIds[0];
 
-      const stockRes = await authRequest(app, 'owner')
-        .get(`/api/v1/inventory/stock/${outletId}`);
+      const stockRes = await authRequest(app, 'owner').get(`/api/v1/inventory/stock/${outletId}`);
 
       expect(stockRes.status).toBeLessThan(400);
       const stocks = Array.isArray(stockRes.body)
         ? stockRes.body
         : stockRes.body.data || stockRes.body.items || [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const item = stocks.find((s: any) => s.productId === productId);
       const stockAfter = item ? Number(item.quantity) : 0;
 
@@ -342,8 +352,9 @@ describe('Suite 14: Online Store', () => {
     it('14.9 - should get store orders', async () => {
       expect(storeSlug).toBeDefined();
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/s/${storeSlug}/orders`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/s/${storeSlug}/orders`,
+      );
 
       if (res.status >= 400) {
         console.log('14.9 get orders error:', res.status, res.body);
@@ -396,8 +407,9 @@ describe('Suite 14: Online Store', () => {
     it('14.11 - should get store analytics', async () => {
       expect(storeId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/online-store/stores/${storeId}/analytics`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/online-store/stores/${storeId}/analytics`,
+      );
 
       if (res.status >= 400) {
         console.log('14.11 analytics error:', res.status, res.body);
@@ -418,8 +430,9 @@ describe('Suite 14: Online Store', () => {
     it('14.12 - should get store inventory status', async () => {
       expect(storeId).toBeDefined();
 
-      const res = await authRequest(app, 'owner')
-        .get(`/api/v1/online-store/stores/${storeId}/inventory`);
+      const res = await authRequest(app, 'owner').get(
+        `/api/v1/online-store/stores/${storeId}/inventory`,
+      );
 
       if (res.status >= 400) {
         console.log('14.12 inventory error:', res.status, res.body);
@@ -433,7 +446,9 @@ describe('Suite 14: Online Store', () => {
         expect(Array.isArray(inventory.items)).toBe(true);
         console.log(`14.12 Inventory items: ${inventory.items.length}`);
         if (inventory.summary) {
-          console.log(`14.12 Summary: inStock=${inventory.summary.inStock}, lowStock=${inventory.summary.lowStock}, outOfStock=${inventory.summary.outOfStock}`);
+          console.log(
+            `14.12 Summary: inStock=${inventory.summary.inStock}, lowStock=${inventory.summary.lowStock}, outOfStock=${inventory.summary.outOfStock}`,
+          );
         }
       } else {
         console.log('14.12 Inventory data retrieved');
@@ -471,8 +486,9 @@ describe('Suite 14: Online Store', () => {
       expect(storeSlug).toBeDefined();
       const productId = testContext.created.productIds[0];
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/s/${storeSlug}/products/${productId}`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/s/${storeSlug}/products/${productId}`,
+      );
 
       if (res.status >= 400) {
         console.log('14.14 product detail error:', res.status, res.body);
@@ -484,12 +500,15 @@ describe('Suite 14: Online Store', () => {
       expect(res.body.name).toBeDefined();
       expect(res.body.basePrice).toBeDefined();
 
-      console.log(`14.14 Product: ${res.body.name}, price: ${res.body.basePrice}, inStock: ${res.body.inStock}`);
+      console.log(
+        `14.14 Product: ${res.body.name}, price: ${res.body.basePrice}, inStock: ${res.body.inStock}`,
+      );
     });
 
     it('14.15 - should return 404 for non-existent store slug', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/online-store/s/non-existent-store-xyz');
+      const res = await request(app.getHttpServer()).get(
+        '/api/v1/online-store/s/non-existent-store-xyz',
+      );
 
       expect(res.status).toBeGreaterThanOrEqual(400);
       console.log('14.15 Non-existent store:', res.status);
@@ -500,8 +519,9 @@ describe('Suite 14: Online Store', () => {
       const outletId = testContext.outletId!;
 
       // Check with very high quantity
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/online-store/stock-check?productId=${productId}&outletId=${outletId}&quantity=999999`);
+      const res = await request(app.getHttpServer()).get(
+        `/api/v1/online-store/stock-check?productId=${productId}&outletId=${outletId}&quantity=999999`,
+      );
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.inStock).toBe(false);

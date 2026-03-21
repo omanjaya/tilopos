@@ -7,8 +7,7 @@ import { execSync } from 'child_process';
 export default async function globalSetup() {
   try {
     const dbUrl =
-      process.env.DATABASE_URL ||
-      'postgresql://tilopos:tilopos_dev@localhost:5432/tilopos';
+      process.env.DATABASE_URL || 'postgresql://tilopos:tilopos_dev@localhost:5432/tilopos';
     execSync(
       `psql "${dbUrl}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'tilopos' AND pid <> pg_backend_pid() AND state = 'idle';" 2>/dev/null`,
       { stdio: 'ignore' },

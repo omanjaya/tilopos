@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import type { PaginationParams } from '@/types/api.types';
+import type { PaginationParams, PaginatedResponse } from '@/types/api.types';
 import type {
   Product,
   ProductVariant,
@@ -23,6 +23,29 @@ export const productsApi = {
         .then((r) => r.data);
     }
     return apiClient.get<Product[]>('/inventory/products', { params }).then((r) => r.data);
+  },
+
+  listPaginated: (params?: PaginationParams & { categoryId?: string; outletId?: string }) => {
+    if (params?.outletId) {
+      const { outletId, ...rest } = params;
+      return apiClient
+        .get<PaginatedResponse<Product>>(`/inventory/outlets/${outletId}/products`, { params: rest })
+        .then((r) => {
+          const d = r.data;
+          // Support both paginated and array responses from backend
+          if (Array.isArray(d)) {
+            return { data: d, total: d.length, page: 1, limit: d.length, totalPages: 1 } as PaginatedResponse<Product>;
+          }
+          return d;
+        });
+    }
+    return apiClient.get<PaginatedResponse<Product>>('/inventory/products', { params }).then((r) => {
+      const d = r.data;
+      if (Array.isArray(d)) {
+        return { data: d, total: d.length, page: 1, limit: d.length, totalPages: 1 } as PaginatedResponse<Product>;
+      }
+      return d;
+    });
   },
 
   get: (id: string) =>

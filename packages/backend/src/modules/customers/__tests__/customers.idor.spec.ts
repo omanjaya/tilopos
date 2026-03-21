@@ -1,24 +1,20 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { CustomersController } from '../customers.controller';
-import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
-import type { ICustomerRepository } from '../../../domain/interfaces/repositories/customer.repository';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
-import { ExcelParserService } from '../../../infrastructure/import/excel-parser.service';
-import { CustomersService } from '../customers.service';
+import { JwtService } from '@nestjs/jwt';
 import { BusinessScopeGuard } from '../../../shared/guards/business-scope.guard';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 
 /**
  * IDOR Prevention Tests for Customers Module
  */
 describe('Customers IDOR Prevention', () => {
-  let controller: CustomersController;
   let guard: BusinessScopeGuard;
-  let mockCustomerRepo: jest.Mocked<ICustomerRepository>;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockReflector: jest.Mocked<Reflector>;
+  let mockJwtService: jest.Mocked<JwtService>;
+  let mockCustomerFindUnique: jest.Mock;
 
   const businessA = 'business-a-id';
   const businessB = 'business-b-id';
@@ -39,76 +35,28 @@ describe('Customers IDOR Prevention', () => {
     loyaltyPoints: 100,
   };
 
-  beforeEach(async () => {
-    mockCustomerRepo = {
-      findById: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    } as any;
-
+  beforeEach(() => {
+    mockCustomerFindUnique = jest.fn();
     mockPrisma = {
       customer: {
-        findUnique: jest.fn(),
+        findUnique: mockCustomerFindUnique,
       },
-    } as any;
+    } as unknown as jest.Mocked<PrismaService>;
 
     mockReflector = {
       get: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Reflector>;
 
-    guard = new BusinessScopeGuard(mockReflector, mockPrisma);
+    mockJwtService = {
+      verify: jest.fn(),
+    } as unknown as jest.Mocked<JwtService>;
 
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [CustomersController],
-      providers: [
-        {
-          provide: REPOSITORY_TOKENS.CUSTOMER,
-          useValue: mockCustomerRepo,
-        },
-        {
-          provide: PrismaService,
-          useValue: mockPrisma,
-        },
-        {
-          provide: ExcelParserService,
-          useValue: {},
-        },
-        {
-          provide: CustomersService,
-          useValue: {
-            getPurchaseHistory: jest.fn(),
-          },
-        },
-        // Mock all loyalty use cases
-        {
-          provide: 'AddLoyaltyPointsUseCase',
-          useValue: { execute: jest.fn() },
-        },
-        {
-          provide: 'EarnLoyaltyPointsUseCase',
-          useValue: { execute: jest.fn() },
-        },
-        {
-          provide: 'RedeemLoyaltyPointsUseCase',
-          useValue: { execute: jest.fn() },
-        },
-        {
-          provide: 'GetLoyaltyBalanceUseCase',
-          useValue: { execute: jest.fn() },
-        },
-        {
-          provide: 'GetLoyaltyHistoryUseCase',
-          useValue: { execute: jest.fn() },
-        },
-      ],
-    }).compile();
-
-    controller = module.get<CustomersController>(CustomersController);
+    guard = new BusinessScopeGuard(mockReflector, mockPrisma, mockJwtService);
   });
 
   describe('Cross-Business Customer Access Prevention', () => {
     it('should prevent accessing customer from different business', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue(customerFromBusinessB as any);
+      mockCustomerFindUnique.mockResolvedValue(customerFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'customer',
@@ -124,7 +72,7 @@ describe('Customers IDOR Prevention', () => {
     });
 
     it('should prevent modifying customer from different business', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue(customerFromBusinessB as any);
+      mockCustomerFindUnique.mockResolvedValue(customerFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'customer',
@@ -134,11 +82,10 @@ describe('Customers IDOR Prevention', () => {
       const context = createMockContext(userFromBusinessA, { id: 'cust-b-1' });
 
       await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
-      expect(mockCustomerRepo.update).not.toHaveBeenCalled();
     });
 
     it('should prevent deleting customer from different business', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue(customerFromBusinessB as any);
+      mockCustomerFindUnique.mockResolvedValue(customerFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'customer',
@@ -148,11 +95,10 @@ describe('Customers IDOR Prevention', () => {
       const context = createMockContext(userFromBusinessA, { id: 'cust-b-1' });
 
       await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
-      expect(mockCustomerRepo.delete).not.toHaveBeenCalled();
     });
 
     it('should prevent accessing customer purchase history from different business', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue(customerFromBusinessB as any);
+      mockCustomerFindUnique.mockResolvedValue(customerFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'customer',
@@ -165,7 +111,7 @@ describe('Customers IDOR Prevention', () => {
     });
 
     it('should prevent manipulating loyalty points for customer from different business', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue(customerFromBusinessB as any);
+      mockCustomerFindUnique.mockResolvedValue(customerFromBusinessB as Record<string, unknown>);
 
       mockReflector.get.mockReturnValue({
         resource: 'customer',
@@ -180,7 +126,7 @@ describe('Customers IDOR Prevention', () => {
   });
 });
 
-function createMockContext(user: AuthUser, params: Record<string, string>): any {
+function createMockContext(user: AuthUser, params: Record<string, string>): ExecutionContext {
   return {
     switchToHttp: () => ({
       getRequest: () => ({
@@ -190,5 +136,5 @@ function createMockContext(user: AuthUser, params: Record<string, string>): any 
       }),
     }),
     getHandler: () => ({}),
-  };
+  } as unknown as ExecutionContext;
 }

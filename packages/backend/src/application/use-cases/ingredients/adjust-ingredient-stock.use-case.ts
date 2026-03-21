@@ -26,10 +26,7 @@ export class AdjustIngredientStockUseCase {
 
   async execute(params: AdjustIngredientStockParams) {
     // Get or create ingredient stock level
-    let stock = await this.ingredientRepository.getStockLevel(
-      params.outletId,
-      params.ingredientId,
-    );
+    let stock = await this.ingredientRepository.getStockLevel(params.outletId, params.ingredientId);
     if (!stock) {
       // Auto-create stock level if it doesn't exist (similar to product stock)
       const created = await this.ingredientRepository.updateStockLevel(

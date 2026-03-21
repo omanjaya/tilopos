@@ -81,13 +81,19 @@ export class XenditRetailService extends XenditBaseService {
   }
 
   /**
-   * Get retail payment status
+   * Get retail payment status.
+   *
+   * NOTE: Xendit does not provide a direct status-check endpoint for retail
+   * outlet payments. The actual payment status is delivered asynchronously via
+   * webhooks (fixed_payment_code.paid). This method always returns 'pending'
+   * as a safe default; the real status lives in the webhook-updated database
+   * record.
    */
   async getStatus(externalId: string): Promise<PaymentStatus> {
-    // Note: Xendit doesn't provide a direct status endpoint for retail outlets
-    // Status updates are typically received via webhooks
-    // This is a placeholder implementation
-    this.logger.warn(`Status check for retail payment ${externalId} - rely on webhooks`);
+    this.logger.warn(
+      `Retail payment status check not implemented \u2014 relying on webhook updates. ` +
+        `Status returned as pending for externalId=${externalId}.`,
+    );
     return 'pending';
   }
 

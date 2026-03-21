@@ -92,7 +92,7 @@ export function useRealtimeQueue(
       currentSocket?.off('queue:customer_added', addedHandler);
       currentSocket?.off('queue:customer_called', calledHandler);
       currentSocket?.off('queue:customer_seated', seatedHandler);
-      leaveRoom(`outlet:${user.outletId}`);
+      leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.outletId, joinRoom, leaveRoom]);

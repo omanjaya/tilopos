@@ -26,6 +26,8 @@ describe('InventoryService', () => {
       stockMovement: {
         aggregate: jest.fn(),
         findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       stockTransfer: {
         count: jest.fn(),
@@ -34,7 +36,9 @@ describe('InventoryService', () => {
       $transaction: jest.fn(),
     } as unknown as jest.Mocked<PrismaService>;
 
-    service = new InventoryService(mockPrisma);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockStorage = {} as any;
+    service = new InventoryService(mockPrisma, mockStorage);
   });
 
   // ==========================================================================
@@ -49,13 +53,11 @@ describe('InventoryService', () => {
         { name: 'Product B', basePrice: 20000, sku: 'SKU-B' },
       ];
 
-      // No existing products with these SKUs
-      (mockPrisma.product.findFirst as jest.Mock).mockResolvedValue(null);
-
-      // Mock transaction to execute the callback
+      // Mock transaction to execute the callback (SKU check now inside tx)
       (mockPrisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
         const txMock = {
           product: {
+            findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'p-1' }),
           },
         };
@@ -78,10 +80,10 @@ describe('InventoryService', () => {
         { name: 'Valid Product', basePrice: 20000 },
       ];
 
-      (mockPrisma.product.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
         const txMock = {
           product: {
+            findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'p-1' }),
           },
         };
@@ -130,9 +132,18 @@ describe('InventoryService', () => {
       // Arrange
       const rows = [{ name: 'Product', basePrice: 10000, sku: 'EXISTING-SKU' }];
 
-      (mockPrisma.product.findFirst as jest.Mock).mockResolvedValue({
-        id: 'existing-prod',
-        sku: 'EXISTING-SKU',
+      // SKU check now happens inside the transaction
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
+        const txMock = {
+          product: {
+            findFirst: jest.fn().mockResolvedValue({
+              id: 'existing-prod',
+              sku: 'EXISTING-SKU',
+            }),
+            create: jest.fn().mockResolvedValue({ id: 'p-1' }),
+          },
+        };
+        await callback(txMock);
       });
 
       // Act
@@ -268,7 +279,7 @@ Tea,SKU-002,cat-1,15000,8000,Green tea`;
       const result = await service.exportProductsCsv('biz-1');
 
       // Assert
-      expect(result).toContain('name,sku,category,basePrice,costPrice,description,isActive');
+      expect(result).toContain('name,sku,categoryName,basePrice,costPrice,description,isActive');
       expect(result).toContain('Coffee');
       expect(result).toContain('SKU-001');
       expect(result).toContain('Beverages');
@@ -295,15 +306,15 @@ Tea,SKU-002,cat-1,15000,8000,Green tea`;
       ];
       (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue(stockLevels);
 
-      // Expected from movements = 45 (differs from actual 50)
-      (mockPrisma.stockMovement.aggregate as jest.Mock).mockResolvedValue({
-        _sum: { quantity: makeDecimal(45) },
-      });
+      // groupBy returns sum of movements = 45 (differs from actual 50)
+      (mockPrisma.stockMovement.groupBy as jest.Mock).mockResolvedValue([
+        { productId: 'prod-1', variantId: null, _sum: { quantity: 45 } },
+      ]);
 
-      // Last adjustment
-      (mockPrisma.stockMovement.findFirst as jest.Mock).mockResolvedValue({
-        createdAt: new Date('2026-01-20'),
-      });
+      // Last adjustment via findMany with distinct
+      (mockPrisma.stockMovement.findMany as jest.Mock).mockResolvedValue([
+        { productId: 'prod-1', createdAt: new Date('2026-01-20') },
+      ]);
 
       // Act
       const result = await service.getStockDiscrepancies('outlet-1');
@@ -331,9 +342,10 @@ Tea,SKU-002,cat-1,15000,8000,Green tea`;
       (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue(stockLevels);
 
       // Expected matches actual
-      (mockPrisma.stockMovement.aggregate as jest.Mock).mockResolvedValue({
-        _sum: { quantity: makeDecimal(50) },
-      });
+      (mockPrisma.stockMovement.groupBy as jest.Mock).mockResolvedValue([
+        { productId: 'prod-1', variantId: null, _sum: { quantity: 50 } },
+      ]);
+      (mockPrisma.stockMovement.findMany as jest.Mock).mockResolvedValue([]);
 
       // Act
       const result = await service.getStockDiscrepancies('outlet-1');
@@ -373,11 +385,13 @@ Tea,SKU-002,cat-1,15000,8000,Green tea`;
       ];
       (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue(stockLevels);
 
-      (mockPrisma.stockMovement.aggregate as jest.Mock).mockResolvedValue({
-        _sum: { quantity: makeDecimal(40) },
-      });
+      // groupBy returns sum = 40
+      (mockPrisma.stockMovement.groupBy as jest.Mock).mockResolvedValue([
+        { productId: 'prod-1', variantId: null, _sum: { quantity: 40 } },
+      ]);
 
-      (mockPrisma.stockMovement.findFirst as jest.Mock).mockResolvedValue(null);
+      // No adjustments found
+      (mockPrisma.stockMovement.findMany as jest.Mock).mockResolvedValue([]);
 
       // Act
       const result = await service.getStockDiscrepancies('outlet-1');

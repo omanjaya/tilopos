@@ -8,6 +8,8 @@ import {
   type BusinessTypePreset,
 } from '@config/business-types.config';
 import { FeatureService } from './feature.service';
+import { OutletFeatureService } from './outlet-feature.service';
+import { TemplatesService } from '../../templates/templates.service';
 
 export interface BusinessTypeInfo {
   code: string;
@@ -24,6 +26,17 @@ export interface ChangeBusinessTypeResult {
   previousType: string;
   newType: string;
   featuresEnabled: number;
+  templateApplied: boolean;
+  dataReset: {
+    outletProductsDeactivated: number;
+    tablesDeactivated: number;
+  };
+  templateData?: {
+    categories: number;
+    products: number;
+    modifierGroups: number;
+    tables: number;
+  };
   message?: string;
 }
 
@@ -34,6 +47,8 @@ export class BusinessTypeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly featureService: FeatureService,
+    private readonly outletFeatureService: OutletFeatureService,
+    private readonly templatesService: TemplatesService,
   ) {}
 
   /**
@@ -98,11 +113,12 @@ export class BusinessTypeService {
   }
 
   /**
-   * Change business type and reset features to preset
+   * Change business type: soft-delete old data, reset features, apply new template
    */
   async changeBusinessType(
     businessId: string,
     newTypeCode: string,
+    outletId?: string,
   ): Promise<ChangeBusinessTypeResult> {
     if (!isValidBusinessType(newTypeCode)) {
       throw new BadRequestException(`Invalid business type: ${newTypeCode}`);
@@ -119,14 +135,48 @@ export class BusinessTypeService {
 
     const previousType = business.businessType;
 
-    // Initialize features based on new business type
+    // Resolve outletId — use provided or fallback to default outlet
+    const resolvedOutletId = outletId ?? (await this.resolveDefaultOutletId(businessId));
+
+    // 1. Soft-deactivate outlet-level data only (not business-level, other outlets unaffected)
+    const dataReset = await this.deactivateOutletData(resolvedOutletId);
+
+    // 2. Initialize features — both business-level and outlet-level
     await this.featureService.initializeFeaturesForBusinessType(businessId, newTypeCode);
+    await this.outletFeatureService.initializeFeaturesForOutletType(resolvedOutletId, newTypeCode);
+
+    // 3. Apply new template (skip if template not found, e.g. "custom")
+    let templateApplied = false;
+    let templateData:
+      | { categories: number; products: number; modifierGroups: number; tables: number }
+      | undefined;
+    try {
+      const result = await this.templatesService.applyTemplate(
+        businessId,
+        resolvedOutletId,
+        newTypeCode,
+        { categories: true, products: true, modifiers: true, tables: true },
+      );
+      templateApplied = true;
+      templateData = {
+        categories: result.categories,
+        products: result.products,
+        modifierGroups: result.modifierGroups,
+        tables: result.tables,
+      };
+    } catch (error) {
+      // Template not found (e.g. "custom" type) — continue without template
+      this.logger.warn(
+        `Template for "${newTypeCode}" not found, skipping template apply: ${error instanceof Error ? error.message : error}`,
+      );
+    }
 
     // Count enabled features
     const enabledFeatures = await this.featureService.getEnabledFeatureKeys(businessId);
 
     this.logger.log(
-      `Business ${businessId} changed type from "${previousType}" to "${newTypeCode}"`,
+      `Business ${businessId} changed type from "${previousType}" to "${newTypeCode}" ` +
+        `(template: ${templateApplied}, deactivated: ${JSON.stringify(dataReset)})`,
     );
 
     return {
@@ -134,7 +184,48 @@ export class BusinessTypeService {
       previousType,
       newType: newTypeCode,
       featuresEnabled: enabledFeatures.length,
+      templateApplied,
+      dataReset,
+      templateData,
     };
+  }
+
+  /**
+   * Soft-deactivate outlet-level data only (outletProducts + tables).
+   * Business-level data (products, categories, modifiers) is shared across outlets and stays active.
+   */
+  private async deactivateOutletData(outletId: string) {
+    const [outletProducts, tables] = await this.prisma.$transaction([
+      this.prisma.outletProduct.updateMany({
+        where: { outletId, isActive: true },
+        data: { isActive: false },
+      }),
+      this.prisma.table.updateMany({
+        where: { outletId, isActive: true },
+        data: { isActive: false },
+      }),
+    ]);
+
+    return {
+      outletProductsDeactivated: outletProducts.count,
+      tablesDeactivated: tables.count,
+    };
+  }
+
+  /**
+   * Resolve the default outlet for a business (first outlet found)
+   */
+  private async resolveDefaultOutletId(businessId: string): Promise<string> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { businessId },
+      select: { id: true },
+    });
+
+    if (!outlet) {
+      throw new BadRequestException('Business has no outlets');
+    }
+
+    return outlet.id;
   }
 
   /**

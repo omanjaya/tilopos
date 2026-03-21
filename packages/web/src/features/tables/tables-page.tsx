@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { tablesApi } from '@/api/endpoints/tables.api';
+import { useAuthStore } from '@/stores/auth.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,16 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { Scissors, Merge, Loader2, Info, LayoutGrid, List } from 'lucide-react';
-import type { AxiosError } from 'axios';
-import type { ApiErrorResponse } from '@/types/api.types';
 import { TableLayoutEditor } from './components/table-layout-editor';
-import { generateDemoTables } from './utils/demo-data';
+import type { LayoutTable, TableStatus } from './types/layout.types';
 
 export function TablesPage() {
-  const { toast } = useToast();
-
   const [viewMode, setViewMode] = useState<'list' | 'layout'>('list');
 
   const [splitOpen, setSplitOpen] = useState(false);
@@ -33,42 +32,53 @@ export function TablesPage() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeTransactionIds, setMergeTransactionIds] = useState('');
 
-  // Demo tables for the layout editor (replace with API data when available)
-  const [demoTables] = useState(() => generateDemoTables());
+  const outletId = useAuthStore((s) => s.user?.outletId);
+
+  const { data: tablesData, isLoading: isLoadingTables } = useQuery({
+    queryKey: ['tables', outletId],
+    queryFn: () => tablesApi.list({ outletId: outletId!, activeOnly: true }),
+    enabled: !!outletId,
+  });
+
+  // Map API response to LayoutTable format for the layout editor
+  const layoutTables: LayoutTable[] = useMemo(() => {
+    if (!tablesData) return [];
+    return tablesData.map((table, index) => ({
+      id: table.id,
+      name: table.name,
+      capacity: table.capacity,
+      status: (table.status as TableStatus) || 'available',
+      section: table.section || 'Default',
+      gridX: table.positionX ?? 1 + (index % 4) * 3,
+      gridY: table.positionY ?? 1 + Math.floor(index / 4) * 3,
+      gridW: 2,
+      gridH: 2,
+      currentOrderId: table.currentOrderId ?? undefined,
+      occupiedAt: table.occupiedAt ?? undefined,
+    }));
+  }, [tablesData]);
 
   const splitBillMutation = useMutation({
     mutationFn: (data: { transactionId: string; numberOfSplits: number }) =>
       tablesApi.splitBill(data),
     onSuccess: () => {
-      toast({ title: 'Bill berhasil di-split' });
+      toast.success({ title: 'Bill berhasil di-split' });
       setSplitOpen(false);
       setSplitTransactionId('');
       setSplitCount('2');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal split bill',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal split bill'),
   });
 
   const mergeBillMutation = useMutation({
     mutationFn: (data: { transactionIds: string[] }) =>
       tablesApi.mergeBill(data),
     onSuccess: () => {
-      toast({ title: 'Bill berhasil di-merge' });
+      toast.success({ title: 'Bill berhasil di-merge' });
       setMergeOpen(false);
       setMergeTransactionIds('');
     },
-    onError: (error: AxiosError<ApiErrorResponse>) => {
-      toast({
-        variant: 'destructive',
-        title: 'Gagal merge bill',
-        description: error.response?.data?.message || 'Terjadi kesalahan',
-      });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal merge bill'),
   });
 
   return (
@@ -102,16 +112,35 @@ export function TablesPage() {
       {/* Layout View */}
       {viewMode === 'layout' && (
         <div className="mb-6">
-          <TableLayoutEditor
-            tables={demoTables}
-            editable
-            onSavePositions={(positions) => {
-              toast({
-                title: 'Posisi meja disimpan',
-                description: `${positions.length} meja berhasil diperbarui`,
-              });
-            }}
-          />
+          {isLoadingTables ? (
+            <div className="grid grid-cols-4 gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-24 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : layoutTables.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <LayoutGrid className="mb-3 h-10 w-10 text-muted-foreground/50" />
+                <p className="text-sm text-muted-foreground">
+                  {outletId
+                    ? 'Belum ada meja. Tambahkan meja terlebih dahulu untuk menggunakan denah.'
+                    : 'Pilih outlet terlebih dahulu untuk melihat denah meja.'}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <TableLayoutEditor
+              tables={layoutTables}
+              editable
+              onSavePositions={(positions) => {
+                toast.success({
+                  title: 'Posisi meja disimpan',
+                  description: `${positions.length} meja berhasil diperbarui`,
+                });
+              }}
+            />
+          )}
         </div>
       )}
 

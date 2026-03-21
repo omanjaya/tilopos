@@ -10,6 +10,8 @@ import { EndShiftUseCase } from '../../application/use-cases/employees/end-shift
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaEmployeeRepository } from '../../infrastructure/repositories/prisma-employee.repository';
 import { PrismaShiftRepository } from '../../infrastructure/repositories/prisma-shift.repository';
+import { LogAuditEventUseCase } from '../../application/use-cases/audit/log-audit-event.use-case';
+import { PrismaAuditRepository } from '../../infrastructure/repositories/prisma-audit.repository';
 
 @Module({
   controllers: [EmployeesController],
@@ -21,8 +23,10 @@ import { PrismaShiftRepository } from '../../infrastructure/repositories/prisma-
     EmployeeAttendanceService,
     StartShiftUseCase,
     EndShiftUseCase,
+    LogAuditEventUseCase,
     { provide: REPOSITORY_TOKENS.EMPLOYEE, useClass: PrismaEmployeeRepository },
     { provide: REPOSITORY_TOKENS.SHIFT, useClass: PrismaShiftRepository },
+    { provide: REPOSITORY_TOKENS.AUDIT, useClass: PrismaAuditRepository },
   ],
 })
 export class EmployeesModule {}

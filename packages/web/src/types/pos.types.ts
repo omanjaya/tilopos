@@ -55,15 +55,26 @@ export interface PaymentEntry {
 export interface HeldBill {
     id: string;
     customerName?: string;
+    customerId?: string;
     tableId?: string;
     tableName?: string;
     items: CartItem[];
     notes?: string;
     createdAt: string;
     employeeName?: string;
+    orderType?: 'dine_in' | 'takeaway' | 'delivery';
+    discountAmount?: number;
+    discountPercent?: number;
 }
 
 // API Request/Response Types
+
+export interface DiscountRequest {
+    type: 'percentage' | 'fixed';
+    value: number;
+    promotionId?: string;
+    voucherCode?: string;
+}
 
 export interface CreateTransactionRequest {
     outletId: string;
@@ -74,6 +85,7 @@ export interface CreateTransactionRequest {
     tableId?: string;
     items: TransactionItemRequest[];
     payments: PaymentRequest[];
+    discounts?: DiscountRequest[];
     notes?: string;
 }
 

@@ -7,37 +7,31 @@ import { DashboardPage } from '../dashboard-page';
 
 // ---- Mock API modules ----
 
-const mockSalesReport = {
-  totalSales: 15000000,
-  totalTransactions: 120,
-  averageOrderValue: 125000,
-  totalCustomers: 45,
-  salesByDate: [
-    { date: '2026-01-01', sales: 5000000, transactions: 40 },
-    { date: '2026-01-02', sales: 5500000, transactions: 42 },
-    { date: '2026-01-03', sales: 4500000, transactions: 38 },
-  ],
-};
-
-const mockFinancialReport = {
-  totalRevenue: 15000000,
-  totalCost: 9000000,
-  grossProfit: 6000000,
-  grossMargin: 40,
-};
-
-const mockCustomerReport = {
-  totalCustomers: 45,
-  newCustomers: 12,
-  returningCustomers: 33,
-  topCustomers: [],
-};
+const { mockDashboardSummary, mockDashboardItems, mockOutletComparison } = vi.hoisted(() => ({
+  mockDashboardSummary: {
+    grossSales: 15000000,
+    netSales: 14000000,
+    grossProfit: 6000000,
+    transactions: 120,
+    averageSalePerTransaction: 125000,
+    grossMargin: 40,
+    salesByDayOfWeek: [],
+    salesByHour: [],
+  },
+  mockDashboardItems: {
+    topItems: [],
+    lowItems: [],
+  },
+  mockOutletComparison: {
+    outlets: [],
+  },
+}));
 
 vi.mock('@/api/endpoints/reports.api', () => ({
   reportsApi: {
-    sales: vi.fn().mockResolvedValue(mockSalesReport),
-    financial: vi.fn().mockResolvedValue(mockFinancialReport),
-    customers: vi.fn().mockResolvedValue(mockCustomerReport),
+    dashboardSummary: vi.fn().mockResolvedValue(mockDashboardSummary),
+    dashboardItems: vi.fn().mockResolvedValue(mockDashboardItems),
+    outletComparison: vi.fn().mockResolvedValue(mockOutletComparison),
   },
 }));
 
@@ -48,9 +42,9 @@ vi.mock('@/stores/ui.store', () => ({
 }));
 
 vi.mock('@/stores/auth.store', () => ({
-  useAuthStore: vi.fn((selector: (state: { user: { outletId: string; name: string; outletName: string } }) => unknown) =>
+  useAuthStore: vi.fn((selector: (state: { user: { outletId: string; name: string; outletName: string; role: string } }) => unknown) =>
     selector({
-      user: { outletId: 'outlet-1', name: 'Admin', outletName: 'Outlet Utama' },
+      user: { outletId: 'outlet-1', name: 'Admin', outletName: 'Outlet Utama', role: 'owner' },
     }),
   ),
 }));
@@ -102,16 +96,14 @@ describe('DashboardPage', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Total Penjualan')).toBeInTheDocument();
+      expect(screen.getByText('Penjualan Kotor')).toBeInTheDocument();
     });
 
+    expect(screen.getByText('Penjualan Bersih')).toBeInTheDocument();
+    expect(screen.getByText('Laba Kotor')).toBeInTheDocument();
     expect(screen.getByText('Transaksi')).toBeInTheDocument();
-    expect(screen.getByText('Rata-rata Order')).toBeInTheDocument();
-    expect(screen.getByText('Pelanggan')).toBeInTheDocument();
-
-    // Check values are rendered
-    expect(screen.getByText('120')).toBeInTheDocument();
-    expect(screen.getByText('45')).toBeInTheDocument();
+    expect(screen.getByText('Rata-rata / Transaksi')).toBeInTheDocument();
+    expect(screen.getByText('Margin Kotor')).toBeInTheDocument();
   });
 
   it('shows loading state with skeleton cards', () => {
@@ -121,13 +113,13 @@ describe('DashboardPage', () => {
       defaultOptions: {
         queries: {
           retry: false,
-          // Use a very long stale time so the initial loading state persists
+          // Disable queries so we see the loading state
           enabled: false,
         },
       },
     });
 
-    render(
+    const { container } = render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <DashboardPage />
@@ -135,11 +127,12 @@ describe('DashboardPage', () => {
       </QueryClientProvider>,
     );
 
-    // The page header should still be visible
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    // Should render skeleton elements (DashboardSkeleton contains multiple bg-muted elements)
+    const skeletons = container.querySelectorAll('.bg-muted');
+    expect(skeletons.length).toBeGreaterThan(0);
   });
 
-  it('allows changing the date range via tabs', async () => {
+  it('allows switching between tabs', async () => {
     const user = userEvent.setup();
     renderDashboard();
 
@@ -149,19 +142,16 @@ describe('DashboardPage', () => {
     });
 
     // Tabs should be present
-    const todayTab = screen.getByText('Hari Ini');
-    const weekTab = screen.getByText('Minggu Ini');
-    const monthTab = screen.getByText('Bulan Ini');
+    const dashboardTab = screen.getByRole('tab', { name: 'Dashboard' });
+    const outletComparisonTab = screen.getByRole('tab', { name: 'Outlet Comparison' });
 
-    expect(todayTab).toBeInTheDocument();
-    expect(weekTab).toBeInTheDocument();
-    expect(monthTab).toBeInTheDocument();
+    expect(dashboardTab).toBeInTheDocument();
+    expect(outletComparisonTab).toBeInTheDocument();
 
-    // Click on "Hari Ini" tab
-    await user.click(todayTab);
+    // Click on "Outlet Comparison" tab
+    await user.click(outletComparisonTab);
 
-    // The API should be re-called (tabs changes trigger a re-query).
-    // We just verify the tab is clickable and the page stays rendered.
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    // The page should still be rendered after tab switch
+    expect(screen.getByRole('tab', { name: 'Outlet Comparison' })).toBeInTheDocument();
   });
 });

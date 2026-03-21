@@ -43,4 +43,10 @@ export const authApi = {
 
   completeOnboarding: () =>
     apiClient.post<{ success: boolean; message: string }>('/auth/complete-onboarding').then((r) => r.data),
+
+  sendVerificationEmail: () =>
+    apiClient.post<{ success: boolean; message: string }>('/auth/send-verification-email').then((r) => r.data),
+
+  verifyEmail: (token: string) =>
+    apiClient.get<{ success: boolean; message: string }>('/auth/verify-email', { params: { token } }).then((r) => r.data),
 };

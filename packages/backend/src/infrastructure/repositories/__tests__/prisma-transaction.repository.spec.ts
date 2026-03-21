@@ -210,6 +210,9 @@ describe('PrismaTransactionRepository', () => {
           outletId: 'outlet-1',
           createdAt: { gte: startDate, lte: endDate },
         },
+        include: {
+          outlet: { select: { businessId: true } },
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toHaveLength(2);

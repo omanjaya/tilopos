@@ -58,10 +58,16 @@ export class SubscriptionScheduler {
         },
       });
 
+      // Batch-load all owners in a single query to avoid N+1
+      const businessIds = expiring.map((sub) => sub.businessId);
+      const owners = await this.prisma.employee.findMany({
+        where: { businessId: { in: businessIds }, role: 'owner' },
+        select: { id: true, outletId: true, businessId: true },
+      });
+      const ownerByBusinessId = new Map(owners.map((owner) => [owner.businessId, owner]));
+
       for (const sub of expiring) {
-        const daysLeft = Math.ceil(
-          (sub.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-        );
+        const daysLeft = Math.ceil((sub.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
         const isTrial = sub.status === 'trial';
         const title = isTrial
@@ -71,11 +77,7 @@ export class SubscriptionScheduler {
           ? 'Upgrade sekarang untuk tetap menikmati semua fitur Premium.'
           : 'Perpanjang langganan untuk tetap menikmati semua fitur Premium.';
 
-        // Find owner employee and their outlet to notify
-        const owner = await this.prisma.employee.findFirst({
-          where: { businessId: sub.businessId, role: 'owner' },
-          select: { id: true, outletId: true },
-        });
+        const owner = ownerByBusinessId.get(sub.businessId);
 
         if (owner) {
           await this.notificationsService.send(sub.businessId, owner.outletId ?? '', {

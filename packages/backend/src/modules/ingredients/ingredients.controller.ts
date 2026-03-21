@@ -1,4 +1,17 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Inject,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/auth/roles.guard';
@@ -7,6 +20,10 @@ import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
+import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
+import type { IIngredientRepository } from '../../domain/interfaces/repositories/ingredient.repository';
+import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 // Use Cases
 import { CreateIngredientUseCase } from '../../application/use-cases/ingredients/create-ingredient.use-case';
@@ -44,6 +61,8 @@ import {
 @Controller('ingredients')
 export class IngredientsController {
   constructor(
+    @Inject(REPOSITORY_TOKENS.INGREDIENT)
+    private readonly ingredientRepo: IIngredientRepository,
     private readonly createIngredientUseCase: CreateIngredientUseCase,
     private readonly updateIngredientUseCase: UpdateIngredientUseCase,
     private readonly deleteIngredientUseCase: DeleteIngredientUseCase,
@@ -55,7 +74,17 @@ export class IngredientsController {
     private readonly deleteRecipeUseCase: DeleteRecipeUseCase,
     private readonly getRecipesUseCase: GetRecipesUseCase,
     private readonly ingredientsService: IngredientsService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
 
   // ==================== Ingredients ====================
 
@@ -83,6 +112,7 @@ export class IngredientsController {
   }
 
   @Put(':id')
+  @BusinessScoped({ resource: 'ingredient', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
   @ApiOperation({ summary: 'Update an ingredient' })
   async update(@Param('id') id: string, @Body() dto: UpdateIngredientDto) {
@@ -98,6 +128,7 @@ export class IngredientsController {
   }
 
   @Delete(':id')
+  @BusinessScoped({ resource: 'ingredient', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Delete (deactivate) an ingredient' })
   async remove(@Param('id') id: string) {
@@ -108,7 +139,12 @@ export class IngredientsController {
 
   @Get('stock/:outletId')
   @ApiOperation({ summary: 'Get ingredient stock levels for outlet' })
-  async getStock(@Param('outletId') outletId: string, @Query('lowOnly') lowOnly?: string) {
+  async getStock(
+    @Param('outletId') outletId: string,
+    @Query('lowOnly') lowOnly?: string,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    if (user) await this.verifyOutletAccess(outletId, user.businessId);
     return this.getIngredientStockUseCase.execute({
       outletId,
       lowStockOnly: lowOnly === 'true',
@@ -159,6 +195,7 @@ export class IngredientsController {
   }
 
   @Put('recipes/:id')
+  @BusinessScoped({ resource: 'recipe', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Update a recipe' })
   async updateRecipe(@Param('id') id: string, @Body() dto: UpdateRecipeDto) {
@@ -170,6 +207,7 @@ export class IngredientsController {
   }
 
   @Delete('recipes/:id')
+  @BusinessScoped({ resource: 'recipe', param: 'id' })
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Delete a recipe' })
   async deleteRecipe(@Param('id') id: string) {
@@ -204,7 +242,8 @@ export class IngredientsController {
     description:
       'Returns ingredients below minimum stock level, grouped by outlet, with reorder suggestions based on average daily consumption and lead time.',
   })
-  async getLowStockAlerts(@Query() query: LowStockAlertQueryDto) {
+  async getLowStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user?: AuthUser) {
+    if (user && query.outletId) await this.verifyOutletAccess(query.outletId, user.businessId);
     return this.ingredientsService.getLowStockAlerts(query.outletId, query.threshold);
   }
 
@@ -216,7 +255,8 @@ export class IngredientsController {
     description:
       'Returns formatted alerts with ingredient name, current level, minimum level, and deficit for ingredients below their minimum threshold.',
   })
-  async getStockAlerts(@Query() query: LowStockAlertQueryDto) {
+  async getStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user?: AuthUser) {
+    if (user && query.outletId) await this.verifyOutletAccess(query.outletId, user.businessId);
     const lowStockItems = await this.ingredientsService.getLowStockAlerts(
       query.outletId,
       query.threshold,
@@ -250,6 +290,7 @@ export class IngredientsController {
   // ==================== Recipe Cost History ====================
 
   @Get('recipes/:id/cost-history')
+  @BusinessScoped({ resource: 'recipe', param: 'id' })
   @ApiOperation({
     summary: 'Get recipe cost history over time',
     description:
@@ -261,5 +302,16 @@ export class IngredientsController {
     @Query('endDate') endDate?: string,
   ) {
     return this.ingredientsService.getRecipeCostHistory(id, startDate, endDate);
+  }
+
+  // ==================== Get by ID (must be AFTER all static routes) ====================
+
+  @Get(':id')
+  @BusinessScoped({ resource: 'ingredient', param: 'id' })
+  @ApiOperation({ summary: 'Get ingredient by ID' })
+  async getById(@Param('id') id: string) {
+    const ingredient = await this.ingredientRepo.findById(id);
+    if (!ingredient) throw new NotFoundException('Ingredient not found');
+    return ingredient;
   }
 }

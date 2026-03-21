@@ -465,7 +465,7 @@ export class CustomersService {
 
     const customerIds = segmentCustomers.map((c) => c.id);
     const fullCustomers = await this.prisma.customer.findMany({
-      where: { id: { in: customerIds } },
+      where: { id: { in: customerIds }, businessId },
       select: {
         name: true,
         email: true,

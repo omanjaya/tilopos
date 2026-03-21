@@ -55,15 +55,20 @@ export class XenditGateway implements IPaymentGateway {
     this.config = {
       apiKey: this.configService.get<string>('XENDIT_API_KEY', ''),
       webhookToken: this.configService.get<string>('XENDIT_WEBHOOK_TOKEN', ''),
-      webhookUrl: this.configService.get<string>(
-        'XENDIT_WEBHOOK_URL',
-        'https://api.example.com/payments/xendit/callback',
-      ),
+      webhookUrl: this.configService.get<string>('XENDIT_WEBHOOK_URL', ''),
       baseUrl: 'https://api.xendit.co',
     };
 
     if (!this.config.apiKey) {
       this.logger.warn('XENDIT_API_KEY not configured — Xendit gateway disabled');
+    }
+
+    if (!this.config.webhookUrl) {
+      this.logger.error(
+        'CRITICAL: XENDIT_WEBHOOK_URL is not configured. ' +
+          'Payment webhooks will not work. Set the XENDIT_WEBHOOK_URL environment variable ' +
+          'to your publicly accessible webhook endpoint (e.g., https://yourdomain.com/api/v1/payments/xendit/callback).',
+      );
     }
 
     // Initialize services

@@ -2,7 +2,7 @@
 // Table Layout Types
 // ---------------------------------------------------------------------------
 
-export type TableStatus = 'available' | 'occupied' | 'reserved' | 'merged' | 'maintenance';
+export type TableStatus = 'available' | 'occupied' | 'reserved' | 'merged' | 'cleaning';
 
 export interface LayoutTable {
   id: string;

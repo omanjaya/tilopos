@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { AlertCircle } from 'lucide-react';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -51,7 +52,6 @@ function FeatureToggleCard({
 
 export function FeaturesPage() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
   const [togglingKey, setTogglingKey] = useState<string | null>(null);
 
@@ -69,17 +69,17 @@ export function FeaturesPage() {
       featuresApi.getEnabledFeatures().then(setEnabledFeatures);
 
       if (result.affectedFeatures && result.affectedFeatures.length > 0) {
-        toast({
+        toast.success({
           title: 'Fitur diperbarui',
           description: `Fitur terkait juga dinonaktifkan: ${result.affectedFeatures.join(', ')}`,
         });
       } else {
-        toast({ title: `Fitur ${result.isEnabled ? 'diaktifkan' : 'dinonaktifkan'}` });
+        toast.success({ title: `Fitur ${result.isEnabled ? 'diaktifkan' : 'dinonaktifkan'}` });
       }
       setTogglingKey(null);
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: 'Gagal memperbarui fitur' });
+    onError: (error) => {
+      handleMutationError(error, 'Gagal memperbarui fitur');
       setTogglingKey(null);
     },
   });

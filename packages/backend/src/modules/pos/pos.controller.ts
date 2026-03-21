@@ -139,25 +139,28 @@ export class PosController {
       ];
     }
 
-    const transactions = await this.prisma.transaction.findMany({
-      where,
-      include: {
-        items: {
-          include: {
-            modifiers: true,
+    const [transactions, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              modifiers: true,
+            },
           },
+          payments: true,
+          employee: { select: { name: true } },
+          customer: { select: { name: true } },
+          voidedByEmployee: { select: { name: true } },
         },
-        payments: true,
-        employee: { select: { name: true } },
-        customer: { select: { name: true } },
-        voidedByEmployee: { select: { name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take,
-    });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
 
-    return transactions.map((tx) => {
+    const data = transactions.map((tx) => {
       const paidAmount = tx.payments.reduce((sum, p) => sum + decimalToNumberRequired(p.amount), 0);
       const totalAmount = decimalToNumberRequired(tx.grandTotal);
 
@@ -199,6 +202,8 @@ export class PosController {
         updatedAt: tx.updatedAt.toISOString(),
       };
     });
+
+    return { data, total, page: pageNum, limit: take };
   }
 
   @Get('transactions/:id')
@@ -215,6 +220,12 @@ export class PosController {
   @Post('refunds')
   @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async processRefund(@Body() dto: ProcessRefundDto, @CurrentUser() user: AuthUser) {
+    // Verify transaction belongs to user's business
+    const tx = await this.transactionRepo.findById(dto.transactionId);
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.processRefundUseCase.execute({
       transactionId: dto.transactionId,
       employeeId: user.employeeId,
@@ -247,6 +258,12 @@ export class PosController {
   @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async voidTransaction(@Body() dto: VoidTransactionDto, @CurrentUser() user: AuthUser) {
     if (!user.outletId) throw new BadRequestException('Outlet not assigned');
+    // Verify transaction belongs to user's business
+    const tx = await this.transactionRepo.findById(dto.transactionId);
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.voidTransactionUseCase.execute({
       transactionId: dto.transactionId,
       employeeId: user.employeeId,
@@ -288,8 +305,17 @@ export class PosController {
   @Post('hold')
   @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
   async holdBill(@Body() dto: HoldBillDto, @CurrentUser() user: AuthUser) {
+    const resolvedOutletId = user.outletId || dto.outletId;
+    if (resolvedOutletId && resolvedOutletId !== user.outletId) {
+      // Verify the outlet belongs to user's business
+      const outlet = await this.prisma.outlet.findFirst({
+        where: { id: resolvedOutletId, businessId: user.businessId },
+        select: { id: true },
+      });
+      if (!outlet) throw new BadRequestException('Outlet not found');
+    }
     return this.holdBillUseCase.execute({
-      outletId: user.outletId || dto.outletId,
+      outletId: resolvedOutletId,
       employeeId: user.employeeId,
       tableId: dto.tableId,
       customerName: dto.customerName,
@@ -303,6 +329,14 @@ export class PosController {
   async listHeldBills(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
     const resolvedOutletId = outletId || user.outletId;
     if (!resolvedOutletId) throw new BadRequestException('Outlet not assigned');
+    // Verify outlet belongs to user's business
+    if (resolvedOutletId !== user.outletId) {
+      const outlet = await this.prisma.outlet.findFirst({
+        where: { id: resolvedOutletId, businessId: user.businessId },
+        select: { id: true },
+      });
+      if (!outlet) throw new BadRequestException('Outlet not found');
+    }
     return this.listHeldBillsUseCase.execute(resolvedOutletId);
   }
 
@@ -318,7 +352,13 @@ export class PosController {
 
   @Get('transactions/:id/reprint')
   @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async reprintReceipt(@Param('id') id: string) {
+  async reprintReceipt(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    // Verify transaction belongs to user's business
+    const tx = await this.transactionRepo.findById(id);
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.reprintReceiptUseCase.execute(id);
   }
 }

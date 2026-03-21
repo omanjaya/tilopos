@@ -16,6 +16,7 @@ import { HTTP_STATUS, VALID_STORE_NAMES } from './constants/sync.constants';
 
 export interface SyncExecutorConfig {
   apiBaseUrl: string;
+  getAuthToken?: () => string | null;
 }
 
 export class SyncExecutorService {
@@ -24,6 +25,17 @@ export class SyncExecutorService {
     private config: SyncExecutorConfig
   ) {}
 
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token = this.config.getAuthToken?.();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
   /**
    * Execute sync operation for a queue item
    */
@@ -31,9 +43,7 @@ export class SyncExecutorService {
     const endpoint = `${this.config.apiBaseUrl}/${item.entityType}`;
 
     const options: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getHeaders(),
     };
 
     switch (item.operation) {
@@ -87,7 +97,7 @@ export class SyncExecutorService {
     const response = await fetch(endpoint, {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json',
+        ...this.getHeaders(),
         'X-Force-Update': 'true',
       },
       body: JSON.stringify(item.data),
@@ -115,7 +125,7 @@ export class SyncExecutorService {
     const response = await fetch(
       `${this.config.apiBaseUrl}/${entityType}?${params}`,
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders(),
       }
     );
 
@@ -188,7 +198,7 @@ export class SyncExecutorService {
     try {
       const response = await fetch(`${this.config.apiBaseUrl}/health`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders(),
       });
       return response.ok;
     } catch {

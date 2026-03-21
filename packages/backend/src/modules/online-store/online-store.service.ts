@@ -489,11 +489,19 @@ export class OnlineStoreService {
   }
 
   /**
-   * Simple distance estimator based on destination.
-   * In production, replace with geocoding API (Google Maps, Mapbox).
+   * Approximate distance estimator based on destination string hash.
+   *
+   * WARNING: This is NOT a real distance calculation. It produces a deterministic
+   * but arbitrary distance (1-30km) from the destination string. Replace with a
+   * geocoding API (Google Maps, Mapbox, etc.) by setting GEOCODING_API_KEY for
+   * accurate shipping cost calculations.
    */
   private estimateDistance(destination: string, _weight: number): number {
-    // Use a simple hash-based estimator for consistent results
+    this.logger.warn(
+      'Using estimated distance calculation \u2014 configure GEOCODING_API_KEY for accurate shipping costs',
+    );
+
+    // Use a simple hash-based estimator for consistent results per destination
     const normalized = destination.trim().toLowerCase();
     let hash = 0;
     for (let i = 0; i < normalized.length; i++) {
@@ -879,6 +887,21 @@ export class OnlineStoreService {
     });
 
     this.logger.log(`Storefront order created: ${orderNumber} for store ${slug}`);
+
+    // Deduct inventory for products that track stock
+    for (const item of orderItems) {
+      const product = productMap.get(item.productId);
+      if (product?.trackStock) {
+        await this.prisma.stockLevel.updateMany({
+          where: {
+            outletId: outlet.id,
+            productId: item.productId,
+            variantId: item.variantId || null,
+          },
+          data: { quantity: { decrement: item.quantity } },
+        });
+      }
+    }
 
     // Create kitchen order for KDS so kitchen can prepare the food
     const kitchenOrderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;

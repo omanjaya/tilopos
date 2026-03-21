@@ -23,6 +23,8 @@ import { FinancialCommandController } from './controllers/financial-command.cont
 import { StaffPerformanceController } from './controllers/staff-performance.controller';
 import { DashboardReportsController } from './controllers/dashboard-reports.controller';
 import { InvoiceReportsController } from './controllers/invoice-reports.controller';
+import { AnalyticsController } from './controllers/analytics.controller';
+import { AnalyticsService } from '../../infrastructure/services/analytics.service';
 
 @Module({
   imports: [ExportModule],
@@ -45,8 +47,14 @@ import { InvoiceReportsController } from './controllers/invoice-reports.controll
     FinancialCommandController,
     StaffPerformanceController,
     InvoiceReportsController,
+    AnalyticsController,
   ],
-  providers: [GenerateSalesReportUseCase, GenerateInventoryReportUseCase, ReportsService],
+  providers: [
+    GenerateSalesReportUseCase,
+    GenerateInventoryReportUseCase,
+    ReportsService,
+    AnalyticsService,
+  ],
   exports: [ReportsService],
 })
 export class ReportsModule {}

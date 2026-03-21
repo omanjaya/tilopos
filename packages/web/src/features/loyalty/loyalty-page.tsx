@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   Users,
@@ -26,7 +27,6 @@ import {
 } from 'lucide-react';
 
 export function LoyaltyPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('analytics');
 
@@ -68,11 +68,9 @@ export function LoyaltyPage() {
     mutationFn: promotionsApi.createLoyaltyProgram,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['loyalty'] });
-      toast({ title: 'Program loyalty berhasil disimpan' });
+      toast.success({ title: 'Program loyalty berhasil disimpan' });
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: 'Gagal menyimpan program' });
-    },
+    onError: (error) => handleMutationError(error, 'Gagal menyimpan program'),
   });
 
   const handleSaveProgram = () => {

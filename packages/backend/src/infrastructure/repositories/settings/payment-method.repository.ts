@@ -141,10 +141,10 @@ export class PaymentMethodRepository {
       return methods;
     }
 
-    // Default payment methods
+    // Default payment methods with deterministic IDs based on businessId
     const defaults: BusinessPaymentMethod[] = [
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-cash`,
         name: 'Tunai',
         type: 'cash',
         isActive: true,
@@ -152,7 +152,7 @@ export class PaymentMethodRepository {
         settings: {},
       },
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-qris`,
         name: 'QRIS',
         type: 'qris',
         isActive: true,
@@ -160,7 +160,7 @@ export class PaymentMethodRepository {
         settings: {},
       },
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-card`,
         name: 'Kartu Debit/Kredit',
         type: 'card',
         isActive: true,
@@ -168,7 +168,7 @@ export class PaymentMethodRepository {
         settings: {},
       },
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-gopay`,
         name: 'GoPay',
         type: 'ewallet',
         isActive: true,
@@ -176,7 +176,7 @@ export class PaymentMethodRepository {
         settings: {},
       },
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-ovo`,
         name: 'OVO',
         type: 'ewallet',
         isActive: true,
@@ -184,7 +184,7 @@ export class PaymentMethodRepository {
         settings: {},
       },
       {
-        id: this.generatePaymentMethodId(),
+        id: `${businessId}-bank_transfer`,
         name: 'Transfer Bank',
         type: 'bank_transfer',
         isActive: false,
@@ -192,6 +192,9 @@ export class PaymentMethodRepository {
         settings: {},
       },
     ];
+
+    // Auto-persist defaults so they get stable IDs for future operations
+    await this.saveBusinessPaymentMethods(businessId, defaults);
 
     return defaults;
   }

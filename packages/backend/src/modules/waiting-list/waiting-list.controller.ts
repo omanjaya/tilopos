@@ -1,13 +1,50 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
+import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { WaitingListService } from './waiting-list.service';
 import { WaitingListStatus } from '@prisma/client';
 
 @ApiTags('Waiting List')
 @Controller('waiting-list')
 export class WaitingListController {
-  constructor(private readonly waitingListService: WaitingListService) {}
+  constructor(
+    private readonly waitingListService: WaitingListService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private async verifyOutletAccess(outletId: string, user: AuthUser): Promise<void> {
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: outletId, businessId: user.businessId },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Access denied to this outlet');
+    }
+  }
+
+  private async verifyEntryAccess(entryId: string, user: AuthUser): Promise<void> {
+    const entry = await this.prisma.waitingList.findUnique({
+      where: { id: entryId },
+      select: { outlet: { select: { businessId: true } } },
+    });
+    if (!entry || entry.outlet.businessId !== user.businessId) {
+      throw new ForbiddenException('Access denied to this entry');
+    }
+  }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -23,7 +60,9 @@ export class WaitingListController {
       preferredSection?: string;
       notes?: string;
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOutletAccess(dto.outletId, user);
     return this.waitingListService.create(dto);
   }
 
@@ -39,8 +78,10 @@ export class WaitingListController {
   })
   async findByOutlet(
     @Query('outletId') outletId: string,
-    @Query('status') status?: WaitingListStatus,
+    @Query('status') status: WaitingListStatus | undefined,
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyOutletAccess(outletId, user);
     return this.waitingListService.findByOutlet(outletId, status);
   }
 
@@ -49,7 +90,8 @@ export class WaitingListController {
   @Get('stats')
   @ApiOperation({ summary: 'Get waiting list statistics for outlet' })
   @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getStats(@Query('outletId') outletId: string) {
+  async getStats(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
+    await this.verifyOutletAccess(outletId, user);
     return this.waitingListService.getStats(outletId);
   }
 
@@ -57,7 +99,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get waiting list entry by ID' })
-  async findById(@Param('id') id: string) {
+  async findById(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.findById(id);
   }
 
@@ -65,7 +108,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Get(':id/position')
   @ApiOperation({ summary: 'Get queue position for entry' })
-  async getQueuePosition(@Param('id') id: string) {
+  async getQueuePosition(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.getQueuePosition(id);
   }
 
@@ -82,7 +126,9 @@ export class WaitingListController {
       notes?: string;
       estimatedWait?: number;
     },
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.update(id, dto);
   }
 
@@ -90,7 +136,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Put(':id/notify')
   @ApiOperation({ summary: 'Notify customer that table is ready' })
-  async notify(@Param('id') id: string) {
+  async notify(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.notify(id);
   }
 
@@ -98,7 +145,15 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Put(':id/seat')
   @ApiOperation({ summary: 'Seat customer at table' })
-  async seat(@Param('id') id: string, @Body() dto: { tableId: string }) {
+  async seat(
+    @Param('id') id: string,
+    @Body() dto: { tableId: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!dto.tableId) {
+      throw new BadRequestException('tableId is required');
+    }
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.seat(id, dto.tableId);
   }
 
@@ -106,7 +161,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Put(':id/cancel')
   @ApiOperation({ summary: 'Cancel waiting list entry' })
-  async cancel(@Param('id') id: string) {
+  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.cancel(id);
   }
 
@@ -114,7 +170,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Put(':id/no-show')
   @ApiOperation({ summary: 'Mark customer as no-show' })
-  async markNoShow(@Param('id') id: string) {
+  async markNoShow(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     return this.waitingListService.markNoShow(id);
   }
 
@@ -122,7 +179,8 @@ export class WaitingListController {
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   @ApiOperation({ summary: 'Delete waiting list entry' })
-  async delete(@Param('id') id: string) {
+  async delete(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyEntryAccess(id, user);
     await this.waitingListService.delete(id);
     return { message: 'Waiting list entry deleted' };
   }

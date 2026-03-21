@@ -6,6 +6,7 @@ import { SyncIndicator } from '../sync-indicator';
 import { NotificationBell } from '../notification-bell';
 import { Separator } from '@/components/ui/separator';
 import { HeaderUserMenu } from './header-user-menu';
+import { SubscriptionBadge } from './subscription-badge';
 import { Breadcrumb } from '@/components/shared/breadcrumb';
 import { useUIStore } from '@/stores/ui.store';
 import { Button } from '@/components/ui/button';
@@ -54,6 +55,7 @@ export function Header() {
         <SyncIndicator />
         <NotificationBell />
         <ThemeToggle />
+        <SubscriptionBadge />
 
         <Separator orientation="vertical" className="mx-1.5 h-5" />
 

@@ -35,5 +35,5 @@ export const onlineStoreApi = {
     apiClient.get<Storefront>(`/online-store/s/${slug}/storefront`).then((r) => r.data),
 
   createOrder: (slug: string, data: CreateStorefrontOrderRequest) =>
-    apiClient.post<StorefrontOrder>(`/online-store/s/${slug}/orders`, data).then((r) => r.data),
+    apiClient.post<StorefrontOrder>(`/online-store/s/${slug}/checkout`, data).then((r) => r.data),
 };

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -7,18 +7,23 @@ import { TaxSettingsPage } from '../tax-settings-page';
 
 // ---- Mock Data ----
 
-const mockTaxConfig = {
-  id: 'tax-1',
-  taxRate: 11,
-  serviceChargeRate: 5,
-  isTaxInclusive: true,
-  taxExemptionRules: [
-    { id: 'rule-1', name: 'Produk Pertanian', description: 'Bebas PPN untuk produk pertanian', isActive: true },
-  ],
-  businessId: 'b1',
-};
+const { mockTaxConfig, mockUpdateTaxConfig } = vi.hoisted(() => {
+  const taxConfig = {
+    id: 'tax-1',
+    taxRate: 11,
+    serviceChargeRate: 5,
+    isTaxInclusive: true,
+    taxExemptionRules: [
+      { id: 'rule-1', name: 'Produk Pertanian', description: 'Bebas PPN untuk produk pertanian', isActive: true },
+    ],
+    businessId: 'b1',
+  };
 
-const mockUpdateTaxConfig = vi.fn().mockResolvedValue(mockTaxConfig);
+  return {
+    mockTaxConfig: taxConfig,
+    mockUpdateTaxConfig: vi.fn().mockResolvedValue(taxConfig),
+  };
+});
 
 vi.mock('@/api/endpoints/settings.api', () => ({
   settingsApi: {
@@ -93,9 +98,9 @@ describe('TaxSettingsPage', () => {
     await user.clear(taxRateInput);
     await user.type(taxRateInput, '12');
 
-    // Click save button
-    const saveButton = screen.getByRole('button', { name: /simpan/i });
-    await user.click(saveButton);
+    // Submit the form (happy-dom doesn't always fire submit on button click)
+    const form = taxRateInput.closest('form')!;
+    fireEvent.submit(form);
 
     // Verify API was called
     await waitFor(() => {

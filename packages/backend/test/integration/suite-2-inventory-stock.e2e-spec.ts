@@ -26,15 +26,13 @@ describe('Suite 2: Inventory & Stock Setup', () => {
   // ================================================================
   describe('2A - Stock Levels', () => {
     it('2.1 - should set stock Nasi Goreng = 100', async () => {
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/inventory/stock/adjust')
-        .send({
-          outletId: testContext.outletId,
-          productId: testContext.created.productIds[0], // Nasi Goreng
-          adjustmentType: 'set',
-          quantity: 100,
-          reason: 'Initial stock setup for testing',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/inventory/stock/adjust').send({
+        outletId: testContext.outletId,
+        productId: testContext.created.productIds[0], // Nasi Goreng
+        adjustmentType: 'set',
+        quantity: 100,
+        reason: 'Initial stock setup for testing',
+      });
 
       if (res.status >= 400) {
         console.log('2.1 stock adjust error:', res.status, res.body);
@@ -44,31 +42,26 @@ describe('Suite 2: Inventory & Stock Setup', () => {
     });
 
     it('2.2 - should set stock Es Teh = 200', async () => {
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/inventory/stock/adjust')
-        .send({
-          outletId: testContext.outletId,
-          productId: testContext.created.productIds[1], // Es Teh
-          adjustmentType: 'set',
-          quantity: 200,
-          reason: 'Initial stock setup for testing',
-        })
-
+      const res = await authRequest(app, 'owner').post('/api/v1/inventory/stock/adjust').send({
+        outletId: testContext.outletId,
+        productId: testContext.created.productIds[1], // Es Teh
+        adjustmentType: 'set',
+        quantity: 200,
+        reason: 'Initial stock setup for testing',
+      });
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.newQuantity).toBe(200);
     });
 
     it('2.3 - should set stock Mie Ayam = 50', async () => {
-      const res = await authRequest(app, 'owner')
-        .post('/api/v1/inventory/stock/adjust')
-        .send({
-          outletId: testContext.outletId,
-          productId: testContext.created.productIds[2], // Mie Ayam
-          adjustmentType: 'set',
-          quantity: 50,
-          reason: 'Initial stock setup for testing',
-        });
+      const res = await authRequest(app, 'owner').post('/api/v1/inventory/stock/adjust').send({
+        outletId: testContext.outletId,
+        productId: testContext.created.productIds[2], // Mie Ayam
+        adjustmentType: 'set',
+        quantity: 50,
+        reason: 'Initial stock setup for testing',
+      });
 
       expect(res.status).toBeLessThan(400);
       expect(res.body.newQuantity).toBe(50);
@@ -83,12 +76,15 @@ describe('Suite 2: Inventory & Stock Setup', () => {
 
       // Find our test products in stock levels
       const nasiGorengStock = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[0],
       );
       const esTehStock = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[1],
       );
       const mieAyamStock = res.body.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (s: any) => s.productId === testContext.created.productIds[2],
       );
 
@@ -108,9 +104,8 @@ describe('Suite 2: Inventory & Stock Setup', () => {
       expect(Array.isArray(res.body)).toBe(true);
       // Our test products should NOT be in low stock (qty >> default lowStockAlert of 10)
       const testProductIds = testContext.created.productIds.slice(0, 3);
-      const lowTestProducts = res.body.filter((s: any) =>
-        testProductIds.includes(s.productId),
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lowTestProducts = res.body.filter((s: any) => testProductIds.includes(s.productId));
       expect(lowTestProducts.length).toBe(0);
     });
   });
@@ -124,14 +119,12 @@ describe('Suite 2: Inventory & Stock Setup', () => {
     const stockRole = 'inventory' as const;
 
     it('2.6 - should set ingredient stock Beras = 50kg', async () => {
-      const res = await authRequest(app, stockRole)
-        .post('/api/v1/ingredients/stock/adjust')
-        .send({
-          ingredientId: testContext.created.ingredientIds[0], // Beras
-          quantity: 50,
-          referenceType: 'adjustment',
-          notes: 'Initial stock setup for testing',
-        });
+      const res = await authRequest(app, stockRole).post('/api/v1/ingredients/stock/adjust').send({
+        ingredientId: testContext.created.ingredientIds[0], // Beras
+        quantity: 50,
+        referenceType: 'adjustment',
+        notes: 'Initial stock setup for testing',
+      });
 
       if (res.status >= 400) {
         console.log('2.6 ingredient stock error:', res.status, res.body);
@@ -140,14 +133,12 @@ describe('Suite 2: Inventory & Stock Setup', () => {
     });
 
     it('2.7 - should set ingredient stock Teh = 5000g', async () => {
-      const res = await authRequest(app, stockRole)
-        .post('/api/v1/ingredients/stock/adjust')
-        .send({
-          ingredientId: testContext.created.ingredientIds[1], // Teh
-          quantity: 5000,
-          referenceType: 'adjustment',
-          notes: 'Initial stock setup for testing',
-        });
+      const res = await authRequest(app, stockRole).post('/api/v1/ingredients/stock/adjust').send({
+        ingredientId: testContext.created.ingredientIds[1], // Teh
+        quantity: 5000,
+        referenceType: 'adjustment',
+        notes: 'Initial stock setup for testing',
+      });
 
       if (res.status >= 400) {
         console.log('2.7 ingredient stock error:', res.status, res.body);
@@ -156,14 +147,12 @@ describe('Suite 2: Inventory & Stock Setup', () => {
     });
 
     it('2.8 - should set ingredient stock Minyak = 20L', async () => {
-      const res = await authRequest(app, stockRole)
-        .post('/api/v1/ingredients/stock/adjust')
-        .send({
-          ingredientId: testContext.created.ingredientIds[2], // Minyak Goreng
-          quantity: 20,
-          referenceType: 'adjustment',
-          notes: 'Initial stock setup for testing',
-        });
+      const res = await authRequest(app, stockRole).post('/api/v1/ingredients/stock/adjust').send({
+        ingredientId: testContext.created.ingredientIds[2], // Minyak Goreng
+        quantity: 20,
+        referenceType: 'adjustment',
+        notes: 'Initial stock setup for testing',
+      });
 
       if (res.status >= 400) {
         console.log('2.8 ingredient stock error:', res.status, res.body);
@@ -226,9 +215,7 @@ describe('Suite 2: Inventory & Stock Setup', () => {
 
     it('2.11 - should get recipes for Nasi Goreng', async () => {
       const res = await authRequest(app, 'owner')
-        .get(
-          `/api/v1/ingredients/recipes?productId=${testContext.created.productIds[0]}`,
-        )
+        .get(`/api/v1/ingredients/recipes?productId=${testContext.created.productIds[0]}`)
         .expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
@@ -291,8 +278,9 @@ describe('Suite 2: Inventory & Stock Setup', () => {
   describe('2E - Shift', () => {
     it('2.14 - should start shift for cashier (openingCash: 500000)', async () => {
       // End any existing open shift first (from previous test runs)
-      const currentShift = await authRequest(app, 'cashier')
-        .get('/api/v1/employees/shifts/current');
+      const currentShift = await authRequest(app, 'cashier').get(
+        '/api/v1/employees/shifts/current',
+      );
       if (currentShift.status === 200 && currentShift.body?.id) {
         const employeeId = testContext.auth.cashier?.employeeId;
         await authRequest(app, 'cashier')
@@ -300,12 +288,10 @@ describe('Suite 2: Inventory & Stock Setup', () => {
           .send({ closingCash: 0 });
       }
 
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/employees/shifts/start')
-        .send({
-          outletId: testContext.outletId,
-          openingCash: 500000,
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/employees/shifts/start').send({
+        outletId: testContext.outletId,
+        openingCash: 500000,
+      });
 
       if (res.status >= 400) {
         console.log('2.14 shift start error:', res.status, res.body);
@@ -325,12 +311,10 @@ describe('Suite 2: Inventory & Stock Setup', () => {
     });
 
     it('2.16 - should fail starting second shift (already open)', async () => {
-      const res = await authRequest(app, 'cashier')
-        .post('/api/v1/employees/shifts/start')
-        .send({
-          outletId: testContext.outletId,
-          openingCash: 500000,
-        });
+      const res = await authRequest(app, 'cashier').post('/api/v1/employees/shifts/start').send({
+        outletId: testContext.outletId,
+        openingCash: 500000,
+      });
 
       // Should return 400 or 409 (conflict)
       expect(res.status).toBeGreaterThanOrEqual(400);

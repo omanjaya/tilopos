@@ -23,6 +23,7 @@ export function getDateRange(
       throw new BadRequestException('Invalid date format. Use YYYY-MM-DD');
     }
 
+    endParsed.setHours(23, 59, 59, 999);
     return { start, end: endParsed };
   }
 
@@ -34,7 +35,10 @@ export function getDateRange(
     }
     case 'this_week': {
       const start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
+      // Use Monday as start of week (Indonesia standard)
+      const dayOfWeek = now.getDay();
+      const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      start.setDate(now.getDate() - mondayOffset);
       start.setHours(0, 0, 0, 0);
       return { start, end };
     }

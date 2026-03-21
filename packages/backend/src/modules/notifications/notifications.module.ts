@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsGateway } from './notifications.gateway';
 import {
@@ -15,7 +17,16 @@ import { RealtimeMetricsService } from '../../infrastructure/services/realtime-m
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @Module({
-  imports: [EventBusModule],
+  imports: [
+    EventBusModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET'),
+      }),
+    }),
+  ],
   controllers: [NotificationsController],
   providers: [
     { provide: REPOSITORY_TOKENS.NOTIFICATION, useClass: PrismaNotificationRepository },

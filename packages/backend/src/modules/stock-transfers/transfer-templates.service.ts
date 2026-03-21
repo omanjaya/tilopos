@@ -53,6 +53,35 @@ export interface TransferTemplateItem {
   defaultQuantity: number;
 }
 
+/** Raw row shape returned from transfer_templates table queries */
+interface RawTransferTemplate {
+  id: string;
+  business_id: string;
+  name: string;
+  description: string | null;
+  source_outlet_id: string;
+  destination_outlet_id: string;
+  sourceOutletName?: string;
+  destinationOutletName?: string;
+  created_by: string;
+  created_at: Date;
+  updated_at: Date;
+  usageCount?: number;
+  items?: RawTransferTemplateItem[];
+}
+
+/** Raw row shape returned from transfer_template_items table queries */
+interface RawTransferTemplateItem {
+  id: string;
+  template_id: string;
+  product_id: string | null;
+  variant_id: string | null;
+  ingredient_id: string | null;
+  item_name: string;
+  default_quantity: number;
+  created_at: Date;
+}
+
 @Injectable()
 export class TransferTemplatesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -63,7 +92,7 @@ export class TransferTemplatesService {
   async list(businessId: string): Promise<TransferTemplate[]> {
     // Using raw query since schema might not exist yet
     try {
-      const templates = await this.prisma.$queryRaw<any[]>`
+      const templates = await this.prisma.$queryRaw<RawTransferTemplate[]>`
         SELECT
           t.*,
           so.name as "sourceOutletName",
@@ -82,7 +111,7 @@ export class TransferTemplatesService {
 
       // Get items for each template
       for (const template of templates) {
-        template.items = await this.prisma.$queryRaw<any[]>`
+        template.items = await this.prisma.$queryRaw<RawTransferTemplateItem[]>`
           SELECT *
           FROM transfer_template_items
           WHERE template_id = ${template.id}::uuid
@@ -103,7 +132,7 @@ export class TransferTemplatesService {
    */
   async get(id: string, businessId: string): Promise<TransferTemplate> {
     try {
-      const [template] = await this.prisma.$queryRaw<any[]>`
+      const [template] = await this.prisma.$queryRaw<RawTransferTemplate[]>`
         SELECT
           t.*,
           so.name as "sourceOutletName",
@@ -118,7 +147,7 @@ export class TransferTemplatesService {
         throw new NotFoundException('Template not found');
       }
 
-      template.items = await this.prisma.$queryRaw<any[]>`
+      template.items = await this.prisma.$queryRaw<RawTransferTemplateItem[]>`
         SELECT *
         FROM transfer_template_items
         WHERE template_id = ${id}::uuid
@@ -138,7 +167,7 @@ export class TransferTemplatesService {
   async create(input: CreateTransferTemplateInput): Promise<TransferTemplate> {
     try {
       // Insert template
-      const [template] = await this.prisma.$queryRaw<any[]>`
+      const [template] = await this.prisma.$queryRaw<RawTransferTemplate[]>`
         INSERT INTO transfer_templates (
           id, business_id, name, description,
           source_outlet_id, destination_outlet_id,
@@ -248,6 +277,16 @@ export class TransferTemplatesService {
    */
   async delete(id: string, businessId: string): Promise<void> {
     try {
+      // Verify ownership first before deleting anything
+      const template = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM transfer_templates
+        WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
+      `;
+
+      if (template.length === 0) {
+        throw new NotFoundException('Template not found');
+      }
+
       // Delete items first (foreign key constraint)
       await this.prisma.$queryRaw`
         DELETE FROM transfer_template_items
@@ -255,15 +294,10 @@ export class TransferTemplatesService {
       `;
 
       // Delete template
-      const result = await this.prisma.$queryRaw<any[]>`
+      await this.prisma.$queryRaw`
         DELETE FROM transfer_templates
         WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
-        RETURNING id
       `;
-
-      if (result.length === 0) {
-        throw new NotFoundException('Template not found');
-      }
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new Error('Failed to delete template');
@@ -273,7 +307,7 @@ export class TransferTemplatesService {
   /**
    * Map raw database result to TransferTemplate interface
    */
-  private mapToTransferTemplate(raw: any): TransferTemplate {
+  private mapToTransferTemplate(raw: RawTransferTemplate): TransferTemplate {
     return {
       id: raw.id,
       businessId: raw.business_id,
@@ -283,7 +317,7 @@ export class TransferTemplatesService {
       destinationOutletId: raw.destination_outlet_id,
       sourceOutletName: raw.sourceOutletName,
       destinationOutletName: raw.destinationOutletName,
-      items: (raw.items || []).map((item: any) => ({
+      items: (raw.items || []).map((item: RawTransferTemplateItem) => ({
         id: item.id,
         templateId: item.template_id,
         productId: item.product_id,

@@ -9,7 +9,6 @@ import { Reflector } from '@nestjs/core';
 import { FeatureService } from '@modules/business/services/feature.service';
 
 interface RequestWithUser {
-  body?: { businessId?: string };
   params?: { businessId?: string };
   query?: { businessId?: string };
   user?: { businessId?: string; outletId?: string };
@@ -100,15 +99,16 @@ export class FeatureGuard implements CanActivate {
 
   /**
    * Extract business ID from request
-   * Priority: body > params > query > user context
+   * Priority: user context (JWT) > params > query
+   * NEVER use request body for businessId to prevent spoofing
    */
   private extractBusinessId(request: RequestWithUser): string | null {
-    // From request body
-    if (request.body?.businessId) {
-      return request.body.businessId;
+    // From authenticated user context (highest priority - secure)
+    if (request.user?.businessId) {
+      return request.user.businessId;
     }
 
-    // From route params
+    // From route params (for public endpoints)
     if (request.params?.businessId) {
       return request.params.businessId;
     }
@@ -116,16 +116,6 @@ export class FeatureGuard implements CanActivate {
     // From query params
     if (request.query?.businessId) {
       return request.query.businessId;
-    }
-
-    // From authenticated user context (most common)
-    if (request.user?.businessId) {
-      return request.user.businessId;
-    }
-
-    // From outlet context (for multi-outlet)
-    if (request.user?.outletId) {
-      return request.user.businessId ?? null;
     }
 
     return null;
