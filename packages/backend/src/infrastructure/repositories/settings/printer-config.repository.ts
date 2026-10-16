@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { findBusinessSettings, mutateBusinessSettings, type JsonObject } from './json-settings';
 
 export interface PrinterConfigData {
   id: string;
@@ -38,6 +39,15 @@ export interface UpdatePrinterConfigData {
   outletId?: string;
 }
 
+function readList(settings: JsonObject): PrinterConfigData[] {
+  const list = settings.printerConfigs;
+  return Array.isArray(list) ? (list as PrinterConfigData[]).map((item) => ({ ...item })) : [];
+}
+
+/**
+ * Stored in business.settings.printerConfigs; every write is a locked read-modify-write
+ * (mutateBusinessSettings) so concurrent settings edits are not lost.
+ */
 @Injectable()
 export class PrinterConfigRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -47,46 +57,31 @@ export class PrinterConfigRepository {
   }
 
   async getPrinterConfigs(businessId: string): Promise<PrinterConfigData[]> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    if (!business) {
-      throw new NotFoundException('Business not found');
-    }
-
-    const settings = (business.settings as Record<string, unknown>) || {};
-    const configs = settings.printerConfigs as PrinterConfigData[] | undefined;
-
-    if (configs && Array.isArray(configs)) {
-      return configs;
-    }
-
-    return [];
+    return readList(await findBusinessSettings(this.prisma, businessId));
   }
 
   async createPrinterConfig(
     businessId: string,
     data: CreatePrinterConfigData,
   ): Promise<PrinterConfigData> {
-    const configs = await this.getPrinterConfigs(businessId);
-    const newConfig: PrinterConfigData = {
-      id: this.generateId(),
-      name: data.name,
-      type: data.type,
-      connection: data.connection,
-      ipAddress: data.ipAddress ?? null,
-      port: data.port ?? null,
-      isActive: true,
-      autoPrint: data.autoPrint ?? true,
-      copies: data.copies ?? 1,
-      outletId: data.outletId,
-    };
+    return mutateBusinessSettings(this.prisma, businessId, (current) => {
+      const configs = readList(current);
+      const newConfig: PrinterConfigData = {
+        id: this.generateId(),
+        name: data.name,
+        type: data.type,
+        connection: data.connection,
+        ipAddress: data.ipAddress ?? null,
+        port: data.port ?? null,
+        isActive: true,
+        autoPrint: data.autoPrint ?? true,
+        copies: data.copies ?? 1,
+        outletId: data.outletId,
+      };
 
-    configs.push(newConfig);
-    await this.savePrinterConfigs(businessId, configs);
-    return newConfig;
+      configs.push(newConfig);
+      return { settings: { ...current, printerConfigs: configs }, result: newConfig };
+    });
   }
 
   async updatePrinterConfig(
@@ -94,62 +89,44 @@ export class PrinterConfigRepository {
     id: string,
     data: UpdatePrinterConfigData,
   ): Promise<PrinterConfigData> {
-    const configs = await this.getPrinterConfigs(businessId);
-    const index = configs.findIndex((c) => c.id === id);
+    return mutateBusinessSettings(this.prisma, businessId, (current) => {
+      const configs = readList(current);
+      const index = configs.findIndex((c) => c.id === id);
 
-    if (index === -1) {
-      throw new NotFoundException('Printer config not found');
-    }
+      if (index === -1) {
+        throw new NotFoundException('Printer config not found');
+      }
 
-    const existing = configs[index];
-    const updated: PrinterConfigData = {
-      ...existing,
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.type !== undefined && { type: data.type }),
-      ...(data.connection !== undefined && { connection: data.connection }),
-      ...(data.ipAddress !== undefined && { ipAddress: data.ipAddress }),
-      ...(data.port !== undefined && { port: data.port }),
-      ...(data.isActive !== undefined && { isActive: data.isActive }),
-      ...(data.autoPrint !== undefined && { autoPrint: data.autoPrint }),
-      ...(data.copies !== undefined && { copies: data.copies }),
-      ...(data.outletId !== undefined && { outletId: data.outletId }),
-    };
+      const existing = configs[index];
+      const updated: PrinterConfigData = {
+        ...existing,
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.type !== undefined && { type: data.type }),
+        ...(data.connection !== undefined && { connection: data.connection }),
+        ...(data.ipAddress !== undefined && { ipAddress: data.ipAddress }),
+        ...(data.port !== undefined && { port: data.port }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.autoPrint !== undefined && { autoPrint: data.autoPrint }),
+        ...(data.copies !== undefined && { copies: data.copies }),
+        ...(data.outletId !== undefined && { outletId: data.outletId }),
+      };
 
-    configs[index] = updated;
-    await this.savePrinterConfigs(businessId, configs);
-    return updated;
+      configs[index] = updated;
+      return { settings: { ...current, printerConfigs: configs }, result: updated };
+    });
   }
 
   async deletePrinterConfig(businessId: string, id: string): Promise<void> {
-    const configs = await this.getPrinterConfigs(businessId);
-    const index = configs.findIndex((c) => c.id === id);
+    return mutateBusinessSettings(this.prisma, businessId, (current) => {
+      const configs = readList(current);
+      const index = configs.findIndex((c) => c.id === id);
 
-    if (index === -1) {
-      throw new NotFoundException('Printer config not found');
-    }
+      if (index === -1) {
+        throw new NotFoundException('Printer config not found');
+      }
 
-    const filtered = configs.filter((c) => c.id !== id);
-    await this.savePrinterConfigs(businessId, filtered);
-  }
-
-  private async savePrinterConfigs(
-    businessId: string,
-    configs: PrinterConfigData[],
-  ): Promise<void> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    const currentSettings = (business?.settings as Record<string, unknown>) || {};
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...currentSettings,
-          printerConfigs: configs,
-        } as never,
-      },
+      const filtered = configs.filter((c) => c.id !== id);
+      return { settings: { ...current, printerConfigs: filtered }, result: undefined };
     });
   }
 }

@@ -6,6 +6,9 @@ import type {
   AuditLogRecord,
 } from '../../domain/interfaces/repositories/audit.repository';
 
+/** Upper bound for the non-paginated finders below (R13). */
+const MAX_AUDIT_ROWS = 1000;
+
 @Injectable()
 export class PrismaAuditRepository implements IAuditLogRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -36,7 +39,7 @@ export class PrismaAuditRepository implements IAuditLogRepository {
     options?: { page?: number; limit?: number },
   ): Promise<{ data: AuditLogRecord[]; total: number }> {
     const page = options?.page ?? 1;
-    const limit = options?.limit ?? 20;
+    const limit = Math.min(Math.max(options?.limit ?? 20, 1), 100);
     const skip = (page - 1) * limit;
 
     const [logs, total] = await this.prisma.$transaction([
@@ -57,9 +60,13 @@ export class PrismaAuditRepository implements IAuditLogRepository {
     entityId: string,
     businessId?: string,
   ): Promise<AuditLogRecord[]> {
+    if (!businessId) {
+      throw new Error('PrismaAuditRepository.findByEntity: businessId is required');
+    }
     const logs = await this.prisma.auditLog.findMany({
-      where: { entityType, entityId, ...(businessId && { businessId }) },
+      where: { entityType, entityId, businessId },
       orderBy: { createdAt: 'desc' },
+      take: MAX_AUDIT_ROWS,
     });
 
     return logs.map((log) => this.mapToRecord(log));
@@ -75,6 +82,7 @@ export class PrismaAuditRepository implements IAuditLogRepository {
         },
       },
       orderBy: { createdAt: 'desc' },
+      take: MAX_AUDIT_ROWS,
     });
 
     return logs.map((log) => this.mapToRecord(log));

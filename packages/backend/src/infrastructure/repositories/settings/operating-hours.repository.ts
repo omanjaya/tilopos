@@ -1,14 +1,30 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import type {
   OperatingHours,
   OperatingHoursData,
   OutletOperatingHoursEntry,
 } from '../../../domain/interfaces/repositories/settings.repository';
+import { asJsonObject, findOwnedOutletSettings, mutateOutletSettings } from './json-settings';
+
+// Default: Open Mon-Sat 08:00-22:00, Closed Sunday
+const DEFAULT_LEGACY_HOURS: OperatingHours[] = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+  dayOfWeek,
+  isOpen: dayOfWeek !== 0,
+  openTime: '08:00',
+  closeTime: '22:00',
+}));
+
+const DEFAULT_HOURS: OutletOperatingHoursEntry[] = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+  dayOfWeek,
+  openTime: '08:00',
+  closeTime: '22:00',
+  isClosed: dayOfWeek === 0,
+}));
 
 /**
- * Repository for managing operating hours.
- * Handles store opening/closing times and schedules.
+ * Operating hours stored in outlet.settings. Scoped to the caller's business;
+ * an unknown outlet is a 404. A known outlet without configuration gets the default week.
  */
 @Injectable()
 export class OperatingHoursRepository {
@@ -16,119 +32,59 @@ export class OperatingHoursRepository {
 
   // ==================== Legacy Operating Hours ====================
 
-  /**
-   * Get operating hours for an outlet (legacy format)
-   * Returns default schedule if not configured
-   */
-  async getOperatingHours(outletId: string): Promise<OperatingHours[]> {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { settings: true },
-    });
-
-    const settings = (outlet?.settings as Record<string, unknown>) || {};
-    const hours = settings.operatingHours as OperatingHours[] | undefined;
-
-    if (hours && Array.isArray(hours)) {
-      return hours;
-    }
-
-    // Default: Open Mon-Sat 08:00-22:00, Closed Sunday
-    return [
-      { dayOfWeek: 0, isOpen: false, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 1, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 2, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 3, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 4, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 5, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-      { dayOfWeek: 6, isOpen: true, openTime: '08:00', closeTime: '22:00' },
-    ];
+  async getOperatingHours(businessId: string, outletId: string): Promise<OperatingHours[]> {
+    const outlet = await findOwnedOutletSettings(this.prisma, businessId, outletId);
+    const hours = asJsonObject(outlet.settings).operatingHours;
+    return Array.isArray(hours) ? (hours as OperatingHours[]) : DEFAULT_LEGACY_HOURS;
   }
 
-  /**
-   * Update operating hours (legacy format)
-   */
-  async updateOperatingHours(outletId: string, data: OperatingHoursData[]): Promise<void> {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { settings: true },
-    });
-
-    const currentSettings = (outlet?.settings as Record<string, unknown>) || {};
-    await this.prisma.outlet.update({
-      where: { id: outletId },
-      data: {
-        settings: {
-          ...currentSettings,
-          operatingHours: data,
-        } as never,
+  async updateOperatingHours(
+    businessId: string,
+    outletId: string,
+    data: OperatingHoursData[],
+  ): Promise<void> {
+    await mutateOutletSettings(this.prisma, businessId, outletId, (current) => ({
+      settings: {
+        ...current,
+        operatingHours: data.map((h) => ({
+          dayOfWeek: h.dayOfWeek,
+          isOpen: h.isOpen,
+          openTime: h.openTime,
+          closeTime: h.closeTime,
+          breakStart: h.breakStart,
+          breakEnd: h.breakEnd,
+        })),
       },
-    });
+    }));
   }
 
   // ==================== Outlet Operating Hours (New Format) ====================
 
-  /**
-   * Get outlet operating hours (new format)
-   * @throws NotFoundException if outlet not found
-   */
-  async getOutletOperatingHours(outletId: string): Promise<OutletOperatingHoursEntry[]> {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { settings: true },
-    });
-
-    if (!outlet) {
-      throw new NotFoundException('Outlet not found');
-    }
-
-    const settings = (outlet.settings as Record<string, unknown>) || {};
-    const hours = settings.operatingHoursV2 as OutletOperatingHoursEntry[] | undefined;
-
-    if (hours && Array.isArray(hours) && hours.length === 7) {
-      return hours;
-    }
-
-    // Default: Open Mon-Sat 08:00-22:00, Closed Sunday
-    return [
-      { dayOfWeek: 0, openTime: '08:00', closeTime: '22:00', isClosed: true },
-      { dayOfWeek: 1, openTime: '08:00', closeTime: '22:00', isClosed: false },
-      { dayOfWeek: 2, openTime: '08:00', closeTime: '22:00', isClosed: false },
-      { dayOfWeek: 3, openTime: '08:00', closeTime: '22:00', isClosed: false },
-      { dayOfWeek: 4, openTime: '08:00', closeTime: '22:00', isClosed: false },
-      { dayOfWeek: 5, openTime: '08:00', closeTime: '22:00', isClosed: false },
-      { dayOfWeek: 6, openTime: '08:00', closeTime: '22:00', isClosed: false },
-    ];
+  async getOutletOperatingHours(
+    businessId: string,
+    outletId: string,
+  ): Promise<OutletOperatingHoursEntry[]> {
+    const outlet = await findOwnedOutletSettings(this.prisma, businessId, outletId);
+    const hours = asJsonObject(outlet.settings).operatingHoursV2;
+    return Array.isArray(hours) && hours.length === 7
+      ? (hours as OutletOperatingHoursEntry[])
+      : DEFAULT_HOURS;
   }
 
-  /**
-   * Update outlet operating hours (new format)
-   * @throws NotFoundException if outlet not found
-   */
   async updateOutletOperatingHours(
+    businessId: string,
     outletId: string,
     data: OutletOperatingHoursEntry[],
   ): Promise<OutletOperatingHoursEntry[]> {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { settings: true },
-    });
-
-    if (!outlet) {
-      throw new NotFoundException('Outlet not found');
-    }
-
-    const currentSettings = (outlet.settings as Record<string, unknown>) || {};
-    await this.prisma.outlet.update({
-      where: { id: outletId },
-      data: {
-        settings: {
-          ...currentSettings,
-          operatingHoursV2: data,
-        } as never,
-      },
-    });
-
-    return data;
+    const hours = data.map((h) => ({
+      dayOfWeek: h.dayOfWeek,
+      openTime: h.openTime,
+      closeTime: h.closeTime,
+      isClosed: h.isClosed,
+    }));
+    await mutateOutletSettings(this.prisma, businessId, outletId, (current) => ({
+      settings: { ...current, operatingHoursV2: hours },
+    }));
+    return hours;
   }
 }

@@ -64,7 +64,7 @@ export class LoyaltySettingsRepository {
     businessId: string,
     data: UpdateLoyaltyProgramData,
   ): Promise<LoyaltyProgramRecord> {
-    await this.prisma.loyaltyProgram.updateMany({
+    const { count } = await this.prisma.loyaltyProgram.updateMany({
       where: { businessId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
@@ -75,7 +75,9 @@ export class LoyaltySettingsRepository {
       },
     });
 
-    // Fetch the updated record to return with converted Decimal fields
+    if (count === 0) {
+      throw new NotFoundException('Loyalty program not found');
+    }
     const program = await this.prisma.loyaltyProgram.findFirst({ where: { businessId } });
     if (!program) {
       throw new NotFoundException('Loyalty program not found');
@@ -103,7 +105,6 @@ export class LoyaltySettingsRepository {
       ...t,
       minSpent: t.minSpent.toNumber(),
       pointMultiplier: t.pointMultiplier.toNumber(),
-      updatedAt: t.createdAt, // Use createdAt as updatedAt since schema doesn't have it
     }));
   }
 
@@ -127,16 +128,19 @@ export class LoyaltySettingsRepository {
       ...tier,
       minSpent: tier.minSpent.toNumber(),
       pointMultiplier: tier.pointMultiplier.toNumber(),
-      updatedAt: tier.createdAt, // Use createdAt as updatedAt since schema doesn't have it
     };
   }
 
   /**
    * Update loyalty tier
    */
-  async updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord> {
-    const tier = await this.prisma.loyaltyTier.update({
-      where: { id },
+  async updateLoyaltyTier(
+    businessId: string,
+    id: string,
+    data: UpdateLoyaltyTierData,
+  ): Promise<LoyaltyTierRecord> {
+    const { count } = await this.prisma.loyaltyTier.updateMany({
+      where: { id, businessId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.minPoints !== undefined && { minPoints: data.minPoints }),
@@ -147,22 +151,31 @@ export class LoyaltySettingsRepository {
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
+    if (count === 0) {
+      throw new NotFoundException('Loyalty tier not found');
+    }
+    const tier = await this.prisma.loyaltyTier.findFirst({ where: { id, businessId } });
+    if (!tier) {
+      throw new NotFoundException('Loyalty tier not found');
+    }
 
     return {
       ...tier,
       minSpent: tier.minSpent.toNumber(),
       pointMultiplier: tier.pointMultiplier.toNumber(),
-      updatedAt: tier.createdAt, // Use createdAt as updatedAt since schema doesn't have it
     };
   }
 
   /**
    * Soft delete a loyalty tier (set isActive to false)
    */
-  async deleteLoyaltyTier(id: string): Promise<void> {
-    await this.prisma.loyaltyTier.update({
-      where: { id },
+  async deleteLoyaltyTier(businessId: string, id: string): Promise<void> {
+    const { count } = await this.prisma.loyaltyTier.updateMany({
+      where: { id, businessId },
       data: { isActive: false },
     });
+    if (count === 0) {
+      throw new NotFoundException('Loyalty tier not found');
+    }
   }
 }

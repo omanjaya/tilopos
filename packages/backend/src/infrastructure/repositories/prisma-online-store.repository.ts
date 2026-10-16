@@ -1,11 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { PRODUCT_PUBLIC_SELECT } from '@shared/constants/selects';
 import type {
   IOnlineStoreRepository,
   OnlineStoreRecord,
   StoreOrderRecord,
   StoreProductRecord,
 } from '../../domain/interfaces/repositories/online-store.repository';
+
+/** Upper bound for unpaginated repository lists. */
+const MAX_LIST = 500;
 
 @Injectable()
 export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
@@ -23,14 +28,21 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
     slug: string;
     description: string | null;
   }): Promise<OnlineStoreRecord> {
-    return this.prisma.onlineStore.create({
-      data: {
-        businessId: data.businessId,
-        storeName: data.storeName,
-        slug: data.slug,
-        description: data.description,
-      },
-    });
+    try {
+      return await this.prisma.onlineStore.create({
+        data: {
+          businessId: data.businessId,
+          storeName: data.storeName,
+          slug: data.slug,
+          description: data.description,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Slug sudah dipakai');
+      }
+      throw error;
+    }
   }
 
   async findStoreBySlug(slug: string): Promise<OnlineStoreRecord | null> {
@@ -39,10 +51,13 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
     });
   }
 
+  /** Public product projection (no cost price), capped (R12/R13). */
   async findActiveProductsByBusinessId(businessId: string): Promise<StoreProductRecord[]> {
     const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
-      include: { variants: true, category: true },
+      select: PRODUCT_PUBLIC_SELECT,
+      orderBy: { name: 'asc' },
+      take: MAX_LIST,
     });
 
     return products.map((p) => ({
@@ -67,6 +82,7 @@ export class PrismaOnlineStoreRepository implements IOnlineStoreRepository {
       },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
+      take: MAX_LIST,
     });
 
     return orders.map((order) => ({

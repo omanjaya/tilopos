@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../database/prisma.service';
 import type {
@@ -6,13 +7,21 @@ import type {
   CustomerRecord,
 } from '../../domain/interfaces/repositories/customer.repository';
 
+/** Upper bound for the unpaginated list (R13). */
+const MAX_CUSTOMERS_PER_LIST = 1000;
+
 @Injectable()
 export class PrismaCustomerRepository implements ICustomerRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string): Promise<CustomerRecord | null> {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id },
+  /**
+   * Pass `businessId` whenever the id comes from a client (R3). The optional
+   * parameter keeps the domain interface signature; callers in this codebase
+   * always scope (the domain interface should make it required — see handoff).
+   */
+  async findById(id: string, businessId?: string): Promise<CustomerRecord | null> {
+    const customer = await this.prisma.customer.findFirst({
+      where: businessId ? { id, businessId } : { id },
     });
 
     if (!customer) {
@@ -26,6 +35,7 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     const customers = await this.prisma.customer.findMany({
       where: { businessId, isActive: true },
       orderBy: { name: 'asc' },
+      take: MAX_CUSTOMERS_PER_LIST,
     });
 
     return customers.map((customer) => this.mapToRecord(customer));
@@ -51,10 +61,11 @@ export class PrismaCustomerRepository implements ICustomerRepository {
         name: customer.name,
         email: customer.email,
         phone: customer.phone,
-        loyaltyPoints: customer.loyaltyPoints,
+        // New customers always start with zero balance/spend (server-owned fields).
+        loyaltyPoints: 0,
+        totalSpent: new Decimal(0),
+        visitCount: 0,
         loyaltyTier: customer.loyaltyTier,
-        totalSpent: new Decimal(customer.totalSpent),
-        visitCount: customer.visitCount,
         isActive: customer.isActive,
       },
     });
@@ -62,8 +73,16 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     return this.mapToRecord(created);
   }
 
-  async update(id: string, data: Partial<CustomerRecord>): Promise<CustomerRecord> {
-    const updateData: Record<string, unknown> = {};
+  /**
+   * Contact-detail update only. Loyalty balance, tier, totalSpent and visitCount are
+   * changed exclusively by the loyalty use-cases with atomic increments (R7/R9).
+   */
+  async update(
+    id: string,
+    data: Partial<CustomerRecord>,
+    businessId?: string,
+  ): Promise<CustomerRecord> {
+    const updateData: Prisma.CustomerUpdateManyMutationInput = {};
 
     if (data.name !== undefined) {
       updateData.name = data.name;
@@ -74,35 +93,27 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     if (data.phone !== undefined) {
       updateData.phone = data.phone;
     }
-    if (data.loyaltyPoints !== undefined) {
-      updateData.loyaltyPoints = data.loyaltyPoints;
-    }
-    if (data.loyaltyTier !== undefined) {
-      updateData.loyaltyTier = data.loyaltyTier;
-    }
-    if (data.totalSpent !== undefined) {
-      updateData.totalSpent = new Decimal(data.totalSpent);
-    }
-    if (data.visitCount !== undefined) {
-      updateData.visitCount = data.visitCount;
-    }
     if (data.isActive !== undefined) {
       updateData.isActive = data.isActive;
     }
 
-    const updated = await this.prisma.customer.update({
-      where: { id },
-      data: updateData,
-    });
-
+    const where = businessId ? { id, businessId } : { id };
+    const { count } = await this.prisma.customer.updateMany({ where, data: updateData });
+    if (count === 0) {
+      throw new NotFoundException('Customer not found');
+    }
+    const updated = await this.prisma.customer.findFirstOrThrow({ where });
     return this.mapToRecord(updated);
   }
 
-  async delete(id: string): Promise<void> {
-    await this.prisma.customer.update({
-      where: { id },
+  async delete(id: string, businessId?: string): Promise<void> {
+    const { count } = await this.prisma.customer.updateMany({
+      where: businessId ? { id, businessId } : { id },
       data: { isActive: false },
     });
+    if (count === 0) {
+      throw new NotFoundException('Customer not found');
+    }
   }
 
   private mapToRecord(customer: {

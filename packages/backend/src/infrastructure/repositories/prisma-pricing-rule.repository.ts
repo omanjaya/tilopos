@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   IPricingRuleRepository,
@@ -13,6 +14,9 @@ import {
 } from '../../domain/entities/pricing-rule.entity';
 import { AppError } from '../../shared/errors/app-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
+
+/** Upper bound of rules loaded per query (R13). */
+const MAX_RULES = 500;
 
 type PricingRuleRecord = {
   id: string;
@@ -53,40 +57,38 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
   }
 
   async findAll(options: FindPricingRulesOptions): Promise<PricingRule[]> {
-    const where: Record<string, unknown> = {
-      businessId: options.businessId,
-    };
-
-    if (options.type) {
-      where.type = options.type;
-    }
-
-    if (options.status) {
-      where.status = options.status;
-    }
+    // Every optional filter is its own AND clause so they never overwrite each other.
+    const and: Prisma.PricingRuleWhereInput[] = [];
 
     if (options.activeAt) {
-      where.validFrom = { lte: options.activeAt };
-      where.OR = [{ validUntil: null }, { validUntil: { gte: options.activeAt } }];
+      and.push({ validFrom: { lte: options.activeAt } });
+      and.push({ OR: [{ validUntil: null }, { validUntil: { gte: options.activeAt } }] });
     }
 
-    if (options.productIds && options.productIds.length > 0) {
-      where.OR = [
-        { productIds: { hasSome: options.productIds } },
-        { productIds: { isEmpty: true } },
-      ];
-    }
-
-    if (options.categoryIds && options.categoryIds.length > 0) {
-      where.OR = [
-        { categoryIds: { hasSome: options.categoryIds } },
-        { categoryIds: { isEmpty: true } },
-      ];
+    const productIds = options.productIds ?? [];
+    const categoryIds = options.categoryIds ?? [];
+    if (productIds.length > 0 || categoryIds.length > 0) {
+      // A rule matches when it targets one of the products or categories, or targets
+      // neither (applies to everything). Final product/category matching happens in
+      // PricingRule.appliesTo.
+      and.push({
+        OR: [
+          ...(productIds.length > 0 ? [{ productIds: { hasSome: productIds } }] : []),
+          ...(categoryIds.length > 0 ? [{ categoryIds: { hasSome: categoryIds } }] : []),
+          { AND: [{ productIds: { isEmpty: true } }, { categoryIds: { isEmpty: true } }] },
+        ],
+      });
     }
 
     const records = await this.prisma.pricingRule.findMany({
-      where,
+      where: {
+        businessId: options.businessId,
+        ...(options.type ? { type: options.type as PricingRuleType } : {}),
+        ...(options.status ? { status: options.status as PricingRuleStatus } : {}),
+        ...(and.length > 0 ? { AND: and } : {}),
+      },
       orderBy: { priority: 'desc' },
+      take: MAX_RULES,
     });
 
     return records.map((record: PricingRuleRecord) => this.toDomain(record));
@@ -97,25 +99,14 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
     productId: string,
     categoryId?: string,
   ): Promise<PricingRule[]> {
-    const now = new Date();
-
-    const records = await this.prisma.pricingRule.findMany({
-      where: {
-        businessId,
-        status: 'active',
-        validFrom: { lte: now },
-        OR: [{ validUntil: null }, { validUntil: { gte: now } }],
-      },
-      orderBy: { priority: 'desc' },
+    const rules = await this.findAll({
+      businessId,
+      status: 'active',
+      activeAt: new Date(),
+      productIds: [productId],
+      categoryIds: categoryId ? [categoryId] : [],
     });
-
-    // Filter by product/category in application layer
-    // (Prisma doesn't support complex array queries well)
-    const rules = records
-      .map((record: PricingRuleRecord) => this.toDomain(record))
-      .filter((rule: PricingRule) => rule.appliesTo(productId, categoryId));
-
-    return rules;
+    return rules.filter((rule: PricingRule) => rule.appliesTo(productId, categoryId));
   }
 
   async create(rule: PricingRule): Promise<PricingRule> {
@@ -155,11 +146,6 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
     businessId: string,
     updates: Partial<PricingRule>,
   ): Promise<PricingRule> {
-    const existing = await this.findById(id, businessId);
-    if (!existing) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
-    }
-
     const data: Record<string, unknown> = {};
 
     if (updates.name !== undefined) data.name = updates.name;
@@ -186,35 +172,38 @@ export class PrismaPricingRuleRepository implements IPricingRuleRepository {
       data.maxApplicationsPerTransaction = updates.maxApplicationsPerTransaction;
     }
 
-    const record = await this.prisma.pricingRule.update({
-      where: { id },
+    const { count } = await this.prisma.pricingRule.updateMany({
+      where: { id, businessId },
       data,
     });
+    if (count === 0) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
+    }
 
-    return this.toDomain(record);
+    const updated = await this.findById(id, businessId);
+    if (!updated) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
+    }
+    return updated;
   }
 
   async delete(id: string, businessId: string): Promise<void> {
-    const existing = await this.findById(id, businessId);
-    if (!existing) {
+    const { count } = await this.prisma.pricingRule.deleteMany({
+      where: { id, businessId },
+    });
+    if (count === 0) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
     }
-
-    await this.prisma.pricingRule.delete({
-      where: { id },
-    });
   }
 
   async updateStatus(id: string, businessId: string, status: string): Promise<void> {
-    const existing = await this.findById(id, businessId);
-    if (!existing) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
-    }
-
-    await this.prisma.pricingRule.update({
-      where: { id },
+    const { count } = await this.prisma.pricingRule.updateMany({
+      where: { id, businessId },
       data: { status: status as PricingRuleStatus },
     });
+    if (count === 0) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Pricing rule not found');
+    }
   }
 
   /**

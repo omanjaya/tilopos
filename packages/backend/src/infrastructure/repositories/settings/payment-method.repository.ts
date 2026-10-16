@@ -7,10 +7,126 @@ import type {
   CreateBusinessPaymentMethodData,
   UpdateBusinessPaymentMethodData,
 } from '../../../domain/interfaces/repositories/settings.repository';
+import { findBusinessSettings, mutateBusinessSettings, type JsonObject } from './json-settings';
+
+const DEFAULT_LEGACY_METHODS: PaymentMethodConfig[] = [
+  { method: 'cash', enabled: true, displayName: 'Tunai', sortOrder: 1 },
+  {
+    method: 'qris',
+    enabled: true,
+    displayName: 'QRIS',
+    processingFee: 0.7,
+    feeType: 'percentage',
+    sortOrder: 2,
+  },
+  {
+    method: 'card',
+    enabled: true,
+    displayName: 'Kartu Debit/Kredit',
+    processingFee: 2.5,
+    feeType: 'percentage',
+    sortOrder: 3,
+  },
+  {
+    method: 'gopay',
+    enabled: true,
+    displayName: 'GoPay',
+    processingFee: 2,
+    feeType: 'percentage',
+    sortOrder: 4,
+  },
+  {
+    method: 'ovo',
+    enabled: true,
+    displayName: 'OVO',
+    processingFee: 2,
+    feeType: 'percentage',
+    sortOrder: 5,
+  },
+  {
+    method: 'dana',
+    enabled: true,
+    displayName: 'DANA',
+    processingFee: 1.5,
+    feeType: 'percentage',
+    sortOrder: 6,
+  },
+  {
+    method: 'shopeepay',
+    enabled: true,
+    displayName: 'ShopeePay',
+    processingFee: 1.5,
+    feeType: 'percentage',
+    sortOrder: 7,
+  },
+  { method: 'bank_transfer', enabled: false, displayName: 'Transfer Bank', sortOrder: 8 },
+];
+
+/** Defaults use deterministic ids so they are addressable without being persisted. */
+function defaultBusinessMethods(businessId: string): BusinessPaymentMethod[] {
+  return [
+    {
+      id: `${businessId}-cash`,
+      name: 'Tunai',
+      type: 'cash',
+      isActive: true,
+      processingFee: 0,
+      settings: {},
+    },
+    {
+      id: `${businessId}-qris`,
+      name: 'QRIS',
+      type: 'qris',
+      isActive: true,
+      processingFee: 0.7,
+      settings: {},
+    },
+    {
+      id: `${businessId}-card`,
+      name: 'Kartu Debit/Kredit',
+      type: 'card',
+      isActive: true,
+      processingFee: 2.5,
+      settings: {},
+    },
+    {
+      id: `${businessId}-gopay`,
+      name: 'GoPay',
+      type: 'ewallet',
+      isActive: true,
+      processingFee: 2,
+      settings: {},
+    },
+    {
+      id: `${businessId}-ovo`,
+      name: 'OVO',
+      type: 'ewallet',
+      isActive: true,
+      processingFee: 2,
+      settings: {},
+    },
+    {
+      id: `${businessId}-bank_transfer`,
+      name: 'Transfer Bank',
+      type: 'bank_transfer',
+      isActive: false,
+      processingFee: 0,
+      settings: {},
+    },
+  ];
+}
+
+function readBusinessMethods(settings: JsonObject, businessId: string): BusinessPaymentMethod[] {
+  const methods = settings.businessPaymentMethods;
+  return Array.isArray(methods)
+    ? (methods as BusinessPaymentMethod[]).map((m) => ({ ...m }))
+    : defaultBusinessMethods(businessId);
+}
 
 /**
- * Repository for managing payment methods.
- * Handles payment method configurations, processing fees, and CRUD operations.
+ * Payment method configuration stored in business.settings.
+ * Writes are read-modify-write under a row lock (mutateBusinessSettings);
+ * reads never write.
  */
 @Injectable()
 export class PaymentMethodRepository {
@@ -18,195 +134,48 @@ export class PaymentMethodRepository {
 
   // ==================== Legacy Payment Methods ====================
 
-  /**
-   * Get payment methods configuration (legacy format)
-   * Returns default payment methods if not configured
-   */
   async getPaymentMethods(businessId: string): Promise<PaymentMethodConfig[]> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    const settings = (business?.settings as Record<string, unknown>) || {};
-    const methods = settings.paymentMethods as PaymentMethodConfig[] | undefined;
-
-    if (methods && Array.isArray(methods)) {
-      return methods;
+    const settings = await findBusinessSettings(this.prisma, businessId);
+    const methods = settings.paymentMethods;
+    // Onboarding stores a plain string[]; only the object form is the legacy config.
+    if (Array.isArray(methods) && methods.every((m) => m && typeof m === 'object')) {
+      return methods as PaymentMethodConfig[];
     }
-
-    // Default payment methods
-    return [
-      { method: 'cash', enabled: true, displayName: 'Tunai', sortOrder: 1 },
-      {
-        method: 'qris',
-        enabled: true,
-        displayName: 'QRIS',
-        processingFee: 0.7,
-        feeType: 'percentage',
-        sortOrder: 2,
-      },
-      {
-        method: 'card',
-        enabled: true,
-        displayName: 'Kartu Debit/Kredit',
-        processingFee: 2.5,
-        feeType: 'percentage',
-        sortOrder: 3,
-      },
-      {
-        method: 'gopay',
-        enabled: true,
-        displayName: 'GoPay',
-        processingFee: 2,
-        feeType: 'percentage',
-        sortOrder: 4,
-      },
-      {
-        method: 'ovo',
-        enabled: true,
-        displayName: 'OVO',
-        processingFee: 2,
-        feeType: 'percentage',
-        sortOrder: 5,
-      },
-      {
-        method: 'dana',
-        enabled: true,
-        displayName: 'DANA',
-        processingFee: 1.5,
-        feeType: 'percentage',
-        sortOrder: 6,
-      },
-      {
-        method: 'shopeepay',
-        enabled: true,
-        displayName: 'ShopeePay',
-        processingFee: 1.5,
-        feeType: 'percentage',
-        sortOrder: 7,
-      },
-      { method: 'bank_transfer', enabled: false, displayName: 'Transfer Bank', sortOrder: 8 },
-    ];
+    return DEFAULT_LEGACY_METHODS;
   }
 
-  /**
-   * Update payment methods configuration (legacy format)
-   */
   async updatePaymentMethods(businessId: string, data: PaymentMethodConfig[]): Promise<void> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    const currentSettings = (business?.settings as Record<string, unknown>) || {};
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...currentSettings,
-          paymentMethods: data,
-        } as never,
-      },
-    });
+    const methods = data.map((m) => ({
+      method: m.method,
+      enabled: m.enabled,
+      displayName: m.displayName,
+      processingFee: m.processingFee,
+      feeType: m.feeType,
+      minAmount: m.minAmount,
+      maxAmount: m.maxAmount,
+      sortOrder: m.sortOrder,
+    }));
+    await mutateBusinessSettings(this.prisma, businessId, (current) => ({
+      settings: { ...current, paymentMethods: methods },
+      result: undefined,
+    }));
   }
 
-  // ==================== Business Payment Methods (New CRUD API) ====================
+  // ==================== Business Payment Methods (CRUD API) ====================
 
-  /**
-   * Generate unique payment method ID
-   */
   private generatePaymentMethodId(): string {
     return randomBytes(16).toString('hex');
   }
 
-  /**
-   * Get all business payment methods
-   * @throws NotFoundException if business not found
-   */
   async getBusinessPaymentMethods(businessId: string): Promise<BusinessPaymentMethod[]> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    if (!business) {
-      throw new NotFoundException('Business not found');
-    }
-
-    const settings = (business.settings as Record<string, unknown>) || {};
-    const methods = settings.businessPaymentMethods as BusinessPaymentMethod[] | undefined;
-
-    if (methods && Array.isArray(methods)) {
-      return methods;
-    }
-
-    // Default payment methods with deterministic IDs based on businessId
-    const defaults: BusinessPaymentMethod[] = [
-      {
-        id: `${businessId}-cash`,
-        name: 'Tunai',
-        type: 'cash',
-        isActive: true,
-        processingFee: 0,
-        settings: {},
-      },
-      {
-        id: `${businessId}-qris`,
-        name: 'QRIS',
-        type: 'qris',
-        isActive: true,
-        processingFee: 0.7,
-        settings: {},
-      },
-      {
-        id: `${businessId}-card`,
-        name: 'Kartu Debit/Kredit',
-        type: 'card',
-        isActive: true,
-        processingFee: 2.5,
-        settings: {},
-      },
-      {
-        id: `${businessId}-gopay`,
-        name: 'GoPay',
-        type: 'ewallet',
-        isActive: true,
-        processingFee: 2,
-        settings: {},
-      },
-      {
-        id: `${businessId}-ovo`,
-        name: 'OVO',
-        type: 'ewallet',
-        isActive: true,
-        processingFee: 2,
-        settings: {},
-      },
-      {
-        id: `${businessId}-bank_transfer`,
-        name: 'Transfer Bank',
-        type: 'bank_transfer',
-        isActive: false,
-        processingFee: 0,
-        settings: {},
-      },
-    ];
-
-    // Auto-persist defaults so they get stable IDs for future operations
-    await this.saveBusinessPaymentMethods(businessId, defaults);
-
-    return defaults;
+    const settings = await findBusinessSettings(this.prisma, businessId);
+    return readBusinessMethods(settings, businessId);
   }
 
-  /**
-   * Create a new business payment method
-   */
   async createBusinessPaymentMethod(
     businessId: string,
     data: CreateBusinessPaymentMethodData,
   ): Promise<BusinessPaymentMethod> {
-    const methods = await this.getBusinessPaymentMethods(businessId);
     const newMethod: BusinessPaymentMethod = {
       id: this.generatePaymentMethodId(),
       name: data.name,
@@ -215,81 +184,49 @@ export class PaymentMethodRepository {
       processingFee: data.processingFee ?? 0,
       settings: data.settings ?? {},
     };
-
-    methods.push(newMethod);
-    await this.saveBusinessPaymentMethods(businessId, methods);
-    return newMethod;
+    return mutateBusinessSettings(this.prisma, businessId, (current) => ({
+      settings: {
+        ...current,
+        businessPaymentMethods: [...readBusinessMethods(current, businessId), newMethod],
+      },
+      result: newMethod,
+    }));
   }
 
-  /**
-   * Update an existing business payment method
-   * @throws NotFoundException if payment method not found
-   */
   async updateBusinessPaymentMethod(
     businessId: string,
     id: string,
     data: UpdateBusinessPaymentMethodData,
   ): Promise<BusinessPaymentMethod> {
-    const methods = await this.getBusinessPaymentMethods(businessId);
-    const index = methods.findIndex((m) => m.id === id);
-
-    if (index === -1) {
-      throw new NotFoundException('Payment method not found');
-    }
-
-    const existing = methods[index];
-    const updated: BusinessPaymentMethod = {
-      ...existing,
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.type !== undefined && { type: data.type }),
-      ...(data.isActive !== undefined && { isActive: data.isActive }),
-      ...(data.processingFee !== undefined && { processingFee: data.processingFee }),
-      ...(data.settings !== undefined && { settings: data.settings }),
-    };
-
-    methods[index] = updated;
-    await this.saveBusinessPaymentMethods(businessId, methods);
-    return updated;
-  }
-
-  /**
-   * Soft delete a business payment method (set isActive to false)
-   * @throws NotFoundException if payment method not found
-   */
-  async deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void> {
-    const methods = await this.getBusinessPaymentMethods(businessId);
-    const index = methods.findIndex((m) => m.id === id);
-
-    if (index === -1) {
-      throw new NotFoundException('Payment method not found');
-    }
-
-    // Soft-delete by setting isActive to false
-    methods[index] = { ...methods[index], isActive: false };
-    await this.saveBusinessPaymentMethods(businessId, methods);
-  }
-
-  /**
-   * Save payment methods to business settings
-   */
-  private async saveBusinessPaymentMethods(
-    businessId: string,
-    methods: BusinessPaymentMethod[],
-  ): Promise<void> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
+    return mutateBusinessSettings(this.prisma, businessId, (current) => {
+      const methods = readBusinessMethods(current, businessId);
+      const index = methods.findIndex((m) => m.id === id);
+      if (index === -1) {
+        throw new NotFoundException('Payment method not found');
+      }
+      const updated: BusinessPaymentMethod = {
+        ...methods[index],
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.type !== undefined && { type: data.type }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.processingFee !== undefined && { processingFee: data.processingFee }),
+        ...(data.settings !== undefined && { settings: data.settings }),
+      };
+      methods[index] = updated;
+      return { settings: { ...current, businessPaymentMethods: methods }, result: updated };
     });
+  }
 
-    const currentSettings = (business?.settings as Record<string, unknown>) || {};
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...currentSettings,
-          businessPaymentMethods: methods,
-        } as never,
-      },
+  /** Soft delete (isActive = false). */
+  async deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void> {
+    await mutateBusinessSettings(this.prisma, businessId, (current) => {
+      const methods = readBusinessMethods(current, businessId);
+      const index = methods.findIndex((m) => m.id === id);
+      if (index === -1) {
+        throw new NotFoundException('Payment method not found');
+      }
+      methods[index] = { ...methods[index], isActive: false };
+      return { settings: { ...current, businessPaymentMethods: methods }, result: undefined };
     });
   }
 }

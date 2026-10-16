@@ -1,5 +1,12 @@
 import { Decimal } from '@prisma/client/runtime/library';
 
+/*
+ * API-boundary serialisation ONLY (R8). Do not feed these numbers back into money
+ * arithmetic: sum/multiply with `@shared/utils/money` on the Prisma.Decimal values
+ * instead. The domain record types (domain/interfaces/repositories/*) still expose
+ * numbers; moving them to Decimal is tracked as a B6 handoff (F1245).
+ */
+
 /**
  * Converts a Prisma Decimal value to a JavaScript number.
  * Returns null if the input is null or undefined.

@@ -10,12 +10,17 @@ import type {
   StockLevel as PrismaStockLevel,
   StockMovement as PrismaStockMovement,
   Product,
+  ProductVariant,
 } from '@prisma/client';
 
 /** Extended Prisma StockLevel type with product relation included */
 type StockLevelWithProduct = PrismaStockLevel & {
   product?: Pick<Product, 'id' | 'name' | 'sku'> | null;
+  variant?: Pick<ProductVariant, 'id' | 'name' | 'sku'> | null;
 };
+
+/** Upper bound for list methods (R13). */
+const MAX_ROWS = 5000;
 
 @Injectable()
 export class PrismaInventoryRepository implements IInventoryRepository {
@@ -54,15 +59,11 @@ export class PrismaInventoryRepository implements IInventoryRepository {
     const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId },
       include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-          },
-        },
+        product: { select: { id: true, name: true, sku: true } },
+        variant: { select: { id: true, name: true, sku: true } },
       },
       orderBy: { updatedAt: 'desc' },
+      take: MAX_ROWS,
     });
 
     return stockLevels.map((stockLevel) => this.toStockLevelRecord(stockLevel));
@@ -72,23 +73,17 @@ export class PrismaInventoryRepository implements IInventoryRepository {
     // Prisma does not support comparing two columns in a where clause,
     // so we use a raw query to find items where quantity <= low_stock_alert.
     const rawResults = await this.prisma.$queryRaw<RawStockLevelRow[]>`
-      SELECT id, outlet_id, product_id, variant_id, quantity, low_stock_alert, updated_at
-      FROM stock_levels
-      WHERE outlet_id = ${outletId}::uuid
-        AND quantity <= low_stock_alert
-      ORDER BY quantity ASC
+      SELECT sl.id, sl.outlet_id, sl.product_id, sl.variant_id, sl.quantity, sl.low_stock_alert,
+             sl.updated_at, p.name AS product_name, p.sku AS product_sku
+      FROM stock_levels sl
+      LEFT JOIN products p ON p.id = sl.product_id
+      WHERE sl.outlet_id = ${outletId}::uuid
+        AND sl.quantity <= sl.low_stock_alert
+      ORDER BY sl.quantity ASC
+      LIMIT ${MAX_ROWS}
     `;
 
     return rawResults.map((row) => this.toStockLevelRecordFromRaw(row));
-  }
-
-  async updateStockLevel(id: string, quantity: number): Promise<StockLevelRecord> {
-    const updated = await this.prisma.stockLevel.update({
-      where: { id },
-      data: { quantity },
-    });
-
-    return this.toStockLevelRecord(updated);
   }
 
   async incrementStockLevel(id: string, incrementBy: number): Promise<StockLevelRecord> {
@@ -127,14 +122,17 @@ export class PrismaInventoryRepository implements IInventoryRepository {
   }
 
   async findStockMovements(filter: {
+    outletId: string;
     referenceId: string;
     referenceType: string;
   }): Promise<StockMovementRecord[]> {
     const movements = await this.prisma.stockMovement.findMany({
       where: {
+        outletId: filter.outletId,
         referenceId: filter.referenceId,
         referenceType: filter.referenceType,
       },
+      take: MAX_ROWS,
     });
     return movements.map((m) => this.toStockMovementRecord(m));
   }
@@ -155,6 +153,13 @@ export class PrismaInventoryRepository implements IInventoryRepository {
             sku: stockLevel.product.sku,
           }
         : undefined,
+      ...(stockLevel.variant && {
+        variant: {
+          id: stockLevel.variant.id,
+          name: stockLevel.variant.name,
+          sku: stockLevel.variant.sku,
+        },
+      }),
     };
   }
 
@@ -172,6 +177,9 @@ export class PrismaInventoryRepository implements IInventoryRepository {
       lowStockAlert:
         typeof row.low_stock_alert === 'number' ? row.low_stock_alert : Number(row.low_stock_alert),
       updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(String(row.updated_at)),
+      product: row.product_id
+        ? { id: row.product_id, name: row.product_name ?? '', sku: row.product_sku ?? null }
+        : undefined,
     };
   }
 
@@ -201,4 +209,6 @@ interface RawStockLevelRow {
   quantity: number | string;
   low_stock_alert: number | string;
   updated_at: Date | string;
+  product_name: string | null;
+  product_sku: string | null;
 }

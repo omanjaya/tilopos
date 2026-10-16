@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type {
@@ -17,6 +17,9 @@ interface OrderItemInput {
   notes: string | null;
 }
 
+/** Hard cap for list queries (R13): kitchen screens never need more. */
+const MAX_LIST_SIZE = 200;
+
 interface OrderRecordWithItems extends OrderRecord {
   items?: OrderItemInput[];
 }
@@ -25,9 +28,13 @@ interface OrderRecordWithItems extends OrderRecord {
 export class PrismaOrderRepository implements IOrderRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string): Promise<OrderRecordWithItems | null> {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
+  /**
+   * Pass `businessId` whenever the id comes from a client (R3). Callers without
+   * it must have verified ownership already (e.g. @BusinessScoped routes).
+   */
+  async findById(id: string, businessId?: string): Promise<OrderRecordWithItems | null> {
+    const order = await this.prisma.order.findFirst({
+      where: businessId ? { id, outlet: { businessId } } : { id },
       include: { items: true },
     });
 
@@ -42,6 +49,7 @@ export class PrismaOrderRepository implements IOrderRepository {
     const orders = await this.prisma.order.findMany({
       where: { outletId },
       orderBy: { createdAt: 'desc' },
+      take: MAX_LIST_SIZE,
     });
 
     return orders.map((order) => this.mapToBaseRecord(order));
@@ -57,9 +65,10 @@ export class PrismaOrderRepository implements IOrderRepository {
       },
       include: {
         items: true, // Include order items for KDS display
-        table: true, // Include table info for display
+        table: { select: { name: true } }, // table name for display
       },
       orderBy: { createdAt: 'desc' },
+      take: MAX_LIST_SIZE,
     });
 
     // Map to records with items for KDS
@@ -123,7 +132,8 @@ export class PrismaOrderRepository implements IOrderRepository {
     return this.mapToRecord(created);
   }
 
-  async update(id: string, data: Partial<OrderRecord>): Promise<OrderRecord> {
+  /** With `businessId` the update only touches an order of that business (404 otherwise). */
+  async update(id: string, data: Partial<OrderRecord>, businessId?: string): Promise<OrderRecord> {
     const updateData: Prisma.OrderUpdateInput = {};
 
     if (data.status !== undefined) {
@@ -143,6 +153,13 @@ export class PrismaOrderRepository implements IOrderRepository {
     }
     if (data.completedAt !== undefined) {
       updateData.completedAt = data.completedAt;
+    }
+
+    if (businessId) {
+      const owned = await this.prisma.order.count({ where: { id, outlet: { businessId } } });
+      if (owned === 0) {
+        throw new NotFoundException(`Order ${id} not found`);
+      }
     }
 
     const updated = await this.prisma.order.update({

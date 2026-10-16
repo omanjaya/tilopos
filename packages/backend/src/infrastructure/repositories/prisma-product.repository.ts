@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   IProductRepository,
   ProductRecord,
@@ -14,13 +14,20 @@ type ProductWithVariants = PrismaProduct & {
   variants?: PrismaProductVariant[];
 };
 
+/** Upper bound for list methods (R13). */
+const MAX_ROWS = 5000;
+
 @Injectable()
 export class PrismaProductRepository implements IProductRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string): Promise<ProductRecord | null> {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
+  /**
+   * Pass `businessId` whenever the id comes from a client (R3). The unscoped form is
+   * kept only for interface compatibility and is scheduled for removal (handoff B6/B2).
+   */
+  async findById(id: string, businessId?: string): Promise<ProductRecord | null> {
+    const product = await this.prisma.product.findFirst({
+      where: businessId ? { id, businessId } : { id },
       include: { variants: true },
     });
 
@@ -35,15 +42,18 @@ export class PrismaProductRepository implements IProductRepository {
     const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
       orderBy: { name: 'asc' },
+      take: MAX_ROWS,
     });
 
     return products.map((product) => this.toProductRecord(product));
   }
 
-  async findByCategoryId(categoryId: string): Promise<ProductRecord[]> {
+  /** Unused; kept only because IProductRepository still declares it (handoff B6). */
+  async findByCategoryId(categoryId: string, businessId?: string): Promise<ProductRecord[]> {
     const products = await this.prisma.product.findMany({
-      where: { categoryId, isActive: true },
+      where: { categoryId, isActive: true, ...(businessId && { businessId }) },
       orderBy: { name: 'asc' },
+      take: MAX_ROWS,
     });
 
     return products.map((product) => this.toProductRecord(product));
@@ -83,11 +93,20 @@ export class PrismaProductRepository implements IProductRepository {
     return this.toProductRecord(created);
   }
 
-  async update(id: string, data: Partial<ProductRecord>): Promise<ProductRecord> {
+  async update(
+    id: string,
+    data: Partial<ProductRecord>,
+    businessId?: string,
+  ): Promise<ProductRecord> {
+    if (businessId) {
+      const owned = await this.prisma.product.count({ where: { id, businessId } });
+      if (owned === 0) throw new NotFoundException('Product not found');
+    }
     const updated = await this.prisma.product.update({
       where: { id },
       data: {
-        ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
+        // categoryId is never taken from a ProductRecord here: it must be verified
+        // against the business by the caller (ProductCatalogService.updateProduct).
         ...(data.sku !== undefined && { sku: data.sku }),
         ...(data.name !== undefined && { name: data.name }),
         ...(data.description !== undefined && { description: data.description }),
@@ -104,11 +123,12 @@ export class PrismaProductRepository implements IProductRepository {
     return this.toProductRecord(updated);
   }
 
-  async delete(id: string): Promise<void> {
-    await this.prisma.product.update({
-      where: { id },
+  async delete(id: string, businessId?: string): Promise<void> {
+    const result = await this.prisma.product.updateMany({
+      where: businessId ? { id, businessId } : { id },
       data: { isActive: false },
     });
+    if (result.count === 0) throw new NotFoundException('Product not found');
   }
 
   private toProductRecord(product: ProductWithVariants): ProductRecord {

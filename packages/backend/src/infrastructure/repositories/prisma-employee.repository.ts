@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma, EmployeeRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
@@ -7,8 +7,19 @@ import type {
   EmployeeRecord,
 } from '../../domain/interfaces/repositories/employee.repository';
 
+/** Upper bound for findByBusinessId (R13). */
+const MAX_BUSINESS_EMPLOYEES = 1000;
+
+/**
+ * NOTE: findById/update are keyed by id only (the IEmployeeRepository contract).
+ * Callers must compare `record.businessId` with the caller's business before
+ * using or returning the record, and must never return the record to a client
+ * as-is: it contains the PIN hash and MFA secret (used by auth flows).
+ */
 @Injectable()
 export class PrismaEmployeeRepository implements IEmployeeRepository {
+  private readonly logger = new Logger(PrismaEmployeeRepository.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(id: string): Promise<EmployeeRecord | null> {
@@ -24,21 +35,26 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
   }
 
   /**
-   * Find employee by email without businessId filter.
-   * This is intentional: during login, businessId is not yet known.
-   * The login use-case validates businessId after authentication by
-   * deriving it from the matched employee record.
+   * Find the active employee with this email (case-insensitive) across all
+   * businesses — during login the tenant is not known yet.
+   * Email is not unique in the schema, so an ambiguous match (the same email
+   * active in two businesses) returns null instead of picking an arbitrary
+   * tenant. Create/update reject new duplicates (EmployeeManagementService).
    */
   async findByEmail(email: string): Promise<EmployeeRecord | null> {
-    const employee = await this.prisma.employee.findFirst({
-      where: { email, isActive: true },
+    const matches = await this.prisma.employee.findMany({
+      where: { email: { equals: email, mode: 'insensitive' }, isActive: true },
+      take: 2,
     });
 
-    if (!employee) {
+    if (matches.length !== 1) {
+      if (matches.length > 1) {
+        this.logger.warn('Login email matches more than one active employee; refusing to pick one');
+      }
       return null;
     }
 
-    return this.mapToRecord(employee);
+    return this.mapToRecord(matches[0]);
   }
 
   async findByGoogleId(googleId: string): Promise<EmployeeRecord | null> {
@@ -57,6 +73,7 @@ export class PrismaEmployeeRepository implements IEmployeeRepository {
     const employees = await this.prisma.employee.findMany({
       where: { businessId, isActive: true },
       orderBy: { name: 'asc' },
+      take: MAX_BUSINESS_EMPLOYEES,
     });
 
     return employees.map((employee) =>

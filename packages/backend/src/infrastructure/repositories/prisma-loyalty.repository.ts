@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   ILoyaltyRepository,
   LoyaltyProgramRecord,
@@ -29,9 +29,9 @@ export class PrismaLoyaltyRepository implements ILoyaltyRepository {
     return this.toProgramRecord(program);
   }
 
-  async findProgramById(id: string): Promise<LoyaltyProgramRecord | null> {
-    const program = await this.prisma.loyaltyProgram.findUnique({
-      where: { id },
+  async findProgramById(id: string, businessId?: string): Promise<LoyaltyProgramRecord | null> {
+    const program = await this.prisma.loyaltyProgram.findFirst({
+      where: businessId ? { id, businessId } : { id },
     });
 
     if (!program) {
@@ -52,9 +52,9 @@ export class PrismaLoyaltyRepository implements ILoyaltyRepository {
     return tiers.map((t) => this.toTierRecord(t));
   }
 
-  async findTierById(id: string): Promise<LoyaltyTierRecord | null> {
-    const tier = await this.prisma.loyaltyTier.findUnique({
-      where: { id },
+  async findTierById(id: string, businessId?: string): Promise<LoyaltyTierRecord | null> {
+    const tier = await this.prisma.loyaltyTier.findFirst({
+      where: businessId ? { id, businessId } : { id },
     });
 
     if (!tier) {
@@ -107,11 +107,12 @@ export class PrismaLoyaltyRepository implements ILoyaltyRepository {
   async findTransactionsByCustomer(
     customerId: string,
     limit = 50,
+    businessId?: string,
   ): Promise<LoyaltyTransactionRecord[]> {
     const transactions = await this.prisma.loyaltyTransaction.findMany({
-      where: { customerId },
+      where: businessId ? { customerId, customer: { businessId } } : { customerId },
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take: Math.min(Math.max(limit, 1), 100),
     });
 
     return transactions.map((t) => this.toTransactionRecord(t));
@@ -119,19 +120,32 @@ export class PrismaLoyaltyRepository implements ILoyaltyRepository {
 
   // ==================== Customer ====================
 
-  async updateCustomerPoints(customerId: string, points: number, tier: string): Promise<void> {
-    await this.prisma.customer.update({
-      where: { id: customerId },
+  /**
+   * Legacy absolute write kept for the domain interface. Point movements must go
+   * through the loyalty use-cases (atomic increment/decrement + ledger in one DB
+   * transaction, R9); nothing in the app calls this. An empty `tier` keeps the tier.
+   */
+  async updateCustomerPoints(
+    customerId: string,
+    points: number,
+    tier?: string,
+    businessId?: string,
+  ): Promise<void> {
+    const { count } = await this.prisma.customer.updateMany({
+      where: businessId ? { id: customerId, businessId } : { id: customerId },
       data: {
-        loyaltyPoints: points,
-        loyaltyTier: tier,
+        loyaltyPoints: Math.max(0, Math.trunc(points)),
+        ...(tier ? { loyaltyTier: tier } : {}),
       },
     });
+    if (count === 0) {
+      throw new NotFoundException('Customer not found');
+    }
   }
 
-  async findCustomerById(customerId: string) {
-    return this.prisma.customer.findUnique({
-      where: { id: customerId },
+  async findCustomerById(customerId: string, businessId?: string) {
+    return this.prisma.customer.findFirst({
+      where: businessId ? { id: customerId, businessId } : { id: customerId },
     });
   }
 

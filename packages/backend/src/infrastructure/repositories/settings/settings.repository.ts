@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type {
-  ISettingsRepository,
   BusinessRecord,
   UpdateBusinessData,
   OutletRecord,
@@ -46,14 +45,16 @@ import { OperatingHoursRepository } from './operating-hours.repository';
 import { PaymentMethodRepository } from './payment-method.repository';
 import { PrinterConfigRepository } from './printer-config.repository';
 import { ReportScheduleRepository } from './report-schedule.repository';
+import type { UpdateOutletData } from './outlet-settings.repository';
 
 /**
  * Main Settings Repository that delegates to specialized repositories.
+ * Every method is scoped by the caller's businessId (from the JWT).
  * This acts as a facade that maintains the original ISettingsRepository interface
  * while delegating to focused, single-responsibility repositories.
  */
 @Injectable()
-export class SettingsRepository implements ISettingsRepository {
+export class SettingsRepository {
   constructor(
     private readonly businessSettings: BusinessSettingsRepository,
     private readonly outletSettings: OutletSettingsRepository,
@@ -83,8 +84,8 @@ export class SettingsRepository implements ISettingsRepository {
     return this.outletSettings.findOutlets(businessId);
   }
 
-  async findOutletById(id: string): Promise<OutletRecord | null> {
-    return this.outletSettings.findOutletById(id);
+  async findOutletById(businessId: string, id: string): Promise<OutletRecord | null> {
+    return this.outletSettings.findOutletById(businessId, id);
   }
 
   async createOutlet(data: CreateOutletData): Promise<OutletRecord> {
@@ -92,22 +93,15 @@ export class SettingsRepository implements ISettingsRepository {
   }
 
   async updateOutlet(
+    businessId: string,
     id: string,
-    data: {
-      name?: string;
-      code?: string;
-      address?: string;
-      phone?: string;
-      taxRate?: number;
-      serviceCharge?: number;
-      isActive?: boolean;
-    },
+    data: UpdateOutletData,
   ): Promise<OutletRecord> {
-    return this.outletSettings.updateOutlet(id, data);
+    return this.outletSettings.updateOutlet(businessId, id, data);
   }
 
-  async deleteOutlet(id: string): Promise<void> {
-    return this.outletSettings.deleteOutlet(id);
+  async deleteOutlet(businessId: string, id: string): Promise<void> {
+    return this.outletSettings.deleteOutlet(businessId, id);
   }
 
   // ==================== Modifier Groups ====================
@@ -121,14 +115,15 @@ export class SettingsRepository implements ISettingsRepository {
   }
 
   async updateModifierGroup(
+    businessId: string,
     id: string,
     data: UpdateModifierGroupData,
   ): Promise<ModifierGroupRecord> {
-    return this.modifierGroups.updateModifierGroup(id, data);
+    return this.modifierGroups.updateModifierGroup(businessId, id, data);
   }
 
-  async deleteModifierGroup(id: string): Promise<void> {
-    return this.modifierGroups.deleteModifierGroup(id);
+  async deleteModifierGroup(businessId: string, id: string): Promise<void> {
+    return this.modifierGroups.deleteModifierGroup(businessId, id);
   }
 
   // ==================== Loyalty Program ====================
@@ -158,22 +153,30 @@ export class SettingsRepository implements ISettingsRepository {
     return this.loyaltySettings.createLoyaltyTier(data);
   }
 
-  async updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord> {
-    return this.loyaltySettings.updateLoyaltyTier(id, data);
+  async updateLoyaltyTier(
+    businessId: string,
+    id: string,
+    data: UpdateLoyaltyTierData,
+  ): Promise<LoyaltyTierRecord> {
+    return this.loyaltySettings.updateLoyaltyTier(businessId, id, data);
   }
 
-  async deleteLoyaltyTier(id: string): Promise<void> {
-    return this.loyaltySettings.deleteLoyaltyTier(id);
+  async deleteLoyaltyTier(businessId: string, id: string): Promise<void> {
+    return this.loyaltySettings.deleteLoyaltyTier(businessId, id);
   }
 
   // ==================== Tax Configuration ====================
 
-  async getTaxConfig(outletId: string): Promise<TaxConfig> {
-    return this.taxConfiguration.getTaxConfig(outletId);
+  async getTaxConfig(businessId: string, outletId: string): Promise<TaxConfig> {
+    return this.taxConfiguration.getTaxConfig(businessId, outletId);
   }
 
-  async updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<TaxConfig> {
-    return this.taxConfiguration.updateTaxConfig(outletId, data);
+  async updateTaxConfig(
+    businessId: string,
+    outletId: string,
+    data: UpdateTaxConfigData,
+  ): Promise<TaxConfig> {
+    return this.taxConfiguration.updateTaxConfig(businessId, outletId, data);
   }
 
   async getBusinessTaxConfig(businessId: string): Promise<BusinessTaxConfig> {
@@ -189,47 +192,60 @@ export class SettingsRepository implements ISettingsRepository {
 
   // ==================== Receipt Template ====================
 
-  async getReceiptTemplate(outletId: string): Promise<ReceiptTemplate> {
-    return this.receiptTemplate.getReceiptTemplate(outletId);
+  async getReceiptTemplate(businessId: string, outletId: string): Promise<ReceiptTemplate> {
+    return this.receiptTemplate.getReceiptTemplate(businessId, outletId);
   }
 
   async updateReceiptTemplate(
+    businessId: string,
     outletId: string,
     data: UpdateReceiptTemplateData,
   ): Promise<ReceiptTemplate> {
-    return this.receiptTemplate.updateReceiptTemplate(outletId, data);
+    return this.receiptTemplate.updateReceiptTemplate(businessId, outletId, data);
   }
 
-  async getOutletReceiptTemplate(outletId: string): Promise<OutletReceiptTemplate> {
-    return this.receiptTemplate.getOutletReceiptTemplate(outletId);
+  async getOutletReceiptTemplate(
+    businessId: string,
+    outletId: string,
+  ): Promise<OutletReceiptTemplate> {
+    return this.receiptTemplate.getOutletReceiptTemplate(businessId, outletId);
   }
 
   async updateOutletReceiptTemplate(
+    businessId: string,
     outletId: string,
     data: UpdateOutletReceiptTemplateData,
   ): Promise<OutletReceiptTemplate> {
-    return this.receiptTemplate.updateOutletReceiptTemplate(outletId, data);
+    return this.receiptTemplate.updateOutletReceiptTemplate(businessId, outletId, data);
   }
 
   // ==================== Operating Hours ====================
 
-  async getOperatingHours(outletId: string): Promise<OperatingHours[]> {
-    return this.operatingHours.getOperatingHours(outletId);
+  async getOperatingHours(businessId: string, outletId: string): Promise<OperatingHours[]> {
+    return this.operatingHours.getOperatingHours(businessId, outletId);
   }
 
-  async updateOperatingHours(outletId: string, data: OperatingHoursData[]): Promise<void> {
-    return this.operatingHours.updateOperatingHours(outletId, data);
+  async updateOperatingHours(
+    businessId: string,
+    outletId: string,
+    data: OperatingHoursData[],
+  ): Promise<void> {
+    return this.operatingHours.updateOperatingHours(businessId, outletId, data);
   }
 
-  async getOutletOperatingHours(outletId: string): Promise<OutletOperatingHoursEntry[]> {
-    return this.operatingHours.getOutletOperatingHours(outletId);
+  async getOutletOperatingHours(
+    businessId: string,
+    outletId: string,
+  ): Promise<OutletOperatingHoursEntry[]> {
+    return this.operatingHours.getOutletOperatingHours(businessId, outletId);
   }
 
   async updateOutletOperatingHours(
+    businessId: string,
     outletId: string,
     data: OutletOperatingHoursEntry[],
   ): Promise<OutletOperatingHoursEntry[]> {
-    return this.operatingHours.updateOutletOperatingHours(outletId, data);
+    return this.operatingHours.updateOutletOperatingHours(businessId, outletId, data);
   }
 
   // ==================== Payment Methods ====================

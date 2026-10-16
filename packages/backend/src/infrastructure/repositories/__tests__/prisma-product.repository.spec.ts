@@ -53,6 +53,8 @@ describe('PrismaProductRepository', () => {
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as jest.Mocked<PrismaService>;
 
@@ -62,21 +64,22 @@ describe('PrismaProductRepository', () => {
   describe('findById', () => {
     it('should return a product record when found', async () => {
       const prismaResult = makePrismaProduct();
-      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(prismaResult);
+      (mockPrisma.product.findFirst as jest.Mock).mockResolvedValue(prismaResult);
 
-      const result = await repository.findById('prod-1');
+      const result = await repository.findById('prod-1', 'biz-1');
 
-      expect(mockPrisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'prod-1' },
+      // tenant scoped lookup (R3)
+      expect(mockPrisma.product.findFirst).toHaveBeenCalledWith({
+        where: { id: 'prod-1', businessId: 'biz-1' },
         include: { variants: true },
       });
       expect(result).toEqual(expectedProductRecord);
     });
 
     it('should return null when product is not found', async () => {
-      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.product.findFirst as jest.Mock).mockResolvedValue(null);
 
-      const result = await repository.findById('nonexistent');
+      const result = await repository.findById('nonexistent', 'biz-1');
 
       expect(result).toBeNull();
     });
@@ -95,6 +98,7 @@ describe('PrismaProductRepository', () => {
       expect(mockPrisma.product.findMany).toHaveBeenCalledWith({
         where: { businessId: 'biz-1', isActive: true },
         orderBy: { name: 'asc' },
+        take: 5000,
       });
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('prod-1');
@@ -201,14 +205,20 @@ describe('PrismaProductRepository', () => {
 
   describe('delete', () => {
     it('should soft-delete a product by setting isActive to false', async () => {
-      (mockPrisma.product.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.product.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
-      await repository.delete('prod-1');
+      await repository.delete('prod-1', 'biz-1');
 
-      expect(mockPrisma.product.update).toHaveBeenCalledWith({
-        where: { id: 'prod-1' },
+      expect(mockPrisma.product.updateMany).toHaveBeenCalledWith({
+        where: { id: 'prod-1', businessId: 'biz-1' },
         data: { isActive: false },
       });
+    });
+
+    it('should throw NotFound for a product of another business', async () => {
+      (mockPrisma.product.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      await expect(repository.delete('prod-1', 'other-biz')).rejects.toThrow('Product not found');
     });
   });
 
@@ -222,6 +232,7 @@ describe('PrismaProductRepository', () => {
       expect(mockPrisma.product.findMany).toHaveBeenCalledWith({
         where: { categoryId: 'cat-1', isActive: true },
         orderBy: { name: 'asc' },
+        take: 5000,
       });
       expect(result).toHaveLength(1);
     });

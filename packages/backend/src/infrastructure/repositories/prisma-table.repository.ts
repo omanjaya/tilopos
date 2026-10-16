@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { AppError } from '../../shared/errors/app-error';
+import { ErrorCode } from '../../shared/constants/error-codes';
 import type {
   ITableRepository,
   TableRecord,
@@ -8,13 +11,25 @@ import type {
 import { PrismaService } from '../database/prisma.service';
 import type { Table } from '@prisma/client';
 
+/** uq_table_outlet_name_active: one active table per (outlet, name). */
+function rethrowDuplicateName(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    throw new AppError(
+      ErrorCode.DUPLICATE_TABLE,
+      'Table with this name already exists',
+      HttpStatus.CONFLICT,
+    );
+  }
+  throw error;
+}
+
 @Injectable()
 export class PrismaTableRepository implements ITableRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string): Promise<TableRecord | null> {
-    const table = await this.prisma.table.findUnique({
-      where: { id },
+  async findById(id: string, businessId: string): Promise<TableRecord | null> {
+    const table = await this.prisma.table.findFirst({
+      where: { id, outlet: { businessId } },
     });
 
     if (!table) {
@@ -55,59 +70,73 @@ export class PrismaTableRepository implements ITableRepository {
   }
 
   async create(data: CreateTableData): Promise<TableRecord> {
-    const created = await this.prisma.table.create({
-      data: {
-        outletId: data.outletId,
-        name: data.name,
-        capacity: data.capacity ?? 4,
-        section: data.section,
-        positionX: data.positionX,
-        positionY: data.positionY,
-      },
-    });
+    const created = await this.prisma.table
+      .create({
+        data: {
+          outletId: data.outletId,
+          name: data.name,
+          capacity: data.capacity ?? 4,
+          section: data.section,
+          positionX: data.positionX,
+          positionY: data.positionY,
+        },
+      })
+      .catch(rethrowDuplicateName);
 
     return this.toRecord(created);
   }
 
-  async update(id: string, data: UpdateTableData): Promise<TableRecord> {
-    const updated = await this.prisma.table.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.capacity !== undefined && { capacity: data.capacity }),
-        ...(data.section !== undefined && { section: data.section }),
-        ...(data.positionX !== undefined && { positionX: data.positionX }),
-        ...(data.positionY !== undefined && { positionY: data.positionY }),
-        ...(data.status !== undefined && { status: data.status }),
-        ...(data.isActive !== undefined && { isActive: data.isActive }),
-      },
-    });
-
-    return this.toRecord(updated);
+  async update(id: string, data: UpdateTableData, businessId: string): Promise<TableRecord> {
+    const { count } = await this.prisma.table
+      .updateMany({
+        where: { id, outlet: { businessId } },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.capacity !== undefined && { capacity: data.capacity }),
+          ...(data.section !== undefined && { section: data.section }),
+          ...(data.positionX !== undefined && { positionX: data.positionX }),
+          ...(data.positionY !== undefined && { positionY: data.positionY }),
+          ...(data.status !== undefined && { status: data.status }),
+          ...(data.isActive !== undefined && { isActive: data.isActive }),
+        },
+      })
+      .catch(rethrowDuplicateName);
+    return this.reload(id, businessId, count);
   }
 
-  async delete(id: string): Promise<void> {
-    await this.prisma.table.update({
-      where: { id },
+  async delete(id: string, businessId: string): Promise<void> {
+    const { count } = await this.prisma.table.updateMany({
+      where: { id, outlet: { businessId } },
       data: { isActive: false },
     });
+    if (count === 0) {
+      throw new NotFoundException('Table not found');
+    }
   }
 
   async updateStatus(
     id: string,
     status: 'available' | 'occupied' | 'reserved' | 'cleaning',
-    currentOrderId?: string,
+    currentOrderId: string | undefined,
+    businessId: string,
   ): Promise<TableRecord> {
-    const updated = await this.prisma.table.update({
-      where: { id },
+    const { count } = await this.prisma.table.updateMany({
+      where: { id, outlet: { businessId } },
       data: {
         status,
         currentOrderId: currentOrderId ?? null,
         occupiedAt: status === 'occupied' ? new Date() : null,
       },
     });
+    return this.reload(id, businessId, count);
+  }
 
-    return this.toRecord(updated);
+  private async reload(id: string, businessId: string, count: number): Promise<TableRecord> {
+    const table = count > 0 ? await this.findById(id, businessId) : null;
+    if (!table) {
+      throw new NotFoundException('Table not found');
+    }
+    return table;
   }
 
   private toRecord(table: Table): TableRecord {
