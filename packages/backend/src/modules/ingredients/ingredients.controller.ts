@@ -6,24 +6,22 @@ import {
   Delete,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
-  UseGuards,
   Inject,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
+import { TenantAccessService } from '../../shared/tenant';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import type { IIngredientRepository } from '../../domain/interfaces/repositories/ingredient.repository';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { toPrismaPage } from '../../shared/dtos/pagination-query.dto';
+import { canSeeCost } from '../inventory/product-serializer';
 
 // Use Cases
 import { CreateIngredientUseCase } from '../../application/use-cases/ingredients/create-ingredient.use-case';
@@ -48,6 +46,8 @@ import {
   CreateRecipeDto,
   UpdateRecipeDto,
   RecipeQueryDto,
+  IngredientListQueryDto,
+  IngredientStockQueryDto,
 } from '../../application/dtos/ingredient.dto';
 import {
   IngredientImportDto,
@@ -55,14 +55,24 @@ import {
   LowStockAlertQueryDto,
 } from '../../application/dtos/ingredient-features.dto';
 
+const INGREDIENT_WRITERS = [EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY];
+
+/** Hides cost per unit from roles that must not see costs (R12). */
+function withCostVisibility<T extends { costPerUnit: number }>(
+  row: T,
+  user: AuthUser,
+): T | (Omit<T, 'costPerUnit'> & { costPerUnit: null }) {
+  return canSeeCost(user.role) ? row : { ...row, costPerUnit: null };
+}
+
 @ApiTags('Ingredients')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ingredients')
 export class IngredientsController {
   constructor(
     @Inject(REPOSITORY_TOKENS.INGREDIENT)
     private readonly ingredientRepo: IIngredientRepository,
+    private readonly tenant: TenantAccessService,
     private readonly createIngredientUseCase: CreateIngredientUseCase,
     private readonly updateIngredientUseCase: UpdateIngredientUseCase,
     private readonly deleteIngredientUseCase: DeleteIngredientUseCase,
@@ -74,31 +84,24 @@ export class IngredientsController {
     private readonly deleteRecipeUseCase: DeleteRecipeUseCase,
     private readonly getRecipesUseCase: GetRecipesUseCase,
     private readonly ingredientsService: IngredientsService,
-    private readonly prisma: PrismaService,
   ) {}
-
-  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
 
   // ==================== Ingredients ====================
 
   @Get()
-  @ApiOperation({ summary: 'Get all ingredients for business' })
-  async list(@CurrentUser() user: AuthUser) {
-    return this.getIngredientsUseCase.execute({
+  @ApiOperation({ summary: 'Get ingredients for business (array; page/limit optional, max 100)' })
+  async list(@Query() query: IngredientListQueryDto, @CurrentUser() user: AuthUser) {
+    const page = query.page !== undefined || query.limit !== undefined ? toPrismaPage(query) : {};
+    const rows = await this.getIngredientsUseCase.execute({
       businessId: user.businessId,
       activeOnly: true,
+      ...page,
     });
+    return rows.map((r) => withCostVisibility(r, user));
   }
 
   @Post()
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INGREDIENT_WRITERS)
   @ApiOperation({ summary: 'Create a new ingredient' })
   async create(@Body() dto: CreateIngredientDto, @CurrentUser() user: AuthUser) {
     return this.createIngredientUseCase.execute({
@@ -112,12 +115,16 @@ export class IngredientsController {
   }
 
   @Put(':id')
-  @BusinessScoped({ resource: 'ingredient', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INGREDIENT_WRITERS)
   @ApiOperation({ summary: 'Update an ingredient' })
-  async update(@Param('id') id: string, @Body() dto: UpdateIngredientDto) {
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateIngredientDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.updateIngredientUseCase.execute({
       id,
+      businessId: user.businessId,
       name: dto.name,
       sku: dto.sku,
       unit: dto.unit,
@@ -128,11 +135,10 @@ export class IngredientsController {
   }
 
   @Delete(':id')
-  @BusinessScoped({ resource: 'ingredient', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Delete (deactivate) an ingredient' })
-  async remove(@Param('id') id: string) {
-    return this.deleteIngredientUseCase.execute(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.deleteIngredientUseCase.execute(id, user.businessId);
   }
 
   // ==================== Stock Levels ====================
@@ -140,34 +146,37 @@ export class IngredientsController {
   @Get('stock/:outletId')
   @ApiOperation({ summary: 'Get ingredient stock levels for outlet' })
   async getStock(
-    @Param('outletId') outletId: string,
-    @Query('lowOnly') lowOnly?: string,
-    @CurrentUser() user?: AuthUser,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: IngredientStockQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    if (user) await this.verifyOutletAccess(outletId, user.businessId);
+    await this.tenant.assertOutlet(user, outletId);
     return this.getIngredientStockUseCase.execute({
+      businessId: user.businessId,
       outletId,
-      lowStockOnly: lowOnly === 'true',
+      lowStockOnly: query.lowOnly === true,
     });
   }
 
   @Post('stock/adjust')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INGREDIENT_WRITERS, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Adjust ingredient stock (add/deduct)' })
   async adjustStock(@Body() dto: AdjustIngredientStockDto, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'User must be assigned to an outlet');
+    const outletId = dto.outletId ?? user.outletId;
+    if (!outletId) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'outletId is required');
     }
+    await this.tenant.assertOutlet(user, outletId);
 
     return this.adjustIngredientStockUseCase.execute({
-      outletId: user.outletId,
+      businessId: user.businessId,
+      outletId,
       ingredientId: dto.ingredientId,
       quantity: dto.quantity,
       referenceId: dto.referenceId,
       referenceType: dto.referenceType,
       notes: dto.notes,
       employeeId: user.employeeId,
-      businessId: user.businessId,
     });
   }
 
@@ -175,18 +184,20 @@ export class IngredientsController {
 
   @Get('recipes')
   @ApiOperation({ summary: 'Get recipes by product' })
-  async listRecipes(@Query() query: RecipeQueryDto) {
+  async listRecipes(@Query() query: RecipeQueryDto, @CurrentUser() user: AuthUser) {
     return this.getRecipesUseCase.execute({
+      businessId: user.businessId,
       productId: query.productId,
       variantId: query.variantId,
     });
   }
 
   @Post('recipes')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Create a new recipe' })
-  async createRecipe(@Body() dto: CreateRecipeDto) {
+  async createRecipe(@Body() dto: CreateRecipeDto, @CurrentUser() user: AuthUser) {
     return this.createRecipeUseCase.execute({
+      businessId: user.businessId,
       productId: dto.productId,
       variantId: dto.variantId,
       notes: dto.notes,
@@ -195,37 +206,42 @@ export class IngredientsController {
   }
 
   @Put('recipes/:id')
-  @BusinessScoped({ resource: 'recipe', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update a recipe' })
-  async updateRecipe(@Param('id') id: string, @Body() dto: UpdateRecipeDto) {
+  async updateRecipe(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateRecipeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.updateRecipeUseCase.execute({
       id,
+      businessId: user.businessId,
       notes: dto.notes,
       items: dto.items,
     });
   }
 
   @Delete('recipes/:id')
-  @BusinessScoped({ resource: 'recipe', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Delete a recipe' })
-  async deleteRecipe(@Param('id') id: string) {
-    return this.deleteRecipeUseCase.execute(id);
+  async deleteRecipe(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.deleteRecipeUseCase.execute(id, user.businessId);
   }
 
   // ==================== Import / Export ====================
 
   @Post('import')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  @ApiOperation({ summary: 'Import ingredients from CSV/JSON data' })
+  @Roles(...INGREDIENT_WRITERS)
+  @ApiOperation({ summary: 'Import ingredients (parsed rows, max 1000)' })
   async importIngredients(@Body() dto: IngredientImportDto, @CurrentUser() user: AuthUser) {
-    return this.ingredientsService.importIngredients(user.businessId, dto.data, dto.format);
+    return this.ingredientsService.importIngredients(user.businessId, dto.data);
   }
 
   @Get('export')
+  @Roles(...INGREDIENT_WRITERS)
   @ApiOperation({ summary: 'Export all ingredients as CSV or JSON with optional stock levels' })
   async exportIngredients(@Query() query: IngredientExportQueryDto, @CurrentUser() user: AuthUser) {
+    if (query.outletId) await this.tenant.assertOutlet(user, query.outletId);
     return this.ingredientsService.exportIngredients(
       user.businessId,
       query.format,
@@ -240,11 +256,15 @@ export class IngredientsController {
   @ApiOperation({
     summary: 'Get low stock alerts with reorder suggestions',
     description:
-      'Returns ingredients below minimum stock level, grouped by outlet, with reorder suggestions based on average daily consumption and lead time.',
+      'Returns ingredients below minimum stock level for the outlet, with reorder suggestions based on average daily consumption and lead time.',
   })
-  async getLowStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user?: AuthUser) {
-    if (user && query.outletId) await this.verifyOutletAccess(query.outletId, user.businessId);
-    return this.ingredientsService.getLowStockAlerts(query.outletId, query.threshold);
+  async getLowStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user: AuthUser) {
+    await this.tenant.assertOutlet(user, query.outletId);
+    return this.ingredientsService.getLowStockAlerts(
+      user.businessId,
+      query.outletId,
+      query.threshold,
+    );
   }
 
   // ==================== Stock Alerts (formatted) ====================
@@ -255,9 +275,10 @@ export class IngredientsController {
     description:
       'Returns formatted alerts with ingredient name, current level, minimum level, and deficit for ingredients below their minimum threshold.',
   })
-  async getStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user?: AuthUser) {
-    if (user && query.outletId) await this.verifyOutletAccess(query.outletId, user.businessId);
+  async getStockAlerts(@Query() query: LowStockAlertQueryDto, @CurrentUser() user: AuthUser) {
+    await this.tenant.assertOutlet(user, query.outletId);
     const lowStockItems = await this.ingredientsService.getLowStockAlerts(
+      user.businessId,
       query.outletId,
       query.threshold,
     );
@@ -287,31 +308,29 @@ export class IngredientsController {
     };
   }
 
-  // ==================== Recipe Cost History ====================
+  // ==================== Recipe Cost ====================
 
   @Get('recipes/:id/cost-history')
-  @BusinessScoped({ resource: 'recipe', param: 'id' })
+  @Roles(...INGREDIENT_WRITERS)
   @ApiOperation({
-    summary: 'Get recipe cost history over time',
+    summary: 'Get current recipe cost',
     description:
-      'Track how recipe costs change over time as ingredient costs change. Returns current cost and historical snapshots.',
+      'Returns the recipe cost from current ingredient costs. `history` is always empty and `historyAvailable` false: ingredient cost changes are not versioned.',
   })
   async getRecipeCostHistory(
-    @Param('id') id: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.ingredientsService.getRecipeCostHistory(id, startDate, endDate);
+    return this.ingredientsService.getRecipeCostHistory(id, user.businessId);
   }
 
   // ==================== Get by ID (must be AFTER all static routes) ====================
 
   @Get(':id')
-  @BusinessScoped({ resource: 'ingredient', param: 'id' })
   @ApiOperation({ summary: 'Get ingredient by ID' })
-  async getById(@Param('id') id: string) {
-    const ingredient = await this.ingredientRepo.findById(id);
+  async getById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    const ingredient = await this.ingredientRepo.findById(id, user.businessId);
     if (!ingredient) throw new NotFoundException('Ingredient not found');
-    return ingredient;
+    return withCostVisibility(ingredient, user);
   }
 }

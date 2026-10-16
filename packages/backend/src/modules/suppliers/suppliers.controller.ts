@@ -1,111 +1,78 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  ParseUUIDPipe,
   Post,
   Put,
-  Delete,
-  Body,
-  Param,
   Query,
-  UseGuards,
-  Inject,
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { ISupplierRepository } from '../../domain/interfaces/repositories/supplier.repository';
+import { PaginationQueryDto } from '../../shared/dtos/pagination-query.dto';
 import { SuppliersService } from './suppliers.service';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { ReceivePurchaseOrderUseCase } from '../../application/use-cases/inventory/receive-purchase-order.use-case';
 import {
-  SupplierAnalyticsQueryDto,
-  AutoReorderDto,
-  ReorderSuggestionsQueryDto,
   ApprovePurchaseOrderDto,
+  AutoReorderDto,
+  CreatePurchaseOrderDto,
+  CreateSupplierDto,
+  PurchaseOrderListQueryDto,
+  ReceivePurchaseOrderDto,
   RejectPurchaseOrderDto,
+  ReorderSuggestionsQueryDto,
+  SupplierAnalyticsQueryDto,
+  SupplierHistoryQueryDto,
+  SupplierListQueryDto,
+  UpdateSupplierDto,
 } from '../../application/dtos/supplier.dto';
 
+const INVENTORY_ROLES = [EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY];
+const APPROVER_ROLES = [EmployeeRole.OWNER, EmployeeRole.MANAGER];
+
+/**
+ * Suppliers and purchase orders. Every query is scoped to the caller's business
+ * inside SuppliersService / ReceivePurchaseOrderUseCase (R3); no Prisma here (R18).
+ */
 @ApiTags('Suppliers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('suppliers')
 export class SuppliersController {
   constructor(
-    @Inject(REPOSITORY_TOKENS.SUPPLIER)
-    private readonly supplierRepo: ISupplierRepository,
     private readonly suppliersService: SuppliersService,
-    private readonly prisma: PrismaService,
     private readonly receivePurchaseOrderUseCase: ReceivePurchaseOrderUseCase,
   ) {}
 
-  private async verifyPOAccess(poId: string, businessId: string): Promise<void> {
-    const po = await this.prisma.purchaseOrder.findUnique({
-      where: { id: poId },
-      select: { outlet: { select: { businessId: true } } },
-    });
-    if (!po || po.outlet.businessId !== businessId) {
-      throw new ForbiddenException('Access denied to this purchase order');
-    }
-  }
-
-  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
-
   @Get()
-  async list(@CurrentUser() user: AuthUser) {
-    return this.supplierRepo.findByBusinessId(user.businessId);
+  async list(@Query() query: SupplierListQueryDto, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.listSuppliers(user.businessId, query);
   }
 
   @Post()
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async create(
-    @Body()
-    dto: {
-      name: string;
-      contactPerson?: string;
-      phone?: string;
-      email?: string;
-      address?: string;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.supplierRepo.save({
-      businessId: user.businessId,
-      name: dto.name,
-      contactPerson: dto.contactPerson || null,
-      phone: dto.phone || null,
-      email: dto.email || null,
-      address: dto.address || null,
-    });
+  @Roles(...INVENTORY_ROLES)
+  async create(@Body() dto: CreateSupplierDto, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.createSupplier(user.businessId, dto);
   }
 
   @Put(':id')
-  @BusinessScoped({ resource: 'supplier', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async update(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
-    return this.supplierRepo.update(id, dto);
+  @Roles(...INVENTORY_ROLES)
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSupplierDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.suppliersService.updateSupplier(user.businessId, id, dto);
   }
 
   @Delete(':id')
-  @BusinessScoped({ resource: 'supplier', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async remove(@Param('id') id: string) {
-    await this.supplierRepo.deactivate(id);
+  @Roles(...APPROVER_ROLES)
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.suppliersService.deactivateSupplier(user.businessId, id);
     return { message: 'Supplier deactivated' };
   }
 
@@ -121,27 +88,17 @@ export class SuppliersController {
   }
 
   @Get('analytics/:id')
-  @BusinessScoped({ resource: 'supplier', param: 'id' })
   async getSupplierAnalytics(
-    @Param('id') id: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: SupplierAnalyticsQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    if (!from || !to) {
-      throw new BadRequestException('from and to query parameters are required');
-    }
-
-    const analytics = await this.suppliersService.getSupplierDetailedAnalytics(
+    return this.suppliersService.getSupplierDetailedAnalytics(
+      user.businessId,
       id,
-      new Date(from),
-      new Date(to),
+      new Date(query.from),
+      new Date(query.to),
     );
-
-    if (!analytics) {
-      throw new NotFoundException('Supplier not found');
-    }
-
-    return analytics;
   }
 
   // ─── Auto-Reorder ───────────────────────────────────────────────────
@@ -151,115 +108,80 @@ export class SuppliersController {
     @Query() query: ReorderSuggestionsQueryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyOutletAccess(query.outletId, user.businessId);
-    return this.suppliersService.getReorderSuggestions(query.outletId);
+    return this.suppliersService.getReorderSuggestions(user, query.outletId);
   }
 
   @Post('auto-reorder')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_ROLES)
   async autoReorder(@Body() dto: AutoReorderDto, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
-    return this.suppliersService.autoReorder(dto.outletId, user.employeeId);
+    return this.suppliersService.autoReorder(user, dto.outletId);
   }
 
   // ─── Purchase Orders ────────────────────────────────────────────────
 
   @Get('purchase-orders')
-  async listPOs(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId?: string,
-    @Query('status') status?: string,
-  ) {
-    // If outletId is provided, filter by outlet; otherwise get all for the business
-    if (outletId) {
-      await this.verifyOutletAccess(outletId, user.businessId);
-      return this.supplierRepo.findPurchaseOrdersByOutlet(outletId);
-    }
-
-    return this.suppliersService.findPurchaseOrdersByBusiness(user.businessId, status);
+  async listPOs(@Query() query: PurchaseOrderListQueryDto, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.listPurchaseOrders(user, query);
   }
 
   @Get('purchase-orders/pending')
-  async getPendingPOs(@CurrentUser() user: AuthUser) {
-    return this.suppliersService.getPendingPurchaseOrders(user.businessId);
+  async getPendingPOs(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.getPendingPurchaseOrders(user.businessId, query);
   }
 
   @Post('purchase-orders')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async createPO(
-    @Body()
-    dto: {
-      outletId: string;
-      supplierId: string;
-      items: {
-        itemName: string;
-        quantityOrdered: number;
-        unitCost: number;
-        productId?: string;
-        variantId?: string;
-        ingredientId?: string;
-      }[];
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
-    const poNumber = `PO-${Date.now().toString(36).toUpperCase()}`;
-    const totalAmount = dto.items.reduce((sum, i) => sum + i.quantityOrdered * i.unitCost, 0);
-    return this.supplierRepo.createPurchaseOrder({
-      outletId: dto.outletId,
-      supplierId: dto.supplierId,
-      poNumber,
-      totalAmount,
-      createdBy: user.employeeId,
-      items: dto.items.map((i) => ({
-        itemName: i.itemName,
-        quantityOrdered: i.quantityOrdered,
-        unitCost: i.unitCost,
-        subtotal: i.quantityOrdered * i.unitCost,
-        productId: i.productId || null,
-        variantId: i.variantId || null,
-        ingredientId: i.ingredientId || null,
-      })),
-    });
+  @Roles(...INVENTORY_ROLES)
+  async createPO(@Body() dto: CreatePurchaseOrderDto, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.createPurchaseOrder(user, dto);
   }
 
   @Get('purchase-orders/:id')
-  async getPO(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyPOAccess(id, user.businessId);
-    const po = await this.supplierRepo.findPurchaseOrderById(id);
-    if (!po) throw new NotFoundException('Purchase order not found');
-    return po;
+  async getPO(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.getPurchaseOrder(user.businessId, id);
   }
 
   @Put('purchase-orders/:id/approve')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...APPROVER_ROLES)
   async approvePO(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ApprovePurchaseOrderDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyPOAccess(id, user.businessId);
-    return this.suppliersService.approvePurchaseOrder(id, dto.approvedBy, dto.notes);
+    return this.suppliersService.approvePurchaseOrder(
+      user.businessId,
+      id,
+      user.employeeId,
+      dto.notes,
+    );
   }
 
   @Put('purchase-orders/:id/reject')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...APPROVER_ROLES)
   async rejectPO(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectPurchaseOrderDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyPOAccess(id, user.businessId);
-    return this.suppliersService.rejectPurchaseOrder(id, dto.rejectedBy, dto.reason);
+    return this.suppliersService.rejectPurchaseOrder(
+      user.businessId,
+      id,
+      user.employeeId,
+      dto.reason,
+    );
   }
 
   @Put('purchase-orders/:id/receive')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async receivePO(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyPOAccess(id, user.businessId);
+  @Roles(...INVENTORY_ROLES)
+  async receivePO(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReceivePurchaseOrderDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.receivePurchaseOrderUseCase.execute({
       purchaseOrderId: id,
+      businessId: user.businessId,
       employeeId: user.employeeId,
+      items: dto.items,
     });
   }
 
@@ -276,22 +198,29 @@ export class SuppliersController {
   }
 
   @Get(':id/purchase-history')
-  async getPurchaseHistory(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.suppliersService.getPurchaseHistory(id, user.businessId);
+  @Roles(...INVENTORY_ROLES)
+  @ApiOperation({ summary: 'Purchase history for a supplier (business-time date range)' })
+  async getPurchaseHistory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: SupplierHistoryQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.suppliersService.getPurchaseHistory(user.businessId, id, query);
   }
 
   @Get(':id/payment-status')
-  async getPaymentStatus(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.suppliersService.getPaymentStatus(id, user.businessId);
+  @Roles(...INVENTORY_ROLES)
+  @ApiOperation({
+    summary: 'PO receipt status for a supplier (no payment ledger: paymentTracking=NOT_AVAILABLE)',
+  })
+  async getPaymentStatus(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.getPaymentStatus(user.businessId, id);
   }
 
   // ─── Get by ID (must be AFTER all static routes) ──────────────────────
 
   @Get(':id')
-  @BusinessScoped({ resource: 'supplier', param: 'id' })
-  async getById(@Param('id') id: string) {
-    const supplier = await this.supplierRepo.findById(id);
-    if (!supplier) throw new NotFoundException('Supplier not found');
-    return supplier;
+  async getById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.suppliersService.getSupplier(user.businessId, id);
   }
 }

@@ -1,23 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-
-export interface CreatePriceTierDto {
-  productId: string;
-  tierName: string;
-  minQuantity: number;
-  maxQuantity?: number;
-  price: number;
-  discountPercent?: number;
-}
-
-export interface UpdatePriceTierDto {
-  tierName?: string;
-  minQuantity?: number;
-  maxQuantity?: number | null;
-  price?: number;
-  discountPercent?: number | null;
-  isActive?: boolean;
-}
+import { money, toNumber } from '@shared/utils/money';
+import type { CreatePriceTierDto, PriceTierFieldsDto, UpdatePriceTierDto } from './price-tiers.dto';
 
 export interface ResolvedPrice {
   unitPrice: number;
@@ -27,24 +12,48 @@ export interface ResolvedPrice {
   savingsPercent: number;
 }
 
+function assertRange(min: number, max: number | null | undefined): void {
+  if (max !== null && max !== undefined && max < min) {
+    throw new BadRequestException('maxQuantity must be greater than or equal to minQuantity');
+  }
+}
+
+/**
+ * Quantity price tiers. Every method is scoped to the caller's business through
+ * the product relation (R3), so the service is safe to reuse from other modules.
+ */
 @Injectable()
 export class PriceTiersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string) {
-    const tier = await this.prisma.priceTier.findUnique({ where: { id } });
+  private async assertProduct(businessId: string, productId: string): Promise<void> {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, businessId },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+  }
+
+  async findById(businessId: string, id: string) {
+    const tier = await this.prisma.priceTier.findFirst({
+      where: { id, product: { businessId } },
+    });
     if (!tier) throw new NotFoundException('Price tier not found');
     return tier;
   }
 
-  async listByProduct(productId: string) {
+  async listByProduct(businessId: string, productId: string) {
+    await this.assertProduct(businessId, productId);
     return this.prisma.priceTier.findMany({
-      where: { productId, isActive: true },
+      where: { productId, product: { businessId }, isActive: true },
       orderBy: { minQuantity: 'asc' },
+      take: 100,
     });
   }
 
-  async create(dto: CreatePriceTierDto) {
+  async create(businessId: string, dto: CreatePriceTierDto) {
+    assertRange(dto.minQuantity, dto.maxQuantity);
+    await this.assertProduct(businessId, dto.productId);
     return this.prisma.priceTier.create({
       data: {
         productId: dto.productId,
@@ -57,90 +66,93 @@ export class PriceTiersService {
     });
   }
 
-  async update(id: string, dto: UpdatePriceTierDto) {
-    const tier = await this.prisma.priceTier.findUnique({ where: { id } });
-    if (!tier) throw new NotFoundException('Price tier not found');
+  async update(businessId: string, id: string, dto: UpdatePriceTierDto) {
+    const current = await this.findById(businessId, id);
+    assertRange(
+      dto.minQuantity ?? current.minQuantity,
+      dto.maxQuantity === undefined ? current.maxQuantity : dto.maxQuantity,
+    );
 
-    return this.prisma.priceTier.update({
-      where: { id },
-      data: {
-        tierName: dto.tierName,
-        minQuantity: dto.minQuantity,
-        maxQuantity: dto.maxQuantity,
-        price: dto.price !== undefined ? dto.price : undefined,
-        discountPercent: dto.discountPercent,
-        isActive: dto.isActive,
-      },
+    const data: Prisma.PriceTierUpdateManyMutationInput = {};
+    if (dto.tierName !== undefined) data.tierName = dto.tierName;
+    if (dto.minQuantity !== undefined) data.minQuantity = dto.minQuantity;
+    if (dto.maxQuantity !== undefined) data.maxQuantity = dto.maxQuantity;
+    if (dto.price !== undefined) data.price = dto.price;
+    if (dto.discountPercent !== undefined) data.discountPercent = dto.discountPercent;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+
+    const { count } = await this.prisma.priceTier.updateMany({
+      where: { id, product: { businessId } },
+      data,
+    });
+    if (count === 0) throw new NotFoundException('Price tier not found');
+    return this.findById(businessId, id);
+  }
+
+  async delete(businessId: string, id: string): Promise<void> {
+    const { count } = await this.prisma.priceTier.deleteMany({
+      where: { id, product: { businessId } },
+    });
+    if (count === 0) throw new NotFoundException('Price tier not found');
+  }
+
+  /** Replaces all tiers of a product atomically (delete + create in one transaction). */
+  async bulkCreateForProduct(businessId: string, productId: string, tiers: PriceTierFieldsDto[]) {
+    tiers.forEach((t) => assertRange(t.minQuantity, t.maxQuantity));
+    await this.assertProduct(businessId, productId);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.priceTier.deleteMany({ where: { productId, product: { businessId } } });
+      return tx.priceTier.createMany({
+        data: tiers.map((t) => ({
+          productId,
+          tierName: t.tierName,
+          minQuantity: t.minQuantity,
+          maxQuantity: t.maxQuantity ?? null,
+          price: t.price,
+          discountPercent: t.discountPercent ?? null,
+        })),
+      });
     });
   }
 
-  async delete(id: string) {
-    await this.prisma.priceTier.delete({ where: { id } });
-  }
-
-  async bulkCreateForProduct(productId: string, tiers: Omit<CreatePriceTierDto, 'productId'>[]) {
-    // Delete existing tiers
-    await this.prisma.priceTier.deleteMany({ where: { productId } });
-
-    // Create new tiers
-    return this.prisma.priceTier.createMany({
-      data: tiers.map((t) => ({
-        productId,
-        tierName: t.tierName,
-        minQuantity: t.minQuantity,
-        maxQuantity: t.maxQuantity ?? null,
-        price: t.price,
-        discountPercent: t.discountPercent ?? null,
-      })),
-    });
-  }
-
-  /**
-   * Resolve the best price for a product given a quantity.
-   * Used by POS during checkout.
-   */
-  async resolvePrice(productId: string, quantity: number): Promise<ResolvedPrice> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
+  /** Best unit price for a quantity (Decimal arithmetic, R8). */
+  async resolvePrice(
+    businessId: string,
+    productId: string,
+    quantity: number,
+  ): Promise<ResolvedPrice> {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, businessId },
       select: { basePrice: true },
     });
-
     if (!product) throw new NotFoundException('Product not found');
 
-    const originalPrice = Number(product.basePrice);
-
-    // Find matching tier (highest minQuantity that matches)
-    const tiers = await this.prisma.priceTier.findMany({
-      where: {
-        productId,
-        isActive: true,
-        minQuantity: { lte: quantity },
-      },
+    const original = money(product.basePrice);
+    const tier = await this.prisma.priceTier.findFirst({
+      where: { productId, product: { businessId }, isActive: true, minQuantity: { lte: quantity } },
       orderBy: { minQuantity: 'desc' },
-      take: 1,
     });
 
-    const tier = tiers[0];
-
-    // Check maxQuantity constraint
     if (tier && (tier.maxQuantity === null || quantity <= tier.maxQuantity)) {
-      const tierPrice = Number(tier.price);
-      const savings = originalPrice - tierPrice;
-      const savingsPercent = originalPrice > 0 ? (savings / originalPrice) * 100 : 0;
-
+      const tierPrice = money(tier.price);
+      const savings = original.minus(tierPrice);
+      const savingsPercent = original.gt(0)
+        ? savings.dividedBy(original).times(100).toDecimalPlaces(2)
+        : money(0);
       return {
-        unitPrice: tierPrice,
+        unitPrice: toNumber(tierPrice),
         tierName: tier.tierName,
-        originalPrice,
-        savings,
-        savingsPercent: Math.round(savingsPercent * 100) / 100,
+        originalPrice: toNumber(original),
+        savings: toNumber(savings),
+        savingsPercent: toNumber(savingsPercent),
       };
     }
 
     return {
-      unitPrice: originalPrice,
+      unitPrice: toNumber(original),
       tierName: null,
-      originalPrice,
+      originalPrice: toNumber(original),
       savings: 0,
       savingsPercent: 0,
     };

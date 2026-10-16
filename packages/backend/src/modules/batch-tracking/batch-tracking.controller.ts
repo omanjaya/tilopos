@@ -6,88 +6,113 @@ import {
   Delete,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
-  BadRequestException,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
+import { Roles } from '@infrastructure/auth/roles.decorator';
+import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
+import { EmployeeRole } from '@shared/constants/roles';
 import {
-  BatchTrackingService,
-  type CreateBatchLotDto,
-  type UpdateBatchLotDto,
-} from './batch-tracking.service';
+  CreateBatchLotDto,
+  UpdateBatchLotDto,
+  DeductBatchFifoDto,
+  ExpiringBatchesQueryDto,
+} from '@application/dtos/batch-lot.dto';
+import { BatchTrackingService } from './batch-tracking.service';
+
+const BATCH_WRITERS = [EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY];
 
 @Controller('batch-tracking')
-@UseGuards(JwtAuthGuard)
 export class BatchTrackingController {
   constructor(private readonly service: BatchTrackingService) {}
 
   @Get('product/:productId/outlet/:outletId')
-  async listByProduct(@Param('productId') productId: string, @Param('outletId') outletId: string) {
-    const batches = await this.service.listByProduct(productId, outletId);
+  async listByProduct(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const batches = await this.service.listByProduct(user, productId, outletId);
     return { batches };
   }
 
   @Get('active/:productId/:outletId')
-  async listActive(@Param('productId') productId: string, @Param('outletId') outletId: string) {
-    const batches = await this.service.listActive(productId, outletId);
+  async listActive(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const batches = await this.service.listActive(user, productId, outletId);
     return { batches };
   }
 
   @Post()
-  async create(@Body() dto: CreateBatchLotDto) {
-    const batch = await this.service.create(dto);
+  @Roles(...BATCH_WRITERS)
+  async create(@Body() dto: CreateBatchLotDto, @CurrentUser() user: AuthUser) {
+    const batch = await this.service.create(user, dto);
     return { batch };
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateBatchLotDto) {
-    const batch = await this.service.update(id, dto);
+  @Roles(...BATCH_WRITERS)
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateBatchLotDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const batch = await this.service.update(user, id, dto);
     return { batch };
   }
 
   @Delete(':id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('id') id: string) {
-    await this.service.delete(id);
+  async delete(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.service.delete(user, id);
   }
 
   @Get('summary/:productId/:outletId')
   async getBatchSummary(
-    @Param('productId') productId: string,
-    @Param('outletId') outletId: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.service.getBatchSummary(productId, outletId);
+    return this.service.getBatchSummary(user, productId, outletId);
   }
 
   @Get('expiring/:outletId')
-  async getExpiringBatches(@Param('outletId') outletId: string, @Query('days') days?: string) {
-    const parsed = days ? parseInt(days, 10) : 7;
-    const daysAhead = isNaN(parsed) ? 7 : Math.min(Math.max(parsed, 1), 365);
-    const batches = await this.service.getExpiringBatches(outletId, daysAhead);
+  async getExpiringBatches(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: ExpiringBatchesQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const daysAhead = query.days ?? 7;
+    const batches = await this.service.getExpiringBatches(user, outletId, daysAhead);
     return { batches, daysAhead };
   }
 
   @Get('expired/:outletId')
-  async getExpiredBatches(@Param('outletId') outletId: string) {
-    const batches = await this.service.getExpiredBatches(outletId);
+  async getExpiredBatches(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const batches = await this.service.getExpiredBatches(user, outletId);
     return { batches };
   }
 
   @Post('deduct')
-  async deductFIFO(@Body() body: { productId: string; outletId: string; quantity: number }) {
-    if (!body.quantity || body.quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
-    }
-    return this.service.deductFIFO(body.productId, body.outletId, body.quantity);
+  @Roles(...BATCH_WRITERS)
+  async deductFIFO(@Body() dto: DeductBatchFifoDto, @CurrentUser() user: AuthUser) {
+    return this.service.deductFIFO(user, dto.productId, dto.outletId, dto.quantity);
   }
 
   // Must be AFTER all static routes
   @Get(':id')
-  async findById(@Param('id') id: string) {
-    const batch = await this.service.findById(id);
+  async findById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    const batch = await this.service.findById(user, id);
     return { batch };
   }
 }

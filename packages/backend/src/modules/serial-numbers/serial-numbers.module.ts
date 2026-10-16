@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PrismaService } from '@infrastructure/database/prisma.service';
 import { SerialNumbersService } from './serial-numbers.service';
 import { SerialNumbersController } from './serial-numbers.controller';
 
+// PrismaService comes from the global DatabaseModule; do not re-provide it here.
 @Module({
   controllers: [SerialNumbersController],
-  providers: [PrismaService, SerialNumbersService],
+  providers: [SerialNumbersService],
   exports: [SerialNumbersService],
 })
 export class SerialNumbersModule {}

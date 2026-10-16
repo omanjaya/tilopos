@@ -1,25 +1,55 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
+import { Controller, Post, Body } from '@nestjs/common';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
-import { AuthUser } from '../../infrastructure/auth/auth-user.interface';
-import { CalculateDynamicPriceUseCase } from '../../application/use-cases/pricing/calculate-dynamic-price.use-case';
+import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { EmployeeRole } from '../../shared/constants/roles';
+import { TenantAccessService } from '../../shared/tenant';
+import {
+  CalculateDynamicPriceUseCase,
+  type CalculatePriceInput,
+} from '../../application/use-cases/pricing/calculate-dynamic-price.use-case';
 import { CalculatePriceDto, CalculateBatchPriceDto } from './dto/calculate-price.dto';
 
+const PRICING_ROLES = [
+  EmployeeRole.OWNER,
+  EmployeeRole.MANAGER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.CASHIER,
+] as const;
+
+/**
+ * Read-only price previews (POST because of the request body). Only ids are
+ * taken from the client; prices/stock/segments are loaded server-side.
+ */
 @Controller('pricing')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class PricingController {
-  constructor(private readonly calculateDynamicPrice: CalculateDynamicPriceUseCase) {}
+  constructor(
+    private readonly calculateDynamicPrice: CalculateDynamicPriceUseCase,
+    private readonly tenant: TenantAccessService,
+  ) {}
+
+  private async resolveOutlet(user: AuthUser, requested?: string): Promise<string | null> {
+    const outletId = requested ?? user.outletId;
+    return outletId ? this.tenant.assertOutlet(user, outletId) : null;
+  }
+
+  private async toInput(user: AuthUser, dto: CalculatePriceDto): Promise<CalculatePriceInput> {
+    return {
+      businessId: user.businessId,
+      productId: dto.productId,
+      variantId: dto.variantId,
+      quantity: dto.quantity,
+      outletId: await this.resolveOutlet(user, dto.outletId),
+      customerId: dto.customerId,
+      cartTotal: dto.cartTotal,
+      cartItemCount: dto.cartItemCount,
+    };
+  }
 
   @Post('calculate')
-  @Roles('owner', 'manager', 'supervisor', 'cashier')
+  @Roles(...PRICING_ROLES)
   async calculate(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
-    const businessId = user.businessId;
-    const result = await this.calculateDynamicPrice.execute({
-      businessId,
-      ...dto,
-    });
+    const result = await this.calculateDynamicPrice.execute(await this.toInput(user, dto));
 
     return {
       success: true,
@@ -40,16 +70,23 @@ export class PricingController {
   }
 
   @Post('calculate-batch')
-  @Roles('owner', 'manager', 'supervisor', 'cashier')
+  @Roles(...PRICING_ROLES)
   async calculateBatch(@CurrentUser() user: AuthUser, @Body() dto: CalculateBatchPriceDto) {
-    const businessId = user.businessId;
-    const resultsMap = await this.calculateDynamicPrice.executeBatch({
-      businessId,
-      ...dto,
+    const batch = await this.calculateDynamicPrice.executeBatch({
+      businessId: user.businessId,
+      items: dto.items.map((i) => ({
+        productId: i.productId,
+        variantId: i.variantId,
+        quantity: i.quantity,
+      })),
+      outletId: await this.resolveOutlet(user, dto.outletId),
+      customerId: dto.customerId,
     });
 
-    const results = Array.from(resultsMap.entries()).map(([productId, result]) => ({
+    const results = batch.map(({ index, productId, variantId, result }) => ({
+      index,
       productId,
+      variantId,
       originalPrice: result.originalPrice.amount,
       finalPrice: result.finalPrice.amount,
       totalDiscount: result.totalDiscount.amount,
@@ -70,13 +107,9 @@ export class PricingController {
   }
 
   @Post('preview-rules')
-  @Roles('owner', 'manager', 'supervisor', 'cashier')
+  @Roles(...PRICING_ROLES)
   async previewRules(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
-    const businessId = user.businessId;
-    const rules = await this.calculateDynamicPrice.previewRules({
-      businessId,
-      ...dto,
-    });
+    const rules = await this.calculateDynamicPrice.previewRules(await this.toInput(user, dto));
 
     return {
       success: true,
@@ -93,13 +126,11 @@ export class PricingController {
   }
 
   @Post('potential-savings')
-  @Roles('owner', 'manager', 'supervisor', 'cashier')
+  @Roles(...PRICING_ROLES)
   async getPotentialSavings(@CurrentUser() user: AuthUser, @Body() dto: CalculatePriceDto) {
-    const businessId = user.businessId;
-    const savings = await this.calculateDynamicPrice.getPotentialSavings({
-      businessId,
-      ...dto,
-    });
+    const savings = await this.calculateDynamicPrice.getPotentialSavings(
+      await this.toInput(user, dto),
+    );
 
     return {
       success: true,

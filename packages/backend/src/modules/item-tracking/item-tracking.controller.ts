@@ -6,113 +6,97 @@ import {
   Delete,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
-  Req,
-  UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
+import { Roles } from '@infrastructure/auth/roles.decorator';
+import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
+import { EmployeeRole } from '@shared/constants/roles';
 import { ItemTrackingService } from './item-tracking.service';
-import { ServiceItemStatus } from '@prisma/client';
+import {
+  ReceiveServiceItemDto,
+  UpdateServiceItemDto,
+  UpdateServiceItemStatusDto,
+  ServiceItemListQueryDto,
+} from './dto/service-item.dto';
 
-interface AuthenticatedRequest {
-  user: { businessId: string };
-}
-
-interface ReceiveBody {
-  outletId: string;
-  customerId?: string;
-  itemName: string;
-  itemDescription?: string;
-  quantity?: number;
-  serviceName: string;
-  servicePrice: number;
-  estimatedReady?: string;
-  customerName?: string;
-  customerPhone?: string;
-  notes?: string;
-}
-
-interface UpdateBody {
-  itemName?: string;
-  itemDescription?: string;
-  quantity?: number;
-  serviceName?: string;
-  servicePrice?: number;
-  estimatedReady?: string | null;
-  customerName?: string;
-  customerPhone?: string;
-  notes?: string;
-}
+const COUNTER_ROLES = [
+  EmployeeRole.OWNER,
+  EmployeeRole.MANAGER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.CASHIER,
+];
 
 @Controller('item-tracking')
-@UseGuards(JwtAuthGuard)
 export class ItemTrackingController {
   constructor(private readonly itemTrackingService: ItemTrackingService) {}
 
   @Get('outlet/:outletId')
   async listByOutlet(
-    @Param('outletId') outletId: string,
-    @Query('status') status: ServiceItemStatus | undefined,
-    @Query('search') search: string | undefined,
-    @Req() req: AuthenticatedRequest,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: ServiceItemListQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.listByOutlet(outletId, businessId, { status, search });
+    return this.itemTrackingService.listByOutlet(outletId, user.businessId, query);
   }
 
   @Get('active/:outletId')
-  async getActive(@Param('outletId') outletId: string, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.getActive(outletId, businessId);
+  async getActive(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.itemTrackingService.getActive(outletId, user.businessId);
   }
 
   @Get('customer/:customerId')
-  async listByCustomer(@Param('customerId') customerId: string, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.listByCustomer(customerId, businessId);
+  async listByCustomer(
+    @Param('customerId', ParseUUIDPipe) customerId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.itemTrackingService.listByCustomer(customerId, user.businessId);
   }
 
   @Get('ticket/:ticketNumber')
-  async findByTicket(
-    @Param('ticketNumber') ticketNumber: string,
-    @Req() req: AuthenticatedRequest,
-  ) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.findByTicket(ticketNumber, businessId);
+  async findByTicket(@Param('ticketNumber') ticketNumber: string, @CurrentUser() user: AuthUser) {
+    return this.itemTrackingService.findByTicket(ticketNumber.slice(0, 50), user.businessId);
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.findById(id, businessId);
+  async findById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.itemTrackingService.findById(id, user.businessId);
   }
 
   @Post()
-  async receive(@Body() dto: ReceiveBody, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.receive(businessId, dto);
+  @Roles(...COUNTER_ROLES)
+  async receive(@Body() dto: ReceiveServiceItemDto, @CurrentUser() user: AuthUser) {
+    return this.itemTrackingService.receive(user.businessId, dto);
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateBody, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.update(id, businessId, dto);
+  @Roles(...COUNTER_ROLES)
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateServiceItemDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.itemTrackingService.update(id, user.businessId, dto);
   }
 
   @Put(':id/status')
+  @Roles(...COUNTER_ROLES)
   async updateStatus(
-    @Param('id') id: string,
-    @Body() dto: { status: ServiceItemStatus },
-    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateServiceItemStatusDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    const businessId = req.user.businessId;
-    return this.itemTrackingService.updateStatus(id, businessId, dto.status);
+    return this.itemTrackingService.updateStatus(id, user.businessId, dto.status);
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
-    const businessId = req.user.businessId;
-    await this.itemTrackingService.delete(id, businessId);
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
+  async delete(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.itemTrackingService.delete(id, user.businessId);
     return { message: 'Service item deleted' };
   }
 }

@@ -1,5 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { DevicePlatform, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+
+/** Upper bound for version lists (R13). */
+const MAX_VERSIONS = 100;
 
 // ==================== Types ====================
 
@@ -43,6 +47,7 @@ export class DevicesService {
     const versions = await this.prisma.appVersion.findMany({
       where: platform ? { platform } : undefined,
       orderBy: { publishedAt: 'desc' },
+      take: MAX_VERSIONS,
     });
 
     return versions.map((v) => ({
@@ -68,31 +73,26 @@ export class DevicesService {
     downloadUrl?: string;
     forceUpdate?: boolean;
   }): Promise<AppVersionRecord> {
-    // Validate version format (basic semver check)
-    if (!/^\d+\.\d+\.\d+/.test(data.version)) {
-      throw new BadRequestException('Version must follow semantic versioning (e.g., 1.2.0)');
+    // Format is validated by PublishVersionDto; (version, platform) is unique in the schema.
+    let record;
+    try {
+      record = await this.prisma.appVersion.create({
+        data: {
+          version: data.version,
+          platform: data.platform,
+          releaseNotes: data.releaseNotes || null,
+          downloadUrl: data.downloadUrl || null,
+          forceUpdate: data.forceUpdate || false,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(
+          `Version ${data.version} already published for ${data.platform}`,
+        );
+      }
+      throw error;
     }
-
-    // Check if this version already exists for the platform
-    const existing = await this.prisma.appVersion.findFirst({
-      where: { version: data.version, platform: data.platform },
-    });
-
-    if (existing) {
-      throw new BadRequestException(
-        `Version ${data.version} already published for ${data.platform}`,
-      );
-    }
-
-    const record = await this.prisma.appVersion.create({
-      data: {
-        version: data.version,
-        platform: data.platform,
-        releaseNotes: data.releaseNotes || null,
-        downloadUrl: data.downloadUrl || null,
-        forceUpdate: data.forceUpdate || false,
-      },
-    });
 
     this.logger.log(
       `Published version ${data.version} for ${data.platform} (force: ${data.forceUpdate})`,
@@ -120,9 +120,9 @@ export class DevicesService {
    * Check if an update is available for a specific device.
    * Updates the device's lastActiveAt timestamp.
    */
-  async checkForUpdate(deviceId: string): Promise<DeviceUpdateCheckResult> {
-    const device = await this.prisma.device.findUnique({
-      where: { id: deviceId },
+  async checkForUpdate(deviceId: string, businessId: string): Promise<DeviceUpdateCheckResult> {
+    const device = await this.prisma.device.findFirst({
+      where: { id: deviceId, businessId },
     });
 
     if (!device) {
@@ -130,8 +130,8 @@ export class DevicesService {
     }
 
     // Update last active timestamp
-    await this.prisma.device.update({
-      where: { id: deviceId },
+    await this.prisma.device.updateMany({
+      where: { id: deviceId, businessId },
       data: { lastActiveAt: new Date() },
     });
 
@@ -172,23 +172,20 @@ export class DevicesService {
    */
   async acknowledgeUpdate(
     deviceId: string,
+    businessId: string,
     version: string,
   ): Promise<{ success: boolean; deviceId: string; version: string }> {
-    const device = await this.prisma.device.findUnique({
-      where: { id: deviceId },
-    });
-
-    if (!device) {
-      throw new NotFoundException('Device not found');
-    }
-
-    await this.prisma.device.update({
-      where: { id: deviceId },
+    const { count } = await this.prisma.device.updateMany({
+      where: { id: deviceId, businessId },
       data: {
         appVersion: version,
         lastActiveAt: new Date(),
       },
     });
+
+    if (count === 0) {
+      throw new NotFoundException('Device not found');
+    }
 
     this.logger.log(`Device ${deviceId} acknowledged update to version ${version}`);
 
@@ -212,13 +209,10 @@ export class DevicesService {
     // Find all active devices of the specified platform
     const devices = await this.prisma.device.findMany({
       where: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        platform: platform as any, // Type assertion needed for dynamic platform value
+        platform: platform as DevicePlatform,
         isActive: true,
       },
-      include: {
-        business: { select: { id: true } },
-      },
+      select: { id: true, businessId: true, outletId: true, appVersion: true },
     });
 
     if (devices.length === 0) {
@@ -272,6 +266,7 @@ export class DevicesService {
     const versions = await this.prisma.appVersion.findMany({
       where: { platform },
       orderBy: { publishedAt: 'desc' },
+      take: MAX_VERSIONS,
     });
 
     if (versions.length === 0) return null;

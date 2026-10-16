@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { InventoryController } from './inventory.controller';
-import { SupplierAnalyticsController } from './controllers/supplier-analytics.controller';
 import { InventoryService } from './inventory.service';
 import { OutletProductService } from './outlet-product.service';
+import { ProductCatalogService } from './product-catalog.service';
 import { CreateProductUseCase } from '../../application/use-cases/inventory/create-product.use-case';
 import { UpdateStockUseCase } from '../../application/use-cases/inventory/update-stock.use-case';
 import { CalculateMovingAverageCostUseCase } from '../../application/use-cases/inventory/calculate-moving-average-cost.use-case';
@@ -15,10 +15,11 @@ import { StorageModule } from '../../infrastructure/storage/storage.module';
 
 @Module({
   imports: [ImportModule, StorageModule],
-  controllers: [InventoryController, SupplierAnalyticsController],
+  controllers: [InventoryController],
   providers: [
     InventoryService,
     OutletProductService,
+    ProductCatalogService,
     CreateProductUseCase,
     UpdateStockUseCase,
     CalculateMovingAverageCostUseCase,

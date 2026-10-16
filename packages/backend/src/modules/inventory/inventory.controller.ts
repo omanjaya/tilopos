@@ -7,28 +7,38 @@ import {
   Delete,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
-  Inject,
-  NotFoundException,
   BadRequestException,
-  ForbiddenException,
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Response } from 'express';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { TenantAccessService } from '../../shared/tenant';
+import { businessDateKey } from '../../shared/utils/business-time';
 import { CreateProductUseCase } from '../../application/use-cases/inventory/create-product.use-case';
 import { UpdateStockUseCase } from '../../application/use-cases/inventory/update-stock.use-case';
-import { CreateProductDto, VariantDto, UpdateVariantDto } from '../../application/dtos/product.dto';
+import {
+  CreateProductDto,
+  UpdateProductDto,
+  VariantDto,
+  UpdateVariantDto,
+} from '../../application/dtos/product.dto';
+import {
+  ProductListQueryDto,
+  StockListQueryDto,
+  CategoryListQueryDto,
+  CostHistoryQueryDto,
+  OutletProductIdsDto,
+  ImportXlsxDto,
+} from '../../application/dtos/product-query.dto';
 import { UpdateStockDto } from '../../application/dtos/stock.dto';
 import { CreateCategoryDto, UpdateCategoryDto } from '../../application/dtos/category.dto';
 import {
@@ -41,121 +51,55 @@ import {
   BulkUpdateProductsDto,
   BulkDeleteProductsDto,
 } from '../../application/dtos/bulk-product.dto';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { IProductRepository } from '../../domain/interfaces/repositories/product.repository';
-import type { IInventoryRepository } from '../../domain/interfaces/repositories/inventory.repository';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { ExcelParserService } from '../../infrastructure/import/excel-parser.service';
+import {
+  MAX_XLSX_FILE_BYTES,
+  XLSX_MIME_TYPES,
+} from '../../infrastructure/import/excel-parser.service';
 import { InventoryService } from './inventory.service';
 import { OutletProductService } from './outlet-product.service';
-import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { ProductCatalogService } from './product-catalog.service';
+
+/** Multer options for XLSX uploads: size is enforced while streaming, not after buffering. */
+const XLSX_UPLOAD = FileInterceptor('file', {
+  limits: { fileSize: MAX_XLSX_FILE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const okType = XLSX_MIME_TYPES.includes(file.mimetype);
+    const okName = /\.xlsx$/i.test(file.originalname);
+    if (okType && okName) cb(null, true);
+    else cb(new BadRequestException('Only .xlsx files are accepted'), false);
+  },
+});
+
+const INVENTORY_WRITERS = [EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.INVENTORY];
 
 @ApiTags('Inventory')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('inventory')
 export class InventoryController {
   constructor(
     private readonly createProductUseCase: CreateProductUseCase,
     private readonly updateStockUseCase: UpdateStockUseCase,
-    @Inject(REPOSITORY_TOKENS.PRODUCT)
-    private readonly productRepo: IProductRepository,
-    @Inject(REPOSITORY_TOKENS.INVENTORY)
-    private readonly inventoryRepo: IInventoryRepository,
-    private readonly prisma: PrismaService,
-    private readonly excelParser: ExcelParserService,
+    private readonly tenant: TenantAccessService,
     private readonly inventoryService: InventoryService,
     private readonly outletProductService: OutletProductService,
+    private readonly catalog: ProductCatalogService,
   ) {}
 
   @Get('products')
-  async listProducts(@CurrentUser() user: AuthUser) {
-    // Owner/super_admin can see ALL products regardless of their assigned outlet
-    if (OutletAccessGuard.canAccessAllOutlets(user)) {
-      return this.productRepo.findByBusinessId(user.businessId);
-    }
-
-    // Non-owner users with outlet assignment see only their outlet's products
-    if (user.outletId) {
-      return this.outletProductService.getProductsForOutlet(user.outletId);
-    }
-
-    // Fallback: users without outlet see all products (backward compatibility)
-    return this.productRepo.findByBusinessId(user.businessId);
+  @ApiOperation({ summary: 'List products (array, or paginated when page/limit is sent)' })
+  async listProducts(@Query() query: ProductListQueryDto, @CurrentUser() user: AuthUser) {
+    return this.catalog.listProducts(user, query);
   }
 
   @Get('products/barcode/:code')
   @ApiOperation({ summary: 'Lookup product by barcode or SKU' })
   async lookupByBarcode(@Param('code') code: string, @CurrentUser() user: AuthUser) {
-    // Try barcode first (product level)
-    let product = await this.prisma.product.findFirst({
-      where: { businessId: user.businessId, barcode: code, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: { select: { name: true } },
-        priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
-      },
-    });
-
-    if (product) return { found: true, type: 'product', product, variant: null };
-
-    // Try SKU (product level)
-    product = await this.prisma.product.findFirst({
-      where: { businessId: user.businessId, sku: code, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: { select: { name: true } },
-        priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
-      },
-    });
-
-    if (product) return { found: true, type: 'product', product, variant: null };
-
-    // Try barcode on variant
-    const variant = await this.prisma.productVariant.findFirst({
-      where: {
-        barcode: code,
-        isActive: true,
-        product: { businessId: user.businessId, isActive: true },
-      },
-      include: {
-        product: {
-          include: {
-            category: { select: { name: true } },
-            priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
-          },
-        },
-      },
-    });
-
-    if (variant) return { found: true, type: 'variant', product: variant.product, variant };
-
-    // Try SKU on variant
-    const variantBySku = await this.prisma.productVariant.findFirst({
-      where: {
-        sku: code,
-        isActive: true,
-        product: { businessId: user.businessId, isActive: true },
-      },
-      include: {
-        product: {
-          include: {
-            category: { select: { name: true } },
-            priceTiers: { where: { isActive: true }, orderBy: { minQuantity: 'asc' } },
-          },
-        },
-      },
-    });
-
-    if (variantBySku)
-      return { found: true, type: 'variant', product: variantBySku.product, variant: variantBySku };
-
-    throw new NotFoundException(`No product found with barcode/SKU: ${code}`);
+    if (!code || code.length > 100) throw new BadRequestException('Invalid barcode');
+    return this.catalog.lookupByBarcode(user, code);
   }
 
   @Post('products')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   async createProduct(@Body() dto: CreateProductDto, @CurrentUser() user: AuthUser) {
     const result = await this.createProductUseCase.execute({
       businessId: user.businessId,
@@ -171,235 +115,30 @@ export class InventoryController {
       modifierGroupIds: dto.modifierGroupIds,
     });
 
-    // Return full product so frontend has name, basePrice, etc.
-    return this.prisma.product.findUnique({
-      where: { id: result.productId },
-      include: { variants: { where: { isActive: true } }, category: true },
-    });
+    // Return the full product (Decimals as numbers) so the frontend has name, basePrice, etc.
+    return this.catalog.getProduct(user, result.productId);
   }
 
-  // ==================== Bulk Operations ====================
-  // Must be defined before products/:id to avoid route conflicts
+  // ==================== Bulk / import / export ====================
+  // Static paths must be declared before products/:id.
 
   @Patch('products/bulk')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Bulk update products (category, price, status, etc.)' })
   async bulkUpdateProducts(@Body() dto: BulkUpdateProductsDto, @CurrentUser() user: AuthUser) {
     return this.inventoryService.bulkUpdateProducts(user.businessId, dto);
   }
 
   @Delete('products/bulk')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Bulk delete products (soft or hard delete)' })
   async bulkDeleteProducts(@Body() dto: BulkDeleteProductsDto, @CurrentUser() user: AuthUser) {
     return this.inventoryService.bulkDeleteProducts(user.businessId, dto);
   }
 
-  @Get('products/:id')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  async getProduct(@Param('id') id: string) {
-    const product = await this.productRepo.findById(id);
-    if (!product) throw new NotFoundException('Product not found');
-    return product;
-  }
-
-  @Put('products/:id')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  async updateProduct(@Param('id') id: string, @Body() dto: Partial<CreateProductDto>) {
-    const existing = await this.productRepo.findById(id);
-    if (!existing) throw new NotFoundException('Product not found');
-    return this.productRepo.update(id, {
-      name: dto.name ?? existing.name,
-      description: dto.description,
-      imageUrl: dto.imageUrl,
-      basePrice: dto.basePrice ?? existing.basePrice,
-      costPrice: dto.costPrice,
-    });
-  }
-
-  @Delete('products/:id')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async deleteProduct(@Param('id') id: string) {
-    await this.productRepo.delete(id);
-    return { message: 'Product deactivated' };
-  }
-
-  // ==================== Variant Endpoints ====================
-
-  @Post('products/:id/variants')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  @ApiOperation({ summary: 'Add a variant to an existing product' })
-  async addVariant(
-    @Param('id') productId: string,
-    @Body() dto: VariantDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    // Validate SKU uniqueness within business
-    if (dto.sku) {
-      const existing = await this.prisma.productVariant.findFirst({
-        where: {
-          sku: dto.sku,
-          isActive: true,
-          product: { businessId: user.businessId },
-        },
-      });
-      if (existing) {
-        throw new BadRequestException(`SKU "${dto.sku}" sudah digunakan`);
-      }
-    }
-
-    return this.prisma.productVariant.create({
-      data: {
-        productId,
-        name: dto.name,
-        sku: dto.sku,
-        price: dto.price,
-        costPrice: dto.costPrice,
-      },
-    });
-  }
-
-  @Put('products/:id/variants/:variantId')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  @ApiOperation({ summary: 'Update a product variant' })
-  async updateVariant(
-    @Param('id') productId: string,
-    @Param('variantId') variantId: string,
-    @Body() dto: UpdateVariantDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const variant = await this.prisma.productVariant.findFirst({
-      where: { id: variantId, productId },
-    });
-    if (!variant) throw new NotFoundException('Variant not found');
-
-    // Validate SKU uniqueness if changed
-    if (dto.sku && dto.sku !== variant.sku) {
-      const existing = await this.prisma.productVariant.findFirst({
-        where: {
-          sku: dto.sku,
-          isActive: true,
-          product: { businessId: user.businessId },
-          NOT: { id: variantId },
-        },
-      });
-      if (existing) {
-        throw new BadRequestException(`SKU "${dto.sku}" sudah digunakan`);
-      }
-    }
-
-    return this.prisma.productVariant.update({
-      where: { id: variantId },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.sku !== undefined && { sku: dto.sku }),
-        ...(dto.barcode !== undefined && { barcode: dto.barcode }),
-        ...(dto.price !== undefined && { price: dto.price }),
-        ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
-      },
-    });
-  }
-
-  @Delete('products/:id/variants/:variantId')
-  @BusinessScoped({ resource: 'product', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.SUPERVISOR, EmployeeRole.INVENTORY)
-  @ApiOperation({ summary: 'Soft delete (deactivate) a product variant' })
-  async deleteVariant(@Param('id') productId: string, @Param('variantId') variantId: string) {
-    const variant = await this.prisma.productVariant.findFirst({
-      where: { id: variantId, productId },
-    });
-    if (!variant) throw new NotFoundException('Variant not found');
-
-    // Count historical transactions using this variant
-    const txCount = await this.prisma.transactionItem.count({
-      where: { variantId },
-    });
-
-    await this.prisma.productVariant.update({
-      where: { id: variantId },
-      data: { isActive: false },
-    });
-
-    return {
-      message: 'Variant deactivated',
-      hadTransactions: txCount > 0,
-      transactionCount: txCount,
-    };
-  }
-
-  @Get('categories')
-  async listCategories(@CurrentUser() user: AuthUser) {
-    const categories = await this.prisma.category.findMany({
-      where: { businessId: user.businessId, isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      include: { _count: { select: { products: { where: { isActive: true } } } } },
-    });
-    return categories.map((c) => ({
-      ...c,
-      productCount: c._count.products,
-      _count: undefined,
-    }));
-  }
-
-  @Get('categories/:id')
-  @BusinessScoped({ resource: 'category', param: 'id' })
-  async getCategory(@Param('id') id: string) {
-    const category = await this.prisma.category.findUnique({
-      where: { id },
-      include: { children: { where: { isActive: true } } },
-    });
-    if (!category) throw new NotFoundException('Category not found');
-    return category;
-  }
-
-  @Post('categories')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async createCategory(@Body() dto: CreateCategoryDto, @CurrentUser() user: AuthUser) {
-    return this.prisma.category.create({
-      data: {
-        businessId: user.businessId,
-        name: dto.name,
-        parentId: dto.parentId || null,
-        description: dto.description || null,
-        imageUrl: dto.imageUrl || null,
-        sortOrder: dto.sortOrder ?? 0,
-      },
-    });
-  }
-
-  @Put('categories/:id')
-  @BusinessScoped({ resource: 'category', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
-    return this.prisma.category.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
-        ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
-    });
-  }
-
-  @Delete('categories/:id')
-  @BusinessScoped({ resource: 'category', param: 'id' })
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async deleteCategory(@Param('id') id: string) {
-    await this.prisma.category.update({ where: { id }, data: { isActive: false } });
-    return { message: 'Category deactivated' };
-  }
-
-  // ==================== XLSX Import Endpoints ====================
-
   @Post('products/import-xlsx/preview')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  @UseInterceptors(FileInterceptor('file'))
+  @Roles(...INVENTORY_WRITERS)
+  @UseInterceptors(XLSX_UPLOAD)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Preview XLSX file sheets and headers for product import' })
   @ApiBody({
@@ -407,93 +146,35 @@ export class InventoryController {
   })
   async previewXlsxImport(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('File is required');
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      throw new BadRequestException('File size must be under 10MB');
-    }
-
-    const sheets = await this.excelParser.getSheetNames(file.buffer);
-    const previews = await Promise.all(
-      sheets.map((name) => this.excelParser.previewSheet(file.buffer, name)),
-    );
-    return previews;
+    return this.catalog.previewXlsx(file.buffer);
   }
 
   @Post('products/import-xlsx')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
-  @UseInterceptors(FileInterceptor('file'))
+  @Roles(...INVENTORY_WRITERS)
+  @UseInterceptors(XLSX_UPLOAD)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import products from XLSX file' })
   async importXlsx(
     @UploadedFile() file: Express.Multer.File,
-    @Body('sheetName') sheetName: string,
-    @Body('mappings') mappingsJson: string,
+    @Body() dto: ImportXlsxDto,
     @CurrentUser() user: AuthUser,
   ) {
     if (!file) throw new BadRequestException('File is required');
-    if (!sheetName) throw new BadRequestException('Sheet name is required');
-    if (!mappingsJson) throw new BadRequestException('Column mappings are required');
-
-    let mappings: { excelColumn: string; field: string }[];
-    try {
-      mappings = JSON.parse(mappingsJson);
-    } catch {
-      throw new BadRequestException('Invalid mappings JSON');
-    }
-
-    const rows = await this.excelParser.parseRows(file.buffer, sheetName, mappings);
-
-    let imported = 0;
-    const errors: string[] = [];
-
-    for (const row of rows) {
-      try {
-        const name = String(row.name || '').trim();
-        if (!name) {
-          errors.push(`Row ${imported + errors.length + 2}: Product name is required`);
-          continue;
-        }
-
-        const created = await this.prisma.product.create({
-          data: {
-            businessId: user.businessId,
-            name,
-            sku: row.sku ? String(row.sku) : undefined,
-            basePrice: Number(row.price || row.basePrice || 0),
-            costPrice: row.costPrice ? Number(row.costPrice) : undefined,
-            description: row.description ? String(row.description) : undefined,
-            sellUnit: row.unit ? String(row.unit) : undefined,
-            trackStock: true,
-          },
-        });
-
-        // Auto-assign imported product to all outlets
-        await this.outletProductService.assignToAllOutlets(user.businessId, created.id);
-        imported++;
-      } catch (e) {
-        errors.push(`Row ${imported + errors.length + 2}: ${(e as Error).message}`);
-      }
-    }
-
-    return { imported, errors, total: rows.length };
+    return this.catalog.importXlsx(user, file.buffer, dto);
   }
 
-  // ==================== Import/Export Endpoints ====================
-  // These must be defined before parameterized routes like products/:id
-
   @Post('products/import')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Batch import products from CSV or JSON' })
   async importProducts(@Body() dto: ImportProductsDto, @CurrentUser() user: AuthUser) {
     let rows;
-
     if (dto.format === 'csv') {
       rows = this.inventoryService.parseCsvToProductRows(dto.data);
     } else {
       try {
         rows = this.inventoryService.parseJsonToProductRows(dto.data);
-      } catch {
+      } catch (err) {
+        if (err instanceof BadRequestException) throw err;
         throw new BadRequestException('Invalid JSON data');
       }
     }
@@ -506,18 +187,19 @@ export class InventoryController {
   }
 
   @Get('products/export')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Export products as CSV or JSON' })
   async exportProducts(
     @Query() query: ExportProductsQueryDto,
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
+    const day = businessDateKey();
     if (query.format === 'csv') {
       const csv = await this.inventoryService.exportProductsCsv(user.businessId, query.categoryId);
       res.set({
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="products-${new Date().toISOString().split('T')[0]}.csv"`,
+        'Content-Disposition': `attachment; filename="products-${day}.csv"`,
       });
       res.send(csv);
     } else {
@@ -527,73 +209,188 @@ export class InventoryController {
       );
       res.set({
         'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="products-${new Date().toISOString().split('T')[0]}.json"`,
+        'Content-Disposition': `attachment; filename="products-${day}.json"`,
       });
       res.send(json);
     }
   }
 
+  // ==================== Single product ====================
+
+  @Get('products/:id')
+  async getProduct(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.catalog.getProduct(user, id);
+  }
+
+  @Put('products/:id')
+  @Roles(...INVENTORY_WRITERS)
+  async updateProduct(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProductDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.updateProduct(user, id, dto);
+  }
+
+  @Delete('products/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async deleteProduct(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.catalog.deactivateProduct(user, id);
+    return { message: 'Product deactivated' };
+  }
+
+  // ==================== Variant Endpoints ====================
+
+  @Post('products/:id/variants')
+  @Roles(...INVENTORY_WRITERS)
+  @ApiOperation({ summary: 'Add a variant to an existing product' })
+  async addVariant(
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Body() dto: VariantDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.addVariant(user, productId, dto);
+  }
+
+  @Put('products/:id/variants/:variantId')
+  @Roles(...INVENTORY_WRITERS)
+  @ApiOperation({ summary: 'Update a product variant' })
+  async updateVariant(
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+    @Body() dto: UpdateVariantDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.updateVariant(user, productId, variantId, dto);
+  }
+
+  @Delete('products/:id/variants/:variantId')
+  @Roles(...INVENTORY_WRITERS)
+  @ApiOperation({ summary: 'Soft delete (deactivate) a product variant' })
+  async deleteVariant(
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.deactivateVariant(user, productId, variantId);
+  }
+
+  // ==================== Categories ====================
+
+  @Get('categories')
+  async listCategories(@Query() query: CategoryListQueryDto, @CurrentUser() user: AuthUser) {
+    return this.catalog.listCategories(user, query);
+  }
+
+  @Get('categories/:id')
+  async getCategory(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.catalog.getCategory(user, id);
+  }
+
+  @Post('categories')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async createCategory(@Body() dto: CreateCategoryDto, @CurrentUser() user: AuthUser) {
+    return this.catalog.createCategory(user, dto);
+  }
+
+  @Put('categories/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async updateCategory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCategoryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.updateCategory(user, id, dto);
+  }
+
+  @Delete('categories/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async deleteCategory(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.catalog.deactivateCategory(user, id);
+    return { message: 'Category deactivated' };
+  }
+
   // ==================== Outlet Product Assignment Endpoints ====================
 
   @Get('outlets/:outletId/products')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
-  @ApiOperation({ summary: 'Get products assigned to a specific outlet' })
-  async getOutletProducts(@Param('outletId') outletId: string) {
-    return this.outletProductService.getProductsForOutlet(outletId);
+  @ApiOperation({ summary: 'Products assigned to an outlet (array, or paginated with page/limit)' })
+  async getOutletProducts(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: ProductListQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOutlet(user, outletId);
+    return this.catalog.listProducts(user, query, outletId);
   }
 
   @Get('outlets/:outletId/products/unassigned')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Get products NOT assigned to an outlet' })
-  async getUnassignedProducts(@Param('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    return this.outletProductService.getUnassignedProducts(outletId, user.businessId);
+  async getUnassignedProducts(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOutlet(user, outletId);
+    return this.outletProductService.getUnassignedProducts(outletId, user.businessId, user.role);
   }
 
   @Post('outlets/:outletId/products/assign')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Assign products to an outlet' })
   async assignProducts(
-    @Param('outletId') outletId: string,
-    @Body() body: { productIds: string[] },
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Body() dto: OutletProductIdsDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    if (!body.productIds?.length) {
-      throw new BadRequestException('productIds array is required');
-    }
-    return this.outletProductService.bulkAssign(outletId, body.productIds);
+    await this.tenant.assertOutlet(user, outletId);
+    return this.outletProductService.bulkAssign(outletId, user.businessId, dto.productIds);
+  }
+
+  @Delete('outlets/:outletId/products')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  @ApiOperation({ summary: 'Remove several products from an outlet' })
+  async bulkRemoveOutletProducts(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Body() dto: OutletProductIdsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOutlet(user, outletId);
+    return this.outletProductService.bulkRemove(outletId, user.businessId, dto.productIds);
   }
 
   @Delete('outlets/:outletId/products/:productId')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Remove a product from an outlet' })
   async removeOutletProduct(
-    @Param('outletId') outletId: string,
-    @Param('productId') productId: string,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @CurrentUser() user: AuthUser,
   ) {
+    await this.tenant.assertOutlet(user, outletId);
+    await this.tenant.assertOwned('product', productId, user.businessId);
     await this.outletProductService.removeProduct(outletId, productId);
     return { message: 'Product removed from outlet' };
   }
 
-  // ==================== Stock Discrepancy Endpoints ====================
-  // These must be defined before parameterized routes like stock/:outletId
+  // ==================== Stock ====================
+  // Static paths must be declared before stock/:outletId.
 
   @Get('stock/discrepancies')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Get stock discrepancy report' })
   async getStockDiscrepancies(
     @Query() query: StockDiscrepancyQueryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyOutletAccess(query.outletId, user.businessId);
+    await this.tenant.assertOutlet(user, query.outletId);
     return this.inventoryService.getStockDiscrepancies(query.outletId);
   }
 
   @Post('stock/adjust')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   async adjustStock(@Body() dto: UpdateStockDto, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
+    await this.tenant.assertOutlet(user, dto.outletId);
     return this.updateStockUseCase.execute({
+      businessId: user.businessId,
       outletId: dto.outletId,
       productId: dto.productId,
       variantId: dto.variantId,
@@ -606,11 +403,11 @@ export class InventoryController {
   }
 
   @Post('stock/auto-request')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Auto-create transfer request for low stock items' })
   async autoRequestTransfer(@Body() dto: AutoRequestTransferDto, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
-    await this.verifyOutletAccess(dto.sourceOutletId, user.businessId);
+    await this.tenant.assertOutlet(user, dto.outletId);
+    await this.tenant.assertOutlet(user, dto.sourceOutletId);
     return this.inventoryService.autoRequestTransfer(
       user.businessId,
       dto.outletId,
@@ -619,46 +416,34 @@ export class InventoryController {
   }
 
   @Get('stock/:outletId')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
-  async getStockLevels(@Param('outletId') outletId: string) {
-    return this.inventoryRepo.findStockLevelsByOutlet(outletId);
+  async getStockLevels(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: StockListQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOutlet(user, outletId);
+    return this.inventoryService.listStockLevels(outletId, user.businessId, query);
   }
 
   @Get('stock/:outletId/low')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
-  async getLowStockItems(@Param('outletId') outletId: string) {
-    return this.inventoryRepo.findLowStockItems(outletId);
+  async getLowStockItems(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOutlet(user, outletId);
+    return this.inventoryService.listLowStock(outletId, user.businessId);
   }
 
   // ==================== Cost Price History ====================
 
   @Get('cost-history/:productId')
-  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER, EmployeeRole.INVENTORY)
+  @Roles(...INVENTORY_WRITERS)
   @ApiOperation({ summary: 'Get cost price history for a product' })
   async getCostHistory(
-    @Param('productId') productId: string,
-    @Query('variantId') variantId?: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Query() query: CostHistoryQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    const where: Record<string, unknown> = {};
-    if (variantId) {
-      where.variantId = variantId;
-    } else {
-      where.productId = productId;
-    }
-
-    return this.prisma.costPriceHistory.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-  }
-
-  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+    return this.catalog.getCostHistory(user, productId, query.variantId);
   }
 }

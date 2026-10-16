@@ -1,5 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { csvRow } from '../../infrastructure/import/csv.util';
+import { addBusinessDays, startOfBusinessDay } from '../../shared/utils/business-time';
+import { money, sumMoney } from '../../shared/utils/money';
 
 // ==================== Types ====================
 
@@ -7,8 +11,6 @@ export interface IngredientImportItem {
   name: string;
   unit: string;
   costPerUnit?: number;
-  minStockLevel?: number;
-  supplierId?: string;
   sku?: string;
 }
 
@@ -65,7 +67,22 @@ export interface RecipeCostSnapshot {
   }>;
 }
 
+export interface RecipeCostResult {
+  currentCost: RecipeCostSnapshot;
+  /**
+   * Always empty: ingredient cost changes are not versioned, so any past snapshot would
+   * be fabricated from today's cost. See `historyAvailable`.
+   */
+  history: RecipeCostSnapshot[];
+  historyAvailable: false;
+  historyNote: string;
+}
+
 export type ExportFormat = 'csv' | 'json';
+
+/** Caps (R13). */
+const MAX_EXPORT_ROWS = 10000;
+const MAX_ALERT_ROWS = 5000;
 
 // ==================== Service ====================
 
@@ -77,83 +94,15 @@ export class IngredientsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // ==================== CSV Parsing Helpers ====================
-
   /**
-   * Parse CSV string into IngredientImportItem array.
-   * Expects header row: name,unit,costPerUnit,sku,minStockLevel,supplierId
-   */
-  parseCsvToIngredientItems(csv: string): IngredientImportItem[] {
-    const lines = csv
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    if (lines.length < 2) return [];
-
-    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-    const nameIdx = headers.indexOf('name');
-    const unitIdx = headers.indexOf('unit');
-    const costIdx = headers.indexOf('costperunit');
-    const skuIdx = headers.indexOf('sku');
-    const minStockIdx = headers.indexOf('minstocklevel');
-    const supplierIdx = headers.indexOf('supplierid');
-
-    return lines.slice(1).map((line) => {
-      const cols = line.split(',').map((c) => c.trim());
-      const item: IngredientImportItem = {
-        name: nameIdx >= 0 ? cols[nameIdx] : '',
-        unit: unitIdx >= 0 ? cols[unitIdx] : '',
-      };
-      if (costIdx >= 0 && cols[costIdx]) {
-        const parsed = parseFloat(cols[costIdx]);
-        if (!isNaN(parsed)) item.costPerUnit = parsed;
-      }
-      if (skuIdx >= 0 && cols[skuIdx]) {
-        item.sku = cols[skuIdx];
-      }
-      if (minStockIdx >= 0 && cols[minStockIdx]) {
-        const parsed = parseFloat(cols[minStockIdx]);
-        if (!isNaN(parsed)) item.minStockLevel = parsed;
-      }
-      if (supplierIdx >= 0 && cols[supplierIdx]) {
-        item.supplierId = cols[supplierIdx];
-      }
-      return item;
-    });
-  }
-
-  /**
-   * Parse JSON string into IngredientImportItem array.
-   */
-  parseJsonToIngredientItems(json: string): IngredientImportItem[] {
-    const parsed: unknown = JSON.parse(json);
-    if (!Array.isArray(parsed)) {
-      throw new BadRequestException('JSON data must be an array');
-    }
-    return parsed as IngredientImportItem[];
-  }
-
-  /**
-   * Import ingredients from CSV or JSON format.
-   * Detects duplicates by name. Creates new, updates existing with matching names.
-   * Returns count of created, updated, skipped.
+   * Import ingredients (already-parsed rows, max 1000 via DTO). Duplicates are matched by
+   * name (case-insensitive) within the business. Everything is validated first, existing
+   * names/SKUs are loaded with one query each, and all writes run in ONE transaction.
    */
   async importIngredients(
     businessId: string,
-    data: IngredientImportItem[] | string,
-    format: ExportFormat = 'json',
+    items: IngredientImportItem[],
   ): Promise<IngredientImportResult> {
-    let items: IngredientImportItem[];
-
-    if (typeof data === 'string') {
-      items =
-        format === 'csv'
-          ? this.parseCsvToIngredientItems(data)
-          : this.parseJsonToIngredientItems(data);
-    } else {
-      items = data;
-    }
-
     const result: IngredientImportResult = {
       total: items.length,
       created: 0,
@@ -162,83 +111,112 @@ export class IngredientsService {
       errors: [],
     };
 
-    // Track names seen in this batch to detect duplicates within the import
-    const seenNames = new Set<string>();
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-
-      // Validate required fields
-      if (!item.name || !item.unit) {
+    const rows: Array<{ row: number; item: IngredientImportItem; key: string }> = [];
+    const seen = new Set<string>();
+    items.forEach((item, i) => {
+      const name = item.name?.trim();
+      if (!name || !item.unit?.trim()) {
         result.errors.push({
           row: i + 1,
           name: item.name || 'unknown',
           error: 'Missing required fields: name and unit are required',
         });
-        continue;
+        return;
       }
-
-      // Detect duplicate within the same import batch
-      const normalizedName = item.name.trim().toLowerCase();
-      if (seenNames.has(normalizedName)) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
         result.skipped++;
-        continue;
+        return;
       }
-      seenNames.add(normalizedName);
+      seen.add(key);
+      rows.push({ row: i + 1, item: { ...item, name, unit: item.unit.trim() }, key });
+    });
+    if (rows.length === 0) return result;
 
-      try {
-        // Check if ingredient already exists by name within business
-        const existing = await this.prisma.ingredient.findFirst({
-          where: { businessId, name: item.name },
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Serialise imports per business so two concurrent imports cannot create duplicates.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ingredient-import:${businessId}`}))`;
+
+        const existing = await tx.ingredient.findMany({
+          where: {
+            businessId,
+            OR: rows.map((r) => ({ name: { equals: r.item.name, mode: 'insensitive' as const } })),
+          },
+          select: { id: true, name: true, sku: true },
         });
+        const byName = new Map(existing.map((e) => [e.name.toLowerCase(), e]));
 
-        if (existing) {
-          // Update existing ingredient
-          await this.prisma.ingredient.update({
-            where: { id: existing.id },
+        const skus = rows.map((r) => r.item.sku).filter((s): s is string => !!s);
+        const skuOwners = skus.length
+          ? await tx.ingredient.findMany({
+              where: { businessId, sku: { in: skus } },
+              select: { id: true, sku: true },
+            })
+          : [];
+        const skuOwner = new Map(skuOwners.map((s) => [s.sku, s.id]));
+
+        const toCreate: Prisma.IngredientCreateManyInput[] = [];
+        const toUpdate: Array<{ id: string; item: IngredientImportItem }> = [];
+        const skusInBatch = new Set<string>();
+
+        for (const { row, item, key } of rows) {
+          const match = byName.get(key);
+          if (item.sku) {
+            const owner = skuOwner.get(item.sku);
+            if ((owner && owner !== match?.id) || skusInBatch.has(item.sku)) {
+              result.errors.push({
+                row,
+                name: item.name,
+                error: `SKU "${item.sku}" is already used`,
+              });
+              continue;
+            }
+            skusInBatch.add(item.sku);
+          }
+          if (match) {
+            toUpdate.push({ id: match.id, item });
+          } else {
+            toCreate.push({
+              businessId,
+              name: item.name,
+              unit: item.unit,
+              costPerUnit: money(item.costPerUnit ?? 0),
+              sku: item.sku ?? null,
+            });
+          }
+        }
+
+        if (toCreate.length > 0) {
+          await tx.ingredient.createMany({ data: toCreate });
+        }
+        for (const { id, item } of toUpdate) {
+          await tx.ingredient.updateMany({
+            where: { id, businessId },
             data: {
               unit: item.unit,
-              ...(item.costPerUnit !== undefined && { costPerUnit: item.costPerUnit }),
+              ...(item.costPerUnit !== undefined && { costPerUnit: money(item.costPerUnit) }),
               ...(item.sku !== undefined && { sku: item.sku }),
               isActive: true,
             },
           });
-          result.updated++;
-        } else {
-          // Create new ingredient
-          await this.prisma.ingredient.create({
-            data: {
-              businessId,
-              name: item.name,
-              unit: item.unit,
-              costPerUnit: item.costPerUnit ?? 0,
-              sku: item.sku,
-            },
-          });
-          result.created++;
         }
+        result.created = toCreate.length;
+        result.updated = toUpdate.length;
+      },
+      { timeout: 60_000 },
+    );
 
-        this.logger.debug(`Imported ingredient: ${item.name}`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        result.errors.push({
-          row: i + 1,
-          name: item.name,
-          error: message,
-        });
-      }
-    }
-
+    result.errors.sort((a, b) => a.row - b.row);
     this.logger.log(
       `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.errors.length} errors`,
     );
-
     return result;
   }
 
   /**
-   * Export all ingredients for a business in CSV or JSON format.
-   * Optionally includes stock levels per outlet.
+   * Export ingredients (capped) as CSV or JSON, optionally with stock levels.
+   * `outletId` must already be verified to belong to `businessId`.
    */
   async exportIngredients(
     businessId: string,
@@ -250,10 +228,11 @@ export class IngredientsService {
       where: { businessId },
       include: includeStock
         ? {
-            stockLevels: outletId ? { where: { outletId } } : true,
+            stockLevels: outletId ? { where: { outletId } } : { where: { outlet: { businessId } } },
           }
         : undefined,
       orderBy: { name: 'asc' },
+      take: MAX_EXPORT_ROWS,
     });
 
     const exportItems: IngredientExportItem[] = ingredients.map((ing) => ({
@@ -266,7 +245,13 @@ export class IngredientsService {
       createdAt: ing.createdAt,
       ...(includeStock && {
         stockLevels: (
-          ing as { stockLevels?: { outletId: string; quantity: number; lowStockAlert: number }[] }
+          ing as {
+            stockLevels?: {
+              outletId: string;
+              quantity: Prisma.Decimal;
+              lowStockAlert: Prisma.Decimal;
+            }[];
+          }
         ).stockLevels?.map((sl) => ({
           outletId: sl.outletId,
           quantity: Number(sl.quantity),
@@ -275,258 +260,170 @@ export class IngredientsService {
       }),
     }));
 
-    if (format === 'csv') {
-      return this.ingredientsToCsv(exportItems);
-    }
-
-    return exportItems;
+    return format === 'csv' ? this.ingredientsToCsv(exportItems) : exportItems;
   }
 
-  /**
-   * Convert ingredient export items to CSV string.
-   */
+  /** CSV with proper quoting and spreadsheet formula-injection neutralisation. */
   ingredientsToCsv(items: IngredientExportItem[]): string {
     const header = 'name,sku,unit,costPerUnit,isActive,createdAt';
     const rows = items.map((item) =>
-      [
+      csvRow([
         item.name,
         item.sku ?? '',
         item.unit,
         item.costPerUnit,
         item.isActive,
         item.createdAt.toISOString(),
-      ].join(','),
+      ]),
     );
     return [header, ...rows].join('\n');
   }
 
   /**
-   * Get low stock alerts for an outlet.
-   * Groups ingredients below min stock level and provides reorder suggestions
-   * based on average daily consumption and lead time.
+   * Low-stock alerts for an outlet of `businessId` (verified by the caller) with reorder
+   * suggestions from the average daily usage over the last 30 business days.
    */
   async getLowStockAlerts(
+    businessId: string,
     outletId: string,
     customThreshold?: number,
   ): Promise<LowStockAlertItem[]> {
-    // Verify outlet exists
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-    });
+    const outlet = await this.prisma.outlet.count({ where: { id: outletId, businessId } });
+    if (outlet === 0) throw new NotFoundException('Outlet not found');
 
-    if (!outlet) {
-      throw new NotFoundException('Outlet not found');
-    }
+    // Filter in SQL: either the per-row alert level or the custom threshold.
+    const stockLevels =
+      customThreshold !== undefined
+        ? await this.prisma.ingredientStockLevel.findMany({
+            where: {
+              outletId,
+              ingredient: { businessId },
+              quantity: { lte: customThreshold },
+            },
+            include: { ingredient: { select: { name: true, unit: true } } },
+            take: MAX_ALERT_ROWS,
+          })
+        : (
+            await this.prisma.$queryRaw<
+              Array<{
+                ingredient_id: string;
+                outlet_id: string;
+                quantity: Prisma.Decimal;
+                low_stock_alert: Prisma.Decimal;
+                name: string;
+                unit: string;
+              }>
+            >`
+              SELECT sl.ingredient_id, sl.outlet_id, sl.quantity, sl.low_stock_alert, i.name, i.unit
+              FROM ingredient_stock_levels sl
+              JOIN ingredients i ON i.id = sl.ingredient_id
+              WHERE sl.outlet_id = ${outletId}::uuid
+                AND i.business_id = ${businessId}::uuid
+                AND sl.quantity <= sl.low_stock_alert
+              LIMIT ${MAX_ALERT_ROWS}
+            `
+          ).map((r) => ({
+            ingredientId: r.ingredient_id,
+            outletId: r.outlet_id,
+            quantity: new Prisma.Decimal(r.quantity),
+            lowStockAlert: new Prisma.Decimal(r.low_stock_alert),
+            ingredient: { name: r.name, unit: r.unit },
+          }));
 
-    // Get all ingredient stock levels for the outlet with ingredient info
-    const stockLevels = await this.prisma.ingredientStockLevel.findMany({
-      where: { outletId },
-      include: { ingredient: true },
-    });
+    if (stockLevels.length === 0) return [];
 
-    // Calculate lookback date for consumption data
-    const lookbackDate = new Date();
-    lookbackDate.setDate(lookbackDate.getDate() - this.CONSUMPTION_LOOKBACK_DAYS);
-
-    // Get consumption movements for the lookback period
-    const consumptionMovements = await this.prisma.ingredientStockMovement.findMany({
+    // Usage totals per ingredient, aggregated in the database.
+    const lookbackDate = startOfBusinessDay(
+      addBusinessDays(new Date(), -this.CONSUMPTION_LOOKBACK_DAYS),
+    );
+    const usage = await this.prisma.ingredientStockMovement.groupBy({
+      by: ['ingredientId'],
       where: {
         outletId,
         movementType: 'usage',
         createdAt: { gte: lookbackDate },
+        ingredientId: { in: stockLevels.map((s) => s.ingredientId) },
       },
+      _sum: { quantity: true },
     });
+    // Usage is stored as negative quantities by sales; take the magnitude.
+    const consumptionMap = new Map(
+      usage.map((u) => [u.ingredientId, Math.abs(Number(u._sum.quantity ?? 0))]),
+    );
 
-    // Build consumption map: ingredientId -> total consumed
-    const consumptionMap = new Map<string, number>();
-    for (const movement of consumptionMovements) {
-      const current = consumptionMap.get(movement.ingredientId) || 0;
-      consumptionMap.set(movement.ingredientId, current + Number(movement.quantity));
-    }
-
-    const alerts: LowStockAlertItem[] = [];
-
-    for (const stock of stockLevels) {
+    const alerts: LowStockAlertItem[] = stockLevels.map((stock) => {
       const currentQty = Number(stock.quantity);
       const minLevel = customThreshold ?? Number(stock.lowStockAlert);
+      const avgDailyConsumption =
+        (consumptionMap.get(stock.ingredientId) ?? 0) / this.CONSUMPTION_LOOKBACK_DAYS;
+      const leadTimeDays = this.DEFAULT_LEAD_TIME_DAYS;
+      const deficit = minLevel - currentQty;
+      const suggestedQuantity = Math.max(
+        Math.ceil(deficit + avgDailyConsumption * leadTimeDays),
+        Math.ceil(avgDailyConsumption * leadTimeDays * 2),
+      );
 
-      if (currentQty <= minLevel) {
-        const totalConsumed = consumptionMap.get(stock.ingredientId) || 0;
-        const avgDailyConsumption = totalConsumed / this.CONSUMPTION_LOOKBACK_DAYS;
-        const leadTimeDays = this.DEFAULT_LEAD_TIME_DAYS;
+      return {
+        ingredientId: stock.ingredientId,
+        ingredientName: stock.ingredient.name,
+        unit: stock.ingredient.unit,
+        outletId: stock.outletId,
+        currentStock: currentQty,
+        minStockLevel: minLevel,
+        deficit,
+        reorderSuggestion: {
+          suggestedQuantity: suggestedQuantity > 0 ? suggestedQuantity : 1,
+          basedOnAvgDailyConsumption: Math.round(avgDailyConsumption * 100) / 100,
+          leadTimeDays,
+        },
+      };
+    });
 
-        // Suggested reorder: enough to cover lead time + buffer to reach min stock
-        const deficit = minLevel - currentQty;
-        const leadTimeNeed = avgDailyConsumption * leadTimeDays;
-        const suggestedQuantity = Math.max(
-          Math.ceil(deficit + leadTimeNeed),
-          Math.ceil(avgDailyConsumption * leadTimeDays * 2),
-        );
-
-        alerts.push({
-          ingredientId: stock.ingredientId,
-          ingredientName: stock.ingredient.name,
-          unit: stock.ingredient.unit,
-          outletId: stock.outletId,
-          currentStock: currentQty,
-          minStockLevel: minLevel,
-          deficit,
-          reorderSuggestion: {
-            suggestedQuantity: suggestedQuantity > 0 ? suggestedQuantity : 1,
-            basedOnAvgDailyConsumption: Math.round(avgDailyConsumption * 100) / 100,
-            leadTimeDays,
-          },
-        });
-      }
-    }
-
-    // Sort by deficit descending (most urgent first)
     alerts.sort((a, b) => b.deficit - a.deficit);
-
     return alerts;
   }
 
   /**
-   * Get recipe cost history.
-   * Calculates the current cost of a recipe based on current ingredient costs,
-   * and tracks historical cost snapshots from ingredient stock movements.
+   * Current recipe cost from current ingredient costs (Decimal arithmetic).
+   *
+   * Historical snapshots are NOT returned: ingredient cost changes are not versioned
+   * (no cost history per purchase), so the previous implementation fabricated "history"
+   * from today's cost. `historyAvailable: false` says so explicitly.
    */
-  async getRecipeCostHistory(
-    recipeId: string,
-    startDate?: string,
-    endDate?: string,
-  ): Promise<{
-    currentCost: RecipeCostSnapshot;
-    history: RecipeCostSnapshot[];
-  }> {
-    // Get recipe with items and ingredients
-    const recipe = await this.prisma.recipe.findUnique({
-      where: { id: recipeId },
+  async getRecipeCostHistory(recipeId: string, businessId: string): Promise<RecipeCostResult> {
+    const recipe = await this.prisma.recipe.findFirst({
+      where: { id: recipeId, product: { businessId } },
       include: {
-        items: {
-          include: {
-            ingredient: true,
-          },
-        },
+        items: { include: { ingredient: { select: { name: true, costPerUnit: true } } } },
       },
     });
+    if (!recipe) throw new NotFoundException('Recipe not found');
 
-    if (!recipe) {
-      throw new NotFoundException('Recipe not found');
-    }
-
-    // Calculate current cost
-    const currentCost: RecipeCostSnapshot = {
-      recipeId: recipe.id,
-      productId: recipe.productId,
-      date: new Date(),
-      totalCost: 0,
-      items: recipe.items.map((item) => {
-        const costPerUnit = Number(item.ingredient.costPerUnit);
-        const quantity = Number(item.quantity);
-        const itemCost = costPerUnit * quantity;
-
-        return {
-          ingredientId: item.ingredientId,
-          ingredientName: item.ingredient.name,
-          quantity,
-          unit: item.unit,
-          costPerUnit,
-          itemCost,
-        };
-      }),
-    };
-    currentCost.totalCost = currentCost.items.reduce((sum, item) => sum + item.itemCost, 0);
-
-    // Build historical cost snapshots from purchase movements (cost changes)
-    const ingredientIds = recipe.items.map((item) => item.ingredientId);
-
-    const dateFilter: Record<string, Date> = {};
-    if (startDate) {
-      dateFilter.gte = new Date(startDate);
-    }
-    if (endDate) {
-      dateFilter.lte = new Date(endDate);
-    }
-
-    const purchaseMovements = await this.prisma.ingredientStockMovement.findMany({
-      where: {
-        ingredientId: { in: ingredientIds },
-        movementType: 'purchase',
-        ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
-      },
-      orderBy: { createdAt: 'asc' },
-      include: { ingredient: true },
+    const items = recipe.items.map((item) => {
+      const itemCost = money(item.ingredient.costPerUnit).times(item.quantity);
+      return {
+        ingredientId: item.ingredientId,
+        ingredientName: item.ingredient.name,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+        costPerUnit: Number(item.ingredient.costPerUnit),
+        itemCost,
+      };
     });
 
-    // Group movements by date (day granularity) to build cost snapshots
-    const snapshotsByDate = new Map<string, RecipeCostSnapshot>();
-
-    // Build a cost-per-unit timeline per ingredient
-    const ingredientCostTimeline = new Map<string, Array<{ date: Date; costPerUnit: number }>>();
-    for (const item of recipe.items) {
-      ingredientCostTimeline.set(item.ingredientId, []);
-    }
-
-    for (const movement of purchaseMovements) {
-      const timeline = ingredientCostTimeline.get(movement.ingredientId);
-      if (timeline) {
-        // Derive cost from movement: total cost / quantity
-        const movementQty = Number(movement.quantity);
-        if (movementQty > 0) {
-          timeline.push({
-            date: movement.createdAt,
-            costPerUnit: Number(movement.ingredient.costPerUnit),
-          });
-        }
-      }
-    }
-
-    // Generate snapshots for each unique date a purchase occurred
-    const uniqueDates = new Set<string>();
-    for (const movement of purchaseMovements) {
-      const dateKey = movement.createdAt.toISOString().split('T')[0];
-      uniqueDates.add(dateKey);
-    }
-
-    for (const dateKey of uniqueDates) {
-      const snapshotDate = new Date(dateKey);
-
-      const snapshot: RecipeCostSnapshot = {
+    return {
+      currentCost: {
         recipeId: recipe.id,
         productId: recipe.productId,
-        date: snapshotDate,
-        totalCost: 0,
-        items: recipe.items.map((item) => {
-          const timeline = ingredientCostTimeline.get(item.ingredientId) || [];
-          // Find the latest cost on or before this date
-          const applicableCosts = timeline.filter((entry) => entry.date <= snapshotDate);
-          const latestCost =
-            applicableCosts.length > 0
-              ? applicableCosts[applicableCosts.length - 1].costPerUnit
-              : Number(item.ingredient.costPerUnit);
-
-          const quantity = Number(item.quantity);
-          const itemCost = latestCost * quantity;
-
-          return {
-            ingredientId: item.ingredientId,
-            ingredientName: item.ingredient.name,
-            quantity,
-            unit: item.unit,
-            costPerUnit: latestCost,
-            itemCost,
-          };
-        }),
-      };
-      snapshot.totalCost = snapshot.items.reduce((sum, item) => sum + item.itemCost, 0);
-      snapshotsByDate.set(dateKey, snapshot);
-    }
-
-    const history = Array.from(snapshotsByDate.values()).sort(
-      (a, b) => a.date.getTime() - b.date.getTime(),
-    );
-
-    return { currentCost, history };
+        date: new Date(),
+        totalCost: sumMoney(items.map((i) => i.itemCost))
+          .toDecimalPlaces(2)
+          .toNumber(),
+        items: items.map((i) => ({ ...i, itemCost: i.itemCost.toDecimalPlaces(4).toNumber() })),
+      },
+      history: [],
+      historyAvailable: false,
+      historyNote: 'Ingredient cost changes are not versioned; only the current cost is available.',
+    };
   }
 }

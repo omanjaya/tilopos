@@ -1,21 +1,23 @@
 import {
   Controller,
   Post,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
+import { Roles } from '../../infrastructure/auth/roles.decorator';
+import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { EmployeeRole } from '../../shared/constants/roles';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { ImageProcessorService } from '../../infrastructure/storage/image-processor.service';
 import { randomUUID } from 'crypto';
 
 @ApiTags('Uploads')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('uploads')
 export class UploadsController {
   constructor(
@@ -23,13 +25,16 @@ export class UploadsController {
     private readonly imageProcessor: ImageProcessorService,
   ) {}
 
+  /** Product/outlet images are managed by back-office roles; uploads are rate limited. */
   @Post('image')
-  @UseInterceptors(FileInterceptor('file'))
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR, EmployeeRole.INVENTORY)
+  @Throttle({ medium: { limit: 30, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024, files: 1 } }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
   })
-  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+  async uploadImage(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: AuthUser) {
     if (!file) throw new BadRequestException('No file uploaded');
 
     const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -65,14 +70,13 @@ export class UploadsController {
     }
 
     const id = randomUUID();
+    // Namespaced per tenant so storage can be audited/cleaned per business.
+    const base = `images/${user.businessId}/${id}`;
     const processed = await this.imageProcessor.process(file.buffer);
 
-    const originalPath = await this.storage.upload(`images/${id}/original.jpg`, processed.original);
-    const thumbnailPath = await this.storage.upload(
-      `images/${id}/thumbnail.jpg`,
-      processed.thumbnail,
-    );
-    const mediumPath = await this.storage.upload(`images/${id}/medium.jpg`, processed.medium);
+    const originalPath = await this.storage.upload(`${base}/original.jpg`, processed.original);
+    const thumbnailPath = await this.storage.upload(`${base}/thumbnail.jpg`, processed.thumbnail);
+    const mediumPath = await this.storage.upload(`${base}/medium.jpg`, processed.medium);
 
     const mediumUrl = this.storage.getUrl(mediumPath);
     return {

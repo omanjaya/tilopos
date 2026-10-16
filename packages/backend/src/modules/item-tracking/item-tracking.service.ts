@@ -1,131 +1,80 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, ServiceItemStatus } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { ServiceItemStatus } from '@prisma/client';
+import { TenantAccessService } from '@shared/tenant';
+import { DocumentNumberService } from '@shared/numbering';
+import { CUSTOMER_PUBLIC_SELECT } from '@shared/constants/selects';
+import type { ReceiveServiceItemDto, UpdateServiceItemDto } from './dto/service-item.dto';
 
-export interface ReceiveItemDto {
-  outletId: string;
-  customerId?: string;
-  itemName: string;
-  itemDescription?: string;
-  quantity?: number;
-  serviceName: string;
-  servicePrice: number;
-  estimatedReady?: string;
-  customerName?: string;
-  customerPhone?: string;
-  notes?: string;
-}
-
-export interface UpdateItemDto {
-  itemName?: string;
-  itemDescription?: string;
-  quantity?: number;
-  serviceName?: string;
-  servicePrice?: number;
-  estimatedReady?: string | null;
-  customerName?: string;
-  customerPhone?: string;
-  notes?: string;
-}
+/** Customer fields returned with a ticket (R12). */
+const WITH_CUSTOMER = { customer: { select: CUSTOMER_PUBLIC_SELECT } } as const;
+const DEFAULT_LIST_LIMIT = 200;
 
 @Injectable()
 export class ItemTrackingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+    private readonly documentNumbers: DocumentNumberService,
+  ) {}
 
-  async generateTicketNumber(businessId: string): Promise<string> {
-    const today = new Date();
-    const dateStr =
-      today.getFullYear().toString() +
-      (today.getMonth() + 1).toString().padStart(2, '0') +
-      today.getDate().toString().padStart(2, '0');
+  /**
+   * Receives an item. The ticket number (`TK-YYYYMMDD-0001`, Jakarta business day) comes
+   * from the atomic per-business counter inside the same transaction, so concurrent
+   * receives never collide (R15). Outlet and customer must belong to the business (R3).
+   */
+  async receive(businessId: string, data: ReceiveServiceItemDto) {
+    await this.tenant.assertOutlet({ businessId }, data.outletId);
+    await this.tenant.assertOwned('customer', data.customerId, businessId);
 
-    const prefix = `TK-${dateStr}-`;
-
-    const lastItem = await this.prisma.serviceItem.findFirst({
-      where: {
-        businessId,
-        ticketNumber: { startsWith: prefix },
-      },
-      orderBy: { ticketNumber: 'desc' },
-      select: { ticketNumber: true },
-    });
-
-    let sequence = 1;
-    if (lastItem) {
-      const lastSeq = parseInt(lastItem.ticketNumber.slice(prefix.length), 10);
-      if (!isNaN(lastSeq)) {
-        sequence = lastSeq + 1;
-      }
-    }
-
-    return `${prefix}${sequence.toString().padStart(4, '0')}`;
-  }
-
-  async receive(businessId: string, data: ReceiveItemDto) {
-    const ticketNumber = await this.generateTicketNumber(businessId);
-
-    return this.prisma.serviceItem.create({
-      data: {
-        businessId,
-        outletId: data.outletId,
-        customerId: data.customerId ?? null,
-        ticketNumber,
-        itemName: data.itemName,
-        itemDescription: data.itemDescription ?? null,
-        quantity: data.quantity ?? 1,
-        serviceName: data.serviceName,
-        servicePrice: data.servicePrice,
-        status: 'received',
-        estimatedReady: data.estimatedReady ? new Date(data.estimatedReady) : null,
-        customerName: data.customerName ?? null,
-        customerPhone: data.customerPhone ?? null,
-        notes: data.notes ?? null,
-      },
-      include: { customer: true },
+    return this.prisma.$transaction(async (tx) => {
+      const ticketNumber = await this.documentNumbers.next(tx, businessId, 'TK');
+      return tx.serviceItem.create({
+        data: {
+          businessId,
+          outletId: data.outletId,
+          customerId: data.customerId ?? null,
+          ticketNumber,
+          itemName: data.itemName,
+          itemDescription: data.itemDescription ?? null,
+          quantity: data.quantity ?? 1,
+          serviceName: data.serviceName,
+          servicePrice: new Prisma.Decimal(data.servicePrice),
+          status: 'received',
+          estimatedReady: data.estimatedReady ? new Date(data.estimatedReady) : null,
+          customerName: data.customerName ?? null,
+          customerPhone: data.customerPhone ?? null,
+          notes: data.notes ?? null,
+        },
+        include: WITH_CUSTOMER,
+      });
     });
   }
 
   async updateStatus(id: string, businessId: string, status: ServiceItemStatus) {
-    const item = await this.prisma.serviceItem.findFirst({
+    const now = new Date();
+    const timestamps: Prisma.ServiceItemUpdateManyMutationInput = {};
+    if (status === 'processing') timestamps.processedAt = now;
+    else if (status === 'ready') timestamps.readyAt = now;
+    else if (status === 'delivered') timestamps.deliveredAt = now;
+
+    const result = await this.prisma.serviceItem.updateMany({
       where: { id, businessId },
-    });
-
-    if (!item) {
-      throw new NotFoundException('Service item not found');
-    }
-
-    const timestamps: Record<string, Date> = {};
-    if (status === 'processing') {
-      timestamps.processedAt = new Date();
-    } else if (status === 'ready') {
-      timestamps.readyAt = new Date();
-    } else if (status === 'delivered') {
-      timestamps.deliveredAt = new Date();
-    }
-
-    return this.prisma.serviceItem.update({
-      where: { id },
       data: { status, ...timestamps },
-      include: { customer: true },
     });
+    if (result.count === 0) throw new NotFoundException('Service item not found');
+    return this.findById(id, businessId);
   }
 
-  async update(id: string, businessId: string, data: UpdateItemDto) {
-    const item = await this.prisma.serviceItem.findFirst({
-      where: { id, businessId },
-    });
-
-    if (!item) {
-      throw new NotFoundException('Service item not found');
-    }
-
-    const updateData: Record<string, unknown> = {};
-
+  async update(id: string, businessId: string, data: UpdateServiceItemDto) {
+    const updateData: Prisma.ServiceItemUpdateManyMutationInput = {};
     if (data.itemName !== undefined) updateData.itemName = data.itemName;
     if (data.itemDescription !== undefined) updateData.itemDescription = data.itemDescription;
     if (data.quantity !== undefined) updateData.quantity = data.quantity;
     if (data.serviceName !== undefined) updateData.serviceName = data.serviceName;
-    if (data.servicePrice !== undefined) updateData.servicePrice = data.servicePrice;
+    if (data.servicePrice !== undefined) {
+      updateData.servicePrice = new Prisma.Decimal(data.servicePrice);
+    }
     if (data.estimatedReady !== undefined) {
       updateData.estimatedReady = data.estimatedReady ? new Date(data.estimatedReady) : null;
     }
@@ -133,94 +82,78 @@ export class ItemTrackingService {
     if (data.customerPhone !== undefined) updateData.customerPhone = data.customerPhone;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    return this.prisma.serviceItem.update({
-      where: { id },
+    const result = await this.prisma.serviceItem.updateMany({
+      where: { id, businessId },
       data: updateData,
-      include: { customer: true },
     });
+    if (result.count === 0) throw new NotFoundException('Service item not found');
+    return this.findById(id, businessId);
   }
 
   async findById(id: string, businessId: string) {
     const item = await this.prisma.serviceItem.findFirst({
       where: { id, businessId },
-      include: { customer: true },
+      include: WITH_CUSTOMER,
     });
-
-    if (!item) {
-      throw new NotFoundException('Service item not found');
-    }
-
+    if (!item) throw new NotFoundException('Service item not found');
     return item;
   }
 
   async findByTicket(ticketNumber: string, businessId: string) {
     const item = await this.prisma.serviceItem.findFirst({
       where: { ticketNumber, businessId },
-      include: { customer: true },
+      include: WITH_CUSTOMER,
     });
-
-    if (!item) {
-      throw new NotFoundException('Service item not found');
-    }
-
+    if (!item) throw new NotFoundException('Service item not found');
     return item;
   }
 
   async listByOutlet(
     outletId: string,
     businessId: string,
-    filters?: { status?: ServiceItemStatus; search?: string },
+    filters: { status?: ServiceItemStatus; search?: string; page?: number; limit?: number } = {},
   ) {
-    const where: Record<string, unknown> = { outletId, businessId };
-
-    if (filters?.status) {
-      where.status = filters.status;
-    }
-
-    if (filters?.search) {
+    await this.tenant.assertOutlet({ businessId }, outletId);
+    const where: Prisma.ServiceItemWhereInput = { outletId, businessId };
+    if (filters.status) where.status = filters.status;
+    if (filters.search) {
       where.OR = [
         { itemName: { contains: filters.search, mode: 'insensitive' } },
         { ticketNumber: { contains: filters.search, mode: 'insensitive' } },
         { customerName: { contains: filters.search, mode: 'insensitive' } },
       ];
     }
-
+    const take = filters.limit ?? DEFAULT_LIST_LIMIT;
     return this.prisma.serviceItem.findMany({
       where,
-      include: { customer: true },
+      include: WITH_CUSTOMER,
       orderBy: { receivedAt: 'desc' },
+      skip: ((filters.page ?? 1) - 1) * take,
+      take,
     });
   }
 
   async listByCustomer(customerId: string, businessId: string) {
     return this.prisma.serviceItem.findMany({
       where: { customerId, businessId },
-      include: { customer: true },
+      include: WITH_CUSTOMER,
       orderBy: { receivedAt: 'desc' },
+      take: DEFAULT_LIST_LIMIT,
     });
   }
 
   async getActive(outletId: string, businessId: string) {
+    await this.tenant.assertOutlet({ businessId }, outletId);
     return this.prisma.serviceItem.findMany({
-      where: {
-        outletId,
-        businessId,
-        status: { in: ['received', 'processing', 'ready'] },
-      },
-      include: { customer: true },
+      where: { outletId, businessId, status: { in: ['received', 'processing', 'ready'] } },
+      include: WITH_CUSTOMER,
       orderBy: { receivedAt: 'asc' },
+      take: DEFAULT_LIST_LIMIT,
     });
   }
 
   async delete(id: string, businessId: string) {
-    const item = await this.prisma.serviceItem.findFirst({
-      where: { id, businessId },
-    });
-
-    if (!item) {
-      throw new NotFoundException('Service item not found');
-    }
-
-    await this.prisma.serviceItem.delete({ where: { id } });
+    const result = await this.prisma.serviceItem.deleteMany({ where: { id, businessId } });
+    if (result.count === 0) throw new NotFoundException('Service item not found');
   }
 }

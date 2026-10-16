@@ -6,25 +6,23 @@ import {
   Delete,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '@infrastructure/auth/roles.guard';
 import { Roles } from '@infrastructure/auth/roles.decorator';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '@shared/constants/roles';
 import { BundlePackagesService } from './bundle-packages.service';
 import {
+  BundleListQueryDto,
   CreateBundlePackageDto,
   UpdateBundlePackageDto,
 } from '@application/dtos/bundle-package.dto';
 
 @Controller('bundle-packages')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class BundlePackagesController {
   constructor(private readonly service: BundlePackagesService) {}
 
@@ -35,16 +33,8 @@ export class BundlePackagesController {
     EmployeeRole.MANAGER,
     EmployeeRole.SUPERVISOR,
   )
-  async list(
-    @CurrentUser() user: AuthUser,
-    @Query('search') search?: string,
-    @Query('isActive') isActive?: string,
-  ) {
-    const bundles = await this.service.findAll(user.businessId, {
-      search,
-      isActive: isActive !== undefined ? isActive === 'true' : undefined,
-    });
-    return bundles;
+  async list(@CurrentUser() user: AuthUser, @Query() query: BundleListQueryDto) {
+    return this.service.findAll(user.businessId, query);
   }
 
   @Get('pos/:outletId')
@@ -55,7 +45,10 @@ export class BundlePackagesController {
     EmployeeRole.OWNER,
     EmployeeRole.SUPER_ADMIN,
   )
-  async getForPOS(@CurrentUser() user: AuthUser, @Param('outletId') outletId: string) {
+  async getForPOS(
+    @CurrentUser() user: AuthUser,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+  ) {
     return this.service.findForPOS(outletId, user.businessId);
   }
 
@@ -66,7 +59,7 @@ export class BundlePackagesController {
     EmployeeRole.MANAGER,
     EmployeeRole.SUPERVISOR,
   )
-  async getById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  async getById(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.findById(id, user.businessId);
   }
 
@@ -80,7 +73,7 @@ export class BundlePackagesController {
   @Roles(EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN, EmployeeRole.MANAGER)
   async update(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateBundlePackageDto,
   ) {
     return this.service.update(id, user.businessId, dto);
@@ -89,7 +82,7 @@ export class BundlePackagesController {
   @Delete(':id')
   @Roles(EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN, EmployeeRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  async delete(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     await this.service.softDelete(id, user.businessId);
   }
 }
