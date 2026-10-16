@@ -1,28 +1,28 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { Injectable, Logger } from '@nestjs/common';
+import { Prisma, type PaymentMethod } from '@prisma/client';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Prisma, type PaymentMethod } from '@prisma/client';
 import { TransactionCreatedEvent } from '@domain/events/transaction-created.event';
 import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
-import { InsufficientStockException } from '@domain/exceptions/insufficient-stock.exception';
 import { AppError } from '@shared/errors/app-error';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
-import type { IShiftRepository } from '@domain/interfaces/repositories/shift.repository';
-import type { IProductRepository } from '@domain/interfaces/repositories/product.repository';
-import type { IInventoryRepository } from '@domain/interfaces/repositories/inventory.repository';
-import { TaxConfigurationRepository } from '@infrastructure/repositories/settings/tax-configuration.repository';
+import { ROLE_HIERARCHY } from '@shared/constants/roles';
+import { DocumentNumberService } from '@shared/numbering';
+import { TenantAccessService } from '@shared/tenant';
+import { money, sumMoney, toNumber } from '@shared/utils/money';
+import {
+  SalePricingService,
+  type PricedSale,
+  type SaleDiscountInput,
+  type SaleLineInput,
+} from '../../services/sale-pricing.service';
+import { PromotionRulesEngine } from '../../services/promotion-rules.engine';
+import { applyStockChanges, type StockChange } from '../../services/sale-stock';
+import { computeLoyaltyPoints } from '../../services/loyalty-points';
 
-export interface TransactionItemInput {
-  productId?: string;
-  bundleId?: string;
-  variantId?: string;
-  quantity: number;
-  modifierIds?: string[];
-  notes?: string;
-  unitPrice?: number;
-}
+export type TransactionItemInput = SaleLineInput;
+export type DiscountInput = SaleDiscountInput;
 
 export interface PaymentInput {
   method: string;
@@ -30,16 +30,12 @@ export interface PaymentInput {
   referenceNumber?: string;
 }
 
-export interface DiscountInput {
-  type: 'percentage' | 'fixed';
-  value: number;
-  promotionId?: string;
-  voucherCode?: string;
-}
-
 export interface CreateTransactionInput {
+  businessId: string;
   outletId: string;
   employeeId: string;
+  /** Caller role: gates price overrides and manual discount caps (R8). */
+  role: string;
   customerId?: string;
   shiftId: string;
   orderType: 'dine_in' | 'takeaway' | 'delivery';
@@ -48,6 +44,10 @@ export interface CreateTransactionInput {
   payments: PaymentInput[];
   discounts?: DiscountInput[];
   notes?: string;
+  /** Client idempotency key (offline sync / retries). Unique per outlet. */
+  clientTransactionId?: string;
+  /** When the sale happened on the device (offline sync). */
+  occurredAt?: Date;
 }
 
 export interface CreateTransactionOutput {
@@ -57,475 +57,136 @@ export interface CreateTransactionOutput {
   roundingAmount: number;
   change: number;
   loyaltyPointsEarned: number;
+  /** True when an earlier submission with the same clientTransactionId was returned. */
+  duplicate?: boolean;
 }
+
+/** Maximum age of an offline sale that may still be synced. */
+export const MAX_OFFLINE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Tolerated device clock skew into the future. */
+export const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/** Payment methods recorded by the cashier from an external terminal (EDC / static QRIS / transfer). */
+const MANUAL_METHODS: ReadonlySet<string> = new Set([
+  'cash',
+  'card',
+  'debit_card',
+  'credit_card',
+  'gopay',
+  'ovo',
+  'dana',
+  'shopeepay',
+  'linkaja',
+  'qris',
+  'bank_transfer',
+]);
 
 @Injectable()
 export class CreateTransactionUseCase {
   private readonly logger = new Logger(CreateTransactionUseCase.name);
 
   constructor(
-    @Inject(REPOSITORY_TOKENS.SHIFT)
-    private readonly shiftRepo: IShiftRepository,
-    @Inject(REPOSITORY_TOKENS.PRODUCT)
-    private readonly productRepo: IProductRepository,
-    @Inject(REPOSITORY_TOKENS.INVENTORY)
-    private readonly inventoryRepo: IInventoryRepository,
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
-    private readonly taxConfigRepo: TaxConfigurationRepository,
+    private readonly pricing: SalePricingService,
+    private readonly promotionRules: PromotionRulesEngine,
+    private readonly documentNumbers: DocumentNumberService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
+  /** Server-side totals for a cart without creating anything (POS preview). */
+  async preview(
+    input: Pick<
+      CreateTransactionInput,
+      'businessId' | 'outletId' | 'role' | 'customerId' | 'orderType' | 'items' | 'discounts'
+    > & { payments?: PaymentInput[] },
+  ): Promise<PricedSale> {
+    await this.tenant.assertOwned('customer', input.customerId, input.businessId);
+    return this.pricing.priceSale(
+      {
+        businessId: input.businessId,
+        outletId: input.outletId,
+        role: input.role,
+        customerId: input.customerId ?? null,
+        orderType: input.orderType,
+        applyCashRounding: this.isCashOnly(input.payments),
+      },
+      input.items,
+      input.discounts ?? [],
+    );
+  }
+
   async execute(input: CreateTransactionInput): Promise<CreateTransactionOutput> {
-    const shift = await this.shiftRepo.findById(input.shiftId);
-    if (!shift || shift.status !== 'open') {
-      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
+    const occurredAt = this.resolveOccurredAt(input.occurredAt);
+
+    // Idempotent replay: the same device submission returns the original sale.
+    if (input.clientTransactionId) {
+      const existing = await this.findByClientId(input.outletId, input.clientTransactionId);
+      if (existing) return existing;
     }
 
-    const itemDetails: Array<{
-      productId: string | null;
-      variantId: string | null;
-      bundleId: string | null;
-      productName: string;
-      variantName: string | null;
-      unitPrice: number;
-      quantity: number;
-      subtotal: number;
-      notes: string | null;
-      modifiers?: Array<{ modifierId: string; modifierName: string; price: number }>;
-    }> = [];
+    await this.assertReferences(input);
+    this.assertPaymentMethods(input.payments);
 
-    // Track bundle component stock deductions separately
-    const bundleStockDeductions: Array<{
-      productId: string;
-      variantId: string | null;
-      quantity: number;
-    }> = [];
+    const priced = await this.pricing.priceSale(
+      {
+        businessId: input.businessId,
+        outletId: input.outletId,
+        role: input.role,
+        customerId: input.customerId ?? null,
+        orderType: input.orderType,
+        applyCashRounding: this.isCashOnly(input.payments),
+        now: occurredAt,
+      },
+      input.items,
+      input.discounts ?? [],
+    );
 
-    for (const item of input.items) {
-      if (item.bundleId) {
-        // === BUNDLE PATH ===
-        const bundle = await this.prisma.bundlePackage.findFirst({
-          where: { id: item.bundleId, isActive: true },
-          include: {
-            items: {
-              include: {
-                product: { select: { id: true, name: true, trackStock: true } },
-                variant: { select: { id: true, name: true } },
-              },
-            },
-          },
-        });
-
-        if (!bundle) {
-          throw new AppError(
-            ErrorCode.PRODUCT_NOT_FOUND,
-            `Bundle ${item.bundleId} not found or inactive`,
-          );
-        }
-
-        const unitPrice = item.unitPrice ?? Number(bundle.price);
-        const itemSubtotal = unitPrice * item.quantity;
-
-        itemDetails.push({
-          productId: null,
-          variantId: null,
-          bundleId: item.bundleId,
-          productName: bundle.name,
-          variantName: null,
-          unitPrice,
-          quantity: item.quantity,
-          subtotal: itemSubtotal,
-          notes: item.notes || null,
-        });
-
-        // Check stock and prepare deductions for each bundle component
-        for (const component of bundle.items) {
-          const deductQty = Number(component.quantity) * item.quantity;
-
-          if (component.product.trackStock) {
-            const stockLevel = await this.inventoryRepo.findStockLevel(
-              input.outletId,
-              component.productId,
-              component.variantId || null,
-            );
-            if (stockLevel && stockLevel.quantity < deductQty) {
-              throw new InsufficientStockException(
-                component.productId,
-                stockLevel.quantity,
-                deductQty,
-              );
-            }
-
-            bundleStockDeductions.push({
-              productId: component.productId,
-              variantId: component.variantId || null,
-              quantity: deductQty,
-            });
-          }
-        }
-      } else {
-        // === EXISTING PRODUCT PATH ===
-        const product = await this.productRepo.findById(item.productId!);
-        if (!product || !product.isActive) {
-          throw new AppError(
-            ErrorCode.PRODUCT_NOT_FOUND,
-            `Product ${item.productId} not found or inactive`,
-          );
-        }
-
-        // Look up variant price if a variant is selected
-        let variantName: string | null = null;
-        let baseUnitPrice = product.basePrice;
-        if (item.variantId) {
-          const variant = await this.prisma.productVariant.findUnique({
-            where: { id: item.variantId },
-            select: { price: true, name: true },
-          });
-          if (variant) {
-            baseUnitPrice = Number(variant.price);
-            variantName = variant.name;
-          }
-        }
-
-        // Look up modifier prices
-        let modifierTotal = 0;
-        const modifierRecords: Array<{ modifierId: string; modifierName: string; price: number }> =
-          [];
-        if (item.modifierIds && item.modifierIds.length > 0) {
-          const modifiers = await this.prisma.modifier.findMany({
-            where: { id: { in: item.modifierIds } },
-            select: { id: true, name: true, price: true },
-          });
-          for (const mod of modifiers) {
-            const modPrice = Number(mod.price);
-            modifierTotal += modPrice;
-            modifierRecords.push({ modifierId: mod.id, modifierName: mod.name, price: modPrice });
-          }
-        }
-
-        const unitPrice = item.unitPrice ?? baseUnitPrice;
-        const unitPriceWithModifiers = unitPrice + modifierTotal;
-        const itemSubtotal = unitPriceWithModifiers * item.quantity;
-
-        itemDetails.push({
-          productId: item.productId!,
-          variantId: item.variantId || null,
-          bundleId: null,
-          productName: product.name,
-          variantName,
-          unitPrice: unitPriceWithModifiers,
-          quantity: item.quantity,
-          subtotal: itemSubtotal,
-          notes: item.notes || null,
-          modifiers: modifierRecords,
-        });
-
-        if (product.trackStock) {
-          const stockLevel = await this.inventoryRepo.findStockLevel(
-            input.outletId,
-            item.productId!,
-            item.variantId || null,
-          );
-          if (stockLevel && stockLevel.quantity < item.quantity) {
-            throw new InsufficientStockException(
-              item.productId!,
-              stockLevel.quantity,
-              item.quantity,
-            );
-          }
-        }
-      }
-    }
-
-    const subtotal = itemDetails.reduce((sum, item) => sum + item.subtotal, 0);
-
-    let discountAmount = 0;
-    if (input.discounts) {
-      for (const discount of input.discounts) {
-        if (discount.type === 'percentage') {
-          if (discount.value > 100) {
-            throw new BusinessError(
-              ErrorCode.INVALID_PAYMENT,
-              'Percentage discount cannot exceed 100%',
-            );
-          }
-          discountAmount += subtotal * (discount.value / 100);
-        } else {
-          discountAmount += discount.value;
-        }
-      }
-      // Cap total discount at subtotal
-      discountAmount = Math.min(discountAmount, subtotal);
-    }
-
-    const taxConfig = await this.taxConfigRepo.getTaxConfig(input.outletId);
-    const taxRate = taxConfig.taxRate / 100;
-    const serviceChargeRate = taxConfig.serviceCharge / 100;
-    const taxableAmount = subtotal - discountAmount;
-    const serviceCharge =
-      input.orderType === 'dine_in' ? Math.round(taxableAmount * serviceChargeRate) : 0;
-
-    let taxAmount: number;
-
-    let rawTotal: number;
-
-    if (taxConfig.taxInclusive) {
-      // Tax-inclusive: prices already include tax, back-calculate tax for display
-      taxAmount = Math.round(((taxableAmount + serviceCharge) * taxRate) / (1 + taxRate));
-      rawTotal = taxableAmount + serviceCharge;
-    } else {
-      // Tax-exclusive: add tax on top of subtotal
-      taxAmount = Math.round((taxableAmount + serviceCharge) * taxRate);
-      rawTotal = taxableAmount + serviceCharge + taxAmount;
-    }
-
-    // Round to nearest 500 (Indonesian Rupiah convention) and track the rounding difference.
-    // The Transaction model does not have a dedicated rounding column, so the rounding
-    // amount is documented here for transparency. If a `roundingAmount` column is added
-    // to the schema in the future, set it on the transaction record.
-    const grandTotal = Math.round(rawTotal / 500) * 500;
-    const roundingAmount = grandTotal - rawTotal;
-
-    const totalPayments = input.payments.reduce((sum, p) => sum + p.amount, 0);
-    if (totalPayments < grandTotal) {
+    const grandTotal = priced.grandTotal;
+    const totalPayments = sumMoney(input.payments.map((p) => p.amount));
+    if (totalPayments.lt(grandTotal)) {
       throw new BusinessError(
         ErrorCode.INVALID_PAYMENT,
-        `Payment total ${totalPayments} is less than grand total ${grandTotal}`,
+        `Payment total ${totalPayments.toString()} is less than grand total ${grandTotal.toString()}`,
+      );
+    }
+    // Change can only be given from cash.
+    const change = totalPayments.minus(grandTotal);
+    const cashPaid = sumMoney(
+      input.payments.filter((p) => p.method === 'cash').map((p) => p.amount),
+    );
+    if (change.gt(cashPaid)) {
+      throw new BusinessError(
+        ErrorCode.INVALID_PAYMENT,
+        'Non-cash payments cannot exceed the grand total (change is only given in cash)',
       );
     }
 
-    const change = totalPayments - grandTotal;
-
-    const receiptNumber = `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const transactionId = crypto.randomUUID();
-
-    // ATOMIC TRANSACTION: Create transaction + deduct stock + create movements
-    // This ensures all-or-nothing execution - prevents race conditions
-    const transactionRecord = await this.prisma.$transaction(async (tx) => {
-      // 1. Create transaction record
-      const txn = await tx.transaction.create({
-        data: {
-          id: transactionId,
-          outletId: input.outletId,
-          employeeId: input.employeeId,
-          customerId: input.customerId || null,
-          shiftId: input.shiftId,
-          receiptNumber,
-          transactionType: 'sale',
-          orderType: input.orderType,
-          tableId: input.tableId || null,
-          subtotal,
-          discountAmount,
-          taxAmount,
-          serviceCharge,
-          grandTotal,
-          notes: input.notes || null,
-          status: 'completed',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
-
-      // 2. Create transaction items + modifier records
-      for (const item of itemDetails) {
-        const txItem = await tx.transactionItem.create({
-          data: {
-            transactionId: txn.id,
-            productId: item.productId,
-            variantId: item.variantId,
-            bundleId: item.bundleId,
-            productName: item.productName,
-            variantName: item.variantName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            discountAmount: 0,
-            subtotal: item.subtotal,
-            notes: item.notes,
-          },
-        });
-
-        // Create modifier records for this item
-        if (item.modifiers && item.modifiers.length > 0) {
-          for (const mod of item.modifiers) {
-            await tx.transactionItemModifier.create({
-              data: {
-                transactionItemId: txItem.id,
-                modifierId: mod.modifierId,
-                modifierName: mod.modifierName,
-                price: mod.price,
-              },
-            });
-          }
-        }
+    let result: { txn: { id: string; receiptNumber: string }; stockChanges: StockChange[] };
+    try {
+      result = await this.prisma.$transaction((tx) => this.persist(tx, input, priced, occurredAt));
+    } catch (error) {
+      // Lost a race against a concurrent submission with the same idempotency key.
+      if (
+        input.clientTransactionId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.findByClientId(input.outletId, input.clientTransactionId);
+        if (existing) return existing;
       }
-
-      // 3. Create payments
-      for (const payment of input.payments) {
-        await tx.payment.create({
-          data: {
-            transactionId: txn.id,
-            paymentMethod: payment.method as PaymentMethod,
-            amount: payment.amount,
-            referenceNumber: payment.referenceNumber || null,
-          },
-        });
-      }
-
-      // 4. Track promotion & voucher usage
-      if (input.discounts) {
-        for (const discount of input.discounts) {
-          if (discount.promotionId) {
-            await tx.promotion.update({
-              where: { id: discount.promotionId },
-              data: { usedCount: { increment: 1 } },
-            });
-          }
-          if (discount.voucherCode) {
-            await tx.voucher.updateMany({
-              where: { code: discount.voucherCode, usedAt: null },
-              data: { usedAt: new Date(), usedBy: input.customerId || null },
-            });
-          }
-        }
-      }
-
-      // 5. Deduct stock levels (CRITICAL - must be atomic with transaction creation)
-      const stockChanges: Array<{
-        productId: string;
-        variantId: string | null;
-        previousQty: number;
-        newQty: number;
-      }> = [];
-
-      // 5a. Deduct stock for bundle components
-      for (const deduction of bundleStockDeductions) {
-        // Use FOR UPDATE to prevent race conditions with concurrent transactions
-        const stockLevels = await tx.$queryRaw<Array<{ id: string; quantity: number }>>`
-          SELECT id, quantity FROM stock_levels
-          WHERE outlet_id = ${input.outletId}::uuid
-            AND product_id = ${deduction.productId}::uuid
-            AND variant_id ${deduction.variantId ? Prisma.sql`= ${deduction.variantId}::uuid` : Prisma.sql`IS NULL`}
-          LIMIT 1
-          FOR UPDATE
-        `;
-        const stockLevel = stockLevels[0];
-
-        if (!stockLevel) continue;
-
-        const currentQty = Number(stockLevel.quantity);
-        const newQty = currentQty - deduction.quantity;
-        if (newQty < 0) {
-          throw new InsufficientStockException(deduction.productId, currentQty, deduction.quantity);
-        }
-
-        await tx.stockLevel.update({
-          where: { id: stockLevel.id },
-          data: { quantity: newQty },
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            outletId: input.outletId,
-            productId: deduction.productId,
-            variantId: deduction.variantId,
-            movementType: 'sale',
-            quantity: -deduction.quantity,
-            referenceId: txn.id,
-            referenceType: 'transaction',
-            notes: `Bundle sale component`,
-            createdBy: input.employeeId,
-            createdAt: new Date(),
-          },
-        });
-
-        stockChanges.push({
-          productId: deduction.productId,
-          variantId: deduction.variantId,
-          previousQty: currentQty,
-          newQty,
-        });
-      }
-
-      // 5b. Deduct stock for regular product items (skip bundle items)
-      for (const item of itemDetails) {
-        if (item.bundleId) continue; // Bundle stock already handled above
-
-        const product = await tx.product.findUnique({
-          where: { id: item.productId! },
-        });
-
-        if (!product?.trackStock) continue;
-
-        // Find stock level with FOR UPDATE lock to prevent race conditions
-        const stockLevels = await tx.$queryRaw<Array<{ id: string; quantity: number }>>`
-          SELECT id, quantity FROM stock_levels
-          WHERE outlet_id = ${input.outletId}::uuid
-            AND product_id = ${item.productId!}::uuid
-            AND variant_id ${item.variantId ? Prisma.sql`= ${item.variantId}::uuid` : Prisma.sql`IS NULL`}
-          LIMIT 1
-          FOR UPDATE
-        `;
-        const stockLevel = stockLevels[0];
-
-        if (!stockLevel) {
-          // No stock level record means stock hasn't been initialized for this outlet.
-          // Skip deduction rather than blocking the sale.
-          this.logger.warn(
-            `Stock level record missing for product ${item.productId} (variant: ${item.variantId ?? 'none'}) at outlet ${input.outletId}. Skipping stock deduction.`,
-          );
-          continue;
-        }
-
-        const currentQty = Number(stockLevel.quantity);
-        const newQty = currentQty - item.quantity;
-        if (newQty < 0) {
-          throw new InsufficientStockException(item.productId!, currentQty, item.quantity);
-        }
-
-        // Update stock level atomically
-        await tx.stockLevel.update({
-          where: { id: stockLevel.id },
-          data: { quantity: newQty },
-        });
-
-        // Create stock movement audit trail
-        await tx.stockMovement.create({
-          data: {
-            outletId: input.outletId,
-            productId: item.productId!,
-            variantId: item.variantId || null,
-            movementType: 'sale',
-            quantity: -item.quantity,
-            referenceId: txn.id,
-            referenceType: 'transaction',
-            notes: `Sale: ${item.productName}`,
-            createdBy: input.employeeId,
-            createdAt: new Date(),
-          },
-        });
-
-        stockChanges.push({
-          productId: item.productId!,
-          variantId: item.variantId,
-          previousQty: currentQty,
-          newQty,
-        });
-      }
-
-      return { txn, stockChanges };
-    });
+      throw error;
+    }
 
     this.eventBus.publish(
       new TransactionCreatedEvent(
-        transactionRecord.txn.id,
+        result.txn.id,
         input.outletId,
-        grandTotal,
+        grandTotal.toNumber(),
         input.customerId || null,
       ),
     );
-
-    // Publish stock change events so inventory displays update in real-time
-    for (const sc of transactionRecord.stockChanges) {
+    for (const sc of result.stockChanges) {
       this.eventBus.publish(
         new StockLevelChangedEvent(
           input.outletId,
@@ -537,48 +198,299 @@ export class CreateTransactionUseCase {
       );
     }
 
-    // Note: Order creation for KDS is handled by TransactionToOrderHandler
-    // which listens to TransactionCreatedEvent and creates the order using
-    // CreateOrderUseCase for proper event emission and KDS notification
-
-    // Calculate loyalty points earned synchronously so the response includes the actual value.
-    // The async event listener will still handle the actual point accrual.
-    let loyaltyPointsEarned = 0;
-    if (input.customerId) {
-      try {
-        const customer = await this.prisma.customer.findUnique({
-          where: { id: input.customerId },
-        });
-        if (customer?.isActive) {
-          const loyaltyProgram = await this.prisma.loyaltyProgram.findFirst({
-            where: { businessId: customer.businessId, isActive: true },
-          });
-          if (loyaltyProgram) {
-            const amountPerPoint = Number(loyaltyProgram.pointsPerAmount);
-            if (amountPerPoint > 0) {
-              const tiers = await this.prisma.loyaltyTier.findMany({
-                where: { businessId: customer.businessId, isActive: true },
-                orderBy: { sortOrder: 'asc' },
-              });
-              const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
-              const multiplier = currentTier ? Number(currentTier.pointMultiplier) : 1;
-              loyaltyPointsEarned = Math.floor((grandTotal / amountPerPoint) * multiplier);
-            }
-          }
-        }
-      } catch {
-        // Non-critical: if loyalty calculation fails, return 0 rather than failing the transaction
-        loyaltyPointsEarned = 0;
-      }
-    }
+    // KDS orders are created by TransactionToOrderHandler from TransactionCreatedEvent.
 
     return {
-      transactionId: transactionRecord.txn.id,
-      receiptNumber,
-      grandTotal,
-      roundingAmount,
-      change,
-      loyaltyPointsEarned,
+      transactionId: result.txn.id,
+      receiptNumber: result.txn.receiptNumber,
+      grandTotal: grandTotal.toNumber(),
+      roundingAmount: priced.roundingAmount.toNumber(),
+      change: change.toNumber(),
+      loyaltyPointsEarned: await this.estimateLoyaltyPoints(input, grandTotal),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private async persist(
+    tx: Prisma.TransactionClient,
+    input: CreateTransactionInput,
+    priced: PricedSale,
+    occurredAt: Date,
+  ) {
+    const receiptNumber = await this.documentNumbers.next(tx, input.businessId, 'TXN', {
+      date: occurredAt,
+    });
+
+    const txn = await tx.transaction.create({
+      data: {
+        outletId: input.outletId,
+        employeeId: input.employeeId,
+        customerId: input.customerId || null,
+        shiftId: input.shiftId,
+        receiptNumber,
+        transactionType: 'sale',
+        orderType: input.orderType,
+        tableId: input.tableId || null,
+        subtotal: priced.subtotal,
+        discountAmount: priced.discountAmount,
+        taxAmount: priced.taxAmount,
+        serviceCharge: priced.serviceCharge,
+        roundingAmount: priced.roundingAmount,
+        grandTotal: priced.grandTotal,
+        notes: input.notes || null,
+        status: 'completed',
+        clientTransactionId: input.clientTransactionId ?? null,
+        createdAt: occurredAt,
+        items: {
+          create: priced.lines.map((line) => ({
+            productId: line.productId,
+            variantId: line.variantId,
+            bundleId: line.bundleId,
+            productName: line.productName,
+            variantName: line.variantName,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            discountAmount: 0,
+            subtotal: line.subtotal,
+            notes: line.notes,
+            modifiers: {
+              create: line.modifiers.map((m) => ({
+                modifierId: m.modifierId,
+                modifierName: m.modifierName,
+                price: m.price,
+              })),
+            },
+          })),
+        },
+        payments: {
+          create: input.payments.map((p) => ({
+            paymentMethod: p.method as PaymentMethod,
+            amount: money(p.amount),
+            referenceNumber: p.referenceNumber || null,
+            status: 'completed' as const,
+            // Recorded by the cashier from an external terminal / cash drawer.
+            metadata: { recordedBy: input.employeeId, source: 'pos' },
+          })),
+        },
+      },
+      select: { id: true, receiptNumber: true },
+    });
+
+    await this.consumeDiscounts(tx, input, priced, txn.id);
+
+    const stockChanges = await applyStockChanges(tx, priced.stockDeductions, {
+      outletId: input.outletId,
+      referenceId: txn.id,
+      referenceType: 'transaction',
+      employeeId: input.employeeId,
+      movementType: 'sale',
+      direction: 'deduct',
+      logger: this.logger,
+    });
+
+    await this.auditPricing(tx, input, priced, txn.id);
+
+    return { txn, stockChanges };
+  }
+
+  /** Promotion quota and voucher redemption are consumed atomically with the sale. */
+  private async consumeDiscounts(
+    tx: Prisma.TransactionClient,
+    input: CreateTransactionInput,
+    priced: PricedSale,
+    transactionId: string,
+  ): Promise<void> {
+    for (const discount of priced.discounts) {
+      if (discount.voucherId) {
+        const { count } = await tx.voucher.updateMany({
+          where: {
+            id: discount.voucherId,
+            businessId: input.businessId,
+            usedAt: null,
+            isActive: true,
+          },
+          data: { usedAt: new Date(), usedBy: input.customerId || null },
+        });
+        if (count !== 1) {
+          throw new BusinessError(ErrorCode.INVALID_VOUCHER, 'Voucher already used');
+        }
+      }
+      if (discount.promotionId) {
+        const ok = await this.promotionRules.incrementUsageCount(
+          tx,
+          discount.promotionId,
+          input.businessId,
+        );
+        if (!ok) {
+          throw new BusinessError(ErrorCode.INVALID_VOUCHER, 'Promotion usage limit reached');
+        }
+      }
+    }
+    if (priced.discounts.length > 0) {
+      this.logger.debug(`Discounts consumed for transaction ${transactionId}`);
+    }
+  }
+
+  /** Price overrides and manual discounts are audit-logged (R8). */
+  private async auditPricing(
+    tx: Prisma.TransactionClient,
+    input: CreateTransactionInput,
+    priced: PricedSale,
+    transactionId: string,
+  ): Promise<void> {
+    const manual = priced.discounts.filter((d) => d.source === 'manual');
+    if (priced.priceOverrides.length === 0 && manual.length === 0) return;
+    await tx.auditLog.create({
+      data: {
+        businessId: input.businessId,
+        outletId: input.outletId,
+        employeeId: input.employeeId,
+        action: priced.priceOverrides.length > 0 ? 'price_override' : 'manual_discount',
+        entityType: 'transaction',
+        entityId: transactionId,
+        newValue: {
+          role: input.role,
+          priceOverrides: priced.priceOverrides.map((o) => ({ ...o })),
+          manualDiscount: toNumber(sumMoney(manual.map((d) => d.amount))),
+          subtotal: priced.subtotal.toNumber(),
+        },
+      },
+    });
+  }
+
+  private async assertReferences(input: CreateTransactionInput): Promise<void> {
+    const shift = await this.prisma.shift.findFirst({
+      where: {
+        id: input.shiftId,
+        outletId: input.outletId,
+        outlet: { businessId: input.businessId },
+      },
+      select: { status: true, employeeId: true },
+    });
+    if (!shift || shift.status !== 'open') {
+      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
+    }
+    // Cashiers sell on their own shift; supervisors and above may use a colleague's.
+    if (
+      shift.employeeId !== input.employeeId &&
+      (ROLE_HIERARCHY[input.role] ?? 0) < (ROLE_HIERARCHY.supervisor ?? 0)
+    ) {
+      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift belongs to another employee');
+    }
+
+    await this.tenant.assertOwned('customer', input.customerId, input.businessId);
+
+    if (input.tableId) {
+      const table = await this.prisma.table.count({
+        where: { id: input.tableId, outletId: input.outletId },
+      });
+      if (table === 0) {
+        throw new AppError(ErrorCode.TABLE_NOT_FOUND, 'Table not found in this outlet', 404);
+      }
+    }
+  }
+
+  private assertPaymentMethods(payments: PaymentInput[]): void {
+    if (payments.length === 0) {
+      throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'At least one payment is required');
+    }
+    for (const p of payments) {
+      if (p.method === 'credit_note') {
+        // There is no credit-note ledger to check a balance against: reject honestly.
+        throw new BusinessError(
+          ErrorCode.INVALID_PAYMENT,
+          'Credit note payments are not supported',
+        );
+      }
+      if (!MANUAL_METHODS.has(p.method)) {
+        throw new BusinessError(
+          ErrorCode.INVALID_PAYMENT,
+          `Unsupported payment method ${p.method}`,
+        );
+      }
+      if (!(p.amount > 0)) {
+        throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'Payment amount must be positive');
+      }
+    }
+  }
+
+  private isCashOnly(payments?: PaymentInput[]): boolean {
+    return !!payments && payments.length > 0 && payments.every((p) => p.method === 'cash');
+  }
+
+  private resolveOccurredAt(occurredAt?: Date): Date {
+    const now = Date.now();
+    if (!occurredAt) return new Date(now);
+    const t = occurredAt.getTime();
+    if (Number.isNaN(t)) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'occurredAt is not a valid date');
+    }
+    if (t > now + MAX_CLOCK_SKEW_MS) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'occurredAt cannot be in the future');
+    }
+    if (t < now - MAX_OFFLINE_AGE_MS) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'occurredAt is older than 7 days');
+    }
+    return occurredAt;
+  }
+
+  private async findByClientId(
+    outletId: string,
+    clientTransactionId: string,
+  ): Promise<CreateTransactionOutput | null> {
+    const existing = await this.prisma.transaction.findFirst({
+      where: { outletId, clientTransactionId },
+      select: {
+        id: true,
+        receiptNumber: true,
+        grandTotal: true,
+        roundingAmount: true,
+        payments: { select: { amount: true } },
+      },
+    });
+    if (!existing) return null;
+    const paid = sumMoney(existing.payments.map((p) => p.amount));
+    const change = paid.minus(existing.grandTotal);
+    return {
+      transactionId: existing.id,
+      receiptNumber: existing.receiptNumber,
+      grandTotal: money(existing.grandTotal).toNumber(),
+      roundingAmount: money(existing.roundingAmount).toNumber(),
+      change: change.isNegative() ? 0 : change.toNumber(),
+      loyaltyPointsEarned: 0,
+      duplicate: true,
+    };
+  }
+
+  /** Preview of the points the listener will credit (same formula, R8). */
+  private async estimateLoyaltyPoints(
+    input: CreateTransactionInput,
+    grandTotal: Prisma.Decimal,
+  ): Promise<number> {
+    if (!input.customerId) return 0;
+    try {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: input.customerId, businessId: input.businessId, isActive: true },
+        select: { loyaltyTier: true },
+      });
+      if (!customer) return 0;
+      const program = await this.prisma.loyaltyProgram.findFirst({
+        where: { businessId: input.businessId, isActive: true },
+        select: { amountPerPoint: true },
+      });
+      if (!program) return 0;
+      const tier = await this.prisma.loyaltyTier.findFirst({
+        where: { businessId: input.businessId, isActive: true, name: customer.loyaltyTier },
+        select: { pointMultiplier: true },
+      });
+      return computeLoyaltyPoints(grandTotal, program.amountPerPoint, tier?.pointMultiplier ?? 1);
+    } catch (error) {
+      // intentionally ignored: the sale is already committed; the preview number is cosmetic.
+      this.logger.warn(
+        `Loyalty preview failed for transaction customer ${input.customerId}: ${(error as Error).message}`,
+      );
+      return 0;
+    }
   }
 }

@@ -1,4 +1,6 @@
+import { useHeldBills } from './hooks/use-held-bills';
 import { useRef, useCallback, useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -8,13 +10,16 @@ import { useUIStore } from '@/stores/ui.store';
 import { useCartStore } from '@/stores/cart.store';
 import { useFeatureStore } from '@/stores/feature.store';
 import { featuresApi } from '@/api/endpoints/features.api';
+import { posApi } from '@/api/endpoints/pos.api';
+import { apiErrorMessage } from './utils/api-error';
 import { useOfflinePOS } from '@/hooks/use-offline-pos';
+import { usePosTaxConfig } from '@/hooks/use-pos-tax-config';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import {
     ProductGrid, CartPanel, PaymentPanel, ReceiptPreview, HeldBillsPanel,
     ProductModal, BundleModal, CustomerSelector, TableSelector, DiscountModal, ShortcutsDialog,
     OrderReadyToast, PosHeader, OfflineBanner, MobileCartBar, TodayTransactionsSheet,
-    ShiftStartModal, ShiftEndModal,
+    ShiftStartModal, ShiftEndModal, CashDrawerModal,
 } from './components';
 import { usePOSShortcuts, usePosData, usePosTransaction, usePosModals } from './hooks';
 import { useShiftStatus } from '@/hooks/use-shift-status';
@@ -26,7 +31,7 @@ export function POSPage() {
     const selectedOutletId = useUIStore((s) => s.selectedOutletId);
     const outletId = selectedOutletId ?? user?.outletId ?? '';
     const {
-        items, heldBills, holdCurrentBill, resumeBill, removeHeldBill,
+        items,
         clearPayments, customerId, customerName, tableId, tableName, discountTotal,
         setCustomer, setTable, total,
     } = useCartStore();
@@ -36,11 +41,43 @@ export function POSPage() {
     const [showShiftStart, setShowShiftStart] = useState(false);
     const [showShiftEnd, setShowShiftEnd] = useState(false);
     const [shiftCheckDone, setShiftCheckDone] = useState(false);
+    const [cashDrawerType, setCashDrawerType] = useState<'cash_in' | 'cash_out' | null>(null);
+    const [featureLoadError, setFeatureLoadError] = useState(false);
+    const [featureRetryKey, setFeatureRetryKey] = useState(0);
     const searchInputRef = useRef<HTMLInputElement>(null);
-    const { isOffline, pendingCount, syncStatus, manualSync, queueTransaction } = useOfflinePOS();
-    const { products, categories, bundles, isLoading, refetchProducts } = usePosData({ outletId });
+    const {
+        isOffline, pendingCount, failedItems, syncStatus, manualSync, queueTransaction, retryItem, discardItem,
+    } = useOfflinePOS();
+    const held = useHeldBills(outletId, isOffline);
+    // Outlet tax / service charge from the server so cart totals match server totals
+    usePosTaxConfig(outletId || null);
+    const {
+        products, categories, bundles, isLoading, refetchProducts,
+        isError: isDataError, error: dataError, refetchAll,
+    } = usePosData({ outletId });
     const modals = usePosModals();
     const { currentShift, refetchShift, isLoading: isShiftLoading } = useShiftStatus();
+
+    // Real shift record (opening cash) — never display a hard-coded Rp0
+    const { data: shiftRecord } = useQuery({
+        queryKey: ['pos', 'shift-record', currentShift?.shiftId],
+        queryFn: posApi.getCurrentShiftRecord,
+        enabled: !!currentShift?.shiftId && !isOffline,
+    });
+    const headerShift = currentShift ? {
+        id: currentShift.shiftId,
+        startedAt: currentShift.startedAt,
+        openingCash: shiftRecord?.id === currentShift.shiftId ? shiftRecord.openingCash : currentShift.openingCash,
+    } : null;
+
+    const handlePrintTransaction = useCallback(async (transactionId: string) => {
+        try {
+            const receipt = await posApi.reprintReceipt(transactionId);
+            modals.openReceipt(receipt);
+        } catch (error) {
+            toast.error({ title: 'Gagal Memuat Struk', description: apiErrorMessage(error) });
+        }
+    }, [modals]);
 
     // Load business features for POS (FeatureGate needs this)
     const featureStoreLoaded = useFeatureStore((s) => s.isLoaded);
@@ -48,16 +85,27 @@ export function POSPage() {
         if (featureStoreLoaded || !outletId) return;
         const { setEnabledFeatures, setBusinessType, setOutletType } = useFeatureStore.getState();
         featuresApi.getOutletEnabledFeatures(outletId).then(setEnabledFeatures).catch(() => {
-            featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+            featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch((error: unknown) => {
+                // Don't silently hide gated POS features: leave the store unloaded
+                // (FeatureGate shows everything) and tell the cashier.
+                setFeatureLoadError(true);
+                toast.error({
+                    title: 'Gagal memuat fitur outlet',
+                    description: apiErrorMessage(error, 'Beberapa fitur mungkin tidak tersedia. Muat ulang halaman.'),
+                });
+            });
         });
         featuresApi.getOutletType(outletId).then((data) => {
             setOutletType(data.outletType?.code ?? null);
         }).catch(() => {
             featuresApi.getBusinessType().then((data) => {
                 setBusinessType(data.businessType?.code ?? null);
-            }).catch(() => {});
+            }).catch((error: unknown) => {
+                // intentionally ignored: business type only tunes defaults; features still load
+                console.warn('Failed to load business type', error);
+            });
         });
-    }, [outletId, featureStoreLoaded]);
+    }, [outletId, featureStoreLoaded, featureRetryKey]);
 
     // Derive shift modal state from the hook instead of a duplicate API call
     useEffect(() => {
@@ -65,9 +113,10 @@ export function POSPage() {
         setShiftCheckDone(true);
         setShowShiftStart(!currentShift);
     }, [currentShift, isShiftLoading]);
-    const { handleCheckoutComplete, isProcessing, handleCreditCheckout, isCreditProcessing } = usePosTransaction({
+    const { handleCheckoutComplete, resolveCashTotal, isProcessing, handleCreditCheckout, isCreditProcessing } = usePosTransaction({
         outletId,
         isOffline,
+        currentShiftId: currentShift?.shiftId ?? null,
         queueTransaction,
         onSuccess: (_transaction, receipt) => {
             if (receipt) modals.openReceipt(receipt);
@@ -75,23 +124,42 @@ export function POSPage() {
         },
     });
 
-    const handleQuickCashCheckout = useCallback(() => {
-        if (items.length === 0) return;
-        const { total, addPayment } = useCartStore.getState();
-        addPayment({ method: 'cash', amount: total });
+    const handleQuickCashCheckout = useCallback(async () => {
+        if (items.length === 0 || isProcessing) return;
+        // Exact cash total from the server (prices, promotions, Rp500 cash rounding)
+        const amount = await resolveCashTotal();
+        if (amount === null) return;
+        const { clearPayments, addPayment } = useCartStore.getState();
+        clearPayments();
+        addPayment({ method: 'cash', amount });
         void handleCheckoutComplete();
-    }, [items.length, handleCheckoutComplete]);
+    }, [items.length, isProcessing, resolveCashTotal, handleCheckoutComplete]);
 
-    const handleHoldBill = useCallback(() => {
-        if (items.length === 0) return;
-        const bill = holdCurrentBill();
-        toast.success({ title: 'Pesanan Ditahan', description: `${bill.items.length} item berhasil ditahan` });
-    }, [items.length, holdCurrentBill]);
+    const handleHoldBill = async () => {
+        if (items.length === 0 || held.busy) return;
+        try {
+            const bill = await held.hold();
+            toast.success({ title: bill.syncState === 'synced' ? 'Pesanan tersimpan di server' : 'Pesanan tersimpan di perangkat',
+                description: bill.syncState === 'synced' ? `${bill.items.length} item ditahan` : 'Akan dikirim saat online. Pesanan belum tersedia di terminal lain.' });
+        } catch (error) {
+            toast.error({ title: 'Belum tersimpan di server', description: apiErrorMessage(error, 'Salinan pesanan tetap tersimpan di perangkat. Coba lagi dari daftar pesanan ditahan.') });
+        }
+    };
 
-    const handleResumeBill = (bill: HeldBill) => {
-        resumeBill(bill);
-        modals.closeHeldBills();
-        toast.success({ title: 'Pesanan Dilanjutkan', description: `${bill.items.length} item ditambahkan ke keranjang` });
+    const handleResumeBill = async (bill: HeldBill) => {
+        if (held.busy) return;
+        try {
+            await held.resume(bill.id);
+            modals.closeHeldBills();
+            toast.success({ title: 'Pesanan dilanjutkan', description: `${bill.items.length} item ditambahkan ke keranjang` });
+        } catch (error) {
+            toast.error({ title: 'Gagal melanjutkan pesanan', description: apiErrorMessage(error) });
+        }
+    };
+    const handleDeleteBill = async (id: string) => {
+        if (held.busy) return;
+        try { await held.discard(id); }
+        catch (error) { toast.error({ title: 'Gagal menghapus pesanan', description: apiErrorMessage(error) }); }
     };
 
     const handleProductClick = (product: POSProduct) => {
@@ -125,7 +193,6 @@ export function POSPage() {
         onPrintReceipt: () => { if (modals.receiptData) modals.setShowReceipt(true); },
         onOpenShortcutHelp: modals.openShortcutHelp,
         onCloseModal: modals.closeAllModals,
-        onConfirmAction: () => { },
         onQuickCashCheckout: handleQuickCashCheckout,
     });
 
@@ -135,26 +202,42 @@ export function POSPage() {
         <div className="h-screen flex flex-col bg-muted/30">
             <PosHeader
                 customerId={customerId} customerName={customerName} tableId={tableId}
-                tableName={tableName} discountTotal={discountTotal} heldBillsCount={heldBills.length}
+                tableName={tableName} discountTotal={discountTotal} heldBillsCount={held.bills.length}
                 cartItemsCount={items.length} onCustomerClick={modals.openCustomerSelector}
                 onTableClick={modals.openTableSelector} onDiscountClick={modals.openDiscountModal}
                 onHeldBillsClick={modals.openHeldBills} onShortcutHelpClick={modals.openShortcutHelp}
                 onCartClick={modals.openCartSheet} onRefreshProducts={() => void refetchProducts()}
                 onTodayTransactionsClick={modals.openTodayTransactions}
                 onStartShift={() => setShowShiftStart(true)}
-                currentShift={currentShift ? {
-                    id: currentShift.shiftId,
-                    startedAt: currentShift.startedAt,
-                    openingCash: 0,
-                    totalSales: currentShift.totalSales ?? 0,
-                    transactions: 0,
-                } : null}
+                currentShift={headerShift}
                 onEndShift={() => setShowShiftEnd(true)}
+                onCashIn={() => setCashDrawerType('cash_in')}
+                onCashOut={() => setCashDrawerType('cash_out')}
             />
+
+            {featureLoadError && (
+                <div role="alert" className="flex items-center justify-between gap-2 bg-destructive/10 text-destructive text-sm px-4 py-2">
+                    <span>Gagal memuat pengaturan fitur outlet. Beberapa fitur mungkin tidak sesuai.</span>
+                    <Button variant="outline" size="sm" onClick={() => { setFeatureLoadError(false); setFeatureRetryKey((k) => k + 1); }}>
+                        Coba Lagi
+                    </Button>
+                </div>
+            )}
 
             <OfflineBanner
                 isOffline={isOffline} pendingCount={pendingCount}
                 syncStatus={syncStatus} onManualSync={() => void manualSync()}
+                failedItems={failedItems}
+                onRetryItem={(id) => {
+                    retryItem(id).catch((error: unknown) => {
+                        toast.error({ title: 'Gagal Mengulang Sinkronisasi', description: apiErrorMessage(error) });
+                    });
+                }}
+                onDiscardItem={(id) => {
+                    discardItem(id).catch((error: unknown) => {
+                        toast.error({ title: 'Gagal Menghapus Transaksi Offline', description: apiErrorMessage(error) });
+                    });
+                }}
             />
 
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
@@ -162,6 +245,9 @@ export function POSPage() {
                     <ProductGrid
                         products={products} categories={categories} bundles={bundles}
                         isLoading={isLoading}
+                        isError={isDataError}
+                        error={dataError}
+                        onRetry={() => void refetchAll()}
                         onProductClick={handleProductClick} onBundleClick={handleBundleClick}
                         searchInputRef={searchInputRef}
                         viewMode={viewMode} onViewModeChange={setViewMode}
@@ -198,7 +284,7 @@ export function POSPage() {
                     </div>
                     <div className="absolute right-4 top-3 z-10">
                         <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]"
-                            onClick={modals.closeCartSheet}>
+                            onClick={modals.closeCartSheet} aria-label="Tutup keranjang">
                             <X className="h-5 w-5" />
                         </Button>
                     </div>
@@ -230,8 +316,10 @@ export function POSPage() {
                     onClose={modals.closeReceipt} />
             )}
 
-            <HeldBillsPanel bills={heldBills} open={modals.showHeldBills}
-                onClose={modals.closeHeldBills} onResume={handleResumeBill} onDelete={removeHeldBill} />
+            <HeldBillsPanel bills={held.bills} open={modals.showHeldBills}
+                onClose={modals.closeHeldBills} onResume={(bill) => void handleResumeBill(bill)} onDelete={(id) => void handleDeleteBill(id)}
+                busy={held.busy} isLoading={held.isLoading} error={held.error} onRetry={held.retry} isOffline={isOffline}
+                legacyCount={held.legacyCount} onAdoptLegacy={held.adoptLegacy} />
 
             <ProductModal product={modals.selectedProduct} open={!!modals.selectedProduct}
                 onClose={modals.closeProductModal} />
@@ -265,7 +353,7 @@ export function POSPage() {
                 open={modals.showTodayTransactions}
                 onClose={modals.closeTodayTransactions}
                 outletId={outletId}
-                onPrintReceipt={() => {}}
+                onPrintReceipt={(tx) => void handlePrintTransaction(tx.id)}
             />
 
             <ShiftStartModal
@@ -286,13 +374,14 @@ export function POSPage() {
                     setShowShiftEnd(false);
                     void refetchShift();
                 }}
-                shiftData={currentShift ? {
-                    id: currentShift.shiftId,
-                    startedAt: currentShift.startedAt,
-                    openingCash: 0,
-                    totalSales: currentShift.totalSales ?? 0,
-                    transactions: 0,
-                } : null}
+                shiftData={headerShift}
+            />
+
+            <CashDrawerModal
+                open={cashDrawerType !== null}
+                type={cashDrawerType ?? 'cash_in'}
+                shiftId={currentShift?.shiftId ?? null}
+                onClose={() => setCashDrawerType(null)}
             />
 
             <OrderReadyToast />

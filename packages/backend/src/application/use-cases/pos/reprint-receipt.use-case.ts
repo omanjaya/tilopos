@@ -1,67 +1,42 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
-import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { money, sumMoney, nonNegative } from '@shared/utils/money';
 
 @Injectable()
 export class ReprintReceiptUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.TRANSACTION)
-    private readonly transactionRepo: ITransactionRepository,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async execute(transactionId: string): Promise<Record<string, unknown>> {
-    const transaction = await this.transactionRepo.findById(transactionId);
+  async execute(transactionId: string, businessId: string): Promise<Record<string, unknown>> {
+    const transaction = await this.prisma.transaction.findFirst({
+      where: { id: transactionId, outlet: { businessId } },
+      include: {
+        items: { include: { modifiers: true } },
+        payments: true,
+        outlet: { select: { id: true, name: true, address: true, phone: true, businessId: true } },
+        employee: { select: { name: true } },
+        customer: { select: { name: true } },
+        table: { select: { name: true } },
+      },
+    });
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
     }
 
-    const items = await this.transactionRepo.findItemsByTransactionId(transactionId);
-    const payments = await this.transactionRepo.findPaymentsByTransactionId(transactionId);
-
-    // Fetch outlet, business, and employee data
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: transaction.outletId },
-      select: { id: true, name: true, address: true, phone: true, businessId: true },
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { name: true, address: true, phone: true, taxId: true },
     });
 
-    const business = outlet
-      ? await this.prisma.business.findUnique({
-          where: { id: outlet.businessId },
-          select: { name: true, address: true, phone: true, taxId: true },
-        })
-      : null;
-
-    const employee = transaction.employeeId
-      ? await this.prisma.employee.findUnique({
-          where: { id: transaction.employeeId },
-          select: { name: true },
-        })
-      : null;
-
-    // Fetch customer name if customerId is present
-    const customer = transaction.customerId
-      ? await this.prisma.customer.findUnique({
-          where: { id: transaction.customerId },
-          select: { name: true },
-        })
-      : null;
-
-    // Fetch modifiers for each item
-    const itemIds = items.map((item) => item.id);
-    const modifiers = await this.prisma.transactionItemModifier.findMany({
-      where: { transactionItemId: { in: itemIds } },
-    });
-    const modifiersByItemId = new Map<string, typeof modifiers>();
-    for (const mod of modifiers) {
-      const existing = modifiersByItemId.get(mod.transactionItemId) || [];
-      existing.push(mod);
-      modifiersByItemId.set(mod.transactionItemId, existing);
-    }
-
-    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-    const changeAmount = Math.max(0, totalPaid - transaction.grandTotal);
+    const outlet = transaction.outlet;
+    const employee = transaction.employee;
+    const customer = transaction.customer;
+    const grandTotal = money(transaction.grandTotal);
+    const totalPaid = sumMoney(
+      transaction.payments.filter((p) => p.status === 'completed').map((p) => p.amount),
+    );
+    const changeAmount = nonNegative(totalPaid.minus(grandTotal)).toNumber();
+    const items = transaction.items;
+    const payments = transaction.payments;
 
     return {
       transaction: {
@@ -71,12 +46,13 @@ export class ReprintReceiptUseCase {
         transactionType: transaction.transactionType,
         orderType: transaction.orderType,
         status: transaction.status,
-        subtotal: transaction.subtotal,
-        discountAmount: transaction.discountAmount,
-        taxAmount: transaction.taxAmount,
-        serviceCharge: transaction.serviceCharge,
-        total: transaction.grandTotal,
-        grandTotal: transaction.grandTotal,
+        subtotal: money(transaction.subtotal).toNumber(),
+        discountAmount: money(transaction.discountAmount).toNumber(),
+        taxAmount: money(transaction.taxAmount).toNumber(),
+        serviceCharge: money(transaction.serviceCharge).toNumber(),
+        roundingAmount: money(transaction.roundingAmount).toNumber(),
+        total: grandTotal.toNumber(),
+        grandTotal: grandTotal.toNumber(),
         changeAmount,
         notes: transaction.notes,
         createdAt: transaction.createdAt,
@@ -84,30 +60,32 @@ export class ReprintReceiptUseCase {
           id: item.id,
           productName: item.productName,
           variantName: item.variantName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          discountAmount: item.discountAmount,
-          subtotal: item.subtotal,
-          totalPrice: item.subtotal,
-          modifiers: (modifiersByItemId.get(item.id) || []).map((m) => ({
+          quantity: money(item.quantity).toNumber(),
+          unitPrice: money(item.unitPrice).toNumber(),
+          discountAmount: money(item.discountAmount).toNumber(),
+          subtotal: money(item.subtotal).toNumber(),
+          totalPrice: money(item.subtotal).toNumber(),
+          modifiers: item.modifiers.map((m) => ({
             id: m.id,
             name: m.modifierName,
-            price: Number(m.price),
+            price: money(m.price).toNumber(),
           })),
           notes: item.notes,
         })),
         payments: payments.map((p) => ({
           id: p.id,
           method: p.paymentMethod,
-          amount: p.amount,
+          amount: money(p.amount).toNumber(),
+          status: p.status,
           reference: p.referenceNumber,
           referenceNumber: p.referenceNumber,
         })),
       },
       business: business || { name: '-', address: '-', phone: '-', taxId: null },
-      outlet: outlet || { id: '', name: '-', address: '-', phone: '-' },
+      outlet: { id: outlet.id, name: outlet.name, address: outlet.address, phone: outlet.phone },
       employee: employee || { name: '-' },
       customer: customer ? { name: customer.name } : undefined,
+      table: transaction.table ? { name: transaction.table.name } : undefined,
       isReprint: true,
       reprintedAt: new Date().toISOString(),
     };

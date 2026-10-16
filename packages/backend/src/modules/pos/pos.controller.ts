@@ -1,23 +1,21 @@
 import {
   Controller,
   Post,
+  Delete,
   Get,
   Body,
   Param,
   Query,
-  UseGuards,
-  Inject,
-  NotFoundException,
+  ParseUUIDPipe,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { TenantAccessService } from '../../shared/tenant';
 import { CreateTransactionUseCase } from '../../application/use-cases/pos/create-transaction.use-case';
 import { ProcessRefundUseCase } from '../../application/use-cases/pos/process-refund.use-case';
 import { ProcessMultiPaymentUseCase } from '../../application/use-cases/billing/process-multi-payment.use-case';
@@ -28,20 +26,33 @@ import { HoldBillUseCase } from '../../application/use-cases/pos/hold-bill.use-c
 import { ListHeldBillsUseCase } from '../../application/use-cases/pos/list-held-bills.use-case';
 import { ResumeBillUseCase } from '../../application/use-cases/pos/resume-bill.use-case';
 import { ReprintReceiptUseCase } from '../../application/use-cases/pos/reprint-receipt.use-case';
-import { CreateTransactionDto, PaymentDto } from '../../application/dtos/transaction.dto';
+import { TransactionQueriesUseCase } from '../../application/use-cases/pos/transaction-queries.use-case';
+import {
+  CreateTransactionDto,
+  ListTransactionsQueryDto,
+  MultiPaymentDto,
+  OutletQueryDto,
+  PreviewTransactionDto,
+} from '../../application/dtos/transaction.dto';
 import { ProcessRefundDto } from '../../application/dtos/refund.dto';
 import { VoidTransactionDto } from '../../application/dtos/void-transaction.dto';
 import { CashInDto, CashOutDto } from '../../application/dtos/cash-drawer.dto';
-import { HoldBillDto } from '../../application/dtos/hold-bill.dto';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { ITransactionRepository } from '../../domain/interfaces/repositories/transaction.repository';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { decimalToNumberRequired } from '../../infrastructure/repositories/decimal.helper';
-import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
+import {
+  HoldBillDto,
+  HeldBillsQueryDto,
+  ResumeBillDto,
+} from '../../application/dtos/hold-bill.dto';
+
+const SELLERS = [
+  EmployeeRole.CASHIER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.MANAGER,
+  EmployeeRole.OWNER,
+] as const;
+const SUPERVISORS = [EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER] as const;
 
 @ApiTags('POS')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('pos')
 export class PosController {
   constructor(
@@ -55,27 +66,41 @@ export class PosController {
     private readonly listHeldBillsUseCase: ListHeldBillsUseCase,
     private readonly resumeBillUseCase: ResumeBillUseCase,
     private readonly reprintReceiptUseCase: ReprintReceiptUseCase,
-    @Inject(REPOSITORY_TOKENS.TRANSACTION)
-    private readonly transactionRepo: ITransactionRepository,
-    private readonly prisma: PrismaService,
+    private readonly queries: TransactionQueriesUseCase,
+    private readonly tenant: TenantAccessService,
   ) {}
 
-  @Post('transactions')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async createTransaction(@Body() dto: CreateTransactionDto, @CurrentUser() user: AuthUser) {
-    const outletId = user.outletId || dto.outletId;
-    if (!outletId) {
-      throw new BadRequestException('Outlet ID is required');
-    }
-    // For non-owner roles, always use user's outlet
-    if (user.role !== EmployeeRole.OWNER && user.role !== EmployeeRole.SUPER_ADMIN) {
-      if (dto.outletId && dto.outletId !== user.outletId) {
-        throw new ForbiddenException('Cannot create transaction for other outlets');
+  /**
+   * Outlet a caller may sell at: staff with an assigned outlet always use it
+   * (a different dto outlet is rejected); owners/managers without one must name
+   * an outlet of their business.
+   */
+  private async resolveSellingOutlet(user: AuthUser, requested?: string): Promise<string> {
+    if (user.outletId) {
+      if (requested && requested !== user.outletId) {
+        throw new ForbiddenException('Cannot act for other outlets');
       }
+      return user.outletId;
     }
+    if (
+      user.role !== EmployeeRole.OWNER &&
+      user.role !== EmployeeRole.SUPER_ADMIN &&
+      user.role !== EmployeeRole.MANAGER
+    ) {
+      throw new BadRequestException('Outlet not assigned');
+    }
+    return this.tenant.assertOutlet(user, requested);
+  }
+
+  @Post('transactions')
+  @Roles(...SELLERS)
+  async createTransaction(@Body() dto: CreateTransactionDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.resolveSellingOutlet(user, dto.outletId);
     return this.createTransactionUseCase.execute({
+      businessId: user.businessId,
       outletId,
       employeeId: user.employeeId,
+      role: user.role,
       customerId: dto.customerId,
       shiftId: dto.shiftId,
       orderType: dto.orderType,
@@ -84,150 +109,70 @@ export class PosController {
       payments: dto.payments,
       discounts: dto.discounts,
       notes: dto.notes,
+      clientTransactionId: dto.clientTransactionId,
+      occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
     });
+  }
+
+  @Post('transactions/preview')
+  @Roles(...SELLERS)
+  @ApiOperation({ summary: 'Server-side totals for a cart (no side effects)' })
+  async previewTransaction(@Body() dto: PreviewTransactionDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.resolveSellingOutlet(user, dto.outletId);
+    const priced = await this.createTransactionUseCase.preview({
+      businessId: user.businessId,
+      outletId,
+      role: user.role,
+      customerId: dto.customerId,
+      orderType: dto.orderType,
+      items: dto.items,
+      discounts: dto.discounts,
+      payments: dto.payments,
+    });
+    return {
+      subtotal: priced.subtotal.toNumber(),
+      discountAmount: priced.discountAmount.toNumber(),
+      serviceCharge: priced.serviceCharge.toNumber(),
+      taxAmount: priced.taxAmount.toNumber(),
+      roundingAmount: priced.roundingAmount.toNumber(),
+      grandTotal: priced.grandTotal.toNumber(),
+      items: priced.lines.map((l) => ({
+        productId: l.productId,
+        variantId: l.variantId,
+        bundleId: l.bundleId,
+        productName: l.productName,
+        unitPrice: l.unitPrice.toNumber(),
+        quantity: l.quantity,
+        subtotal: l.subtotal.toNumber(),
+      })),
+      discounts: priced.discounts.map((d) => ({
+        source: d.source,
+        promotionId: d.promotionId,
+        voucherId: d.voucherId,
+        amount: d.amount.toNumber(),
+      })),
+    };
   }
 
   @Get('transactions')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async listTransactions(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('status') status?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('outletId') outletId?: string,
-    @Query('search') search?: string,
-    @CurrentUser() user?: AuthUser,
-  ) {
-    // Type guard - user is guaranteed by JwtAuthGuard
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    const businessId = user.businessId;
-    const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
-    const pageNum = Math.max(Number(page) || 1, 1);
-    const skip = (pageNum - 1) * take;
-
-    // Owner/super_admin can see all outlets, others only their assigned outlet
-    const accessibleOutletId = OutletAccessGuard.getAccessibleOutletId(user, outletId);
-
-    const where: Record<string, unknown> = {
-      outlet: { businessId },
-      ...OutletAccessGuard.buildOutletFilter(accessibleOutletId),
-    };
-
-    if (status && status !== 'all') {
-      where.status = status;
-    }
-
-    if (startDate || endDate) {
-      const createdAt: Record<string, Date> = {};
-      if (startDate) {
-        createdAt.gte = new Date(startDate);
-      }
-      if (endDate) {
-        createdAt.lte = new Date(endDate);
-      }
-      where.createdAt = createdAt;
-    }
-
-    if (search) {
-      where.OR = [
-        { receiptNumber: { contains: search, mode: 'insensitive' } },
-        { customer: { name: { contains: search, mode: 'insensitive' } } },
-      ];
-    }
-
-    const [transactions, total] = await this.prisma.$transaction([
-      this.prisma.transaction.findMany({
-        where,
-        include: {
-          items: {
-            include: {
-              modifiers: true,
-            },
-          },
-          payments: true,
-          employee: { select: { name: true } },
-          customer: { select: { name: true } },
-          voidedByEmployee: { select: { name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take,
-      }),
-      this.prisma.transaction.count({ where }),
-    ]);
-
-    const data = transactions.map((tx) => {
-      const paidAmount = tx.payments.reduce((sum, p) => sum + decimalToNumberRequired(p.amount), 0);
-      const totalAmount = decimalToNumberRequired(tx.grandTotal);
-
-      return {
-        id: tx.id,
-        transactionNumber: tx.receiptNumber,
-        status: tx.status,
-        subtotal: decimalToNumberRequired(tx.subtotal),
-        discountAmount: decimalToNumberRequired(tx.discountAmount),
-        taxAmount: decimalToNumberRequired(tx.taxAmount),
-        serviceCharge: decimalToNumberRequired(tx.serviceCharge),
-        totalAmount,
-        paidAmount,
-        changeAmount: Math.max(paidAmount - totalAmount, 0),
-        customerName: tx.customer?.name ?? null,
-        employeeName: tx.employee?.name ?? '',
-        outletId: tx.outletId,
-        items: tx.items.map((item) => ({
-          id: item.id,
-          productName: item.productName,
-          variantName: item.variantName,
-          quantity: item.quantity.toNumber(),
-          unitPrice: decimalToNumberRequired(item.unitPrice),
-          totalPrice: decimalToNumberRequired(item.subtotal),
-          modifiers: item.modifiers.map((m) => m.modifierName),
-          notes: item.notes,
-        })),
-        payments: tx.payments.map((p) => ({
-          id: p.id,
-          method: p.paymentMethod,
-          amount: decimalToNumberRequired(p.amount),
-          reference: p.referenceNumber,
-          createdAt: p.createdAt.toISOString(),
-        })),
-        voidedAt: tx.voidedAt?.toISOString() ?? null,
-        voidedBy: tx.voidedByEmployee?.name ?? null,
-        voidReason: tx.voidReason ?? null,
-        createdAt: tx.createdAt.toISOString(),
-        updatedAt: tx.updatedAt.toISOString(),
-      };
-    });
-
-    return { data, total, page: pageNum, limit: take };
+  @Roles(...SELLERS)
+  async listTransactions(@Query() query: ListTransactionsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.queries.list(user, query);
   }
 
   @Get('transactions/:id')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async getTransaction(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    const tx = await this.transactionRepo.findById(id);
-    if (!tx) throw new NotFoundException('Transaction not found');
-    if (tx.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return tx;
+  @Roles(...SELLERS)
+  async getTransaction(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.queries.get(user, id);
   }
 
   @Post('refunds')
-  @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SUPERVISORS)
   async processRefund(@Body() dto: ProcessRefundDto, @CurrentUser() user: AuthUser) {
-    // Verify transaction belongs to user's business
-    const tx = await this.transactionRepo.findById(dto.transactionId);
-    if (!tx) throw new NotFoundException('Transaction not found');
-    if (tx.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
+    await this.queries.assertAccess(user, dto.transactionId);
     return this.processRefundUseCase.execute({
       transactionId: dto.transactionId,
+      businessId: user.businessId,
       employeeId: user.employeeId,
       items: dto.items,
       refundMethod: dto.refundMethod,
@@ -236,47 +181,38 @@ export class PosController {
   }
 
   @Post('transactions/:id/payments')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SELLERS)
   async multiPayment(
-    @Param('id') id: string,
-    @Body() dto: { payments: PaymentDto[] },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MultiPaymentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    // Verify transaction belongs to user's business
-    const tx = await this.transactionRepo.findById(id);
-    if (!tx) throw new NotFoundException('Transaction not found');
-    if (tx.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
+    await this.queries.assertAccess(user, id);
     return this.processMultiPaymentUseCase.execute({
       transactionId: id,
+      businessId: user.businessId,
       payments: dto.payments,
+      idempotencyKey: dto.idempotencyKey,
     });
   }
 
   @Post('void')
-  @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SUPERVISORS)
   async voidTransaction(@Body() dto: VoidTransactionDto, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) throw new BadRequestException('Outlet not assigned');
-    // Verify transaction belongs to user's business
-    const tx = await this.transactionRepo.findById(dto.transactionId);
-    if (!tx) throw new NotFoundException('Transaction not found');
-    if (tx.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
+    // The outlet comes from the (tenant-verified) transaction, so owners and
+    // managers without an assigned outlet can void from the back office.
+    await this.queries.assertAccess(user, dto.transactionId);
     return this.voidTransactionUseCase.execute({
       transactionId: dto.transactionId,
       employeeId: user.employeeId,
       businessId: user.businessId,
-      outletId: user.outletId,
       reason: dto.reason,
     });
   }
 
   @Post('cash-in')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SELLERS)
   async cashIn(@Body() dto: CashInDto, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) throw new BadRequestException('Outlet not assigned');
     return this.cashInUseCase.execute({
       shiftId: dto.shiftId,
       employeeId: user.employeeId,
@@ -288,9 +224,8 @@ export class PosController {
   }
 
   @Post('cash-out')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SELLERS)
   async cashOut(@Body() dto: CashOutDto, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) throw new BadRequestException('Outlet not assigned');
     return this.cashOutUseCase.execute({
       shiftId: dto.shiftId,
       employeeId: user.employeeId,
@@ -303,20 +238,19 @@ export class PosController {
   }
 
   @Post('hold')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...SELLERS)
   async holdBill(@Body() dto: HoldBillDto, @CurrentUser() user: AuthUser) {
-    const resolvedOutletId = user.outletId || dto.outletId;
-    if (resolvedOutletId && resolvedOutletId !== user.outletId) {
-      // Verify the outlet belongs to user's business
-      const outlet = await this.prisma.outlet.findFirst({
-        where: { id: resolvedOutletId, businessId: user.businessId },
-        select: { id: true },
-      });
-      if (!outlet) throw new BadRequestException('Outlet not found');
-    }
+    const outletId = await this.resolveSellingOutlet(user, dto.outletId);
     return this.holdBillUseCase.execute({
-      outletId: resolvedOutletId,
+      businessId: user.businessId,
+      outletId,
       employeeId: user.employeeId,
+      role: user.role,
+      clientBillId: dto.clientBillId,
+      customerId: dto.customerId,
+      orderType: dto.orderType,
+      discountAmount: dto.discountAmount,
+      discountPercent: dto.discountPercent,
       tableId: dto.tableId,
       customerName: dto.customerName,
       items: dto.items,
@@ -325,40 +259,46 @@ export class PosController {
   }
 
   @Get('held-bills')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async listHeldBills(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    const resolvedOutletId = outletId || user.outletId;
-    if (!resolvedOutletId) throw new BadRequestException('Outlet not assigned');
-    // Verify outlet belongs to user's business
-    if (resolvedOutletId !== user.outletId) {
-      const outlet = await this.prisma.outlet.findFirst({
-        where: { id: resolvedOutletId, businessId: user.businessId },
-        select: { id: true },
-      });
-      if (!outlet) throw new BadRequestException('Outlet not found');
-    }
-    return this.listHeldBillsUseCase.execute(resolvedOutletId);
+  @Roles(...SELLERS)
+  async listHeldBills(@Query() query: HeldBillsQueryDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.resolveSellingOutlet(user, query.outletId);
+    return this.listHeldBillsUseCase.execute(user.businessId, outletId, query.cursor);
   }
 
   @Post('resume/:billId')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async resumeBill(@Param('billId') billId: string, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) throw new BadRequestException('Outlet not assigned');
+  @Roles(...SELLERS)
+  async resumeBill(
+    @Body() dto: ResumeBillDto,
+    @Param('billId', ParseUUIDPipe) billId: string,
+    @Query() query: OutletQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const outletId = await this.resolveSellingOutlet(user, query.outletId);
     return this.resumeBillUseCase.execute({
-      outletId: user.outletId,
+      businessId: user.businessId,
+      outletId,
       billId,
+      requestId: dto.requestId,
+      employeeId: user.employeeId,
     });
   }
 
+  @Delete('held-bills/:billId')
+  @Roles(...SELLERS)
+  async discardHeldBill(
+    @Param('billId', ParseUUIDPipe) billId: string,
+    @Query() query: OutletQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const outletId = await this.resolveSellingOutlet(user, query.outletId);
+    await this.listHeldBillsUseCase.discard(user.businessId, outletId, billId);
+    return { success: true };
+  }
+
   @Get('transactions/:id/reprint')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async reprintReceipt(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    // Verify transaction belongs to user's business
-    const tx = await this.transactionRepo.findById(id);
-    if (!tx) throw new NotFoundException('Transaction not found');
-    if (tx.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.reprintReceiptUseCase.execute(id);
+  @Roles(...SELLERS)
+  async reprintReceipt(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.queries.assertAccess(user, id);
+    return this.reprintReceiptUseCase.execute(id, user.businessId);
   }
 }

@@ -13,6 +13,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { useCartStore } from '@/stores/cart.store';
 import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { formatCurrency } from '@/lib/format';
 import { formatQuantity } from '@/lib/quantity-format';
@@ -42,6 +44,9 @@ export function CartPanel({ onCheckout, onHoldBill, onQuickCashCheckout }: CartP
     } = useCartStore();
     const { taxRate, serviceChargeRate, taxInclusive } = useUIStore();
     const { hasPriceEditing, hasDecimalQuantities } = useBusinessFeatures();
+    const role = useAuthStore((s) => s.user?.role);
+    // Price override needs the pos_price_editing feature AND role >= supervisor (ENGINEERING-RULES R8)
+    const canEditPrice = hasPriceEditing && hasRole(role, 'SUPERVISION');
 
     const orderTypeLabels = {
         dine_in: 'Makan di Tempat',
@@ -98,7 +103,7 @@ export function CartPanel({ onCheckout, onHoldBill, onQuickCashCheckout }: CartP
                                 item={item}
                                 onQuantityChange={(qty) => updateItemQuantity(item.id, qty)}
                                 onRemove={() => removeItem(item.id)}
-                                allowPriceEdit={hasPriceEditing}
+                                allowPriceEdit={canEditPrice}
                                 onPriceChange={(price) => updateItemPrice(item.id, price)}
                                 allowDecimalQty={hasDecimalQuantities}
                             />

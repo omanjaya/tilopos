@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Delete, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -86,6 +86,7 @@ export function NumPad({
                         'hover:bg-muted/80 active:scale-95 transition-all',
                     )}
                     onClick={btn.action}
+                    aria-label={btn.icon ? 'Hapus digit' : undefined}
                 >
                     {btn.icon ? <btn.icon className="h-5 w-5" /> : btn.label}
                 </Button>
@@ -99,102 +100,6 @@ export function NumPad({
                     Konfirmasi
                 </Button>
             )}
-        </div>
-    );
-}
-
-// Quick amount buttons
-interface QuickAmountProps {
-    amounts: number[];
-    onSelect: (amount: number) => void;
-    selected?: number;
-    className?: string;
-}
-
-export function QuickAmountButtons({
-    amounts,
-    onSelect,
-    selected,
-    className,
-}: QuickAmountProps) {
-    return (
-        <div className={cn('grid grid-cols-2 gap-2', className)}>
-            {amounts.map((amount) => (
-                <Button
-                    key={amount}
-                    variant={selected === amount ? 'default' : 'outline'}
-                    className="h-12 font-medium"
-                    onClick={() => onSelect(amount)}
-                >
-                    Rp {amount.toLocaleString('id-ID')}
-                </Button>
-            ))}
-        </div>
-    );
-}
-
-// Full numpad with display
-interface FullNumPadProps {
-    label?: string;
-    value: number;
-    onChange: (value: number) => void;
-    onSubmit?: () => void;
-    showQuickAmounts?: boolean;
-    quickAmounts?: number[];
-    className?: string;
-}
-
-export function FullNumPad({
-    value,
-    onChange,
-    onSubmit,
-    showQuickAmounts = true,
-    quickAmounts = [10000, 20000, 50000, 100000],
-    className,
-}: FullNumPadProps) {
-    const [inputValue, setInputValue] = useState(value > 0 ? value.toString() : '');
-
-    const handleChange = (newValue: string) => {
-        setInputValue(newValue);
-        onChange(parseInt(newValue) || 0);
-    };
-
-    const handleQuickAmount = (amount: number) => {
-        setInputValue(amount.toString());
-        onChange(amount);
-    };
-
-    return (
-        <div className={cn('space-y-2', className)}>
-            {/* Display - Compact */}
-            <div className="bg-muted/50 rounded-lg p-2">
-                <p className="text-xl font-bold tabular-nums text-center">
-                    {(parseInt(inputValue) || 0).toLocaleString('id-ID')}
-                </p>
-            </div>
-
-            {/* Quick Amounts - Compact */}
-            {showQuickAmounts && quickAmounts.length > 0 && (
-                <div className="grid grid-cols-2 gap-1">
-                    {quickAmounts.slice(0, 4).map((amt) => (
-                        <Button
-                            key={amt}
-                            variant={parseInt(inputValue) === amt ? 'default' : 'outline'}
-                            className="h-7 text-xs font-medium"
-                            onClick={() => handleQuickAmount(amt)}
-                        >
-                            {(amt / 1000).toFixed(0)}k
-                        </Button>
-                    ))}
-                </div>
-            )}
-
-            {/* NumPad - Compact */}
-            <NumPad
-                value={inputValue}
-                onChange={handleChange}
-                onSubmit={onSubmit}
-            />
         </div>
     );
 }

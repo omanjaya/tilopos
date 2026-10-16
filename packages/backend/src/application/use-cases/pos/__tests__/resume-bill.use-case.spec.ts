@@ -7,12 +7,14 @@ describe('ResumeBillUseCase', () => {
   let mockHeldBillStore: jest.Mocked<HeldBillStore>;
 
   const baseInput: ResumeBillInput = {
+    businessId: 'biz-1',
     outletId: 'outlet-1',
     billId: 'bill-123',
   };
 
   const heldBillData: HeldBillData = {
     id: 'bill-123',
+    businessId: 'biz-1',
     outletId: 'outlet-1',
     employeeId: 'emp-1',
     tableId: 'table-5',
@@ -40,7 +42,13 @@ describe('ResumeBillUseCase', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockHeldBillStore.resume).toHaveBeenCalledWith('outlet-1', 'bill-123');
+    expect(mockHeldBillStore.resume).toHaveBeenCalledWith(
+      'biz-1',
+      'outlet-1',
+      'bill-123',
+      undefined,
+      undefined,
+    );
     expect(result).toEqual(heldBillData);
     expect(result.id).toBe('bill-123');
     expect(result.items).toHaveLength(2);
@@ -72,11 +80,18 @@ describe('ResumeBillUseCase', () => {
     mockHeldBillStore.resume.mockResolvedValue(heldBillData);
 
     await useCase.execute({
+      businessId: 'biz-1',
       outletId: 'outlet-99',
       billId: 'bill-abc',
     });
 
-    expect(mockHeldBillStore.resume).toHaveBeenCalledWith('outlet-99', 'bill-abc');
+    expect(mockHeldBillStore.resume).toHaveBeenCalledWith(
+      'biz-1',
+      'outlet-99',
+      'bill-abc',
+      undefined,
+      undefined,
+    );
   });
 
   it('should propagate errors from the held bill store', async () => {

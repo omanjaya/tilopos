@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { apiClient } from '@/api/client';
+import { tablesApi, type TableApiResponse } from '@/api/endpoints/tables.api';
+import { ErrorState } from '@/components/shared/error-state';
 
 // Table types
 export interface Table {
@@ -33,11 +34,21 @@ interface TableSelectorProps {
     outletId: string;
 }
 
-// API for tables
-const tablesApi = {
-    list: (outletId: string) =>
-        apiClient.get<Table[]>(`/tables`, { params: { outletId } }).then((r) => r.data),
-};
+const TABLE_STATUSES: readonly Table['status'][] = ['available', 'occupied', 'reserved', 'cleaning'];
+
+function toTable(t: TableApiResponse): Table {
+    return {
+        id: t.id,
+        name: t.name,
+        capacity: t.capacity,
+        status: (TABLE_STATUSES as readonly string[]).includes(t.status)
+            ? (t.status as Table['status'])
+            : 'occupied',
+        section: t.section ?? undefined,
+        currentOrderId: t.currentOrderId ?? undefined,
+        occupiedAt: t.occupiedAt ?? undefined,
+    };
+}
 
 export function TableSelector({
     open,
@@ -49,9 +60,10 @@ export function TableSelector({
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'available'>('all');
 
-    const { data: tables = [], isLoading } = useQuery({
-        queryKey: ['tables', outletId],
-        queryFn: () => tablesApi.list(outletId),
+    // Only active tables are selectable at the POS
+    const { data: tables = [], isLoading, isError, error, refetch } = useQuery({
+        queryKey: ['tables', outletId, 'active'],
+        queryFn: () => tablesApi.list({ outletId, activeOnly: true }).then((rows) => rows.map(toTable)),
         enabled: open && !!outletId,
     });
 
@@ -166,6 +178,8 @@ export function TableSelector({
                         <div className="flex items-center justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                         </div>
+                    ) : isError ? (
+                        <ErrorState title="Gagal memuat meja" error={error} onRetry={() => void refetch()} />
                     ) : Object.keys(groupedTables).length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                             <LayoutGrid className="h-12 w-12 mb-4 opacity-50" />

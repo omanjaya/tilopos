@@ -1,15 +1,18 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { Injectable } from '@nestjs/common';
+import { AUDIT_ACTIONS } from '@modules/audit/audit-actions';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
-import type { IShiftRepository } from '@domain/interfaces/repositories/shift.repository';
-import type { IAuditLogRepository } from '@domain/interfaces/repositories/audit.repository';
+import { money } from '@shared/utils/money';
+import { expectedDrawerCash } from '../../services/cash-drawer';
+import { lockOpenShift } from './shift-lock';
 
 export interface CashOutInput {
   shiftId: string;
   employeeId: string;
   businessId: string;
-  outletId: string;
+  /** Caller's outlet; null for owners without one (the shift's outlet is used). */
+  outletId: string | null;
   amount: number;
   reason: string;
   notes?: string;
@@ -17,49 +20,45 @@ export interface CashOutInput {
 
 @Injectable()
 export class CashOutUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.SHIFT)
-    private readonly shiftRepo: IShiftRepository,
-    @Inject(REPOSITORY_TOKENS.AUDIT)
-    private readonly auditRepo: IAuditLogRepository,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(input: CashOutInput): Promise<{ success: boolean; newBalance: number }> {
-    const shift = await this.shiftRepo.findById(input.shiftId);
-    if (!shift || shift.status !== 'open') {
-      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
+    if (!(input.amount > 0)) {
+      throw new BusinessError(ErrorCode.INVALID_PAYMENT, 'Amount must be positive');
     }
+    // Balance check and write happen under the shift row lock, so two concurrent
+    // cash-outs can never take more than the drawer holds (R9).
+    return this.prisma.$transaction(async (tx) => {
+      const shift = await lockOpenShift(tx, input.shiftId, input.outletId, input.businessId);
+      const currentCash = await expectedDrawerCash(tx, shift);
+      const amount = money(input.amount);
+      if (amount.gt(currentCash)) {
+        throw new BusinessError(ErrorCode.INSUFFICIENT_CASH, 'Insufficient cash in drawer');
+      }
+      const newBalance = currentCash.minus(amount);
 
-    const currentCash = shift.openingCash + (shift.cashIn || 0) - (shift.cashOut || 0);
-    if (input.amount > currentCash) {
-      throw new BusinessError(ErrorCode.INSUFFICIENT_CASH, 'Insufficient cash in drawer');
-    }
-
-    const newBalance = currentCash - input.amount;
-
-    await this.shiftRepo.addCashOut(input.shiftId, input.amount);
-
-    await this.auditRepo.create({
-      id: '',
-      businessId: input.businessId,
-      outletId: input.outletId,
-      employeeId: input.employeeId,
-      action: 'cash_out',
-      entityType: 'shift',
-      entityId: input.shiftId,
-      oldValue: { cashBalance: currentCash },
-      newValue: {
-        cashBalance: newBalance,
-        amount: input.amount,
-        reason: input.reason,
-        notes: input.notes,
-      },
-      ipAddress: null,
-      deviceId: null,
-      metadata: null,
-      createdAt: new Date(),
+      await tx.shift.update({
+        where: { id: shift.id },
+        data: { cashOut: { increment: amount } },
+      });
+      await tx.auditLog.create({
+        data: {
+          businessId: input.businessId,
+          outletId: shift.outletId,
+          employeeId: input.employeeId,
+          action: AUDIT_ACTIONS.CASH_OUT,
+          entityType: 'shift',
+          entityId: shift.id,
+          oldValue: { cashBalance: currentCash.toNumber() },
+          newValue: {
+            cashBalance: newBalance.toNumber(),
+            amount: amount.toNumber(),
+            reason: input.reason,
+            notes: input.notes ?? null,
+          },
+        },
+      });
+      return { success: true, newBalance: newBalance.toNumber() };
     });
-
-    return { success: true, newBalance };
   }
 }

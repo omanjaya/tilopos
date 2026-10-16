@@ -10,19 +10,21 @@ import { HoldBillUseCase } from '../../application/use-cases/pos/hold-bill.use-c
 import { ListHeldBillsUseCase } from '../../application/use-cases/pos/list-held-bills.use-case';
 import { ResumeBillUseCase } from '../../application/use-cases/pos/resume-bill.use-case';
 import { ReprintReceiptUseCase } from '../../application/use-cases/pos/reprint-receipt.use-case';
+import { TransactionQueriesUseCase } from '../../application/use-cases/pos/transaction-queries.use-case';
+import {
+  SalePricingService,
+  PRICING_RULE_REPOSITORY,
+} from '../../application/services/sale-pricing.service';
+import { PromotionRulesEngine } from '../../application/services/promotion-rules.engine';
+import { PricingCalculatorService } from '../../domain/services/pricing-calculator.service';
+import { PrismaPricingRuleRepository } from '../../infrastructure/repositories/prisma-pricing-rule.repository';
 import { HeldBillStore } from '../../infrastructure/cache/held-bill.store';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import { PrismaTransactionRepository } from '../../infrastructure/repositories/prisma-transaction.repository';
-import { PrismaProductRepository } from '../../infrastructure/repositories/prisma-product.repository';
-import { PrismaInventoryRepository } from '../../infrastructure/repositories/prisma-inventory.repository';
-import { PrismaShiftRepository } from '../../infrastructure/repositories/prisma-shift.repository';
-import { PrismaCustomerRepository } from '../../infrastructure/repositories/prisma-customer.repository';
-import { PrismaAuditRepository } from '../../infrastructure/repositories/prisma-audit.repository';
 import { PaymentModule } from '../../infrastructure/services/payment/payment.module';
 import { TaxConfigurationRepository } from '../../infrastructure/repositories/settings/tax-configuration.repository';
+import { BusinessModule } from '../business/business.module';
 
 @Module({
-  imports: [PaymentModule],
+  imports: [PaymentModule, BusinessModule],
   controllers: [PosController],
   providers: [
     CreateTransactionUseCase,
@@ -36,13 +38,13 @@ import { TaxConfigurationRepository } from '../../infrastructure/repositories/se
     ListHeldBillsUseCase,
     ResumeBillUseCase,
     ReprintReceiptUseCase,
+    TransactionQueriesUseCase,
     HeldBillStore,
-    { provide: REPOSITORY_TOKENS.TRANSACTION, useClass: PrismaTransactionRepository },
-    { provide: REPOSITORY_TOKENS.PRODUCT, useClass: PrismaProductRepository },
-    { provide: REPOSITORY_TOKENS.INVENTORY, useClass: PrismaInventoryRepository },
-    { provide: REPOSITORY_TOKENS.SHIFT, useClass: PrismaShiftRepository },
-    { provide: REPOSITORY_TOKENS.CUSTOMER, useClass: PrismaCustomerRepository },
-    { provide: REPOSITORY_TOKENS.AUDIT, useClass: PrismaAuditRepository },
+    // Server-side sale pricing (R8)
+    SalePricingService,
+    PromotionRulesEngine,
+    PricingCalculatorService,
+    { provide: PRICING_RULE_REPOSITORY, useClass: PrismaPricingRuleRepository },
   ],
 })
 export class PosModule {}

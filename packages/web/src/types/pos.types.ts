@@ -4,6 +4,8 @@ export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 
 export type PaymentMethod =
     | 'cash'
+    | 'card'
+    | 'bank_transfer'
     | 'debit_card'
     | 'credit_card'
     | 'qris'
@@ -54,6 +56,15 @@ export interface PaymentEntry {
 
 export interface HeldBill {
     id: string;
+    businessId?: string;
+    outletId?: string;
+    employeeId?: string;
+    syncState?: 'pending' | 'uncertain' | 'synced';
+    pendingAction?: 'resume' | 'delete';
+    requestId?: string;
+    actionEmployeeId?: string;
+    subtotal?: number;
+    discountTotal?: number;
     customerName?: string;
     customerId?: string;
     tableId?: string;
@@ -76,9 +87,9 @@ export interface DiscountRequest {
     voucherCode?: string;
 }
 
+/** POST /pos/transactions body (backend CreateTransactionDto); the employee comes from the JWT. */
 export interface CreateTransactionRequest {
     outletId: string;
-    employeeId: string;
     customerId?: string;
     shiftId: string;
     orderType: OrderType;
@@ -87,6 +98,45 @@ export interface CreateTransactionRequest {
     payments: PaymentRequest[];
     discounts?: DiscountRequest[];
     notes?: string;
+    /** Idempotency key (UUID): a replay returns the original sale with duplicate: true. */
+    clientTransactionId?: string;
+    /** ISO time of the sale on the device (offline sync); max 7 days old. */
+    occurredAt?: string;
+}
+
+/** POST /pos/transactions/preview body: server-side totals, no side effects. */
+export interface PreviewTransactionRequest {
+    outletId?: string;
+    customerId?: string;
+    orderType: OrderType;
+    items: TransactionItemRequest[];
+    discounts?: DiscountRequest[];
+    /** Decides cash rounding: Rp500 rounding applies only when every payment is cash. */
+    payments?: PaymentRequest[];
+}
+
+export interface PreviewTransactionResponse {
+    subtotal: number;
+    discountAmount: number;
+    serviceCharge: number;
+    taxAmount: number;
+    roundingAmount: number;
+    grandTotal: number;
+    items: {
+        productId: string | null;
+        variantId: string | null;
+        bundleId: string | null;
+        productName: string;
+        unitPrice: number;
+        quantity: number;
+        subtotal: number;
+    }[];
+    discounts: {
+        source: string;
+        promotionId: string | null;
+        voucherId: string | null;
+        amount: number;
+    }[];
 }
 
 export interface TransactionItemRequest {
@@ -117,6 +167,8 @@ export interface Transaction {
     discountAmount: number;
     taxAmount: number;
     serviceCharge: number;
+    /** Cash rounding (total = subtotal - discount + tax + service + roundingAmount). */
+    roundingAmount?: number;
     total: number;
     paidAmount: number;
     changeAmount: number;
@@ -132,7 +184,10 @@ export type TransactionStatus =
     | 'completed'
     | 'voided'
     | 'refunded'
-    | 'partially_refunded';
+    | 'partially_refunded'
+    | 'credit'
+    | 'partially_paid'
+    | 'split';
 
 export interface TransactionItem {
     id: string;
@@ -167,8 +222,11 @@ export interface CreateTransactionResponse {
     transactionId: string;
     receiptNumber: string;
     grandTotal: number;
+    roundingAmount: number;
     change: number;
     loyaltyPointsEarned: number;
+    /** True when an earlier submission with the same clientTransactionId was returned. */
+    duplicate?: boolean;
 }
 
 export interface ReceiptData {
@@ -180,6 +238,7 @@ export interface ReceiptData {
         taxId?: string;
     };
     outlet: {
+        id?: string;
         name: string;
         address: string;
         phone: string;
@@ -195,15 +254,6 @@ export interface ReceiptData {
     table?: {
         name: string;
     };
-}
-
-// Cash Drawer
-
-export interface CashDrawerEntry {
-    type: 'cash_in' | 'cash_out';
-    amount: number;
-    reason?: string;
-    notes?: string;
 }
 
 // Category with products for POS display

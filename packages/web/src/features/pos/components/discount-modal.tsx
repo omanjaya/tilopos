@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCartStore } from '@/stores/cart.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 
 interface DiscountModalProps {
     open: boolean;
@@ -23,6 +25,17 @@ interface DiscountModalProps {
 
 // Quick discount presets
 const PERCENT_PRESETS = [5, 10, 15, 20, 25, 50];
+
+/**
+ * Maximum manual discount (percent of subtotal) per role. Cashiers get a small
+ * allowance; larger discounts need a supervisor. Mirrors the limit requested
+ * from the backend (handoff) — the server must enforce it too.
+ */
+function maxDiscountPercentFor(role: string | undefined): number {
+    if (hasRole(role, 'MANAGEMENT')) return 100;
+    if (hasRole(role, 'SUPERVISION')) return 50;
+    return 10;
+}
 const AMOUNT_PRESETS = [5000, 10000, 20000, 50000, 100000];
 
 export function DiscountModal({ open, onClose }: DiscountModalProps) {
@@ -31,6 +44,9 @@ export function DiscountModal({ open, onClose }: DiscountModalProps) {
     const currentDiscountPercent = useCartStore((s) => s.discountPercent);
     const setDiscountAmount = useCartStore((s) => s.setDiscountAmount);
     const setDiscountPercent = useCartStore((s) => s.setDiscountPercent);
+    const role = useAuthStore((s) => s.user?.role);
+    const maxPercent = maxDiscountPercentFor(role);
+    const maxAmount = Math.floor((subtotal * maxPercent) / 100);
 
     const [tab, setTab] = useState<'percent' | 'amount'>(
         currentDiscountPercent > 0 ? 'percent' : 'amount'
@@ -58,12 +74,14 @@ export function DiscountModal({ open, onClose }: DiscountModalProps) {
         ? Math.round((subtotal * numPercent) / 100)
         : numAmount;
     const afterDiscount = Math.max(0, subtotal - previewDiscount);
+    const overLimit = tab === 'percent' ? numPercent > maxPercent : numAmount > maxAmount;
 
     const handleApply = () => {
+        if (overLimit) return;
         if (tab === 'percent') {
-            setDiscountPercent(Math.min(100, Math.max(0, numPercent)));
+            setDiscountPercent(Math.min(maxPercent, Math.max(0, numPercent)));
         } else {
-            setDiscountAmount(Math.min(subtotal, Math.max(0, numAmount)));
+            setDiscountAmount(Math.min(maxAmount, Math.max(0, numAmount)));
         }
         onClose();
     };
@@ -261,7 +279,12 @@ export function DiscountModal({ open, onClose }: DiscountModalProps) {
                             Hapus Diskon
                         </Button>
                     )}
-                    <Button onClick={handleApply} className="gap-2">
+                    {overLimit && (
+                        <p className="text-xs text-destructive mr-auto self-center" role="alert">
+                            Maksimal diskon untuk peran Anda {maxPercent}% ({formatCurrency(maxAmount)}). Minta supervisor.
+                        </p>
+                    )}
+                    <Button onClick={handleApply} className="gap-2" disabled={overLimit}>
                         <Check className="h-4 w-4" />
                         Terapkan
                     </Button>

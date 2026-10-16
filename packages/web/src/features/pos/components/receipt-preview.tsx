@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { useQuery } from '@tanstack/react-query';
 import { id as idLocale } from 'date-fns/locale';
 import { Printer, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,13 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { formatCurrency } from '@/lib/format';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
-import type { ReceiptData, TransactionItem, Payment, PaymentMethod } from '@/types/pos.types';
+import type { ReceiptData, TransactionItem, Payment } from '@/types/pos.types';
+import { useFeatureStore } from '@/stores/feature.store';
+import { toast } from '@/lib/toast-utils';
+import { printReceipt, templateLines, PAYMENT_METHOD_LABELS } from '../utils/receipt-html';
+import { posApi } from '@/api/endpoints/pos.api';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 
 interface ReceiptPreviewProps {
     data: ReceiptData;
@@ -21,24 +28,41 @@ interface ReceiptPreviewProps {
     onPrint?: () => void;
 }
 
-const paymentMethodNames: Record<PaymentMethod, string> = {
-    cash: 'Tunai',
-    qris: 'QRIS',
-    debit_card: 'Kartu Debit',
-    credit_card: 'Kartu Kredit',
-    gopay: 'GoPay',
-    ovo: 'OVO',
-    dana: 'DANA',
-    shopeepay: 'ShopeePay',
-    linkaja: 'LinkAja',
-};
 
 export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewProps) {
     const { transaction, business, outlet, employee, customer, table } = data;
 
+    const isFeatureEnabled = useFeatureStore((s) => s.isFeatureEnabled);
+    const showTable = isFeatureEnabled(FEATURES.TABLE_MANAGEMENT);
+
+    // Outlet receipt template (GET /settings/pos/receipt is readable by POS roles). While it
+    // loads or if it cannot be loaded, the receipt uses the default layout.
+    const role = useAuthStore((s) => s.user?.role);
+    const outletId = outlet.id;
+    const { data: template } = useQuery({
+        queryKey: ['pos', 'receipt-template', outletId],
+        queryFn: () => posApi.getReceiptTemplate(outletId!),
+        enabled: open && !!outletId && hasRole(role, 'FRONT_OF_HOUSE'),
+        staleTime: 5 * 60 * 1000,
+    });
+    const showAddress = template?.showAddress ?? true;
+    const showPhone = template?.showPhone ?? true;
+    const showTax = template?.showTaxBreakdown ?? true;
+    const showPaymentMethod = template?.showPaymentMethod ?? true;
+    const headerLines = templateLines(template?.headerText);
+    const footerLines = templateLines(template?.footerText);
+    const roundingAmount = transaction.roundingAmount ?? 0;
+
     const handlePrint = () => {
-        window.print();
-        onPrint?.();
+        try {
+            printReceipt(data, { showTable, template });
+            onPrint?.();
+        } catch (error) {
+            toast.error({
+                title: 'Gagal Mencetak Struk',
+                description: error instanceof Error ? error.message : 'Terjadi kesalahan',
+            });
+        }
     };
 
     const totalPaid = transaction.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -95,9 +119,12 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
                     <div className="text-center mb-4">
                         <h2 className="font-bold text-base">{business.name}</h2>
                         <p>{outlet.name}</p>
-                        <p className="text-[10px]">{outlet.address}</p>
-                        {outlet.phone && <p className="text-[10px]">Telp: {outlet.phone}</p>}
+                        {showAddress && outlet.address && <p className="text-[10px]">{outlet.address}</p>}
+                        {showPhone && outlet.phone && <p className="text-[10px]">Telp: {outlet.phone}</p>}
                         {business.taxId && <p className="text-[10px]">NPWP: {business.taxId}</p>}
+                        {headerLines.map((line, i) => (
+                            <p key={i} className="text-[10px]">{line}</p>
+                        ))}
                     </div>
 
                     <Separator className="border-dashed my-2" />
@@ -156,16 +183,22 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
                                 <span>-{formatCurrency(transaction.discountAmount)}</span>
                             </div>
                         )}
-                        {transaction.serviceCharge > 0 && (
+                        {showTax && transaction.serviceCharge > 0 && (
                             <div className="flex justify-between">
                                 <span>Biaya Layanan</span>
                                 <span>{formatCurrency(transaction.serviceCharge)}</span>
                             </div>
                         )}
-                        {transaction.taxAmount > 0 && (
+                        {showTax && transaction.taxAmount > 0 && (
                             <div className="flex justify-between">
                                 <span>Pajak (PPN{transaction.subtotal - transaction.discountAmount > 0 ? ` ${Math.round((transaction.taxAmount / (transaction.subtotal - transaction.discountAmount)) * 100)}%` : ''})</span>
                                 <span>{formatCurrency(transaction.taxAmount)}</span>
+                            </div>
+                        )}
+                        {roundingAmount !== 0 && (
+                            <div className="flex justify-between">
+                                <span>Pembulatan</span>
+                                <span>{formatCurrency(roundingAmount)}</span>
                             </div>
                         )}
                         <div className="flex justify-between font-bold text-sm">
@@ -179,9 +212,16 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
                     {/* Payments */}
                     <div className="space-y-1 mb-2">
                         <p className="font-semibold">Pembayaran:</p>
-                        {transaction.payments.map((payment, idx) => (
-                            <ReceiptPayment key={idx} payment={payment} />
-                        ))}
+                        {showPaymentMethod ? (
+                            transaction.payments.map((payment, idx) => (
+                                <ReceiptPayment key={idx} payment={payment} />
+                            ))
+                        ) : (
+                            <div className="flex justify-between">
+                                <span>Dibayar</span>
+                                <span>{formatCurrency(totalPaid)}</span>
+                            </div>
+                        )}
                         {transaction.changeAmount > 0 && (
                             <div className="flex justify-between font-semibold">
                                 <span>Kembalian</span>
@@ -194,9 +234,17 @@ export function ReceiptPreview({ data, open, onClose, onPrint }: ReceiptPreviewP
 
                     {/* Footer */}
                     <div className="text-center mt-4">
-                        <p className="font-semibold">Terima Kasih!</p>
-                        <p className="text-[10px] mt-1">Barang yang sudah dibeli tidak dapat dikembalikan</p>
-                        <p className="text-[10px]">kecuali ada kerusakan dari pabrik.</p>
+                        {footerLines.length > 0 ? (
+                            footerLines.map((line, i) => (
+                                <p key={i} className={i === 0 ? 'font-semibold' : 'text-[10px]'}>{line}</p>
+                            ))
+                        ) : (
+                            <>
+                                <p className="font-semibold">Terima Kasih!</p>
+                                <p className="text-[10px] mt-1">Barang yang sudah dibeli tidak dapat dikembalikan</p>
+                                <p className="text-[10px]">kecuali ada kerusakan dari pabrik.</p>
+                            </>
+                        )}
                         <p className="text-[10px] mt-2">*** Simpan struk ini sebagai bukti pembayaran ***</p>
                     </div>
                 </div>
@@ -247,104 +295,8 @@ interface ReceiptPaymentProps {
 function ReceiptPayment({ payment }: ReceiptPaymentProps) {
     return (
         <div className="flex justify-between">
-            <span>{paymentMethodNames[payment.method] || payment.method}</span>
+            <span>{PAYMENT_METHOD_LABELS[payment.method] || payment.method}</span>
             <span>{formatCurrency(payment.amount)}</span>
-        </div>
-    );
-}
-
-// Simple receipt for thermal printer (80mm)
-export function ThermalReceipt({ data }: { data: ReceiptData }) {
-    const { transaction, business, outlet, employee } = data;
-
-    return (
-        <div
-            className="bg-white text-black p-2 font-mono text-[10px] leading-tight"
-            style={{ width: '80mm' }}
-        >
-            {/* Header */}
-            <div className="text-center mb-2">
-                <p className="font-bold text-sm">{business.name}</p>
-                <p>{outlet.name}</p>
-                <p>{outlet.address}</p>
-                {outlet.phone && <p>Telp: {outlet.phone}</p>}
-            </div>
-
-            <p className="border-t border-dashed" />
-
-            <div className="py-1">
-                <p>No: {transaction.transactionNumber}</p>
-                <p>
-                    {format(new Date(transaction.createdAt), 'dd/MM/yy HH:mm', {
-                        locale: idLocale,
-                    })}
-                </p>
-                <p>Kasir: {employee.name}</p>
-            </div>
-
-            <p className="border-t border-dashed" />
-
-            {/* Items */}
-            <div className="py-1">
-                {transaction.items.map((item) => (
-                    <div key={item.id} className="mb-1">
-                        <p>
-                            {item.quantity}x {item.productName}
-                        </p>
-                        <p className="text-right">{formatCurrency(item.subtotal)}</p>
-                    </div>
-                ))}
-            </div>
-
-            <p className="border-t border-dashed" />
-
-            {/* Totals */}
-            <div className="py-1">
-                <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(transaction.subtotal)}</span>
-                </div>
-                {transaction.discountAmount > 0 && (
-                    <div className="flex justify-between">
-                        <span>Diskon</span>
-                        <span>-{formatCurrency(transaction.discountAmount)}</span>
-                    </div>
-                )}
-                <div className="flex justify-between">
-                    <span>PPN</span>
-                    <span>{formatCurrency(transaction.taxAmount)}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                    <span>TOTAL</span>
-                    <span>{formatCurrency(transaction.total)}</span>
-                </div>
-            </div>
-
-            <p className="border-t border-dashed" />
-
-            {/* Payment */}
-            <div className="py-1">
-                {transaction.payments.map((p, i) => (
-                    <div key={i} className="flex justify-between">
-                        <span>{paymentMethodNames[p.method]}</span>
-                        <span>{formatCurrency(p.amount)}</span>
-                    </div>
-                ))}
-                {transaction.changeAmount > 0 && (
-                    <div className="flex justify-between font-bold">
-                        <span>Kembali</span>
-                        <span>{formatCurrency(transaction.changeAmount)}</span>
-                    </div>
-                )}
-            </div>
-
-            <p className="border-t border-dashed" />
-
-            {/* Footer */}
-            <div className="text-center pt-2">
-                <p className="font-bold">Terima Kasih!</p>
-                <p>Simpan struk ini</p>
-            </div>
         </div>
     );
 }

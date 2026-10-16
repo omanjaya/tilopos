@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, User, Phone, Mail, Star, Plus, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { customersApi } from '@/api/endpoints/customers.api';
 import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { toast } from '@/lib/toast-utils';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
+import { ErrorState } from '@/components/shared/error-state';
+import { apiErrorMessage } from '../utils/api-error';
 import type { Customer } from '@/types/customer.types';
 
 interface CustomerSelectorProps {
@@ -31,15 +36,46 @@ export function CustomerSelector({
     selectedCustomerId,
 }: CustomerSelectorProps) {
     const [search, setSearch] = useState('');
+    const [showCreate, setShowCreate] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newPhone, setNewPhone] = useState('');
+    const queryClient = useQueryClient();
+    const role = useAuthStore((s) => s.user?.role);
+    // POST /customers is @Roles(OWNER, MANAGER, SUPERVISOR)
+    const canCreate = hasRole(role, 'SUPERVISION');
 
-    const { data: customers = [], isLoading } = useQuery({
-        queryKey: ['customers', search],
-        queryFn: () => customersApi.list({ search: search || undefined }),
+    // GET /customers ignores query params and returns the whole list, so fetch
+    // it once per open and filter locally instead of refetching per keystroke.
+    const { data: customers = [], isLoading, isError, error, refetch } = useQuery({
+        queryKey: ['customers', 'pos-selector'],
+        queryFn: () => customersApi.list(),
         enabled: open,
+        staleTime: 60_000,
     });
 
-    // API already filters by search term, no need for client-side re-filtering
-    const filteredCustomers = customers;
+    const filteredCustomers = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return customers;
+        return customers.filter((c) =>
+            [c.name, c.email, c.phone].some((v) => v?.toLowerCase().includes(q)),
+        );
+    }, [customers, search]);
+
+    const createMutation = useMutation({
+        mutationFn: () => customersApi.create({ name: newName.trim(), phone: newPhone.trim() || undefined }),
+        onSuccess: (customer) => {
+            void queryClient.invalidateQueries({ queryKey: ['customers'] });
+            toast.success({ title: 'Pelanggan Ditambahkan', description: customer.name });
+            setShowCreate(false);
+            setNewName('');
+            setNewPhone('');
+            onSelect(customer);
+            onClose();
+        },
+        onError: (err) => {
+            toast.error({ title: 'Gagal Menambah Pelanggan', description: apiErrorMessage(err) });
+        },
+    });
 
     const handleSelect = (customer: Customer) => {
         onSelect(customer);
@@ -82,6 +118,12 @@ export function CustomerSelector({
                         <div className="flex items-center justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                         </div>
+                    ) : isError ? (
+                        <ErrorState
+                            title="Gagal memuat pelanggan"
+                            error={error}
+                            onRetry={() => void refetch()}
+                        />
                     ) : filteredCustomers.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                             <User className="h-12 w-12 mb-4 opacity-50" />
@@ -104,6 +146,41 @@ export function CustomerSelector({
                     )}
                 </ScrollArea>
 
+                {showCreate && canCreate && (
+                    <form
+                        className="space-y-2 pt-4 border-t"
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            if (newName.trim()) createMutation.mutate();
+                        }}
+                    >
+                        <Input
+                            placeholder="Nama pelanggan"
+                            aria-label="Nama pelanggan"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            maxLength={100}
+                            autoFocus
+                        />
+                        <Input
+                            placeholder="No. telepon (opsional)"
+                            aria-label="Nomor telepon"
+                            inputMode="tel"
+                            value={newPhone}
+                            onChange={(e) => setNewPhone(e.target.value)}
+                            maxLength={20}
+                        />
+                        <div className="flex justify-end gap-2">
+                            <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>
+                                Batal
+                            </Button>
+                            <Button type="submit" disabled={!newName.trim() || createMutation.isPending}>
+                                Simpan
+                            </Button>
+                        </div>
+                    </form>
+                )}
+
                 {/* Actions */}
                 <div className="flex items-center gap-2 pt-4 border-t">
                     {selectedCustomerId && (
@@ -112,10 +189,12 @@ export function CustomerSelector({
                             Hapus Pilihan
                         </Button>
                     )}
-                    <Button variant="outline" className="gap-2 ml-auto">
-                        <Plus className="h-4 w-4" />
-                        Tambah Baru
-                    </Button>
+                    {canCreate && !showCreate && (
+                        <Button variant="outline" className="gap-2 ml-auto" onClick={() => setShowCreate(true)}>
+                            <Plus className="h-4 w-4" />
+                            Tambah Baru
+                        </Button>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>
@@ -176,7 +255,7 @@ function CustomerCard({ customer, isSelected, onSelect }: CustomerCardProps) {
                     <div className="flex items-center gap-3 mt-2">
                         <Badge variant={loyaltyTier.variant} className="gap-1">
                             <Star className="h-3 w-3" />
-                            {customer.loyaltyPoints} pts
+                            {customer.loyaltyPoints} poin
                         </Badge>
                         <span className="text-xs text-muted-foreground">
                             {customer.visitCount}x kunjungan

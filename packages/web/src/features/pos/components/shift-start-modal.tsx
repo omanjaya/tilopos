@@ -13,6 +13,7 @@ import { shiftsApi } from '@/api/endpoints/shifts.api';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
+import { apiErrorMessage } from '../utils/api-error';
 
 const QUICK_AMOUNTS = [100000, 200000, 500000, 1000000];
 
@@ -45,17 +46,23 @@ export function ShiftStartModal({
   };
 
   const handleSubmit = async () => {
-    if (openingCash <= 0) {
+    if (openingCash < 0) {
       toast.error({
-        title: 'Kas Awal Required',
-        description: 'Silakan masukkan kas awal untuk memulai shift',
+        title: 'Kas Awal Tidak Valid',
+        description: 'Kas awal tidak boleh negatif',
       });
+      return;
+    }
+    if (
+      openingCash === 0 &&
+      !window.confirm('Mulai shift dengan kas awal Rp0 (laci kosong)?')
+    ) {
       return;
     }
 
     if (!user?.employeeId) {
       toast.error({
-        title: 'Error',
+        title: 'Gagal',
         description: 'Informasi karyawan tidak ditemukan',
       });
       return;
@@ -79,10 +86,9 @@ export function ShiftStartModal({
 
       onSuccess();
     } catch (error) {
-      console.error('Failed to start shift:', error);
       toast.error({
         title: 'Gagal Memulai Shift',
-        description: 'Terjadi kesalahan saat memulai shift. Silakan coba lagi.',
+        description: apiErrorMessage(error, 'Terjadi kesalahan saat memulai shift. Silakan coba lagi.'),
       });
     } finally {
       setIsSubmitting(false);
@@ -156,7 +162,7 @@ export function ShiftStartModal({
             size="sm"
             className="flex-1 h-9"
             onClick={handleSubmit}
-            disabled={openingCash <= 0 || isSubmitting}
+            disabled={openingCash < 0 || isSubmitting}
           >
             {isSubmitting ? (
               <>

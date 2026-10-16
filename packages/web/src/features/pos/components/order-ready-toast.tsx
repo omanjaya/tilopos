@@ -1,7 +1,7 @@
 /**
  * OrderReadyToast
  *
- * Listens for `order:ready` WebSocket events and notifies the cashier
+ * Listens for `order:status_changed` (ready) WebSocket events and notifies the cashier
  * with a toast notification and an audible alert.
  *
  * Render this component inside the POS page so it stays mounted while
@@ -10,7 +10,6 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useRealtimeOrders } from '@/hooks/use-realtime';
-import { useSocket } from '@/hooks/realtime/use-socket';
 import { useSoundEffects } from '@/hooks/use-sound-effects';
 import { toast } from '@/lib/toast-utils';
 
@@ -70,6 +69,7 @@ function playOrderReadySound(): void {
 export function OrderReadyToast() {
   const { soundEnabled } = useSoundEffects();
   const soundEnabledRef = useRef(soundEnabled);
+  const recentRef = useRef(new Map<string, number>());
 
   // Update ref in effect to avoid accessing ref during render
   useEffect(() => {
@@ -80,6 +80,15 @@ export function OrderReadyToast() {
     // Only react when the new status signals "ready" (KDS marks order as ready)
     const readyStatuses = ['ready', 'completed', 'ready_for_pickup'];
     if (!readyStatuses.includes(event.newStatus)) return;
+
+    // Two gateways may broadcast the same change: notify once per order
+    const now = Date.now();
+    const last = recentRef.current.get(event.orderId);
+    if (last && now - last < 10_000) return;
+    recentRef.current.set(event.orderId, now);
+    for (const [id, ts] of recentRef.current) {
+      if (now - ts > 60_000) recentRef.current.delete(id);
+    }
 
     // Play notification sound
     if (soundEnabledRef.current) {
@@ -98,35 +107,11 @@ export function OrderReadyToast() {
     });
   }, []);
 
-  const { socket, isConnected } = useSocket();
-
+  // The backend emits both `order:status_changed` (newStatus=ready) and
+  // `order:ready` for the same event, so subscribe to `order:status_changed` only.
   useRealtimeOrders({
     onStatusChanged: handleOrderStatusChanged,
   });
-
-  // Also listen for the explicit `order:ready` event emitted by the
-  // notifications gateway, in addition to the `order:status_changed` event.
-  useEffect(() => {
-    const currentSocket = socket.current;
-    if (!isConnected || !currentSocket) return;
-
-    const handleOrderReady = (_event: { orderId: string; outletId: string; readyAt: string }) => {
-      if (soundEnabledRef.current) {
-        playOrderReadySound();
-      }
-
-      toast.info({
-        title: 'Pesanan Siap!',
-        description: `Pesanan siap untuk disajikan.`,
-      });
-    };
-
-    currentSocket.on('order:ready', handleOrderReady);
-
-    return () => {
-      currentSocket.off('order:ready', handleOrderReady);
-    };
-  }, [isConnected, socket]);
 
   return null;
 }

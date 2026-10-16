@@ -1,55 +1,91 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { Injectable, Logger } from '@nestjs/common';
+import { AUDIT_ACTIONS } from '@modules/audit/audit-actions';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { TransactionVoidedEvent } from '@domain/events/transaction-voided.event';
 import { StockLevelChangedEvent } from '@domain/events/stock-level-changed.event';
 import { VoidNotAllowedException } from '@domain/exceptions/void-not-allowed.exception';
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
-import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
+import { money } from '@shared/utils/money';
+import { applyStockChanges, type StockDeductionLine } from '../../services/sale-stock';
 
 export interface VoidTransactionInput {
   transactionId: string;
   employeeId: string;
   businessId: string;
-  outletId: string;
   reason: string;
 }
 
+/** Only sales that have not been refunded or put on credit can be voided. */
+const VOIDABLE_STATUSES = ['completed', 'pending'] as const;
+
 @Injectable()
 export class VoidTransactionUseCase {
+  private readonly logger = new Logger(VoidTransactionUseCase.name);
+
   constructor(
-    @Inject(REPOSITORY_TOKENS.TRANSACTION)
-    private readonly transactionRepo: ITransactionRepository,
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: VoidTransactionInput): Promise<{ success: boolean; message: string }> {
-    const transaction = await this.transactionRepo.findById(input.transactionId);
+    const transaction = await this.prisma.transaction.findFirst({
+      where: { id: input.transactionId, outlet: { businessId: input.businessId } },
+      select: {
+        id: true,
+        outletId: true,
+        status: true,
+        transactionType: true,
+        grandTotal: true,
+        shift: { select: { status: true } },
+        payments: { select: { status: true, metadata: true } },
+      },
+    });
     if (!transaction) {
       throw new TransactionNotFoundException(input.transactionId);
     }
-
-    if (transaction.status === 'voided') {
-      throw new VoidNotAllowedException('Transaction is already voided');
-    }
-
-    if (transaction.status === 'refunded' || transaction.status === 'partially_refunded') {
-      throw new VoidNotAllowedException('Cannot void a refunded transaction');
-    }
-
     if (transaction.transactionType !== 'sale') {
       throw new VoidNotAllowedException('Can only void sale transactions');
     }
+    if (transaction.status === 'voided') {
+      throw new VoidNotAllowedException('Transaction is already voided');
+    }
+    if (transaction.status === 'refunded' || transaction.status === 'partially_refunded') {
+      throw new VoidNotAllowedException('Cannot void a refunded transaction');
+    }
+    if (!(VOIDABLE_STATUSES as readonly string[]).includes(transaction.status)) {
+      throw new VoidNotAllowedException(
+        `Cannot void a transaction with status ${transaction.status}`,
+      );
+    }
+    // A void rewrites the sale as if it never happened: only while its shift is
+    // still open. Older sales must be refunded so closed shifts/settlements stay intact.
+    if (transaction.shift && transaction.shift.status !== 'open') {
+      throw new VoidNotAllowedException(
+        'The shift of this sale is closed; process a refund instead',
+      );
+    }
+    const gatewayPaid = transaction.payments.some((p) => {
+      const meta = (p.metadata ?? {}) as Record<string, unknown>;
+      return (
+        p.status === 'completed' &&
+        (typeof meta.gatewayRef === 'string' || typeof meta.gatewayOrderId === 'string')
+      );
+    });
+    if (gatewayPaid) {
+      throw new VoidNotAllowedException(
+        'A payment-gateway charge was captured; it cannot be reversed by a void',
+      );
+    }
 
-    const items = await this.transactionRepo.findItemsByTransactionId(input.transactionId);
-
-    // ATOMIC: Wrap status update + stock restoration in a single transaction
     const stockChanges = await this.prisma.$transaction(async (tx) => {
-      // 1. Update transaction status
-      await tx.transaction.update({
-        where: { id: input.transactionId },
+      // 1. Conditional status transition: a concurrent second void finds count 0 (R9).
+      const { count } = await tx.transaction.updateMany({
+        where: {
+          id: input.transactionId,
+          outlet: { businessId: input.businessId },
+          status: { in: [...VOIDABLE_STATUSES] },
+        },
         data: {
           status: 'voided',
           voidedAt: new Date(),
@@ -57,114 +93,60 @@ export class VoidTransactionUseCase {
           voidReason: input.reason,
         },
       });
-
-      const changes: Array<{
-        productId: string;
-        variantId: string | null;
-        previousQty: number;
-        newQty: number;
-      }> = [];
-
-      // 2. Restore stock for each item
-      for (const item of items) {
-        if (item.productId) {
-          // Regular product - restore stock directly
-          const stockLevel = await tx.stockLevel.findFirst({
-            where: {
-              outletId: transaction.outletId,
-              productId: item.productId,
-              variantId: item.variantId || null,
-            },
-          });
-          if (stockLevel) {
-            const previousQty = Number(stockLevel.quantity);
-            const restoredQty = previousQty + item.quantity;
-            await tx.stockLevel.update({
-              where: { id: stockLevel.id },
-              data: { quantity: restoredQty },
-            });
-            await tx.stockMovement.create({
-              data: {
-                outletId: transaction.outletId,
-                productId: item.productId,
-                variantId: item.variantId || null,
-                movementType: 'return_stock',
-                quantity: item.quantity,
-                referenceId: input.transactionId,
-                referenceType: 'void',
-                notes: `Void: ${input.reason}`,
-                createdBy: input.employeeId,
-                createdAt: new Date(),
-              },
-            });
-            changes.push({
-              productId: item.productId,
-              variantId: item.variantId || null,
-              previousQty,
-              newQty: restoredQty,
-            });
-          }
-        } else if (item.bundleId) {
-          // Bundle item - restore stock for each component via original stock movements
-          const originalMovements = await tx.stockMovement.findMany({
-            where: {
-              referenceId: input.transactionId,
-              referenceType: 'transaction',
-            },
-          });
-
-          for (const movement of originalMovements) {
-            if (Number(movement.quantity) >= 0 || !movement.productId) continue;
-            const stockLevel = await tx.stockLevel.findFirst({
-              where: {
-                outletId: transaction.outletId,
-                productId: movement.productId,
-                variantId: movement.variantId || null,
-              },
-            });
-            if (stockLevel) {
-              const restoreQty = Math.abs(Number(movement.quantity));
-              const previousQty = Number(stockLevel.quantity);
-              const restoredQty = previousQty + restoreQty;
-              await tx.stockLevel.update({
-                where: { id: stockLevel.id },
-                data: { quantity: restoredQty },
-              });
-              await tx.stockMovement.create({
-                data: {
-                  outletId: transaction.outletId,
-                  productId: movement.productId,
-                  variantId: movement.variantId || null,
-                  movementType: 'return_stock',
-                  quantity: restoreQty,
-                  referenceId: input.transactionId,
-                  referenceType: 'void',
-                  notes: `Void bundle component: ${input.reason}`,
-                  createdBy: input.employeeId,
-                  createdAt: new Date(),
-                },
-              });
-              changes.push({
-                productId: movement.productId,
-                variantId: movement.variantId || null,
-                previousQty,
-                newQty: restoredQty,
-              });
-            }
-          }
-        }
+      if (count !== 1) {
+        throw new VoidNotAllowedException('Transaction was already voided or changed');
       }
 
-      // 3. Create audit log inside transaction
+      // 2. Money recorded for this sale is no longer collected.
+      await tx.payment.updateMany({
+        where: { transactionId: input.transactionId, status: 'completed' },
+        data: { status: 'refunded' },
+      });
+      await tx.payment.updateMany({
+        where: { transactionId: input.transactionId, status: 'pending' },
+        data: { status: 'failed' },
+      });
+
+      // 3. Reverse exactly the stock this sale deducted, once per product/variant
+      //    (covers regular items and bundle components alike).
+      const movements = await tx.stockMovement.findMany({
+        where: {
+          referenceId: input.transactionId,
+          referenceType: 'transaction',
+          outletId: transaction.outletId,
+        },
+        select: { productId: true, variantId: true, quantity: true },
+      });
+      const lines: StockDeductionLine[] = movements
+        .filter((m) => m.productId && money(m.quantity).isNegative())
+        .map((m) => ({
+          productId: m.productId as string,
+          variantId: m.variantId ?? null,
+          quantity: money(m.quantity).abs(),
+          note: `Void: ${input.reason}`,
+        }));
+      const changes = await applyStockChanges(tx, lines, {
+        outletId: transaction.outletId,
+        referenceId: input.transactionId,
+        referenceType: 'void',
+        employeeId: input.employeeId,
+        movementType: 'return_stock',
+        direction: 'restore',
+        logger: this.logger,
+      });
+
       await tx.auditLog.create({
         data: {
           businessId: input.businessId,
-          outletId: input.outletId,
+          outletId: transaction.outletId,
           employeeId: input.employeeId,
-          action: 'transaction_voided',
+          action: AUDIT_ACTIONS.TRANSACTION_VOIDED,
           entityType: 'transaction',
           entityId: input.transactionId,
-          oldValue: { status: transaction.status, grandTotal: transaction.grandTotal },
+          oldValue: {
+            status: transaction.status,
+            grandTotal: money(transaction.grandTotal).toNumber(),
+          },
           newValue: { status: 'voided', reason: input.reason },
         },
       });
@@ -172,17 +154,15 @@ export class VoidTransactionUseCase {
       return changes;
     });
 
-    // Events published AFTER successful transaction commit
     this.eventBus.publish(
       new TransactionVoidedEvent(
         input.transactionId,
         transaction.outletId,
-        transaction.grandTotal,
+        money(transaction.grandTotal).toNumber(),
         input.employeeId,
         input.reason,
       ),
     );
-
     for (const sc of stockChanges) {
       this.eventBus.publish(
         new StockLevelChangedEvent(

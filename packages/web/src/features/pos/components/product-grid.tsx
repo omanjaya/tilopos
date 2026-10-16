@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/shared/error-state';
 import { cn } from '@/lib/utils';
 import { formatQuantity } from '@/lib/quantity-format';
 import { useTouchDevice } from '@/hooks/use-touch-device';
@@ -17,6 +18,9 @@ interface ProductGridProps {
     categories: POSCategory[];
     bundles?: BundlePackage[];
     isLoading?: boolean;
+    isError?: boolean;
+    error?: unknown;
+    onRetry?: () => void;
     onProductClick: (product: POSProduct) => void;
     onBundleClick?: (bundle: BundlePackage) => void;
     searchInputRef?: React.Ref<HTMLInputElement>;
@@ -28,11 +32,18 @@ interface ProductGridProps {
 
 const BUNDLE_CATEGORY_ID = '__bundles__';
 
+function productBarcode(product: POSProduct): string | undefined {
+    return 'barcode' in product && typeof product.barcode === 'string' ? product.barcode : undefined;
+}
+
 export function ProductGrid({
     products,
     categories,
     bundles = [],
     isLoading = false,
+    isError = false,
+    error,
+    onRetry,
     onProductClick,
     onBundleClick,
     searchInputRef,
@@ -71,7 +82,8 @@ export function ProductGrid({
             const matchesSearch =
                 search === '' ||
                 product.name.toLowerCase().includes(search.toLowerCase()) ||
-                product.sku.toLowerCase().includes(search.toLowerCase());
+                product.sku.toLowerCase().includes(search.toLowerCase()) ||
+                (productBarcode(product)?.toLowerCase().includes(search.toLowerCase()) ?? false);
 
             const matchesCategory =
                 selectedCategoryId === null || product.categoryId === selectedCategoryId;
@@ -86,6 +98,34 @@ export function ProductGrid({
         const q = search.toLowerCase();
         return bundles.filter((b) => b.name.toLowerCase().includes(q));
     }, [bundles, search, selectedCategoryId, isBundleCategory]);
+
+    // Barcode scanners type the code followed by Enter: add an exact SKU/barcode match to the cart
+    const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== 'Enter') return;
+        const code = search.trim().toLowerCase();
+        if (!code) return;
+        const match = products.find(
+            (p) => p.sku.toLowerCase() === code || productBarcode(p)?.toLowerCase() === code,
+        );
+        if (match) {
+            e.preventDefault();
+            onProductClick(match);
+            setSearch('');
+        }
+    };
+
+    if (isError) {
+        return (
+            <div className="flex h-full items-center justify-center p-4">
+                <ErrorState
+                    title="Gagal memuat produk"
+                    description="Katalog produk tidak dapat dimuat. Periksa koneksi lalu coba lagi."
+                    error={error}
+                    onRetry={onRetry}
+                />
+            </div>
+        );
+    }
 
     if (isLoading) {
         return (
@@ -124,7 +164,9 @@ export function ProductGrid({
                             placeholder="Cari produk atau scan barcode..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
+                            onKeyDown={handleSearchKeyDown}
                             className="pl-10 min-h-[44px]"
+                            aria-label="Cari produk atau scan barcode"
                         />
                     </div>
                     <div className="flex border rounded-lg">
@@ -132,6 +174,8 @@ export function ProductGrid({
                             variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
                             size="icon"
                             onClick={() => setViewMode('grid')}
+                            aria-label="Tampilan grid"
+                            aria-pressed={viewMode === 'grid'}
                         >
                             <Grid3X3 className="h-4 w-4" />
                         </Button>
@@ -139,6 +183,8 @@ export function ProductGrid({
                             variant={viewMode === 'list' ? 'secondary' : 'ghost'}
                             size="icon"
                             onClick={() => setViewMode('list')}
+                            aria-label="Tampilan daftar"
+                            aria-pressed={viewMode === 'list'}
                         >
                             <List className="h-4 w-4" />
                         </Button>
@@ -288,7 +334,7 @@ function ProductCard({ product, onClick, isTablet = false, isTouchDevice = false
     const price = hasVariants
         ? Math.min(product.basePrice, ...product.variants.map((v) => v.price))
         : product.basePrice;
-    const isOutOfStock = product.trackStock && product.stockLevel === 0;
+    const isOutOfStock = product.trackStock && product.stockLevel !== undefined && product.stockLevel <= 0;
 
     const [justAdded, setJustAdded] = useState(false);
     const prevQuantity = useRef(cartQuantity);
@@ -505,7 +551,7 @@ function ProductListItem({ product, onClick, cartQuantity = 0, allowDecimalQty }
     const price = hasVariants
         ? Math.min(product.basePrice, ...product.variants.map((v) => v.price))
         : product.basePrice;
-    const isOutOfStock = product.trackStock && product.stockLevel === 0;
+    const isOutOfStock = product.trackStock && product.stockLevel !== undefined && product.stockLevel <= 0;
 
     return (
         <button

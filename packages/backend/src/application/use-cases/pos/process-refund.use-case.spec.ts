@@ -1,307 +1,233 @@
-import { ProcessRefundUseCase, ProcessRefundInput } from './process-refund.use-case';
-import { EventBusService } from '@infrastructure/events/event-bus.service';
+import { Prisma } from '@prisma/client';
+import { ProcessRefundUseCase, type ProcessRefundInput } from './process-refund.use-case';
+import type { EventBusService } from '@infrastructure/events/event-bus.service';
+import type { PrismaService } from '@infrastructure/database/prisma.service';
+import type { DocumentNumberService } from '@shared/numbering';
 import { TransactionNotFoundException } from '@domain/exceptions/transaction-not-found.exception';
 import { RefundNotAllowedException } from '@domain/exceptions/refund-not-allowed.exception';
-import type {
-  ITransactionRepository,
-  TransactionRecord,
-} from '@domain/interfaces/repositories/transaction.repository';
-import type { PrismaService } from '@infrastructure/database/prisma.service';
+
+const D = (v: number) => new Prisma.Decimal(v);
 
 describe('ProcessRefundUseCase', () => {
   let useCase: ProcessRefundUseCase;
-  let mockTransactionRepo: jest.Mocked<ITransactionRepository>;
-  let mockPrisma: jest.Mocked<PrismaService>;
-  let mockEventBus: jest.Mocked<EventBusService>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockTx: any;
-
-  const originalTransaction: TransactionRecord = {
-    id: 'txn-original',
-    businessId: 'biz-1',
-    outletId: 'outlet-1',
-    employeeId: 'emp-1',
-    customerId: 'cust-1',
-    shiftId: 'shift-1',
-    receiptNumber: 'TXN-001',
-    transactionType: 'sale',
-    orderType: 'dine_in',
-    tableId: null,
-    subtotal: 50000,
-    discountAmount: 0,
-    taxAmount: 5500,
-    serviceCharge: 0,
-    grandTotal: 55500,
-    notes: null,
-    status: 'completed',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  let tx: {
+    $queryRaw: jest.Mock;
+    transaction: {
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      create: jest.Mock;
+      updateMany: jest.Mock;
+    };
+    shift: { findFirst: jest.Mock };
+    bundlePackage: { findMany: jest.Mock };
+    stockMovement: { createMany: jest.Mock };
+    auditLog: { create: jest.Mock };
   };
+  let prisma: { $transaction: jest.Mock };
+  let eventBus: { publish: jest.Mock };
 
-  const mockTransactionItems = [
-    {
-      id: 'item-1',
-      transactionId: 'txn-original',
-      productId: 'prod-1',
-      variantId: null,
-      productName: 'Nasi Goreng',
-      variantName: null,
-      quantity: { toNumber: () => 2 },
-      unitPrice: { toNumber: () => 25000 },
-      discountAmount: { toNumber: () => 0 },
-      subtotal: { toNumber: () => 50000 },
-      notes: null,
-      bundleId: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ];
-
-  const baseRefundInput: ProcessRefundInput = {
-    transactionId: 'txn-original',
-    employeeId: 'emp-2',
+  const original = (over: Record<string, unknown> = {}) => ({
+    id: 'txn-1',
+    outletId: 'outlet-1',
+    customerId: null,
+    receiptNumber: 'TXN-001',
+    orderType: 'takeaway',
+    status: 'completed',
+    subtotal: D(50000),
+    discountAmount: D(5000),
+    taxAmount: D(4950),
+    serviceCharge: D(0),
+    grandTotal: D(49950),
     items: [
       {
-        transactionItemId: 'item-1',
-        quantity: 2,
-        reason: 'customer_request',
+        id: 'item-1',
+        productId: 'prod-1',
+        variantId: null,
+        bundleId: null,
+        productName: 'Nasi Goreng',
+        variantName: null,
+        quantity: D(2),
+        unitPrice: D(25000),
       },
     ],
+    payments: [{ paymentMethod: 'cash', amount: D(50000), status: 'completed', metadata: {} }],
+    ...over,
+  });
+
+  const input = (over: Partial<ProcessRefundInput> = {}): ProcessRefundInput => ({
+    transactionId: 'txn-1',
+    businessId: 'biz-1',
+    employeeId: 'emp-2',
+    items: [{ transactionItemId: 'item-1', quantity: 1, reason: 'customer_request' }],
     refundMethod: 'cash',
-    notes: 'Customer requested refund',
-  };
+    ...over,
+  });
 
   beforeEach(() => {
-    mockTransactionRepo = {
-      findById: jest.fn(),
-      findByReceiptNumber: jest.fn(),
-      findByOutletAndDateRange: jest.fn(),
-      save: jest.fn(),
-      update: jest.fn(),
-      findItemsByTransactionId: jest.fn(),
-      findPaymentsByTransactionId: jest.fn(),
-    };
-
-    mockTx = {
+    tx = {
+      // 1st call: FOR UPDATE lock; later calls: stock restore UPDATE ... RETURNING
+      $queryRaw: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: 'txn-1' }])
+        .mockResolvedValue([{ id: 'sl-1', quantity: D(10) }]),
       transaction: {
-        create: jest.fn().mockResolvedValue({ id: 'txn-refund' }),
-        update: jest.fn().mockResolvedValue({}),
-        aggregate: jest.fn().mockResolvedValue({ _sum: { subtotal: null } }),
-      },
-      transactionItem: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-      stockLevel: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'stock-1',
-          quantity: { toNumber: () => 48 },
-        }),
-        update: jest.fn().mockResolvedValue({ quantity: { toNumber: () => 50 } }),
-      },
-      stockMovement: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-      auditLog: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-    };
-
-    mockPrisma = {
-      transactionItem: {
-        findMany: jest.fn().mockResolvedValue(mockTransactionItems),
-      },
-      transaction: {
+        findFirst: jest.fn().mockResolvedValue(original()),
         findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({ id: 'refund-1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      $transaction: jest.fn().mockImplementation(async (cb) => cb(mockTx)),
-    } as unknown as jest.Mocked<PrismaService>;
-
-    mockEventBus = {
-      publish: jest.fn(),
-      ofType: jest.fn(),
-      onAll: jest.fn(),
-    } as unknown as jest.Mocked<EventBusService>;
-
-    useCase = new ProcessRefundUseCase(mockTransactionRepo, mockPrisma, mockEventBus);
-  });
-
-  it('should process full refund successfully', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-
-    const result = await useCase.execute(baseRefundInput);
-
-    expect(result.refundTransactionId).toBe('txn-refund');
-    // refundSubtotal = 25000 * 2 = 50000
-    // taxProportion = 5500 / 50000 = 0.11
-    // refundTax = Math.round(50000 * 0.11) = 5500
-    // refundAmount = 50000 + 5500 = 55500
-    expect(result.refundAmount).toBe(55500);
-    expect(result.receiptNumber).toContain('REF-');
-
-    // Should update original to 'refunded' since full refund
-    expect(mockTx.transaction.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'txn-original' },
-        data: { status: 'refunded' },
-      }),
+      shift: { findFirst: jest.fn().mockResolvedValue({ id: 'shift-now' }) },
+      bundlePackage: { findMany: jest.fn().mockResolvedValue([]) },
+      stockMovement: { createMany: jest.fn() },
+      auditLog: { create: jest.fn() },
+    };
+    prisma = { $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)) };
+    eventBus = { publish: jest.fn() };
+    useCase = new ProcessRefundUseCase(
+      prisma as unknown as PrismaService,
+      eventBus as unknown as EventBusService,
+      {
+        next: jest.fn().mockResolvedValue('REF-20260927-0001'),
+      } as unknown as DocumentNumberService,
     );
   });
 
-  it('should process partial refund successfully', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
+  it('locks the original sale row inside the DB transaction', async () => {
+    await useCase.execute(input());
+    const sql = (tx.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('FOR UPDATE');
+    expect(tx.$queryRaw.mock.calls[0]).toEqual(expect.arrayContaining(['txn-1', 'biz-1']));
+  });
 
-    const partialRefundInput: ProcessRefundInput = {
-      ...baseRefundInput,
-      items: [
-        {
-          transactionItemId: 'item-1',
-          quantity: 1, // only 1 out of 2
-          reason: 'defect',
-        },
-      ],
-    };
+  it('returns 404 for a sale of another business', async () => {
+    tx.$queryRaw.mockReset().mockResolvedValue([]);
+    await expect(useCase.execute(input())).rejects.toBeInstanceOf(TransactionNotFoundException);
+  });
 
-    const result = await useCase.execute(partialRefundInput);
+  it('prorates the sale discount and tax, links refundOfId and books into the current shift', async () => {
+    const result = await useCase.execute(input());
+    // line 25000, discount share 2500, tax share 2475 -> 24975
+    expect(result.refundAmount).toBe(24975);
+    const data = tx.transaction.create.mock.calls[0][0].data;
+    expect(data.refundOfId).toBe('txn-1');
+    expect(data.shiftId).toBe('shift-now');
+    expect(data.grandTotal).toEqual(D(-24975));
+    expect(data.payments.create).toEqual([
+      expect.objectContaining({ paymentMethod: 'cash', amount: D(24975) }),
+    ]);
+    expect(tx.transaction.updateMany).toHaveBeenCalledWith({
+      where: { id: 'txn-1', status: { in: ['completed', 'partially_refunded'] } },
+      data: { status: 'partially_refunded' },
+    });
+  });
 
-    // refundSubtotal = 25000 * 1 = 25000
-    // taxProportion = 5500 / 50000 = 0.11
-    // refundTax = Math.round(25000 * 0.11) = 2750
-    // refundAmount = 25000 + 2750 = 27750
-    expect(result.refundAmount).toBe(27750);
+  it('prevents over-refund when the same item is sent twice in one request', async () => {
+    await expect(
+      useCase.execute(
+        input({
+          items: [
+            { transactionItemId: 'item-1', quantity: 2, reason: 'defect' },
+            { transactionItemId: 'item-1', quantity: 1, reason: 'defect' },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/Cannot refund 3 units/);
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
 
-    // Should be partially_refunded since 25000 < 50000
-    expect(mockTx.transaction.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'txn-original' },
-        data: { status: 'partially_refunded' },
-      }),
+  it('prevents over-refund across earlier refunds (linked by refundOfId)', async () => {
+    tx.transaction.findMany.mockResolvedValue([
+      {
+        grandTotal: D(-24975),
+        items: [
+          {
+            productId: 'prod-1',
+            variantId: null,
+            quantity: D(1),
+            notes: 'refund:item-1|reason:defect',
+          },
+        ],
+      },
+    ]);
+    await expect(
+      useCase.execute(
+        input({ items: [{ transactionItemId: 'item-1', quantity: 2, reason: 'defect' }] }),
+      ),
+    ).rejects.toThrow(/Only 1 remaining/);
+    expect(tx.transaction.findMany.mock.calls[0][0].where.OR[0]).toEqual({ refundOfId: 'txn-1' });
+  });
+
+  it('the final refund returns exactly the remaining amount and marks it refunded', async () => {
+    tx.transaction.findMany.mockResolvedValue([
+      {
+        grandTotal: D(-24975),
+        items: [
+          {
+            productId: 'prod-1',
+            variantId: null,
+            quantity: D(1),
+            notes: 'refund:item-1|reason:defect',
+          },
+        ],
+      },
+    ]);
+    const result = await useCase.execute(input());
+    expect(result.refundAmount).toBe(24975);
+    expect(tx.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'refunded' } }),
     );
   });
 
-  it('should throw TransactionNotFoundException when transaction not found', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(null);
-
-    await expect(useCase.execute(baseRefundInput)).rejects.toThrow(TransactionNotFoundException);
+  it('rejects refunds of an already refunded sale', async () => {
+    tx.transaction.findFirst.mockResolvedValue(original({ status: 'refunded' }));
+    await expect(useCase.execute(input())).rejects.toBeInstanceOf(RefundNotAllowedException);
   });
 
-  it('should throw RefundNotAllowedException when already fully refunded', async () => {
-    mockTransactionRepo.findById.mockResolvedValue({
-      ...originalTransaction,
-      status: 'refunded',
-    });
-
-    await expect(useCase.execute(baseRefundInput)).rejects.toThrow(RefundNotAllowedException);
-    await expect(useCase.execute(baseRefundInput)).rejects.toThrow(/already fully refunded/);
+  it('refuses store credit (no credit-note ledger)', async () => {
+    await expect(useCase.execute(input({ refundMethod: 'store_credit' }))).rejects.toThrow(
+      /store credit is not supported/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('should throw RefundNotAllowedException when transaction status is invalid', async () => {
-    mockTransactionRepo.findById.mockResolvedValue({
-      ...originalTransaction,
-      status: 'voided',
-    });
-
-    await expect(useCase.execute(baseRefundInput)).rejects.toThrow(RefundNotAllowedException);
-    await expect(useCase.execute(baseRefundInput)).rejects.toThrow(/status is voided/);
+  it('requires an open shift for cash refunds', async () => {
+    tx.shift.findFirst.mockResolvedValue(null);
+    await expect(useCase.execute(input())).rejects.toThrow(/Open a shift/);
   });
 
-  it('should allow refund on partially_refunded transaction', async () => {
-    mockTransactionRepo.findById.mockResolvedValue({
-      ...originalTransaction,
-      status: 'partially_refunded',
-    });
-
-    const result = await useCase.execute(baseRefundInput);
-
-    expect(result.refundTransactionId).toBe('txn-refund');
-  });
-
-  it('should throw RefundNotAllowedException when transaction item not found', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-
-    const badInput: ProcessRefundInput = {
-      ...baseRefundInput,
-      items: [
-        {
-          transactionItemId: 'non-existent-item',
-          quantity: 1,
-          reason: 'customer_request',
-        },
-      ],
-    };
-
-    await expect(useCase.execute(badInput)).rejects.toThrow(RefundNotAllowedException);
-    await expect(useCase.execute(badInput)).rejects.toThrow(/non-existent-item/);
-  });
-
-  it('should handle zero subtotal edge case for tax proportion', async () => {
-    const zeroSubtotalTransaction: TransactionRecord = {
-      ...originalTransaction,
-      subtotal: 0,
-      taxAmount: 0,
-      grandTotal: 0,
-    };
-
-    mockTransactionRepo.findById.mockResolvedValue(zeroSubtotalTransaction);
-
-    const result = await useCase.execute(baseRefundInput);
-
-    // When subtotal is 0, taxProportion should be 0, so refundTax = 0
-    // refundSubtotal = 25000 * 2 = 50000
-    // refundAmount = 50000 + 0 = 50000
-    expect(result.refundAmount).toBe(50000);
-  });
-
-  it('should restore stock after refund', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-
-    await useCase.execute(baseRefundInput);
-
-    // Stock should be restored: increment by 2
-    expect(mockTx.stockLevel.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'stock-1' },
-        data: { quantity: { increment: 2 } },
+  it('restores bundle component stock once for a refunded bundle line', async () => {
+    tx.transaction.findFirst.mockResolvedValue(
+      original({
+        items: [
+          {
+            id: 'item-b',
+            productId: null,
+            variantId: null,
+            bundleId: 'bundle-1',
+            productName: 'Paket',
+            variantName: null,
+            quantity: D(1),
+            unitPrice: D(50000),
+          },
+        ],
       }),
     );
-    expect(mockTx.stockMovement.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        movementType: 'return_stock',
-        quantity: 2,
-        referenceType: 'refund',
-      }),
-    });
-  });
-
-  it('should create audit log after refund', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-
-    await useCase.execute(baseRefundInput);
-
-    expect(mockTx.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: 'transaction_refunded',
-        entityType: 'transaction',
-        entityId: 'txn-original',
-        employeeId: 'emp-2',
-        oldValue: expect.objectContaining({ status: 'completed' }),
-        newValue: expect.objectContaining({ status: 'refunded' }),
-      }),
-    });
-  });
-
-  it('should save refund transaction with negative amounts', async () => {
-    mockTransactionRepo.findById.mockResolvedValue(originalTransaction);
-
-    await useCase.execute(baseRefundInput);
-
-    expect(mockTx.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        transactionType: 'refund',
-        subtotal: -50000,
-        taxAmount: -5500,
-        grandTotal: -55500,
-        status: 'completed',
-      }),
-    });
+    tx.bundlePackage.findMany.mockResolvedValue([
+      {
+        id: 'bundle-1',
+        items: [
+          { productId: 'p-a', variantId: null, quantity: D(2), product: { trackStock: true } },
+          { productId: 'p-b', variantId: null, quantity: D(1), product: { trackStock: true } },
+        ],
+      },
+    ]);
+    await useCase.execute(
+      input({ items: [{ transactionItemId: 'item-b', quantity: 1, reason: 'defect' }] }),
+    );
+    const movements = tx.stockMovement.createMany.mock.calls[0][0].data;
+    expect(movements).toEqual([
+      expect.objectContaining({ productId: 'p-a', quantity: D(2), movementType: 'return_stock' }),
+      expect.objectContaining({ productId: 'p-b', quantity: D(1) }),
+    ]);
   });
 });

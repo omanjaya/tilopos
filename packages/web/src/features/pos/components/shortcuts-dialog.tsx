@@ -70,16 +70,16 @@ export function ShortcutsDialog({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Keyboard className="h-5 w-5" />
-                        Keyboard Shortcuts
+                        Pintasan Keyboard
                     </DialogTitle>
                     <DialogDescription>
-                        Use keyboard shortcuts to navigate and work faster.
+                        Gunakan pintasan keyboard untuk bernavigasi dan bekerja lebih cepat.
                     </DialogDescription>
                 </DialogHeader>
 
                 <Tabs defaultValue={defaultTab}>
                     <TabsList className="grid w-full grid-cols-2">
-                        {showGlobal && <TabsTrigger value="global">Global</TabsTrigger>}
+                        {showGlobal && <TabsTrigger value="global">Umum</TabsTrigger>}
                         {showPOS && <TabsTrigger value="pos">POS</TabsTrigger>}
                     </TabsList>
 
@@ -90,7 +90,7 @@ export function ShortcutsDialog({
                                 <section>
                                     <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                                         <Command className="h-4 w-4" />
-                                        Quick Actions
+                                        Aksi Cepat
                                     </h3>
                                     <div className="grid grid-cols-1 gap-0.5">
                                         {globalShortcutsWithModKey.slice(0, 3).map((shortcut) => (
@@ -105,7 +105,7 @@ export function ShortcutsDialog({
                                 <section>
                                     <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                                         <Home className="h-4 w-4" />
-                                        Navigation
+                                        Navigasi
                                     </h3>
                                     <div className="grid grid-cols-1 gap-0.5">
                                         {globalShortcutsWithModKey.slice(3).map((shortcut) => (

@@ -46,11 +46,12 @@ export function ProductModal({ product, open, onClose }: ProductModalProps) {
     const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + Number(m.price), 0);
     const totalPrice = (price + modifiersTotal) * quantity;
 
-    // Check if all required modifier groups have at least one selection
+    // Every required group needs at least max(1, minSelect) selections
     const hasUnfulfilledRequired = product?.modifierGroups.some((group) => {
         if (!group.required) return false;
         const groupModifierIds = new Set(group.modifiers.map((m) => m.id));
-        return !selectedModifiers.some((m) => groupModifierIds.has(m.id));
+        const selectedCount = selectedModifiers.filter((m) => groupModifierIds.has(m.id)).length;
+        return selectedCount < Math.max(1, group.minSelect);
     }) ?? false;
 
     const handleVariantSelect = (variant: POSProductVariant) => {

@@ -10,44 +10,40 @@ interface UsePosDataProps {
  * Hook for fetching POS data (products, categories, and bundles)
  */
 export function usePosData({ outletId }: UsePosDataProps) {
-    // Fetch products
-    const {
-        data: products = [],
-        isLoading: productsLoading,
-        refetch: refetchProducts,
-    } = useQuery({
+    const productsQuery = useQuery({
         queryKey: ['pos', 'products', outletId],
         queryFn: () => posApi.getProducts(outletId),
         enabled: !!outletId,
     });
 
-    // Fetch categories
-    const {
-        data: categories = [],
-        isLoading: categoriesLoading,
-    } = useQuery({
+    const categoriesQuery = useQuery({
         queryKey: ['pos', 'categories', outletId],
         queryFn: () => posApi.getCategories(outletId),
         enabled: !!outletId,
     });
 
-    // Fetch bundles
-    const {
-        data: bundles = [],
-        isLoading: bundlesLoading,
-    } = useQuery({
+    const bundlesQuery = useQuery({
         queryKey: ['pos', 'bundles', outletId],
         queryFn: () => bundlePackagesApi.getForPOS(outletId),
         enabled: !!outletId,
     });
 
-    const isLoading = productsLoading || categoriesLoading || bundlesLoading;
+    const isLoading = productsQuery.isLoading || categoriesQuery.isLoading || bundlesQuery.isLoading;
+    // Products are essential; categories/bundles failing also means an incomplete catalog.
+    const isError = productsQuery.isError || categoriesQuery.isError || bundlesQuery.isError;
+    const error = productsQuery.error ?? categoriesQuery.error ?? bundlesQuery.error;
+
+    const refetchAll = () =>
+        Promise.all([productsQuery.refetch(), categoriesQuery.refetch(), bundlesQuery.refetch()]);
 
     return {
-        products,
-        categories,
-        bundles,
+        products: productsQuery.data ?? [],
+        categories: categoriesQuery.data ?? [],
+        bundles: bundlesQuery.data ?? [],
         isLoading,
-        refetchProducts,
+        isError,
+        error,
+        refetchProducts: productsQuery.refetch,
+        refetchAll,
     };
 }

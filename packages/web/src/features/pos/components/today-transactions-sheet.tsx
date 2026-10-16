@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { transactionsApi } from '@/api/endpoints/transactions.api';
+import { ErrorState } from '@/components/shared/error-state';
 import { formatCurrency, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -35,10 +36,12 @@ interface TodayTransactionsSheetProps {
     onPrintReceipt: (transaction: Transaction) => void;
 }
 
-const STATUS_CONFIG: Record<
+const PAGE_LIMIT = 100;
+
+const STATUS_CONFIG: Partial<Record<
     TransactionStatus,
     { label: string; color: string; icon: React.ReactNode }
-> = {
+>> = {
     completed: {
         label: 'Selesai',
         color: 'bg-green-500/10 text-green-600',
@@ -54,12 +57,12 @@ const STATUS_CONFIG: Record<
         color: 'bg-purple-500/10 text-purple-600',
         icon: <RefreshCcw className="h-3 w-3" />,
     },
-    held: {
-        label: 'Ditahan',
+    pending: {
+        label: 'Menunggu Pembayaran',
         color: 'bg-yellow-500/10 text-yellow-600',
         icon: <Clock className="h-3 w-3" />,
     },
-    partial_refund: {
+    partially_refunded: {
         label: 'Refund Sebagian',
         color: 'bg-orange-500/10 text-orange-600',
         icon: <RefreshCcw className="h-3 w-3" />,
@@ -74,31 +77,35 @@ export function TodayTransactionsSheet({
 }: TodayTransactionsSheetProps) {
     const [search, setSearch] = useState('');
 
-    // Get today's date range (use separate Date instances to avoid mutation)
-    const { startOfDay, endOfDay } = useMemo(() => {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const end = new Date();
-        end.setHours(23, 59, 59, 999);
-        return { startOfDay: start.toISOString(), endOfDay: end.toISOString() };
-    }, []);
+    // "Today" is the Asia/Jakarta business day, not the browser's local day
+    const todayKey = useMemo(
+        () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute each time the sheet opens
+        [open],
+    );
 
     const {
-        data: transactions,
+        data: page,
         isLoading,
+        isError,
+        error,
         refetch,
     } = useQuery({
-        queryKey: ['today-transactions', outletId],
+        queryKey: ['today-transactions', outletId, todayKey],
         queryFn: () =>
-            transactionsApi.list({
+            transactionsApi.listPaginated({
                 outletId,
-                startDate: startOfDay,
-                endDate: endOfDay,
-                limit: 100,
+                // YYYY-MM-DD = Asia/Jakarta business day
+                startDate: todayKey,
+                endDate: todayKey,
+                page: 1,
+                limit: PAGE_LIMIT,
             }),
         enabled: open && !!outletId,
         refetchInterval: open ? 30000 : false, // Refetch every 30s when open
     });
+    const transactions = page?.data;
+    const isPartial = !!page && page.total > page.data.length;
 
     // Filter transactions by search
     const filteredTransactions = (transactions ?? []).filter((tx) => {
@@ -138,6 +145,7 @@ export function TodayTransactionsSheet({
                             size="icon"
                             onClick={() => refetch()}
                             className="h-9 w-9"
+                            aria-label="Muat ulang"
                         >
                             <RefreshCcw className="h-4 w-4" />
                         </Button>
@@ -156,6 +164,12 @@ export function TodayTransactionsSheet({
                             <p className="text-lg font-bold">{totalTransactions}</p>
                         </div>
                     </div>
+                    {isPartial && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Ringkasan dihitung dari {page?.data.length} dari {page?.total} transaksi terbaru.
+                            Lihat laporan penjualan untuk total lengkap.
+                        </p>
+                    )}
 
                     {/* Search */}
                     <div className="relative mt-3">
@@ -176,6 +190,12 @@ export function TodayTransactionsSheet({
                             Array.from({ length: 5 }).map((_, i) => (
                                 <Skeleton key={i} className="h-20 w-full rounded-lg" />
                             ))
+                        ) : isError ? (
+                            <ErrorState
+                                title="Gagal memuat transaksi"
+                                error={error}
+                                onRetry={() => void refetch()}
+                            />
                         ) : filteredTransactions.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
                                 <div className="rounded-full bg-muted/50 p-4 mb-3">
@@ -208,7 +228,11 @@ interface TransactionCardProps {
 }
 
 function TransactionCard({ transaction, onPrint }: TransactionCardProps) {
-    const status = STATUS_CONFIG[transaction.status];
+    const status = STATUS_CONFIG[transaction.status] ?? {
+        label: transaction.status,
+        color: 'bg-muted text-muted-foreground',
+        icon: null,
+    };
     const itemCount = transaction.items.reduce((sum, item) => sum + item.quantity, 0);
 
     return (

@@ -9,6 +9,8 @@ const generateCartItemId = () => `cart-${Date.now()}-${Math.random().toString(36
 // 24 hours in milliseconds
 const CART_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
+export interface HeldBillScope { businessId: string; outletId: string; employeeId: string }
+
 interface CartState {
     // Cart items
     items: CartItem[];
@@ -34,8 +36,9 @@ interface CartState {
     // Selected payment
     payments: PaymentEntry[];
 
-    // Held bills
+    // Held bills (kept across logout; scoped to the business that parked them)
     heldBills: HeldBill[];
+    heldBillsBusinessId: string | null;
 
     // Timestamp of last cart modification (for hydration expiry check)
     lastUpdated: number;
@@ -69,9 +72,11 @@ interface CartState {
     removePayment: (index: number) => void;
     clearPayments: () => void;
 
-    holdCurrentBill: (customerName?: string) => HeldBill;
+    holdCurrentBill: (scope: HeldBillScope, customerName?: string) => HeldBill;
     resumeBill: (bill: HeldBill) => void;
     removeHeldBill: (billId: string) => void;
+    /** Migrate known legacy ownership while preserving drafts from other businesses. */
+    scopeHeldBillsToBusiness: (businessId: string) => void;
 
     clearCart: () => void;
     recalculate: () => void;
@@ -88,6 +93,7 @@ export const useCartStore = create<CartState>()(
             discountPercent: 0,
             payments: [],
             heldBills: [],
+            heldBillsBusinessId: null,
             lastUpdated: Date.now(),
             subtotal: 0,
             discountTotal: 0,
@@ -217,7 +223,8 @@ export const useCartStore = create<CartState>()(
             },
 
             setDiscountPercent: (percent) => {
-                set({ discountPercent: percent, discountAmount: 0 });
+                const clamped = Number.isFinite(percent) ? Math.min(Math.max(0, percent), 100) : 0;
+                set({ discountPercent: clamped, discountAmount: 0 });
                 get().recalculate();
             },
 
@@ -240,10 +247,12 @@ export const useCartStore = create<CartState>()(
                 get().recalculate();
             },
 
-            holdCurrentBill: (customerName) => {
+            holdCurrentBill: (scope, customerName) => {
                 const state = get();
                 const bill: HeldBill = {
-                    id: `held-${Date.now()}`,
+                    id: crypto.randomUUID(),
+                    ...scope,
+                    syncState: 'pending',
                     customerName: customerName || state.customerName,
                     customerId: state.customerId,
                     tableId: state.tableId,
@@ -265,11 +274,8 @@ export const useCartStore = create<CartState>()(
             },
 
             resumeBill: (bill) => {
-                // Auto-hold current cart if it has items to prevent data loss
-                const currentItems = get().items;
-                if (currentItems.length > 0) {
-                    get().holdCurrentBill();
-                }
+                // The held-bill coordinator parks the current cart with an explicit outlet first.
+                if (get().items.length > 0) throw new Error('Park the current cart before resuming a bill');
 
                 set({
                     items: [...bill.items],
@@ -292,6 +298,18 @@ export const useCartStore = create<CartState>()(
                 set((state) => ({
                     heldBills: state.heldBills.filter((b) => b.id !== billId),
                 }));
+            },
+
+            scopeHeldBillsToBusiness: (_businessId) => {
+                const { heldBillsBusinessId, heldBills } = get();
+                // Preserve other tenants' offline drafts. Consumers must filter by BOTH
+                // business and outlet. Legacy records inherit only a previously recorded
+                // business; a cashier must explicitly choose their missing outlet.
+                set({
+                    heldBills: heldBills.map((bill) => !bill.businessId && heldBillsBusinessId
+                        ? { ...bill, businessId: heldBillsBusinessId } : bill),
+                    heldBillsBusinessId: null,
+                });
             },
 
             clearCart: () => {
@@ -334,7 +352,7 @@ export const useCartStore = create<CartState>()(
                     // Calculate discount (clamp to subtotal to prevent negatives)
                     let discountTotal = Math.min(state.discountAmount, subtotal);
                     if (state.discountPercent > 0) {
-                        discountTotal = Math.round((subtotal * state.discountPercent) / 100);
+                        discountTotal = Math.min(Math.round((subtotal * state.discountPercent) / 100), subtotal);
                     }
 
                     // After discount
@@ -384,6 +402,7 @@ export const useCartStore = create<CartState>()(
                 items: state.items,
                 orderType: state.orderType,
                 heldBills: state.heldBills,
+                heldBillsBusinessId: state.heldBillsBusinessId,
                 customerId: state.customerId,
                 customerName: state.customerName,
                 tableId: state.tableId,
@@ -395,11 +414,11 @@ export const useCartStore = create<CartState>()(
             }),
             onRehydrateStorage: () => (state) => {
                 if (state) {
-                    // Clear stale cart data older than 24 hours
+                    // Clear the stale active cart older than 24 hours.
+                    // Held bills are kept: they are open orders a cashier explicitly parked.
                     const lastUpdated = state.lastUpdated || 0;
                     if (Date.now() - lastUpdated > CART_EXPIRY_MS) {
                         state.items = [];
-                        state.heldBills = [];
                         state.customerId = undefined;
                         state.customerName = undefined;
                         state.tableId = undefined;

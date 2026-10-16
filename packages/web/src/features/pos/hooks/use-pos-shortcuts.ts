@@ -14,7 +14,6 @@ interface POSShortcutHandlers {
     onPrintReceipt: () => void;
     onOpenShortcutHelp: () => void;
     onCloseModal: () => void;
-    onConfirmAction: () => void;
     onQuickCashCheckout?: () => void;
 }
 
@@ -31,7 +30,6 @@ export function usePOSShortcuts(handlers: POSShortcutHandlers) {
         onPrintReceipt,
         onOpenShortcutHelp,
         onCloseModal,
-        onConfirmAction,
         onQuickCashCheckout,
     } = handlers;
 
@@ -46,7 +44,6 @@ export function usePOSShortcuts(handlers: POSShortcutHandlers) {
     const handleF9 = useCallback(() => onPrintReceipt(), [onPrintReceipt]);
     const handleF10 = useCallback(() => onOpenShortcutHelp(), [onOpenShortcutHelp]);
     const handleEscape = useCallback(() => onCloseModal(), [onCloseModal]);
-    const handleEnter = useCallback(() => onConfirmAction(), [onConfirmAction]);
     const handleF12 = useCallback(() => onQuickCashCheckout?.(), [onQuickCashCheckout]);
 
     const shortcuts: KeyboardShortcut[] = useMemo(
@@ -62,13 +59,12 @@ export function usePOSShortcuts(handlers: POSShortcutHandlers) {
             { key: 'F9', handler: handleF9 },
             { key: 'F10', handler: handleF10 },
             { key: 'Escape', handler: handleEscape },
-            { key: 'Enter', handler: handleEnter, allowInInput: false },
             { key: 'F12', handler: handleF12 },
         ],
         [
             handleF1, handleF2, handleF3, handleF4,
             handleF5, handleF6, handleF7, handleF8,
-            handleF9, handleF10, handleEscape, handleEnter,
+            handleF9, handleF10, handleEscape,
             handleF12,
         ],
     );
@@ -93,6 +89,5 @@ export const POS_SHORTCUTS: ShortcutEntry[] = [
     { key: 'F9', description: 'Cetak struk terakhir' },
     { key: 'F10', description: 'Tampilkan pintasan keyboard' },
     { key: 'Esc', description: 'Tutup modal/dialog' },
-    { key: 'Enter', description: 'Konfirmasi aksi pada modal aktif' },
     { key: 'F12', description: 'Bayar tunai uang pas' },
 ];

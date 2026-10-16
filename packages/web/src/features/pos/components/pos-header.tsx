@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -28,20 +27,17 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useAuthStore } from '@/stores/auth.store';
+import { useAuthStore, requestLogout } from '@/stores/auth.store';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { OrderTypeButtons } from './order-type-selector';
-import { ShiftEndModal } from './shift-end-modal';
 import { ShiftDurationIndicator } from './shift-duration-indicator';
 
 interface CurrentShiftData {
     id: string;
     startedAt: string;
-    openingCash: number;
-    totalSales: number;
-    transactions: number;
-    paymentBreakdown?: Array<{ method: string; amount: number; count: number }>;
+    /** Undefined until the shift record is loaded — never shown as a fake 0. */
+    openingCash?: number;
 }
 
 interface PosHeaderProps {
@@ -61,7 +57,9 @@ interface PosHeaderProps {
     onRefreshProducts: () => void;
     onTodayTransactionsClick: () => void;
     onStartShift?: () => void;
-    onEndShift?: (shiftData: CurrentShiftData) => void;
+    onEndShift?: () => void;
+    onCashIn?: () => void;
+    onCashOut?: () => void;
     currentShift?: CurrentShiftData | null;
 }
 
@@ -83,14 +81,13 @@ export function PosHeader({
     onTodayTransactionsClick,
     onStartShift,
     onEndShift,
+    onCashIn,
+    onCashOut,
     currentShift,
 }: PosHeaderProps) {
     const navigate = useNavigate();
     const user = useAuthStore((s) => s.user);
-    const logout = useAuthStore((s) => s.logout);
     const { hasTableManagement, hasOrderTypes } = useBusinessFeatures();
-
-    const [isShiftEndModalOpen, setIsShiftEndModalOpen] = useState(false);
 
     return (
         <>
@@ -117,7 +114,6 @@ export function PosHeader({
                     <ShiftDurationIndicator
                         startedAt={currentShift.startedAt}
                         openingCash={currentShift.openingCash}
-                        transactionCount={currentShift.transactions}
                     />
                 )}
             </div>
@@ -129,7 +125,7 @@ export function PosHeader({
                         variant="outline"
                         size="sm"
                         className="gap-2 min-h-[44px] border-red-500/30 text-red-600 hover:bg-red-500/10 hidden sm:inline-flex"
-                        onClick={() => setIsShiftEndModalOpen(true)}
+                        onClick={onEndShift}
                         title="Tutup Shift"
                     >
                         <Square className="h-4 w-4" />
@@ -230,6 +226,7 @@ export function PosHeader({
                     className="min-h-[44px] min-w-[44px] hidden sm:inline-flex"
                     onClick={onShortcutHelpClick}
                     title="Pintasan Keyboard (F10)"
+                    aria-label="Pintasan keyboard"
                 >
                     <Keyboard className="h-4 w-4" />
                 </Button>
@@ -240,6 +237,7 @@ export function PosHeader({
                     size="sm"
                     className="gap-2 min-h-[44px] lg:hidden relative"
                     onClick={onCartClick}
+                    aria-label="Keranjang"
                 >
                     <ShoppingCart className="h-4 w-4" />
                     {cartItemsCount > 0 && (
@@ -280,14 +278,18 @@ export function PosHeader({
                             <RefreshCw className="h-4 w-4 mr-2" />
                             Refresh Produk
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                            <PlusCircle className="h-4 w-4 mr-2" />
-                            Cash In
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                            <MinusCircle className="h-4 w-4 mr-2" />
-                            Cash Out
-                        </DropdownMenuItem>
+                        {currentShift && onCashIn && (
+                            <DropdownMenuItem onClick={onCashIn}>
+                                <PlusCircle className="h-4 w-4 mr-2" />
+                                Kas Masuk
+                            </DropdownMenuItem>
+                        )}
+                        {currentShift && onCashOut && (
+                            <DropdownMenuItem onClick={onCashOut}>
+                                <MinusCircle className="h-4 w-4 mr-2" />
+                                Kas Keluar
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={onTodayTransactionsClick}>
                             <Receipt className="h-4 w-4 mr-2" />
                             Transaksi Hari Ini
@@ -318,7 +320,7 @@ export function PosHeader({
                         )}
                         <DropdownMenuSeparator />
                         {onEndShift && currentShift && (
-                            <DropdownMenuItem onClick={() => setIsShiftEndModalOpen(true)}>
+                            <DropdownMenuItem onClick={onEndShift}>
                                 <LogOut className="h-4 w-4 mr-2" />
                                 Tutup Shift
                             </DropdownMenuItem>
@@ -332,7 +334,7 @@ export function PosHeader({
                             Pengaturan
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={logout} className="text-destructive">
+                        <DropdownMenuItem onClick={() => void requestLogout()} className="text-destructive">
                             <LogOut className="h-4 w-4 mr-2" />
                             Keluar
                         </DropdownMenuItem>
@@ -341,18 +343,6 @@ export function PosHeader({
             </div>
         </header>
 
-        {/* Shift End Modal */}
-        {onEndShift && currentShift && (
-            <ShiftEndModal
-                open={isShiftEndModalOpen}
-                onClose={() => setIsShiftEndModalOpen(false)}
-                onSuccess={() => {
-                    onEndShift(currentShift);
-                    setIsShiftEndModalOpen(false);
-                }}
-                shiftData={currentShift}
-            />
-        )}
     </>
     );
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   FileText,
@@ -82,15 +82,28 @@ export function CreditCheckoutModal({
   const customerId = selectedCustomer?.id ?? cartCustomerId;
   const customerName = selectedCustomer?.name ?? cartCustomerName;
 
-  // Fetch customers for selector
+  // Follow cart customer changes and reset the step whenever the modal opens
+  useEffect(() => {
+    if (open) {
+      setStep(cartCustomerId ? 'details' : 'customer');
+      setSelectedCustomer(null);
+    }
+  }, [open, cartCustomerId]);
+
+  // GET /customers ignores query params: fetch once, filter locally
   const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
-    queryKey: ['customers', customerSearch],
-    queryFn: () => customersApi.list({ search: customerSearch || undefined }),
+    queryKey: ['customers', 'pos-selector'],
+    queryFn: () => customersApi.list(),
     enabled: open && step === 'customer',
+    staleTime: 60_000,
   });
 
   // Fetch existing credit for the selected customer
-  const { data: customerCredits = [] } = useQuery({
+  const {
+    data: customerCredits = [],
+    isError: isCreditError,
+    refetch: refetchCredits,
+  } = useQuery({
     queryKey: ['credit-sales-customer', customerId],
     queryFn: () =>
       creditApi.getCustomerSales(customerId!, 'outstanding'),
@@ -118,8 +131,11 @@ export function CreditCheckoutModal({
     setStep('details');
   };
 
+  // A down payment equal to the total is not a credit sale (zero outstanding)
+  const dpInvalid = hasDp && dpAmount >= total;
+
   const handleConfirm = () => {
-    if (!customerId || !customerName) return;
+    if (!customerId || !customerName || dpInvalid) return;
 
     onConfirm({
       customerId,
@@ -233,6 +249,15 @@ export function CreditCheckoutModal({
               </div>
               <div className="flex-1">
                 <p className="font-semibold text-sm">{customerName}</p>
+                {isCreditError && (
+                  <p className="text-xs text-destructive flex items-center gap-1" role="alert">
+                    <AlertCircle className="h-3 w-3" />
+                    Gagal memuat piutang pelanggan.
+                    <button type="button" className="underline" onClick={() => void refetchCredits()}>
+                      Coba lagi
+                    </button>
+                  </p>
+                )}
                 {existingOutstanding > 0 && (
                   <p className="text-xs text-amber-700 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
@@ -283,13 +308,18 @@ export function CreditCheckoutModal({
                     <Input
                       type="number"
                       min={0}
-                      max={total}
+                      max={Math.max(total - 1, 0)}
                       value={dpAmount || ''}
                       onChange={(e) =>
-                        setDpAmount(Math.min(Number(e.target.value) || 0, total))
+                        setDpAmount(Math.max(0, Math.min(Number(e.target.value) || 0, total)))
                       }
                       placeholder="0"
                     />
+                    {dpInvalid && (
+                      <p className="text-xs text-destructive">
+                        DP harus lebih kecil dari total. Gunakan pembayaran biasa untuk pelunasan penuh.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -382,7 +412,7 @@ export function CreditCheckoutModal({
             </Button>
             <Button
               onClick={handleConfirm}
-              disabled={!customerId || isProcessing}
+              disabled={!customerId || isProcessing || isCreditError || dpInvalid}
               className="bg-amber-600 hover:bg-amber-500 text-white"
             >
               {isProcessing ? (

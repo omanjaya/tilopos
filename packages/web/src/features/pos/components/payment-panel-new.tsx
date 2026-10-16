@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
     CreditCard,
     Banknote,
@@ -10,7 +11,17 @@ import {
     Loader2,
     ChevronLeft,
     FileText,
+    Landmark,
+    RefreshCw,
 } from 'lucide-react';
+import { posApi } from '@/api/endpoints/pos.api';
+import {
+    CASH_ONLY,
+    toPaymentOptions,
+    type PaymentOption,
+    type PaymentOptionKind,
+} from '../utils/payment-options';
+import { PAYMENT_METHOD_LABELS } from '../utils/receipt-html';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { CreditCheckoutModal, type CreditCheckoutData } from './credit-checkout-modal';
 import { Button } from '@/components/ui/button';
@@ -23,11 +34,13 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useCartStore } from '@/stores/cart.store';
+import { useCartPreview } from '../hooks/use-cart-preview';
 import { NumPad } from './numpad';
 import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { PaymentMethod, PaymentEntry } from '@/types/pos.types';
+import type { PaymentEntry } from '@/types/pos.types';
 
 interface PaymentPanelProps {
     onComplete: () => void;
@@ -38,54 +51,82 @@ interface PaymentPanelProps {
     isCreditProcessing?: boolean;
 }
 
-interface PaymentMethodOption {
-    id: PaymentMethod;
-    name: string;
+interface PaymentMethodOption extends PaymentOption {
     icon: React.ElementType;
-    color: string;
 }
 
-const paymentMethods: PaymentMethodOption[] = [
-    { id: 'cash', name: 'Tunai', icon: Banknote, color: 'bg-green-500' },
-    { id: 'qris', name: 'QRIS', icon: QrCode, color: 'bg-blue-500' },
-    { id: 'debit_card', name: 'Debit', icon: CreditCard, color: 'bg-purple-500' },
-    { id: 'credit_card', name: 'Kredit', icon: CreditCard, color: 'bg-purple-600' },
-    { id: 'gopay', name: 'GoPay', icon: Wallet, color: 'bg-teal-500' },
-    { id: 'ovo', name: 'OVO', icon: Wallet, color: 'bg-purple-500' },
-];
+const KIND_ICONS: Record<PaymentOptionKind, React.ElementType> = {
+    cash: Banknote,
+    card: CreditCard,
+    ewallet: Wallet,
+    qris: QrCode,
+    bank_transfer: Landmark,
+};
+
+const withIcon = (o: PaymentOption): PaymentMethodOption => ({ ...o, icon: KIND_ICONS[o.kind] });
 
 export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode = 'modal', onCreditComplete, isCreditProcessing = false }: PaymentPanelProps) {
-    const { total, payments, addPayment, removePayment, totalPayments, changeDue } =
-        useCartStore();
+    const { payments, addPayment, removePayment, totalPayments } = useCartStore();
+    // Server totals: Rp500 rounding applies only when every payment is cash
+    const totals = useCartPreview(true);
     const { hasCreditSales } = useBusinessFeatures();
     const [showCreditCheckout, setShowCreditCheckout] = useState(false);
 
-    const [selectedMethod, setSelectedMethod] = useState<PaymentMethodOption>(paymentMethods[0]!);
-    const [amount, setAmount] = useState(total);
+    // Active payment methods of the business (readable by every POS role). Until they
+    // load, or when they cannot be loaded, only cash is offered.
+    const methodsQuery = useQuery({
+        queryKey: ['pos', 'payment-methods'],
+        queryFn: posApi.getPaymentMethods,
+        staleTime: 5 * 60 * 1000,
+    });
+    const paymentMethods = useMemo(
+        () => (methodsQuery.data ? toPaymentOptions(methodsQuery.data) : CASH_ONLY).map(withIcon),
+        [methodsQuery.data],
+    );
+
+    const [selectedMethodId, setSelectedMethodId] = useState<PaymentOption['id']>('cash');
+    const selectedMethod = paymentMethods.find((m) => m.id === selectedMethodId) ?? paymentMethods[0]!;
     const [reference, setReference] = useState('');
 
-    const remaining = total - totalPayments;
-    const isPaid = totalPayments >= total;
+    const isCash = selectedMethod.id === 'cash';
+    const paidCashOnly = payments.every((p) => p.method === 'cash');
+    // While paying, the pending entry's method counts; once paid, only recorded payments do
+    const totalFor = (cashOnly: boolean) => (cashOnly ? totals.cashTotal : totals.rawTotal);
+    const settledTotal = totalFor(paidCashOnly && payments.length > 0);
+    const isPaid = payments.length > 0 && totalPayments >= settledTotal;
+    const total = isPaid ? settledTotal : totalFor(paidCashOnly && isCash);
+    const remaining = Math.max(total - totalPayments, 0);
+    const changeDue = isPaid ? Math.max(0, totalPayments - settledTotal) : 0;
+    const [amountInput, setAmount] = useState<number | null>(null);
+    const amount = amountInput ?? remaining;
+    // Only cash can be over-tendered (change). Card/QRIS/e-wallet are capped at the
+    // remaining balance and must carry the approval/reference number.
+    const exceedsRemaining = !isCash && amount > remaining;
+    const missingReference = !isCash && reference.trim() === '';
+    const canPay = !totals.isLoading && (isCash
+        ? amount > 0 && amount >= remaining
+        : amount > 0 && !exceedsRemaining && !missingReference);
+
+    const selectMethod = (method: PaymentMethodOption) => {
+        setSelectedMethodId(method.id);
+        // Non-cash pays the exact (unrounded) remaining amount
+        if (method.id !== 'cash') setAmount(null);
+    };
 
     const handlePay = () => {
-        if (amount <= 0) return;
+        if (!canPay) return;
 
         const payment: PaymentEntry = {
             method: selectedMethod.id,
-            amount,
-            referenceNumber: reference || undefined,
+            amount: isCash ? amount : Math.min(amount, remaining),
+            referenceNumber: reference.trim() || undefined,
         };
 
         addPayment(payment);
 
-        // Read fresh state after addPayment
-        const freshTotal = useCartStore.getState().total;
-        const freshTotalPayments = useCartStore.getState().totalPayments;
-
-        if (freshTotalPayments < freshTotal) {
-            setAmount(freshTotal - freshTotalPayments);
-            setReference('');
-        }
+        // Next entry defaults to the (recomputed) remaining amount
+        setAmount(null);
+        setReference('');
         // When fully paid, the "Selesai" button appears — user clicks it explicitly
     };
 
@@ -111,6 +152,7 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                                 size="icon"
                                 onClick={onCancel}
                                 className={cn("h-7 w-7", mode === 'inline' && "text-primary-foreground hover:bg-white/20")}
+                                aria-label="Kembali ke keranjang"
                             >
                                 <ChevronLeft className="h-4 w-4" />
                             </Button>
@@ -118,7 +160,7 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                         <CardTitle className="text-lg">Pembayaran</CardTitle>
                     </div>
                     {mode === 'modal' && (
-                        <Button variant="ghost" size="icon" onClick={onCancel} className="h-7 w-7">
+                        <Button variant="ghost" size="icon" onClick={onCancel} className="h-7 w-7" aria-label="Tutup pembayaran">
                             <X className="h-4 w-4" />
                         </Button>
                     )}
@@ -126,11 +168,18 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
             </CardHeader>
 
             <CardContent className={cn("space-y-3", mode === 'inline' && "flex-1 overflow-auto")}>
+                {!totals.fromServer && !totals.isLoading && totals.error != null && (
+                    <p className="text-xs text-orange-600" role="status">
+                        Total dari server belum tersedia; memakai perhitungan lokal. Server akan menghitung ulang saat transaksi disimpan.
+                    </p>
+                )}
                 {/* Summary */}
                 <div className="flex items-center gap-4 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg px-4 py-2.5 border border-primary/20">
                     <div className="flex items-baseline gap-2">
                         <span className="text-xs text-muted-foreground">Total:</span>
-                        <span className="text-xl font-bold text-primary">{formatCurrency(total)}</span>
+                        <span className="text-xl font-bold text-primary">
+                            {totals.isLoading ? <Loader2 className="inline h-4 w-4 animate-spin" /> : formatCurrency(total)}
+                        </span>
                     </div>
                     {totalPayments > 0 && (
                         <>
@@ -158,13 +207,14 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                             return (
                                 <div key={idx} className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
                                     {method && <method.icon className="h-3.5 w-3.5" />}
-                                    <span className="text-sm font-medium">{method?.name}</span>
+                                    <span className="text-sm font-medium">{method?.name ?? PAYMENT_METHOD_LABELS[p.method] ?? p.method}</span>
                                     <span className="text-sm font-bold">{formatCurrency(p.amount)}</span>
                                     <Button
                                         variant="ghost"
                                         size="icon"
                                         className="h-5 w-5 -mr-1"
                                         onClick={() => removePayment(idx)}
+                                        aria-label={`Hapus pembayaran ${method?.name ?? p.method}`}
                                     >
                                         <X className="h-3 w-3" />
                                     </Button>
@@ -179,9 +229,22 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                         {/* Payment Methods */}
                         <div className="space-y-1.5">
                             <Label className="text-sm">Metode Pembayaran</Label>
+                            {methodsQuery.isError && (
+                                <div className="flex items-center gap-2 text-xs text-orange-600" role="status">
+                                    <span>Metode non-tunai gagal dimuat; hanya tunai yang tersedia.</span>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2"
+                                        onClick={() => methodsQuery.refetch()}
+                                    >
+                                        <RefreshCw className="mr-1 h-3 w-3" /> Muat ulang
+                                    </Button>
+                                </div>
+                            )}
                             <div className={cn(
                                 "grid gap-2",
-                                mode === 'inline' ? "grid-cols-3" : "flex"
+                                mode === 'inline' ? "grid-cols-3" : "flex flex-wrap"
                             )}>
                                 {paymentMethods.map((method) => (
                                     <Button
@@ -189,10 +252,11 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                                         variant={selectedMethod.id === method.id ? "default" : "outline"}
                                         className={cn(
                                             "flex-col gap-1 h-14",
-                                            mode === 'modal' && "flex-1",
+                                            mode === 'modal' && "flex-1 min-w-[72px]",
                                             selectedMethod.id === method.id && "ring-2 ring-primary ring-offset-1"
                                         )}
-                                        onClick={() => setSelectedMethod(method)}
+                                        onClick={() => selectMethod(method)}
+                                        aria-pressed={selectedMethod.id === method.id}
                                     >
                                         <method.icon className="h-3.5 w-3.5" />
                                         <span className="text-[11px]">{method.name}</span>
@@ -218,14 +282,18 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                         {selectedMethod.id !== 'cash' && (
                             <div className="space-y-1.5">
                                 <Label htmlFor="reference" className="text-sm">
-                                    No. Referensi <span className="text-muted-foreground text-xs">(opsional)</span>
+                                    No. Referensi / Approval <span className="text-destructive">*</span>
                                 </Label>
                                 <Input
                                     id="reference"
                                     value={reference}
                                     onChange={(e) => setReference(e.target.value)}
-                                    placeholder="No. approval"
+                                    placeholder="No. approval dari EDC / aplikasi"
+                                    aria-required="true"
                                 />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Pastikan pembayaran sudah berhasil di mesin EDC / aplikasi sebelum dicatat.
+                                </p>
                             </div>
                         )}
 
@@ -268,9 +336,14 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                                         <p className="text-2xl font-bold">
                                             Rp {amount.toLocaleString('id-ID')}
                                         </p>
-                                        {amount > remaining && remaining > 0 && (
+                                        {isCash && amount > remaining && remaining > 0 && (
                                             <p className="text-sm font-semibold text-green-600 mt-0.5">
                                                 Kembalian: {formatCurrency(amount - remaining)}
+                                            </p>
+                                        )}
+                                        {exceedsRemaining && (
+                                            <p className="text-sm font-semibold text-destructive mt-0.5">
+                                                Non-tunai maksimal {formatCurrency(remaining)}
                                             </p>
                                         )}
                                     </div>
@@ -290,7 +363,7 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
                     <Button
                         className="w-full h-11 text-sm font-semibold"
                         onClick={handlePay}
-                        disabled={amount <= 0 || amount < remaining}
+                        disabled={!canPay}
                     >
                         {payments.length > 0 ? (
                             <>
@@ -344,11 +417,17 @@ export function PaymentPanel({ onComplete, onCancel, isProcessing = false, mode 
     }
 
     return (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-4xl shadow-2xl">
-                {content}
-            </Card>
+        <>
+            <Dialog open onOpenChange={(o) => { if (!o) onCancel(); }}>
+                <DialogContent className="max-w-4xl p-0 gap-0 [&>button]:hidden">
+                    <DialogTitle className="sr-only">Pembayaran</DialogTitle>
+                    <DialogDescription className="sr-only">Pilih metode dan jumlah pembayaran</DialogDescription>
+                    <Card className="w-full border-0 shadow-none">
+                        {content}
+                    </Card>
+                </DialogContent>
+            </Dialog>
             {creditModal}
-        </div>
+        </>
     );
 }

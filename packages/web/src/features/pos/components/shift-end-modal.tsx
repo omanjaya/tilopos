@@ -1,12 +1,9 @@
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   LogOut,
   Clock,
-  Receipt,
   Banknote,
-  Wallet,
-  QrCode,
-  CreditCard,
   Check,
   Loader2,
   Printer,
@@ -24,10 +21,13 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
+import { ErrorState } from '@/components/shared/error-state';
 import { useAuthStore } from '@/stores/auth.store';
-import { shiftsApi } from '@/api/endpoints/shifts.api';
+import { posApi } from '@/api/endpoints/pos.api';
+import { printHtml, escapeHtml } from '../utils/print-html';
+import { apiErrorMessage } from '../utils/api-error';
 import { formatCurrency, formatDuration } from '@/lib/format';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
 import { toast } from '@/lib/toast-utils';
 import { cn } from '@/lib/utils';
 
@@ -38,47 +38,19 @@ interface ShiftEndModalProps {
   shiftData: {
     id: string;
     startedAt: string;
-    openingCash: number;
-    totalSales: number;
-    transactions: number;
-    paymentBreakdown?: PaymentBreakdownItem[];
+    totalSales?: number;
   } | null;
-}
-
-interface PaymentBreakdownItem {
-  method: string;
-  amount: number;
-  count: number;
 }
 
 // Quick amount presets based on common cash denominations
 const QUICK_AMOUNTS = [10000, 20000, 50000, 100000, 200000];
 
-// Payment method icons
-const paymentMethodIcons: Record<string, React.ElementType> = {
-  cash: Banknote,
-  qris: QrCode,
-  debit_card: CreditCard,
-  credit_card: CreditCard,
-  gopay: Wallet,
-  ovo: Wallet,
-  dana: Wallet,
-  shopeepay: Wallet,
-  linkaja: Wallet,
-};
-
-// Payment method names
-const paymentMethodNames: Record<string, string> = {
-  cash: 'Tunai',
-  qris: 'QRIS',
-  debit_card: 'Kartu Debit',
-  credit_card: 'Kartu Kredit',
-  gopay: 'GoPay',
-  ovo: 'OVO',
-  dana: 'DANA',
-  shopeepay: 'ShopeePay',
-  linkaja: 'LinkAja',
-};
+interface CompletedShift {
+  expectedCash: number;
+  actualCash: number;
+  difference: number;
+  openingCash?: number;
+}
 
 export function ShiftEndModal({
   open,
@@ -86,17 +58,19 @@ export function ShiftEndModal({
   onSuccess,
   shiftData,
 }: ShiftEndModalProps) {
-  const user = useAuthStore((s) => s.user);
-
   const [closingCash, setClosingCash] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [completedShift, setCompletedShift] = useState<{
-    expectedCash: number;
-    actualCash: number;
-    difference: number;
-  } | null>(null);
+  const [completedShift, setCompletedShift] = useState<CompletedShift | null>(null);
+
+  // Live shift totals from the server (GET /employees/shifts/:id/summary):
+  // opening cash, cash sales/refunds, cash in/out and the expected cash.
+  const shiftRecordQuery = useQuery({
+    queryKey: ['pos', 'shift-summary', shiftData?.id],
+    queryFn: () => posApi.getShiftSummary(shiftData!.id),
+    enabled: open && !!shiftData?.id,
+  });
+  const record = shiftRecordQuery.data;
 
   // Calculate shift duration
   const duration = useMemo(() => {
@@ -105,21 +79,6 @@ export function ShiftEndModal({
     const now = new Date();
     return (now.getTime() - start.getTime()) / (1000 * 60); // minutes
   }, [shiftData?.startedAt]);
-
-  // Get cash sales from payment breakdown
-  const cashSales = useMemo(() => {
-    if (!shiftData?.paymentBreakdown) return 0;
-    const cashItem = shiftData.paymentBreakdown.find((p) => p.method === 'cash');
-    return cashItem?.amount || 0;
-  }, [shiftData?.paymentBreakdown]);
-
-  // Calculate expected cash and difference
-  const expectedCash = (shiftData?.openingCash || 0) + cashSales;
-  const actualCash = parseInt(closingCash) || 0;
-  const difference = actualCash - expectedCash;
-
-  // Check if difference is within tolerance (+/- 1000)
-  const isWithinTolerance = Math.abs(difference) <= 1000;
 
   // Format display value for input
   const displayClosingCash = closingCash
@@ -146,11 +105,8 @@ export function ShiftEndModal({
 
   // Handle submit
   const handleSubmit = async () => {
-    if (!shiftData || !user?.employeeId) {
-      toast.error({
-        title: 'Gagal',
-        description: 'Data shift atau karyawan tidak valid',
-      });
+    if (!shiftData) {
+      toast.error({ title: 'Gagal', description: 'Data shift tidak valid' });
       return;
     }
 
@@ -158,27 +114,26 @@ export function ShiftEndModal({
 
     setIsSubmitting(true);
     try {
-      await shiftsApi.end(user.employeeId, {
+      const result = await posApi.endShift(shiftData.id, {
         closingCash: cashAmount,
         notes: notes || undefined,
       });
 
       setCompletedShift({
-        expectedCash,
-        actualCash: cashAmount,
-        difference,
+        expectedCash: Number(result.expectedCash),
+        actualCash: Number(result.actualCash),
+        difference: Number(result.difference),
+        openingCash: record?.openingCash,
       });
-
-      setShowSummary(true);
 
       toast.success({
         title: 'Shift Berhasil Ditutup',
-        description: `${formatDuration(duration)} • ${shiftData.transactions} transaksi`,
+        description: formatDuration(duration),
       });
     } catch (error) {
       toast.error({
         title: 'Gagal Menutup Shift',
-        description: error instanceof Error ? error.message : 'Terjadi kesalahan',
+        description: apiErrorMessage(error),
       });
     } finally {
       setIsSubmitting(false);
@@ -187,7 +142,6 @@ export function ShiftEndModal({
 
   // Handle close from summary
   const handleSummaryClose = () => {
-    setShowSummary(false);
     setClosingCash('');
     setNotes('');
     setCompletedShift(null);
@@ -200,7 +154,6 @@ export function ShiftEndModal({
     if (!isSubmitting) {
       setClosingCash('');
       setNotes('');
-      setShowSummary(false);
       setCompletedShift(null);
       onClose();
     }
@@ -208,7 +161,7 @@ export function ShiftEndModal({
 
   if (!shiftData) return null;
 
-  if (showSummary && completedShift) {
+  if (completedShift) {
     return <ShiftSummaryModal open={open} onClose={handleSummaryClose} shiftData={shiftData} completedShift={completedShift} />;
   }
 
@@ -227,76 +180,85 @@ export function ShiftEndModal({
 
         <div className="flex-1 overflow-auto py-4 space-y-4">
           {/* Shift Summary */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="bg-muted/50 rounded-lg p-3 text-center">
               <Clock className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Durasi</p>
               <p className="font-semibold text-sm">{formatDuration(duration)}</p>
             </div>
             <div className="bg-muted/50 rounded-lg p-3 text-center">
-              <Receipt className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">Transaksi</p>
-              <p className="font-semibold text-sm">{shiftData.transactions}</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-3 text-center">
               <Banknote className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">Total Penjualan</p>
-              <p className="font-semibold text-sm">{formatCurrency(shiftData.totalSales)}</p>
+              <p className="text-xs text-muted-foreground">Kas Awal</p>
+              <p className="font-semibold text-sm">
+                {record ? formatCurrency(record.openingCash) : '-'}
+              </p>
             </div>
           </div>
 
-          {/* Payment Method Breakdown */}
-          {shiftData.paymentBreakdown && shiftData.paymentBreakdown.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-sm">Pembayaran per Metode</Label>
-              <div className="space-y-1.5">
-                {shiftData.paymentBreakdown.map((payment) => {
-                  const Icon = paymentMethodIcons[payment.method] || Wallet;
-                  return (
-                    <div
-                      key={payment.method}
-                      className="flex items-center justify-between p-2 rounded-md bg-muted/30"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm">
-                          {paymentMethodNames[payment.method] || payment.method}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
-                          {payment.count}
-                        </Badge>
-                      </div>
-                      <span className="font-medium text-sm">
-                        {formatCurrency(payment.amount)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          {shiftRecordQuery.isError && (
+            <ErrorState
+              title="Gagal memuat data shift"
+              error={shiftRecordQuery.error}
+              onRetry={() => void shiftRecordQuery.refetch()}
+            />
           )}
 
           <Separator />
 
-          {/* Cash Calculation */}
+          {/* Cash movements recorded on the shift */}
           <div className="space-y-2">
             <Label className="text-sm">Perhitungan Kas</Label>
             <div className="space-y-1.5 p-3 bg-muted/50 rounded-lg">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Kas Awal</span>
-                <span>{formatCurrency(shiftData.openingCash)}</span>
+                <span>{record ? formatCurrency(record.openingCash) : '-'}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Penjualan Tunai</span>
-                <span className="text-green-600">+{formatCurrency(cashSales)}</span>
+                <span className="text-green-600">+{record ? formatCurrency(record.cashSales) : '-'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Refund Tunai</span>
+                <span className="text-red-600">-{record ? formatCurrency(record.cashRefunds) : '-'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Kas Masuk</span>
+                <span className="text-green-600">+{record ? formatCurrency(record.cashIn) : '-'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Kas Keluar</span>
+                <span className="text-red-600">-{record ? formatCurrency(record.cashOut) : '-'}</span>
               </div>
               <Separator className="my-1" />
-              <div className="flex justify-between font-semibold">
+              <div className="flex justify-between text-sm font-semibold">
                 <span>Kas Diharapkan</span>
-                <span>{formatCurrency(expectedCash)}</span>
+                <span>{record ? formatCurrency(record.expectedCash) : '-'}</span>
               </div>
             </div>
           </div>
+
+          {record && record.paymentBreakdown.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-sm">
+                Penjualan per Metode ({record.transactionCount} transaksi)
+              </Label>
+              <div className="space-y-1.5 p-3 bg-muted/50 rounded-lg">
+                {record.paymentBreakdown.map((p) => (
+                  <div key={p.method} className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      {paymentMethodLabel(p.method)} ({p.count})
+                    </span>
+                    <span>{formatCurrency(p.amount)}</span>
+                  </div>
+                ))}
+                <Separator className="my-1" />
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>Total</span>
+                  <span>{formatCurrency(record.paymentTotal)}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Closing Cash Input */}
           <div className="space-y-2">
@@ -351,35 +313,13 @@ export function ShiftEndModal({
                     key === 'BS' && 'text-yellow-600'
                   )}
                   onClick={() => handleNumpadClick(key)}
+                  aria-label={key === 'BS' ? 'Hapus digit' : key === 'C' ? 'Kosongkan' : undefined}
                 >
                   {key === 'BS' ? '⌫' : key}
                 </Button>
               )
             )}
           </div>
-
-          {/* Difference Display */}
-          {closingCash && (
-            <div
-              className={cn(
-                'p-3 rounded-lg flex items-center justify-between',
-                isWithinTolerance
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-red-50 border border-red-200'
-              )}
-            >
-              <span className="text-sm font-medium">Selisih</span>
-              <span
-                className={cn(
-                  'text-lg font-bold',
-                  isWithinTolerance ? 'text-green-700' : 'text-red-700'
-                )}
-              >
-                {difference >= 0 ? '+' : ''}
-                {formatCurrency(difference)}
-              </span>
-            </div>
-          )}
 
           {/* Notes */}
           <div className="space-y-2">
@@ -419,22 +359,17 @@ export function ShiftEndModal({
   );
 }
 
-// Shift Summary Modal (shown after successful shift close)
+// Shift Summary Modal (shown after successful shift close) — values come from
+// the POST /employees/shifts/:id/end response.
 interface ShiftSummaryModalProps {
   open: boolean;
   onClose: () => void;
   shiftData: {
     id: string;
     startedAt: string;
-    openingCash: number;
-    totalSales: number;
-    transactions: number;
+    totalSales?: number;
   };
-  completedShift: {
-    expectedCash: number;
-    actualCash: number;
-    difference: number;
-  };
+  completedShift: CompletedShift;
 }
 
 function ShiftSummaryModal({
@@ -443,11 +378,38 @@ function ShiftSummaryModal({
   shiftData,
   completedShift,
 }: ShiftSummaryModalProps) {
+  const user = useAuthStore((s) => s.user);
   const duration =
     (new Date().getTime() - new Date(shiftData.startedAt).getTime()) / (1000 * 60);
 
   const handlePrint = () => {
-    window.print();
+    const row = (label: string, value: string) =>
+      `<tr><td>${escapeHtml(label)}</td><td class="right">${escapeHtml(value)}</td></tr>`;
+    const diff = `${completedShift.difference >= 0 ? '+' : ''}${formatCurrency(completedShift.difference)}`;
+    const html = `
+      <div class="center bold">LAPORAN TUTUP SHIFT</div>
+      <div class="center">${escapeHtml(user?.outletName ?? '')}</div>
+      <hr/>
+      <table>
+        ${row('Kasir', user?.name ?? '-')}
+        ${row('Mulai', new Date(shiftData.startedAt).toLocaleString('id-ID'))}
+        ${row('Selesai', new Date().toLocaleString('id-ID'))}
+        ${row('Durasi', formatDuration(duration))}
+      </table>
+      <hr/>
+      <table>
+        ${completedShift.openingCash !== undefined ? row('Kas Awal', formatCurrency(completedShift.openingCash)) : ''}
+        ${row('Kas Diharapkan', formatCurrency(completedShift.expectedCash))}
+        ${row('Kas Aktual', formatCurrency(completedShift.actualCash))}
+        ${row('Selisih', diff)}
+      </table>
+      <hr/>
+      <div class="center">Dicetak ${escapeHtml(new Date().toLocaleString('id-ID'))}</div>`;
+    try {
+      printHtml(html, 'Laporan Shift');
+    } catch (error) {
+      toast.error({ title: 'Gagal Mencetak', description: apiErrorMessage(error) });
+    }
   };
 
   return (
@@ -464,16 +426,9 @@ function ShiftSummaryModal({
         </DialogHeader>
 
         <div className="py-4 space-y-3">
-          {/* Summary */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">Durasi</p>
-              <p className="font-bold">{formatDuration(duration)}</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">Transaksi</p>
-              <p className="font-bold">{shiftData.transactions}</p>
-            </div>
+          <div className="bg-muted/50 rounded-lg p-3">
+            <p className="text-xs text-muted-foreground">Durasi</p>
+            <p className="font-bold">{formatDuration(duration)}</p>
           </div>
 
           <Separator />
@@ -482,10 +437,12 @@ function ShiftSummaryModal({
           <div className="space-y-2">
             <p className="text-sm font-medium">Ringkasan Kas</p>
             <div className="space-y-1.5 p-3 bg-muted/50 rounded-lg">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Kas Awal</span>
-                <span>{formatCurrency(shiftData.openingCash)}</span>
-              </div>
+              {completedShift.openingCash !== undefined && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Kas Awal</span>
+                  <span>{formatCurrency(completedShift.openingCash)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Diharapkan</span>
                 <span>{formatCurrency(completedShift.expectedCash)}</span>
@@ -510,16 +467,6 @@ function ShiftSummaryModal({
                 </span>
               </div>
             </div>
-          </div>
-
-          <Separator />
-
-          {/* Total Sales */}
-          <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
-            <span className="text-sm">Total Penjualan</span>
-            <span className="text-xl font-bold text-primary">
-              {formatCurrency(shiftData.totalSales)}
-            </span>
           </div>
         </div>
 
