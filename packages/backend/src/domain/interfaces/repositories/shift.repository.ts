@@ -1,10 +1,15 @@
+/**
+ * Every by-id method is tenant scoped (R3): a shift id from the client only matches when the
+ * shift's outlet belongs to `businessId`. Mutations throw NotFound when nothing matched.
+ */
 export interface IShiftRepository {
-  findById(id: string): Promise<ShiftRecord | null>;
+  findById(id: string, businessId: string): Promise<ShiftRecord | null>;
   findOpenShift(employeeId: string): Promise<ShiftRecord | null>;
   create(data: CreateShiftData): Promise<ShiftRecord>;
-  close(id: string, data: CloseShiftData): Promise<ShiftRecord>;
-  addCashIn(id: string, amount: number): Promise<void>;
-  addCashOut(id: string, amount: number): Promise<void>;
+  /** Closes an OPEN shift; throws Conflict if it is already closed (no overwrite). */
+  close(id: string, businessId: string, data: CloseShiftData): Promise<ShiftRecord>;
+  addCashIn(id: string, businessId: string, amount: number): Promise<void>;
+  addCashOut(id: string, businessId: string, amount: number): Promise<void>;
 }
 
 export interface ShiftRecord {

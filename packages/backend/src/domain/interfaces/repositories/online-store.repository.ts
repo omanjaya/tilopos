@@ -48,6 +48,10 @@ export interface StoreProductRecord {
   isActive: boolean;
 }
 
+/**
+ * Only the tenant-safe store operations remain; order creation/status changes and by-id lookups
+ * live in OnlineStoreService (tenant scoped, transactional).
+ */
 export interface IOnlineStoreRepository {
   findStoresByBusinessId(businessId: string): Promise<OnlineStoreRecord[]>;
   createStore(data: {
@@ -59,27 +63,4 @@ export interface IOnlineStoreRepository {
   findStoreBySlug(slug: string): Promise<OnlineStoreRecord | null>;
   findActiveProductsByBusinessId(businessId: string): Promise<StoreProductRecord[]>;
   findStoreOrders(storeId: string, status?: string): Promise<StoreOrderRecord[]>;
-  createStoreOrder(data: {
-    storeId: string;
-    outletId: string;
-    orderNumber: string;
-    customerName: string;
-    customerPhone: string;
-    customerEmail: string | null;
-    shippingAddress: string | null;
-    subtotal: number;
-    grandTotal: number;
-    items: {
-      productId: string;
-      variantId: string | null;
-      productName: string;
-      variantName: string | null;
-      quantity: number;
-      unitPrice: number;
-      subtotal: number;
-    }[];
-  }): Promise<StoreOrderRecord>;
-  updateOrderStatus(id: string, status: string): Promise<StoreOrderRecord>;
-  findOrderById(id: string): Promise<StoreOrderRecord | null>;
-  findStoreById(id: string): Promise<OnlineStoreRecord | null>;
 }

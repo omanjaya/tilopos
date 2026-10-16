@@ -16,10 +16,10 @@ export interface DeviceRecord {
 
 export interface IDeviceRepository {
   findByBusinessId(businessId: string): Promise<DeviceRecord[]>;
-  findById(id: string): Promise<DeviceRecord | null>;
+  findById(id: string, businessId: string): Promise<DeviceRecord | null>;
   create(data: CreateDeviceData): Promise<DeviceRecord>;
-  updateSync(id: string): Promise<DeviceRecord>;
-  deactivate(id: string): Promise<void>;
+  updateSync(id: string, businessId: string): Promise<DeviceRecord>;
+  deactivate(id: string, businessId: string): Promise<void>;
 }
 
 export interface CreateDeviceData {

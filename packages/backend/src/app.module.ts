@@ -4,11 +4,14 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './infrastructure/database/database.module';
+import { TenantModule } from './shared/tenant/tenant.module';
+import { LockModule } from './shared/locks/lock.module';
+import { NumberingModule } from './shared/numbering/numbering.module';
+import { validateEnv } from './config/env.validation';
 import { EventBusModule } from './infrastructure/events/event-bus.module';
-import { EventStoreModule } from './infrastructure/events/event-store.module';
 import { RedisModule } from './infrastructure/cache/redis.module';
 import { QueueModule } from './infrastructure/queues/queue.module';
-import { LoggerModule } from './infrastructure/logging/logger.module';
+import { LoggingModule } from './infrastructure/logging/logging.module';
 import { HealthModule } from './infrastructure/health/health.module';
 import { RabbitMqModule } from './infrastructure/messaging/rabbitmq.module';
 import { SentryModule } from './infrastructure/monitoring/sentry.module';
@@ -55,24 +58,29 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { StockOpnameModule } from './modules/stock-opname/stock-opname.module';
 import { BusinessScopeGuard } from './shared/guards/business-scope.guard';
 import { FeatureGuard } from './common/guards/feature.guard';
+import { JwtAuthGuard } from './infrastructure/auth/jwt-auth.guard';
+import { RolesGuard } from './infrastructure/auth/roles.guard';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnv,
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot(throttleConfig),
     DatabaseModule,
+    TenantModule,
+    LockModule,
+    NumberingModule,
     RedisModule,
     QueueModule,
-    LoggerModule,
+    LoggingModule,
     HealthModule,
     RabbitMqModule,
     SentryModule,
     EventBusModule,
-    EventStoreModule,
     AuthModule,
     PosModule,
     InventoryModule,
@@ -114,10 +122,20 @@ import { FeatureGuard } from './common/guards/feature.guard';
     IntegrationsModule,
     StockOpnameModule,
   ],
+  // Guard order matters: throttle → authenticate → authorize → tenant scope → plan features.
+  // Every later guard relies on request.user set by JwtAuthGuard.
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_GUARD,

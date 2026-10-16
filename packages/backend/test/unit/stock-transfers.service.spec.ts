@@ -1,5 +1,11 @@
 import { StockTransfersService } from '../../src/modules/stock-transfers/stock-transfers.service';
 import { PrismaService } from '../../src/infrastructure/database/prisma.service';
+import type { EventBusService } from '../../src/infrastructure/events/event-bus.service';
+import type { TenantAccessService } from '../../src/shared/tenant';
+import type { DocumentNumberService } from '../../src/shared/numbering';
+import type { AuthUser } from '../../src/infrastructure/auth/auth-user.interface';
+
+const user: AuthUser = { businessId: 'biz-1', employeeId: 'emp-1', outletId: null, role: 'owner' };
 
 describe('StockTransfersService', () => {
   let service: StockTransfersService;
@@ -12,12 +18,25 @@ describe('StockTransfersService', () => {
         create: jest.fn(),
       },
       stockLevel: {
-        findFirst: jest.fn(),
+        findMany: jest.fn(),
       },
       $queryRaw: jest.fn(),
+      $transaction: jest.fn(),
     } as unknown as jest.Mocked<PrismaService>;
+    (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(mockPrisma),
+    );
 
-    service = new StockTransfersService(mockPrisma);
+    service = new StockTransfersService(
+      mockPrisma,
+      { publish: jest.fn() } as unknown as EventBusService,
+      {
+        assertOutlet: jest.fn(async (_u: unknown, id: string) => id),
+      } as unknown as TenantAccessService,
+      {
+        next: jest.fn().mockResolvedValue('TRF-20260101-0001'),
+      } as unknown as DocumentNumberService,
+    );
   });
 
   // ==========================================================================
@@ -124,7 +143,7 @@ describe('StockTransfersService', () => {
       expect(result).toEqual([]);
     });
 
-    it('should handle null quantityReceived as 0', async () => {
+    it('treats legacy null quantityReceived as fully received (no false discrepancy)', async () => {
       // Arrange
       const transfers = [
         {
@@ -150,9 +169,7 @@ describe('StockTransfersService', () => {
       const result = await service.getDiscrepancies('biz-1', from, to);
 
       // Assert
-      expect(result).toHaveLength(1);
-      expect(result[0].items[0].quantityReceived).toBe(0);
-      expect(result[0].items[0].difference).toBe(-50);
+      expect(result).toEqual([]);
     });
 
     it('should calculate percent discrepancy correctly', async () => {
@@ -204,11 +221,13 @@ describe('StockTransfersService', () => {
       (mockPrisma.$queryRaw as jest.Mock).mockResolvedValue(lowStockItems);
 
       // Source outlet has enough stock
-      (mockPrisma.stockLevel.findFirst as jest.Mock).mockResolvedValue({
-        productId: 'prod-1',
-        quantity: 100,
-        lowStockAlert: 20,
-      });
+      (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue([
+        {
+          productId: 'prod-1',
+          quantity: 100,
+          lowStockAlert: 20,
+        },
+      ]);
 
       const createdTransfer = {
         id: 'trf-auto-1',
@@ -217,27 +236,24 @@ describe('StockTransfersService', () => {
       (mockPrisma.stockTransfer.create as jest.Mock).mockResolvedValue(createdTransfer);
 
       // Act
-      const result = await service.autoCreateTransferRequest(
-        'biz-1',
-        'dest-outlet',
-        'source-outlet',
-        'emp-1',
-      );
+      const result = await service.autoCreateTransferRequest(user, 'dest-outlet', 'source-outlet');
 
       // Assert
       expect(result).not.toBeNull();
       expect(result!.transferId).toBe('trf-auto-1');
       expect(result!.itemCount).toBe(1);
-      expect(mockPrisma.stockTransfer.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          businessId: 'biz-1',
-          sourceOutletId: 'source-outlet',
-          destinationOutletId: 'dest-outlet',
-          status: 'pending',
-          requestedBy: 'emp-1',
-          notes: 'Auto-generated transfer request for low stock items',
+      expect(mockPrisma.stockTransfer.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            businessId: 'biz-1',
+            sourceOutletId: 'source-outlet',
+            destinationOutletId: 'dest-outlet',
+            status: 'pending',
+            requestedBy: 'emp-1',
+            notes: 'Auto-generated transfer request for low stock items',
+          }),
         }),
-      });
+      );
     });
 
     it('should return null when source has insufficient stock to transfer', async () => {
@@ -253,19 +269,16 @@ describe('StockTransfersService', () => {
       (mockPrisma.$queryRaw as jest.Mock).mockResolvedValue(lowStockItems);
 
       // Source outlet also has low stock (quantity <= lowStockAlert)
-      (mockPrisma.stockLevel.findFirst as jest.Mock).mockResolvedValue({
-        productId: 'prod-1',
-        quantity: 15,
-        lowStockAlert: 20,
-      });
+      (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue([
+        {
+          productId: 'prod-1',
+          quantity: 15,
+          lowStockAlert: 20,
+        },
+      ]);
 
       // Act
-      const result = await service.autoCreateTransferRequest(
-        'biz-1',
-        'dest-outlet',
-        'source-outlet',
-        'emp-1',
-      );
+      const result = await service.autoCreateTransferRequest(user, 'dest-outlet', 'source-outlet');
 
       // Assert
       expect(result).toBeNull();
@@ -277,12 +290,7 @@ describe('StockTransfersService', () => {
       (mockPrisma.$queryRaw as jest.Mock).mockResolvedValue([]);
 
       // Act
-      const result = await service.autoCreateTransferRequest(
-        'biz-1',
-        'dest-outlet',
-        'source-outlet',
-        'emp-1',
-      );
+      const result = await service.autoCreateTransferRequest(user, 'dest-outlet', 'source-outlet');
 
       // Assert
       expect(result).toBeNull();
@@ -302,15 +310,10 @@ describe('StockTransfersService', () => {
       (mockPrisma.$queryRaw as jest.Mock).mockResolvedValue(lowStockItems);
 
       // No stock record at source
-      (mockPrisma.stockLevel.findFirst as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue([]);
 
       // Act
-      const result = await service.autoCreateTransferRequest(
-        'biz-1',
-        'dest-outlet',
-        'source-outlet',
-        'emp-1',
-      );
+      const result = await service.autoCreateTransferRequest(user, 'dest-outlet', 'source-outlet');
 
       // Assert
       expect(result).toBeNull();
@@ -331,11 +334,13 @@ describe('StockTransfersService', () => {
       // Source has more than enough: available = 200 - 20 = 180
       // needed = 20 * 2 - 5 = 35
       // quantityToTransfer = min(35, 180) = 35
-      (mockPrisma.stockLevel.findFirst as jest.Mock).mockResolvedValue({
-        productId: 'prod-1',
-        quantity: 200,
-        lowStockAlert: 20,
-      });
+      (mockPrisma.stockLevel.findMany as jest.Mock).mockResolvedValue([
+        {
+          productId: 'prod-1',
+          quantity: 200,
+          lowStockAlert: 20,
+        },
+      ]);
 
       (mockPrisma.stockTransfer.create as jest.Mock).mockResolvedValue({
         id: 'trf-1',
@@ -343,28 +348,25 @@ describe('StockTransfersService', () => {
       });
 
       // Act
-      const result = await service.autoCreateTransferRequest(
-        'biz-1',
-        'dest-outlet',
-        'source-outlet',
-        'emp-1',
-      );
+      const result = await service.autoCreateTransferRequest(user, 'dest-outlet', 'source-outlet');
 
       // Assert
       expect(result).not.toBeNull();
-      expect(mockPrisma.stockTransfer.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          items: {
-            create: [
-              expect.objectContaining({
-                productId: 'prod-1',
-                itemName: 'Coffee Beans',
-                quantitySent: 35,
-              }),
-            ],
-          },
+      expect(mockPrisma.stockTransfer.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            items: {
+              create: [
+                expect.objectContaining({
+                  productId: 'prod-1',
+                  itemName: 'Coffee Beans',
+                  quantitySent: 35,
+                }),
+              ],
+            },
+          }),
         }),
-      });
+      );
     });
   });
 });

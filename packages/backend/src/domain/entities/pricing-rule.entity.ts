@@ -1,6 +1,7 @@
 import { AppError } from '../../shared/errors/app-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
 import { Money } from '../value-objects/money';
+import { minMoney, money, percentOf, roundRupiah } from '../../shared/utils/money';
 
 export enum PricingRuleType {
   TIME_BASED = 'time_based',
@@ -209,23 +210,23 @@ export class PricingRule {
       return false;
     }
 
-    // Check day of week
-    if (this.applicableDays.length > 0) {
-      const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-      if (!this.applicableDays.includes(dayOfWeek)) {
-        return false;
-      }
+    // Day of week and time of day are evaluated in business time (Asia/Jakarta), never in
+    // the server's timezone (containers run in UTC).
+    const { weekday, hhmm } = businessClock(date);
+
+    if (this.applicableDays.length > 0 && !this.applicableDays.includes(weekday)) {
+      return false;
     }
 
-    // Check time range
     if (this.timeFrom || this.timeUntil) {
-      const currentTime = date.toTimeString().substring(0, 5); // HH:MM format
-
-      if (this.timeFrom && currentTime < this.timeFrom) {
-        return false;
-      }
-
-      if (this.timeUntil && currentTime > this.timeUntil) {
+      const from = this.timeFrom ?? '00:00';
+      const until = this.timeUntil ?? '23:59';
+      const inWindow =
+        from <= until
+          ? hhmm >= from && hhmm <= until
+          : // Overnight window, e.g. 22:00-02:00
+            hhmm >= from || hhmm <= until;
+      if (!inWindow) {
         return false;
       }
     }
@@ -261,29 +262,23 @@ export class PricingRule {
   }
 
   /**
-   * Calculate discount amount for a given original price
+   * Calculate discount amount for a given original price (whole rupiah, never above the price).
    */
   calculateDiscount(originalPrice: Money): Money {
-    if (this.discountType === DiscountType.PERCENTAGE) {
-      const discountAmount = (originalPrice.amount * this.discountValue) / 100;
-      return Money.create(Math.round(discountAmount), originalPrice.currency);
-    } else {
-      // Fixed amount discount
-      return Money.create(this.discountValue, originalPrice.currency);
-    }
+    const raw =
+      this.discountType === DiscountType.PERCENTAGE
+        ? roundRupiah(percentOf(originalPrice.decimal, this.discountValue))
+        : money(this.discountValue);
+    return Money.create(minMoney(raw, originalPrice.decimal), originalPrice.currency);
   }
+}
 
-  /**
-   * Calculate final price after applying this rule
-   */
-  applyDiscount(originalPrice: Money): Money {
-    const discount = this.calculateDiscount(originalPrice);
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000; // Asia/Jakarta: fixed UTC+07:00, no DST
 
-    // Ensure price doesn't go below zero
-    if (discount.amount >= originalPrice.amount) {
-      return Money.zero(originalPrice.currency);
-    }
-
-    return originalPrice.subtract(discount);
-  }
+/** Weekday (0 = Sunday) and "HH:MM" of `date` in business time (see BUSINESS_TZ). */
+function businessClock(date: Date): { weekday: number; hhmm: string } {
+  const shifted = new Date(date.getTime() + WIB_OFFSET_MS);
+  const hh = String(shifted.getUTCHours()).padStart(2, '0');
+  const mm = String(shifted.getUTCMinutes()).padStart(2, '0');
+  return { weekday: shifted.getUTCDay(), hhmm: `${hh}:${mm}` };
 }

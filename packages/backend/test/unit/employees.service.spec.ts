@@ -135,7 +135,7 @@ describe('EmployeesService', () => {
 
   describe('getWeeklySchedule', () => {
     it('should return a 7-day schedule grid', async () => {
-      const weekStart = new Date('2026-01-26T00:00:00.000Z');
+      const weekStart = '2026-01-26';
       const dayNames = [
         'Sunday',
         'Monday',
@@ -178,14 +178,17 @@ describe('EmployeesService', () => {
       };
       mockScheduleService.createSchedule.mockResolvedValue(createdSchedule);
 
-      const result = await service.createSchedule({
-        employeeId: 'emp-1',
-        outletId: 'outlet-1',
-        date: '2026-02-01',
-        startTime: '08:00',
-        endTime: '16:00',
-        notes: 'Morning shift',
-      });
+      const result = await service.createSchedule(
+        {
+          employeeId: 'emp-1',
+          outletId: 'outlet-1',
+          date: '2026-02-01',
+          startTime: '08:00',
+          endTime: '16:00',
+          notes: 'Morning shift',
+        },
+        'biz-1',
+      );
 
       expect(result.id).toBe('sched-1');
       expect(result.employeeId).toBe('emp-1');
@@ -201,13 +204,16 @@ describe('EmployeesService', () => {
       );
 
       await expect(
-        service.createSchedule({
-          employeeId: 'nonexistent',
-          outletId: 'outlet-1',
-          date: '2026-02-01',
-          startTime: '08:00',
-          endTime: '16:00',
-        }),
+        service.createSchedule(
+          {
+            employeeId: 'nonexistent',
+            outletId: 'outlet-1',
+            date: '2026-02-01',
+            startTime: '08:00',
+            endTime: '16:00',
+          },
+          'biz-1',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -319,7 +325,7 @@ describe('EmployeesService', () => {
       };
       mockAttendanceService.clockIn.mockResolvedValue(clockInResult);
 
-      const result = await service.clockIn('emp-1', 'outlet-1');
+      const result = await service.clockIn('emp-1', 'outlet-1', 'biz-1');
 
       expect(result.attendanceId).toBe('att-1');
       expect(result.clockInTime).toBeDefined();
@@ -330,8 +336,8 @@ describe('EmployeesService', () => {
         new BusinessError(ErrorCode.ALREADY_CLOCKED_IN, 'Employee is already clocked in'),
       );
 
-      await expect(service.clockIn('emp-1', 'outlet-1')).rejects.toThrow(BusinessError);
-      await expect(service.clockIn('emp-1', 'outlet-1')).rejects.toThrow(
+      await expect(service.clockIn('emp-1', 'outlet-1', 'biz-1')).rejects.toThrow(BusinessError);
+      await expect(service.clockIn('emp-1', 'outlet-1', 'biz-1')).rejects.toThrow(
         'Employee is already clocked in',
       );
     });
@@ -339,7 +345,9 @@ describe('EmployeesService', () => {
     it('should throw NotFoundException if employee not found', async () => {
       mockAttendanceService.clockIn.mockRejectedValue(new NotFoundException('Employee not found'));
 
-      await expect(service.clockIn('nonexistent', 'outlet-1')).rejects.toThrow(NotFoundException);
+      await expect(service.clockIn('nonexistent', 'outlet-1', 'biz-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

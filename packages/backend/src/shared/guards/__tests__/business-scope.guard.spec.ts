@@ -1,6 +1,5 @@
 import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
 import { BusinessScopeGuard, BusinessScoped } from '../business-scope.guard';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
@@ -9,7 +8,6 @@ describe('BusinessScopeGuard', () => {
   let guard: BusinessScopeGuard;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockReflector: jest.Mocked<Reflector>;
-  let mockJwtService: jest.Mocked<JwtService>;
   let mockProductFindUnique: jest.Mock;
   let mockCustomerFindUnique: jest.Mock;
   let mockOrderFindUnique: jest.Mock;
@@ -45,11 +43,7 @@ describe('BusinessScopeGuard', () => {
       get: jest.fn(),
     } as unknown as jest.Mocked<Reflector>;
 
-    mockJwtService = {
-      verify: jest.fn(),
-    } as unknown as jest.Mocked<JwtService>;
-
-    guard = new BusinessScopeGuard(mockReflector, mockPrisma, mockJwtService);
+    guard = new BusinessScopeGuard(mockReflector, mockPrisma);
   });
 
   describe('canActivate', () => {
@@ -65,20 +59,18 @@ describe('BusinessScopeGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should allow access when user is not authenticated (let JwtAuthGuard handle it)', async () => {
+    it('should deny access when no authenticated user is present', async () => {
       mockReflector.get.mockReturnValue({
         resource: 'product',
         param: 'id',
       });
 
       const context = createMockContext({
-        user: null, // No user - guard defers to JwtAuthGuard
+        user: null, // JwtAuthGuard runs first globally; a missing user means no tenant context
         params: { id: 'prod-1' },
       });
 
-      // Guard returns true to let JwtAuthGuard handle auth
-      const result = await guard.canActivate(context);
-      expect(result).toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw ForbiddenException when resource ID is missing', async () => {
@@ -267,5 +259,6 @@ function createMockContext(data: {
       }),
     }),
     getHandler: () => ({}),
+    getType: () => 'http',
   } as unknown as ExecutionContext;
 }

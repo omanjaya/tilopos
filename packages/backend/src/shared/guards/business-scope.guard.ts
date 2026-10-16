@@ -6,7 +6,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 
@@ -78,7 +77,6 @@ export class BusinessScopeGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -88,38 +86,13 @@ export class BusinessScopeGuard implements CanActivate {
     );
 
     // No decorator = no validation (allows gradual rollout)
-    if (!options) {
+    if (!options || context.getType() !== 'http') {
       return true;
     }
 
     const request = context.switchToHttp().getRequest();
-    let user: AuthUser = request.user;
-
-    // When registered as APP_GUARD, this guard may run before JwtAuthGuard.
-    // If user is not yet set, try to extract businessId from the JWT token.
-    if (!user) {
-      const authHeader = request.headers?.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
-        try {
-          const token = authHeader.slice(7);
-          const payload = this.jwtService.verify(token);
-          user = {
-            employeeId: payload.sub,
-            businessId: payload.businessId,
-            outletId: payload.outletId,
-            role: payload.role,
-          };
-          // Populate request.user so downstream guards/decorators can use it
-          request.user = user;
-        } catch {
-          // Invalid/expired token — let JwtAuthGuard handle the 401
-          return true;
-        }
-      } else {
-        // No Authorization header — let JwtAuthGuard handle the 401
-        return true;
-      }
-    }
+    // JwtAuthGuard runs first (global), so request.user is always set here
+    const user: AuthUser | undefined = request.user;
 
     if (!user?.businessId) {
       throw new ForbiddenException('Authentication required');
@@ -198,7 +171,7 @@ export class BusinessScopeGuard implements CanActivate {
       }
 
       return result.businessId === businessId;
-    } catch (error) {
+    } catch {
       // Query error (invalid ID format, DB error, etc.) - deny access
       return false;
     }

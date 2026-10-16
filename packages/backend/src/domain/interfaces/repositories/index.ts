@@ -1,4 +1,3 @@
-export type { ITransactionRepository, TransactionRecord } from './transaction.repository';
 export type { IProductRepository, ProductRecord } from './product.repository';
 export type { ICustomerRepository, CustomerRecord } from './customer.repository';
 export type { IOrderRepository, OrderRecord } from './order.repository';
@@ -11,7 +10,6 @@ export type { IEmployeeRepository, EmployeeRecord } from './employee.repository'
 export type { IShiftRepository, ShiftRecord, CloseShiftData } from './shift.repository';
 export type { IAuditLogRepository, AuditLogRecord } from './audit.repository';
 export type {
-  ISettingsRepository,
   UpdateBusinessData,
   CreateOutletData,
   CreateModifierGroupData,
@@ -21,7 +19,6 @@ export type {
 export type { IDeviceRepository, CreateDeviceData } from './device.repository';
 export type { IOnlineStoreRepository } from './online-store.repository';
 export type { INotificationRepository } from './notification.repository';
-export type { ISettlementRepository } from './settlement.repository';
 export type {
   IIngredientRepository,
   IngredientRecord,
@@ -46,7 +43,6 @@ export type {
   UpdateTableData,
 } from './table.repository';
 export type {
-  ICreditSaleRepository,
   CreditSaleRecord,
   CreditPaymentRecord,
   CreditSaleFilters,

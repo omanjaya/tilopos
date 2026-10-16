@@ -248,6 +248,14 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
     icon: 'UserCheck',
   },
   {
+    key: 'staff_commission',
+    label: 'Komisi Staff',
+    description: 'Laporan komisi karyawan berdasarkan penjualan',
+    category: 'service',
+    defaultFor: ['service_salon'],
+    icon: 'Percent',
+  },
+  {
     key: 'service_duration',
     label: 'Durasi Layanan',
     description: 'Estimasi waktu per layanan',

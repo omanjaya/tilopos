@@ -1,9 +1,10 @@
 export interface IOrderRepository {
-  findById(id: string): Promise<OrderRecord | null>;
+  /** Pass businessId whenever the id comes from a client (R3). */
+  findById(id: string, businessId?: string): Promise<OrderRecord | null>;
   findByOutletId(outletId: string): Promise<OrderRecord[]>;
   findActiveByOutletId(outletId: string): Promise<OrderRecord[]>;
   save(order: OrderRecord): Promise<OrderRecord>;
-  update(id: string, data: Partial<OrderRecord>): Promise<OrderRecord>;
+  update(id: string, data: Partial<OrderRecord>, businessId?: string): Promise<OrderRecord>;
 }
 
 export interface OrderRecord {

@@ -30,7 +30,7 @@ export type LoyaltyTransactionRecord = {
   id: string;
   customerId: string;
   transactionId: string | null;
-  type: 'earned' | 'redeemed' | 'adjusted' | 'expired';
+  type: 'earned' | 'redeemed' | 'adjusted' | 'expired' | 'reversed';
   points: number;
   balanceAfter: number;
   description: string | null;
@@ -42,11 +42,11 @@ export type LoyaltyTransactionRecord = {
 export interface ILoyaltyRepository {
   // Program
   findActiveProgram(businessId: string): Promise<LoyaltyProgramRecord | null>;
-  findProgramById(id: string): Promise<LoyaltyProgramRecord | null>;
+  findProgramById(id: string, businessId?: string): Promise<LoyaltyProgramRecord | null>;
 
   // Tier
   findTiersByBusiness(businessId: string): Promise<LoyaltyTierRecord[]>;
-  findTierById(id: string): Promise<LoyaltyTierRecord | null>;
+  findTierById(id: string, businessId?: string): Promise<LoyaltyTierRecord | null>;
   findEligibleTier(
     businessId: string,
     points: number,
@@ -58,17 +58,23 @@ export interface ILoyaltyRepository {
   findTransactionsByCustomer(
     customerId: string,
     limit?: number,
+    businessId?: string,
   ): Promise<LoyaltyTransactionRecord[]>;
 
   // Customer
-  updateCustomerPoints(customerId: string, points: number, tier: string): Promise<void>;
-  findCustomerById(customerId: string): Promise<Customer | null>;
+  updateCustomerPoints(
+    customerId: string,
+    points: number,
+    tier?: string,
+    businessId?: string,
+  ): Promise<void>;
+  findCustomerById(customerId: string, businessId?: string): Promise<Customer | null>;
 }
 
 export interface CreateLoyaltyTransactionData {
   customerId: string;
   transactionId?: string;
-  type: 'earned' | 'redeemed' | 'adjusted' | 'expired';
+  type: 'earned' | 'redeemed' | 'adjusted' | 'expired' | 'reversed';
   points: number;
   balanceAfter: number;
   description?: string;

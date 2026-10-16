@@ -6,10 +6,11 @@ export interface IInventoryRepository {
   ): Promise<StockLevelRecord | null>;
   findStockLevelsByOutlet(outletId: string): Promise<StockLevelRecord[]>;
   findLowStockItems(outletId: string): Promise<StockLevelRecord[]>;
-  updateStockLevel(id: string, quantity: number): Promise<StockLevelRecord>;
   incrementStockLevel(id: string, incrementBy: number): Promise<StockLevelRecord>;
   createStockMovement(movement: StockMovementRecord): Promise<StockMovementRecord>;
+  /** Scoped to one outlet (R3): reference ids alone are not tenant safe. */
   findStockMovements(filter: {
+    outletId: string;
     referenceId: string;
     referenceType: string;
   }): Promise<StockMovementRecord[]>;
@@ -28,6 +29,11 @@ export interface StockLevelRecord {
     name: string;
     sku: string | null;
   };
+  variant?: {
+    id: string;
+    name: string;
+    sku: string | null;
+  } | null;
 }
 
 export interface StockMovementRecord {

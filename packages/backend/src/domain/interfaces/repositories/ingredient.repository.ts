@@ -82,42 +82,100 @@ export interface UpdateRecipeData {
   }[];
 }
 
+export interface IngredientPage {
+  skip?: number;
+  take?: number;
+}
+
+export type IngredientMovementType =
+  | 'purchase'
+  | 'usage'
+  | 'adjustment'
+  | 'waste'
+  | 'transfer_in'
+  | 'transfer_out';
+
+export interface StockAdjustmentParams {
+  businessId: string;
+  /** Must already be verified to belong to `businessId`. */
+  outletId: string;
+  ingredientId: string;
+  /** Signed: positive adds stock, negative deducts it. Never 0. */
+  quantity: number;
+  movementType?: IngredientMovementType;
+  referenceId?: string | null;
+  referenceType?: string | null;
+  notes?: string | null;
+  createdBy?: string | null;
+}
+
+export interface StockAdjustmentResult {
+  stockLevelId: string;
+  previousQuantity: number;
+  newQuantity: number;
+}
+
+/** Opaque transaction handle (Prisma.TransactionClient in the Prisma implementation). */
+export type IngredientTx = unknown;
+
+/**
+ * Ingredient persistence. Every method that takes a client-supplied id is tenant scoped (R3):
+ * `businessId` is required and ids of other businesses resolve to nothing / NotFound.
+ */
 export interface IIngredientRepository {
   // Ingredient CRUD
-  findById(id: string): Promise<IngredientRecord | null>;
-  findByBusiness(businessId: string, activeOnly?: boolean): Promise<IngredientRecord[]>;
+  findById(id: string, businessId: string): Promise<IngredientRecord | null>;
+  findByBusiness(
+    businessId: string,
+    activeOnly?: boolean,
+    page?: IngredientPage,
+  ): Promise<IngredientRecord[]>;
   findBySKU(businessId: string, sku: string): Promise<IngredientRecord | null>;
   create(data: CreateIngredientData): Promise<IngredientRecord>;
-  update(id: string, data: UpdateIngredientData): Promise<IngredientRecord>;
-  delete(id: string): Promise<void>;
+  update(id: string, data: UpdateIngredientData, businessId: string): Promise<IngredientRecord>;
+  delete(id: string, businessId: string): Promise<void>;
 
   // Stock Level
-  getStockLevel(outletId: string, ingredientId: string): Promise<IngredientStockLevelRecord | null>;
   getStockLevelsByOutlet(
     outletId: string,
+    businessId: string,
+    page?: IngredientPage,
   ): Promise<Array<IngredientStockLevelRecord & { ingredient?: PartialIngredient }>>;
   getLowStock(
     outletId: string,
+    businessId: string,
   ): Promise<Array<IngredientStockLevelRecord & { ingredient: PartialIngredient }>>;
   updateStockLevel(
     outletId: string,
     ingredientId: string,
     quantity: number,
+    businessId: string,
   ): Promise<IngredientStockLevelRecord>;
   adjustStock(
     outletId: string,
     ingredientId: string,
     quantity: number,
-    referenceId?: string,
-    referenceType?: string,
-    notes?: string,
+    referenceId: string | undefined,
+    referenceType: string | undefined,
+    notes: string | undefined,
+    businessId: string,
   ): Promise<void>;
+  /** Atomic, tenant-checked adjustment; runs in `tx` when given. */
+  applyStockAdjustment(
+    params: StockAdjustmentParams,
+    tx?: IngredientTx,
+  ): Promise<StockAdjustmentResult>;
 
   // Recipe
-  findRecipeById(id: string): Promise<RecipeRecord | null>;
-  findRecipesByProduct(productId: string, variantId?: string): Promise<RecipeRecord[]>;
+  findRecipeById(id: string, businessId: string): Promise<RecipeRecord | null>;
+  /** variantId undefined = all recipes of the product; null = the generic recipe only. */
+  findRecipesByProduct(
+    productId: string,
+    variantId: string | null | undefined,
+    businessId: string,
+  ): Promise<RecipeRecord[]>;
   createRecipe(data: CreateRecipeData): Promise<RecipeRecord>;
-  updateRecipe(id: string, data: UpdateRecipeData): Promise<RecipeRecord>;
-  deleteRecipe(id: string): Promise<void>;
-  findRecipesByIngredient(ingredientId: string): Promise<RecipeRecord[]>;
+  updateRecipe(id: string, data: UpdateRecipeData, businessId: string): Promise<RecipeRecord>;
+  deleteRecipe(id: string, businessId: string): Promise<void>;
+  findRecipesByIngredient(ingredientId: string, businessId: string): Promise<RecipeRecord[]>;
 }

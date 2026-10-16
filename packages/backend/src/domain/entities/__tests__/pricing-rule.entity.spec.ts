@@ -241,13 +241,93 @@ describe('PricingRule', () => {
         null,
       );
 
-      const withinTime = new Date('2026-06-15T15:00:00');
-      const beforeTime = new Date('2026-06-15T13:00:00');
-      const afterTime = new Date('2026-06-15T17:00:00');
+      // Explicit WIB offsets: evaluation must not depend on the server timezone.
+      const withinTime = new Date('2026-06-15T15:00:00+07:00');
+      const beforeTime = new Date('2026-06-15T13:00:00+07:00');
+      const afterTime = new Date('2026-06-15T17:00:00+07:00');
 
       expect(rule.isApplicableAt(withinTime)).toBe(true);
       expect(rule.isApplicableAt(beforeTime)).toBe(false);
       expect(rule.isApplicableAt(afterTime)).toBe(false);
+    });
+  });
+
+  describe('isApplicableAt (business timezone)', () => {
+    const timeRule = (days: number[], from: string | null, until: string | null) =>
+      new PricingRule(
+        'rule-tz',
+        'business-1',
+        'TZ Rule',
+        PricingRuleType.TIME_BASED,
+        10,
+        PricingRuleStatus.ACTIVE,
+        validFrom,
+        validUntil,
+        {},
+        DiscountType.PERCENTAGE,
+        10,
+        null,
+        null,
+        days,
+        from,
+        until,
+        [],
+        [],
+        [],
+        [],
+        false,
+        null,
+      );
+
+    it('evaluates the happy-hour window in WIB even when the instant is given in UTC', () => {
+      const rule = timeRule([], '15:00', '17:00');
+      // 08:30Z = 15:30 WIB -> inside; 15:30Z = 22:30 WIB -> outside
+      expect(rule.isApplicableAt(new Date('2026-06-15T08:30:00Z'))).toBe(true);
+      expect(rule.isApplicableAt(new Date('2026-06-15T15:30:00Z'))).toBe(false);
+    });
+
+    it('uses the WIB weekday', () => {
+      // Friday 20:00Z is already Saturday 03:00 WIB
+      const weekdaysOnly = timeRule([1, 2, 3, 4, 5], null, null);
+      expect(weekdaysOnly.isApplicableAt(new Date('2026-06-19T20:00:00Z'))).toBe(false);
+      expect(weekdaysOnly.isApplicableAt(new Date('2026-06-19T10:00:00Z'))).toBe(true);
+    });
+
+    it('supports overnight windows (22:00-02:00)', () => {
+      const rule = timeRule([], '22:00', '02:00');
+      expect(rule.isApplicableAt(new Date('2026-06-15T23:30:00+07:00'))).toBe(true);
+      expect(rule.isApplicableAt(new Date('2026-06-16T01:15:00+07:00'))).toBe(true);
+      expect(rule.isApplicableAt(new Date('2026-06-16T12:00:00+07:00'))).toBe(false);
+    });
+  });
+
+  describe('calculateDiscount caps', () => {
+    it('never returns a fixed discount above the price', () => {
+      const rule = new PricingRule(
+        'rule-cap',
+        'business-1',
+        'Cap',
+        PricingRuleType.TIME_BASED,
+        10,
+        PricingRuleStatus.ACTIVE,
+        validFrom,
+        validUntil,
+        {},
+        DiscountType.FIXED_AMOUNT,
+        150000,
+        null,
+        null,
+        [],
+        null,
+        null,
+        [],
+        [],
+        [],
+        [],
+        false,
+        null,
+      );
+      expect(rule.calculateDiscount(Money.create(100000)).amount).toBe(100000);
     });
   });
 
@@ -527,70 +607,6 @@ describe('PricingRule', () => {
       const originalPrice = Money.create(100000);
       const discount = rule.calculateDiscount(originalPrice);
       expect(discount.amount).toBe(15000);
-    });
-  });
-
-  describe('applyDiscount', () => {
-    it('should apply discount and return final price', () => {
-      const rule = new PricingRule(
-        'rule-1',
-        'business-1',
-        'Test Rule',
-        PricingRuleType.TIME_BASED,
-        10,
-        PricingRuleStatus.ACTIVE,
-        validFrom,
-        validUntil,
-        {},
-        DiscountType.PERCENTAGE,
-        30,
-        null,
-        null,
-        [],
-        null,
-        null,
-        [],
-        [],
-        [],
-        [],
-        false,
-        null,
-      );
-
-      const originalPrice = Money.create(100000);
-      const finalPrice = rule.applyDiscount(originalPrice);
-      expect(finalPrice.amount).toBe(70000);
-    });
-
-    it('should not return negative price', () => {
-      const rule = new PricingRule(
-        'rule-1',
-        'business-1',
-        'Test Rule',
-        PricingRuleType.TIME_BASED,
-        10,
-        PricingRuleStatus.ACTIVE,
-        validFrom,
-        validUntil,
-        {},
-        DiscountType.FIXED_AMOUNT,
-        150000, // Discount > original price
-        null,
-        null,
-        [],
-        null,
-        null,
-        [],
-        [],
-        [],
-        [],
-        false,
-        null,
-      );
-
-      const originalPrice = Money.create(100000);
-      const finalPrice = rule.applyDiscount(originalPrice);
-      expect(finalPrice.amount).toBe(0);
     });
   });
 });

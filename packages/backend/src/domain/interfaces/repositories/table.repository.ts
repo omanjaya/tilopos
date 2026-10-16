@@ -32,8 +32,9 @@ export interface UpdateTableData {
   isActive?: boolean;
 }
 
+/** By-id methods are tenant scoped (R3): they only match tables of an outlet of `businessId`. */
 export interface ITableRepository {
-  findById(id: string): Promise<TableRecord | null>;
+  findById(id: string, businessId: string): Promise<TableRecord | null>;
   findByOutlet(outletId: string, activeOnly?: boolean): Promise<TableRecord[]>;
   findBySection(outletId: string, section: string): Promise<TableRecord[]>;
   findByStatus(
@@ -41,11 +42,14 @@ export interface ITableRepository {
     status: 'available' | 'occupied' | 'reserved' | 'cleaning',
   ): Promise<TableRecord[]>;
   create(data: CreateTableData): Promise<TableRecord>;
-  update(id: string, data: UpdateTableData): Promise<TableRecord>;
-  delete(id: string): Promise<void>;
+  /** Throws NotFound when the table is not in the business. */
+  update(id: string, data: UpdateTableData, businessId: string): Promise<TableRecord>;
+  /** Soft delete (isActive = false). Throws NotFound when the table is not in the business. */
+  delete(id: string, businessId: string): Promise<void>;
   updateStatus(
     id: string,
     status: 'available' | 'occupied' | 'reserved' | 'cleaning',
-    currentOrderId?: string,
+    currentOrderId: string | undefined,
+    businessId: string,
   ): Promise<TableRecord>;
 }

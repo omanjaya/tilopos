@@ -58,9 +58,15 @@ export class OutletAccessGuard {
    * - If user is owner/super_admin: returns requestedOutletId (can be undefined to see all)
    * - If user is non-owner: returns user.outletId (enforces their outlet)
    *
+   * CONTRACT: for owners the requested id is returned UNVERIFIED. Callers must
+   * also filter by `businessId` (or `outlet: { businessId }`) — or, preferably,
+   * use `TenantAccessService.resolveOutletIds(user, outletId)` (@shared/tenant),
+   * which verifies ownership and never yields an unscoped filter.
+   *
    * @param user - Current authenticated user
    * @param requestedOutletId - Optional outlet ID from query/param
    * @returns The outlet ID to use for filtering, or undefined to see all (owner only)
+   * @deprecated Use TenantAccessService.resolveOutletIds in new code.
    */
   static getAccessibleOutletId(user: AuthUser, requestedOutletId?: string): string | undefined {
     // Owner/super_admin can request specific outlet or see all

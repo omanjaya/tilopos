@@ -4,11 +4,7 @@ export interface IAuditLogRepository {
     employeeId: string,
     options?: { page?: number; limit?: number },
   ): Promise<{ data: AuditLogRecord[]; total: number }>;
-  findByEntity(
-    entityType: string,
-    entityId: string,
-    businessId?: string,
-  ): Promise<AuditLogRecord[]>;
+  findByEntity(entityType: string, entityId: string, businessId: string): Promise<AuditLogRecord[]>;
   findByDateRange(businessId: string, start: Date, end: Date): Promise<AuditLogRecord[]>;
 }
 

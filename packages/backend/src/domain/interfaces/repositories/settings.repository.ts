@@ -62,106 +62,6 @@ export interface LoyaltyTierRecord {
   updatedAt: Date;
 }
 
-export interface ISettingsRepository {
-  findBusiness(businessId: string): Promise<BusinessRecord>;
-  updateBusiness(businessId: string, data: UpdateBusinessData): Promise<BusinessRecord>;
-  findOutlets(businessId: string): Promise<OutletRecord[]>;
-  findOutletById(id: string): Promise<OutletRecord | null>;
-  createOutlet(data: CreateOutletData): Promise<OutletRecord>;
-  updateOutlet(
-    id: string,
-    data: {
-      name?: string;
-      code?: string;
-      address?: string;
-      phone?: string;
-      taxRate?: number;
-      serviceCharge?: number;
-      isActive?: boolean;
-    },
-  ): Promise<OutletRecord>;
-  deleteOutlet(id: string): Promise<void>;
-  findModifierGroups(businessId: string): Promise<ModifierGroupRecord[]>;
-  createModifierGroup(data: CreateModifierGroupData): Promise<ModifierGroupRecord>;
-  updateModifierGroup(id: string, data: UpdateModifierGroupData): Promise<ModifierGroupRecord>;
-  deleteModifierGroup(id: string): Promise<void>;
-  findLoyaltyProgram(businessId: string): Promise<LoyaltyProgramRecord | null>;
-  createLoyaltyProgram(data: CreateLoyaltyProgramData): Promise<LoyaltyProgramRecord>;
-  updateLoyaltyProgram(
-    businessId: string,
-    data: UpdateLoyaltyProgramData,
-  ): Promise<LoyaltyProgramRecord>;
-  findLoyaltyTiers(businessId: string): Promise<LoyaltyTierRecord[]>;
-  createLoyaltyTier(data: CreateLoyaltyTierData): Promise<LoyaltyTierRecord>;
-  updateLoyaltyTier(id: string, data: UpdateLoyaltyTierData): Promise<LoyaltyTierRecord>;
-  deleteLoyaltyTier(id: string): Promise<void>;
-  // Tax Configuration
-  getTaxConfig(outletId: string): Promise<TaxConfig>;
-  updateTaxConfig(outletId: string, data: UpdateTaxConfigData): Promise<TaxConfig>;
-  getBusinessTaxConfig(businessId: string): Promise<BusinessTaxConfig>;
-  updateBusinessTaxConfig(
-    businessId: string,
-    data: UpdateBusinessTaxConfigData,
-  ): Promise<BusinessTaxConfig>;
-  // Receipt Template
-  getReceiptTemplate(outletId: string): Promise<ReceiptTemplate>;
-  updateReceiptTemplate(
-    outletId: string,
-    data: UpdateReceiptTemplateData,
-  ): Promise<ReceiptTemplate>;
-  getOutletReceiptTemplate(outletId: string): Promise<OutletReceiptTemplate>;
-  updateOutletReceiptTemplate(
-    outletId: string,
-    data: UpdateOutletReceiptTemplateData,
-  ): Promise<OutletReceiptTemplate>;
-  // Operating Hours
-  getOperatingHours(outletId: string): Promise<OperatingHours[]>;
-  updateOperatingHours(outletId: string, data: OperatingHoursData[]): Promise<void>;
-  getOutletOperatingHours(outletId: string): Promise<OutletOperatingHoursEntry[]>;
-  updateOutletOperatingHours(
-    outletId: string,
-    data: OutletOperatingHoursEntry[],
-  ): Promise<OutletOperatingHoursEntry[]>;
-  // Payment Methods
-  getPaymentMethods(businessId: string): Promise<PaymentMethodConfig[]>;
-  updatePaymentMethods(businessId: string, data: PaymentMethodConfig[]): Promise<void>;
-  getBusinessPaymentMethods(businessId: string): Promise<BusinessPaymentMethod[]>;
-  createBusinessPaymentMethod(
-    businessId: string,
-    data: CreateBusinessPaymentMethodData,
-  ): Promise<BusinessPaymentMethod>;
-  updateBusinessPaymentMethod(
-    businessId: string,
-    id: string,
-    data: UpdateBusinessPaymentMethodData,
-  ): Promise<BusinessPaymentMethod>;
-  deleteBusinessPaymentMethod(businessId: string, id: string): Promise<void>;
-  // Printer Configs
-  getPrinterConfigs(businessId: string): Promise<PrinterConfigRecord[]>;
-  createPrinterConfig(
-    businessId: string,
-    data: CreatePrinterConfigInput,
-  ): Promise<PrinterConfigRecord>;
-  updatePrinterConfig(
-    businessId: string,
-    id: string,
-    data: UpdatePrinterConfigInput,
-  ): Promise<PrinterConfigRecord>;
-  deletePrinterConfig(businessId: string, id: string): Promise<void>;
-  // Report Schedules
-  getReportSchedules(businessId: string): Promise<ReportScheduleRecord[]>;
-  createReportSchedule(
-    businessId: string,
-    data: CreateReportScheduleInput,
-  ): Promise<ReportScheduleRecord>;
-  updateReportSchedule(
-    businessId: string,
-    id: string,
-    data: UpdateReportScheduleInput,
-  ): Promise<ReportScheduleRecord>;
-  deleteReportSchedule(businessId: string, id: string): Promise<void>;
-}
-
 export interface UpdateBusinessData {
   name?: string;
   phone?: string;
@@ -193,6 +93,12 @@ export interface CreateModifierGroupData {
 export interface UpdateModifierGroupData {
   name?: string;
   isActive?: boolean;
+  selectionType?: string;
+  minSelection?: number;
+  maxSelection?: number | null;
+  isRequired?: boolean;
+  /** Full replacement list: with id = update, without id = create, missing = deactivated. */
+  modifiers?: { id?: string; name: string; price: number }[];
 }
 
 export interface CreateLoyaltyProgramData {

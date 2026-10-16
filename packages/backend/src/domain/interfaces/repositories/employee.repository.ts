@@ -1,10 +1,11 @@
 export interface IEmployeeRepository {
-  findById(id: string): Promise<EmployeeRecord | null>;
+  /** Pass businessId whenever the id comes from a client (R3). */
+  findById(id: string, businessId?: string): Promise<EmployeeRecord | null>;
   findByEmail(email: string): Promise<EmployeeRecord | null>;
   findByGoogleId(googleId: string): Promise<EmployeeRecord | null>;
   findByBusinessId(businessId: string): Promise<EmployeeRecord[]>;
   save(employee: EmployeeRecord): Promise<EmployeeRecord>;
-  update(id: string, data: Partial<EmployeeRecord>): Promise<EmployeeRecord>;
+  update(id: string, data: Partial<EmployeeRecord>, businessId?: string): Promise<EmployeeRecord>;
 }
 
 export interface EmployeeRecord {

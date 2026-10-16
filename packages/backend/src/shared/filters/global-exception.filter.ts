@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -35,20 +36,40 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code = (resp.code as string) || `HTTP_${status}`;
         details = resp.details;
       }
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      // Map well-known Prisma errors; never echo the raw message (it leaks
+      // table/column/constraint names and values).
+      if (exception.code === 'P2002') {
+        status = HttpStatus.CONFLICT;
+        code = 'CONFLICT';
+        message = 'Resource already exists';
+      } else if (exception.code === 'P2025') {
+        status = HttpStatus.NOT_FOUND;
+        code = 'NOT_FOUND';
+        message = 'Resource not found';
+      }
     } else if (exception instanceof Error) {
-      message = exception.message;
       const errWithCode = exception as Error & { statusCode?: number; code?: string };
-      if (errWithCode.statusCode) {
+      if (
+        typeof errWithCode.statusCode === 'number' &&
+        errWithCode.statusCode >= 400 &&
+        errWithCode.statusCode < 500
+      ) {
+        // Deliberate client errors thrown as plain Errors keep their message.
         status = errWithCode.statusCode;
+        message = exception.message;
+        if (typeof errWithCode.code === 'string') {
+          code = errWithCode.code;
+        }
       }
-      if (errWithCode.code) {
-        code = errWithCode.code;
-      }
+      // Anything else is a 5xx: the generic message is returned and the
+      // details are only logged server-side.
     }
 
     if (status >= 500) {
+      const internalMessage = exception instanceof Error ? exception.message : message;
       this.logger.error(
-        `[${correlationId}] ${request.method} ${request.url} ${status} - ${message}`,
+        `[${correlationId}] ${request.method} ${request.url} ${status} - ${internalMessage}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else {

@@ -203,6 +203,7 @@ export const BUSINESS_TYPE_PRESETS: BusinessTypePreset[] = [
     defaultFeatures: [
       'appointments',
       'staff_assignment',
+      'staff_commission',
       'service_duration',
       'waiting_list',
       'customer_loyalty',
@@ -218,7 +219,7 @@ export const BUSINESS_TYPE_PRESETS: BusinessTypePreset[] = [
     category: 'service',
     examples: ['Laundry Kiloan', 'Dry Cleaning', 'Laundry Sepatu'],
     defaultFeatures: ['item_tracking', 'customer_loyalty', 'promotions'],
-    optionalFeatures: ['appointments', 'stock_management', 'vouchers'],
+    optionalFeatures: ['appointments', 'stock_management', 'vouchers', 'staff_commission'],
   },
   {
     code: 'service_workshop',
@@ -234,7 +235,7 @@ export const BUSINESS_TYPE_PRESETS: BusinessTypePreset[] = [
       'supplier_management',
       'customer_loyalty',
     ],
-    optionalFeatures: ['staff_assignment', 'serial_number', 'purchase_orders'],
+    optionalFeatures: ['staff_assignment', 'staff_commission', 'serial_number', 'purchase_orders'],
   },
 
   // ============================================================================

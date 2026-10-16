@@ -1,11 +1,10 @@
 export interface IProductRepository {
-  findById(id: string): Promise<ProductRecord | null>;
+  findById(id: string, businessId: string): Promise<ProductRecord | null>;
   findByBusinessId(businessId: string): Promise<ProductRecord[]>;
-  findByCategoryId(categoryId: string): Promise<ProductRecord[]>;
   findBySku(businessId: string, sku: string): Promise<ProductRecord | null>;
   save(product: ProductRecord): Promise<ProductRecord>;
-  update(id: string, data: Partial<ProductRecord>): Promise<ProductRecord>;
-  delete(id: string): Promise<void>;
+  update(id: string, data: Partial<ProductRecord>, businessId: string): Promise<ProductRecord>;
+  delete(id: string, businessId: string): Promise<void>;
 }
 
 export interface ProductVariantRecord {

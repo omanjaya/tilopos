@@ -37,7 +37,12 @@ export class PricingCalculatorService {
    * Rules are applied in priority order (highest first)
    * Non-combinable rules stop further rule application
    */
-  calculatePrice(context: PricingContext, rules: PricingRule[]): PricingResult {
+  calculatePrice(
+    context: PricingContext,
+    rules: PricingRule[],
+    /** Applications per rule across the whole cart (shared by batch/cart callers). */
+    applicationCounts: Map<string, number> = new Map(),
+  ): PricingResult {
     // Filter and sort rules by priority (highest first)
     const eligibleRules = this.getEligibleRules(context, rules);
 
@@ -48,15 +53,16 @@ export class PricingCalculatorService {
     // Apply rules in order
     let currentPrice = context.originalPrice;
     const appliedRules: AppliedRule[] = [];
-    let ruleApplicationCount = 0;
 
     for (const rule of eligibleRules) {
-      // Check max applications per transaction
+      // A rule may be limited to N applications per transaction (cart); skip it
+      // once exhausted but keep evaluating the other rules.
+      const used = applicationCounts.get(rule.id) ?? 0;
       if (
         rule.maxApplicationsPerTransaction !== null &&
-        ruleApplicationCount >= rule.maxApplicationsPerTransaction
+        used >= rule.maxApplicationsPerTransaction
       ) {
-        break;
+        continue;
       }
 
       // Calculate discount for this rule
@@ -77,7 +83,7 @@ export class PricingCalculatorService {
       });
 
       currentPrice = finalNewPrice;
-      ruleApplicationCount++;
+      applicationCounts.set(rule.id, used + 1);
 
       // Stop if rule is not combinable
       if (!rule.isCombinable) {
@@ -108,9 +114,10 @@ export class PricingCalculatorService {
     rules: PricingRule[],
   ): Map<string, PricingResult> {
     const results = new Map<string, PricingResult>();
+    const applicationCounts = new Map<string, number>();
 
     for (const context of contexts) {
-      const result = this.calculatePrice(context, rules);
+      const result = this.calculatePrice(context, rules, applicationCounts);
       results.set(context.productId, result);
     }
 

@@ -44,19 +44,3 @@ export interface CustomerOutstandingSummary {
   creditSaleCount: number;
   oldestDate: Date | null;
 }
-
-export interface ICreditSaleRepository {
-  findById(id: string): Promise<CreditSaleRecord | null>;
-  findByTransactionId(transactionId: string): Promise<CreditSaleRecord | null>;
-  findAll(filters: CreditSaleFilters): Promise<CreditSaleRecord[]>;
-  findByCustomerId(
-    customerId: string,
-    status?: string,
-    businessId?: string,
-  ): Promise<CreditSaleRecord[]>;
-  getCustomerOutstanding(
-    businessId: string,
-    outletId?: string,
-  ): Promise<CustomerOutstandingSummary[]>;
-  getPayments(creditSaleId: string): Promise<CreditPaymentRecord[]>;
-}
