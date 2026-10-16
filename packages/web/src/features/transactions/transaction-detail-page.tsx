@@ -30,6 +30,7 @@ import {
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
 import {
   ArrowLeft,
   XCircle,
@@ -45,25 +46,28 @@ import {
   UserCheck,
 } from 'lucide-react';
 import type { TransactionStatus } from '@/types/transaction.types';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
+import { ErrorState } from '@/components/shared/error-state';
+import { isAxiosError } from 'axios';
+import { RefundDialog } from './components/refund-dialog';
+import { useReprint } from './components/use-reprint';
 
 const STATUS_MAP: Record<TransactionStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   completed: { label: 'Selesai', variant: 'default' },
   voided: { label: 'Void', variant: 'destructive' },
   refunded: { label: 'Refund', variant: 'outline' },
-  held: { label: 'Ditahan', variant: 'secondary' },
-  partial_refund: { label: 'Refund Sebagian', variant: 'secondary' },
+  partially_refunded: { label: 'Refund Sebagian', variant: 'secondary' },
+  pending: { label: 'Menunggu Pembayaran', variant: 'secondary' },
+  credit: { label: 'BON', variant: 'secondary' },
+  partially_paid: { label: 'Dibayar Sebagian', variant: 'secondary' },
+  split: { label: 'Dipisah', variant: 'outline' },
 };
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: 'Tunai',
-  qris: 'QRIS',
-  debit_card: 'Kartu Debit',
-  credit_card: 'Kartu Kredit',
-  gopay: 'GoPay',
-  ovo: 'OVO',
-  dana: 'DANA',
-  shopeepay: 'ShopeePay',
-  linkaja: 'LinkAja',
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  pending: 'Menunggu konfirmasi',
+  failed: 'Gagal',
+  refunded: 'Dikembalikan',
 };
 
 export function TransactionDetailPage() {
@@ -73,9 +77,12 @@ export function TransactionDetailPage() {
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
-  const [refundReason, setRefundReason] = useState('');
+  const role = useAuthStore((s) => s.user?.role);
+  // Backend POST /pos/void and /pos/refunds: @Roles(SUPERVISOR, MANAGER, OWNER)
+  const canVoidOrRefund = hasRole(role, 'SUPERVISION');
+  const { reprint, loadingId: reprintLoadingId, dialog: reprintDialog } = useReprint();
 
-  const { data: transaction, isLoading } = useQuery({
+  const { data: transaction, isLoading, error, refetch } = useQuery({
     queryKey: ['transaction', id],
     queryFn: () => transactionsApi.get(id!),
     enabled: !!id,
@@ -94,30 +101,8 @@ export function TransactionDetailPage() {
     onError: (error) => handleMutationError(error, 'Gagal void transaksi'),
   });
 
-  const refundMutation = useMutation({
-    mutationFn: (data: { transactionId: string; items: { transactionItemId: string; quantity: number }[]; reason: string }) =>
-      transactionsApi.refund(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transaction', id] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast.success({ title: 'Refund berhasil diproses' });
-      setRefundDialogOpen(false);
-      setRefundReason('');
-    },
-    onError: (error) => handleMutationError(error, 'Gagal memproses refund'),
-  });
-
-  const handleReprint = async () => {
-    if (!id) return;
-    try {
-      await transactionsApi.reprint(id);
-      toast.success({ title: 'Struk berhasil dicetak ulang' });
-    } catch {
-      toast.error({
-        title: 'Gagal cetak ulang',
-        description: 'Terjadi kesalahan saat mencetak ulang struk',
-      });
-    }
+  const handleReprint = () => {
+    if (id) void reprint(id);
   };
 
   if (isLoading) {
@@ -141,6 +126,20 @@ export function TransactionDetailPage() {
     );
   }
 
+  const isNotFound = isAxiosError(error) && error.response?.status === 404;
+  if (error && !isNotFound) {
+    return (
+      <div>
+        <PageHeader title="Detail Transaksi">
+          <Button variant="outline" onClick={() => navigate('/app/transactions')}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+          </Button>
+        </PageHeader>
+        <ErrorState error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
   if (!transaction) {
     return (
       <div>
@@ -153,7 +152,7 @@ export function TransactionDetailPage() {
     );
   }
 
-  const status = STATUS_MAP[transaction.status];
+  const status = STATUS_MAP[transaction.status] ?? { label: transaction.status, variant: 'secondary' as const };
   const isCompleted = transaction.status === 'completed';
 
   return (
@@ -165,15 +164,15 @@ export function TransactionDetailPage() {
         <Button variant="outline" onClick={() => navigate('/app/transactions')}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
         </Button>
-        <Button variant="outline" onClick={handleReprint}>
+        <Button variant="outline" onClick={handleReprint} disabled={!!reprintLoadingId}>
           <Printer className="mr-2 h-4 w-4" /> Cetak Ulang
         </Button>
-        {isCompleted && (
+        {canVoidOrRefund && isCompleted && (
           <Button variant="outline" onClick={() => setVoidDialogOpen(true)}>
             <XCircle className="mr-2 h-4 w-4" /> Void
           </Button>
         )}
-        {isCompleted && (
+        {canVoidOrRefund && isCompleted && (
           <Button variant="outline" onClick={() => setRefundDialogOpen(true)}>
             <RotateCcw className="mr-2 h-4 w-4" /> Refund
           </Button>
@@ -232,6 +231,11 @@ export function TransactionDetailPage() {
             title="Total"
             value={formatCurrency(transaction.totalAmount)}
             icon={Wallet}
+            description={
+              transaction.roundingAmount
+                ? `Termasuk pembulatan ${formatCurrency(transaction.roundingAmount)}`
+                : undefined
+            }
           />
         </div>
 
@@ -325,7 +329,12 @@ export function TransactionDetailPage() {
                     transaction.payments.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell className="font-medium">
-                          {PAYMENT_METHOD_LABELS[payment.method] || payment.method}
+                          {paymentMethodLabel(payment.method)}
+                          {payment.status !== 'completed' && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              {PAYMENT_STATUS_LABELS[payment.status] ?? payment.status}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {formatCurrency(payment.amount)}
@@ -392,58 +401,18 @@ export function TransactionDetailPage() {
               disabled={voidMutation.isPending || !voidReason.trim()}
             >
               {voidMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Void Transaksi
+              {voidMutation.isPending ? 'Memproses void...' : 'Void Transaksi'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Refund Dialog */}
-      <Dialog open={refundDialogOpen} onOpenChange={(open) => { if (!open) { setRefundDialogOpen(false); setRefundReason(''); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Refund Transaksi</DialogTitle>
-            <DialogDescription>
-              Refund seluruh item dari transaksi "{transaction.transactionNumber}".
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="detail-refund-reason">Alasan Refund</Label>
-            <Textarea
-              id="detail-refund-reason"
-              placeholder="Masukkan alasan refund..."
-              value={refundReason}
-              onChange={(e) => setRefundReason(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => { setRefundDialogOpen(false); setRefundReason(''); }}
-              disabled={refundMutation.isPending}
-            >
-              Batal
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                refundMutation.mutate({
-                  transactionId: transaction.id,
-                  items: transaction.items.map((item) => ({
-                    transactionItemId: item.id,
-                    quantity: item.quantity,
-                  })),
-                  reason: refundReason,
-                })
-              }
-              disabled={refundMutation.isPending || !refundReason.trim()}
-            >
-              {refundMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Proses Refund
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RefundDialog
+        transaction={refundDialogOpen ? transaction : null}
+        onClose={() => setRefundDialogOpen(false)}
+      />
+
+      {reprintDialog}
     </div>
   );
 }

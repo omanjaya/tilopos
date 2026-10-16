@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ShoppingCart, Instagram, Facebook, MessageCircle } from 'lucide-react';
+import { safeHttpsUrl, whatsappUrl } from '../lib/safe-links';
 
 interface StorefrontHeaderProps {
   storefront: Storefront;
@@ -19,10 +20,13 @@ export function StorefrontHeader({
   cartItemCount,
   onCartOpen,
 }: StorefrontHeaderProps) {
+  const instagram = safeHttpsUrl(storefront.socialLinks.instagram);
+  const facebook = safeHttpsUrl(storefront.socialLinks.facebook);
+  const whatsapp = whatsappUrl(storefront.socialLinks.whatsapp);
+
   return (
     <header className="bg-white shadow-sm">
       <div className="mx-auto max-w-7xl px-4 py-6">
-        {/* Banner */}
         {storefront.banner && (
           <img
             src={storefront.banner}
@@ -32,7 +36,6 @@ export function StorefrontHeader({
         )}
 
         <div className="flex items-center gap-6">
-          {/* Logo */}
           <div className="relative">
             <img
               src={storefront.logo || '/placeholder-store.png'}
@@ -42,40 +45,41 @@ export function StorefrontHeader({
             />
           </div>
 
-          {/* Store Info */}
           <div className="flex-1">
             <h1 className="text-2xl font-bold">{storefront.name}</h1>
             {storefront.description && (
               <p className="text-muted-foreground">{storefront.description}</p>
             )}
 
-            {/* Social Links */}
             <div className="flex gap-3 mt-2">
-              {storefront.instagramUrl && (
+              {instagram && (
                 <a
-                  href={storefront.instagramUrl}
+                  href={instagram}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Instagram"
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <Instagram className="h-5 w-5" />
                 </a>
               )}
-              {storefront.facebookUrl && (
+              {facebook && (
                 <a
-                  href={storefront.facebookUrl}
+                  href={facebook}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Facebook"
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <Facebook className="h-5 w-5" />
                 </a>
               )}
-              {storefront.whatsappNumber && (
+              {whatsapp && (
                 <a
-                  href={`https://wa.me/${storefront.whatsappNumber}`}
+                  href={whatsapp}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="WhatsApp"
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <MessageCircle className="h-5 w-5" />
@@ -84,10 +88,10 @@ export function StorefrontHeader({
             </div>
           </div>
 
-          {/* Search & Cart */}
           <div className="flex items-center gap-4">
             <div className="w-64">
               <Input
+                aria-label="Cari produk"
                 placeholder="Cari produk..."
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}

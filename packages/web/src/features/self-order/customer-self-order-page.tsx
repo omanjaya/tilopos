@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { SelfOrderMenuItem } from '@/types/self-order.types';
+import type { SelfOrderMenuItem, SelfOrderMenuVariant } from '@/types/self-order.types';
+import { ErrorState } from '@/components/shared/error-state';
 import {
   CartDrawer,
   LoadingState,
@@ -11,7 +12,6 @@ import {
   OrderConfirmation,
   ProductDetailModal,
   ProductLightbox,
-  ProductRecommendations,
   SessionNotFound,
   StickyCartFooter,
 } from './components';
@@ -38,7 +38,14 @@ export function CustomerSelfOrderPage() {
   const [showOfflineError, setShowOfflineError] = useState(false);
 
   // Custom hooks
-  const { session, isLoading: sessionLoading } = useSession(sessionCode);
+  const {
+    session,
+    isLoading: sessionLoading,
+    isError: sessionIsError,
+    isNotFound,
+    error: sessionError,
+    refetch: refetchSession,
+  } = useSession(sessionCode);
   const {
     filteredItems,
     categories,
@@ -47,6 +54,9 @@ export function CustomerSelfOrderPage() {
     searchQuery,
     setSearchQuery,
     isLoading: menuLoading,
+    isError: menuIsError,
+    error: menuError,
+    refetch: refetchMenu,
   } = useMenu(session?.outletId);
   const {
     cart,
@@ -71,13 +81,11 @@ export function CustomerSelfOrderPage() {
     openLightbox,
   } = useProductDetail();
 
-  const { orderStatus, orderNumber, submitOrder, resetOrder, isSubmitting, isError } = useOrder(
-    sessionCode,
-    () => {
-      clearCart();
-      setIsCartOpen(false);
-    }
-  );
+  // The submitted order (number + server total) is kept in useOrder, so clearing the cart is safe.
+  const { order, errorMessage, submitOrder, isSubmitting, isError } = useOrder(sessionCode, () => {
+    clearCart();
+    setIsCartOpen(false);
+  });
 
   // Handle order submission
   const handleSubmitOrder = () => {
@@ -89,9 +97,8 @@ export function CustomerSelfOrderPage() {
   };
 
   // Handle product detail modal add to cart
-  const handleAddToCartFromDetail = (product: SelfOrderMenuItem) => {
-    addToCart(product);
-    closeProductDetail();
+  const handleAddToCartFromDetail = (product: SelfOrderMenuItem, variant?: SelfOrderMenuVariant) => {
+    if (addToCart(product, 1, undefined, variant)) closeProductDetail();
   };
 
   // Handle lightbox from product detail
@@ -99,26 +106,46 @@ export function CustomerSelfOrderPage() {
     openLightbox([imageUrl], 0);
   };
 
+  // Order success state (checked first: after submit the session is no longer 'active')
+  if (order) {
+    return (
+      <OrderConfirmation
+        orderNumber={order.orderNumber}
+        total={order.total}
+        tableNumber={session?.tableNumber}
+      />
+    );
+  }
+
   // Loading state
   if (sessionLoading || menuLoading) {
     return <LoadingState />;
   }
 
-  // Session not found
-  if (!session && !sessionLoading) {
+  // Session missing/expired vs. a transient failure
+  if (isNotFound) {
     return <SessionNotFound />;
   }
-
-  // Order success state
-  if (orderStatus === 'success' && orderNumber) {
+  if (sessionIsError || !session) {
     return (
-      <OrderConfirmation
-        orderNumber={orderNumber}
-        total={cartTotal}
-        estimatedTime={15}
-        onViewStatus={() => resetOrder()}
-        onNewOrder={() => resetOrder()}
-      />
+      <div className="mx-auto max-w-md p-4">
+        <ErrorState error={sessionError} onRetry={() => refetchSession()} />
+      </div>
+    );
+  }
+
+  // Session already submitted/paid/expired: no more items can be added
+  if (session.status !== 'active') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+        <div className="w-full max-w-md rounded-lg border bg-white p-8 text-center">
+          <h2 className="text-xl font-semibold">Pesanan sudah dikirim</h2>
+          <p className="mt-2 text-gray-600">
+            Sesi pemesanan untuk meja ini sudah ditutup. Untuk menambah pesanan, silakan hubungi
+            staf kami.
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -133,7 +160,7 @@ export function CustomerSelfOrderPage() {
 
       {/* Header */}
       <MenuHeader
-        sessionCode={session?.sessionCode}
+        sessionCode={session.sessionCode}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         categories={categories}
@@ -145,17 +172,20 @@ export function CustomerSelfOrderPage() {
 
       {/* Main Content */}
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Product Recommendations */}
-        {selectedCategory === 'all' && !searchQuery && (
-          <ProductRecommendations outletId={session?.outletId || ''} onAddToCart={addToCart} />
-        )}
-
         {/* Menu Grid */}
-        <MenuGrid
-          items={filteredItems}
-          onProductClick={openProductDetail}
-          onAddToCart={addToCart}
-        />
+        {menuIsError ? (
+          <ErrorState
+            title="Gagal memuat menu"
+            error={menuError}
+            onRetry={() => refetchMenu()}
+          />
+        ) : (
+          <MenuGrid
+            items={filteredItems}
+            onProductClick={openProductDetail}
+            onAddToCart={(product) => addToCart(product)}
+          />
+        )}
       </main>
 
       {/* Sticky Cart Footer */}
@@ -193,6 +223,7 @@ export function CustomerSelfOrderPage() {
         onSubmitOrder={handleSubmitOrder}
         isSubmitting={isSubmitting}
         isError={isError}
+        errorMessage={errorMessage}
         isOnline={isOnline}
       />
     </div>

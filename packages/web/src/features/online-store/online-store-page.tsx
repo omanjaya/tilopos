@@ -17,10 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Store, Plus, ExternalLink, Globe, Loader2 } from 'lucide-react';
+import { Store, Plus, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
-import { useAuthStore } from '@/stores/auth.store';
+import { isAxiosError } from 'axios';
+import { useHasRole } from '@/features/auth/use-permission';
+import { ErrorState } from '@/components/shared/error-state';
 import { onlineStoreApi } from '@/api/endpoints/online-store.api';
 import type { OnlineStore } from '@/types/online-store.types';
 
@@ -33,9 +35,13 @@ function slugify(text: string): string {
     .trim();
 }
 
+/** Public storefront URL (SPA route /store/:slug, see router.tsx). */
+function storefrontUrl(slug: string): string {
+  return `${window.location.origin}/store/${slug}`;
+}
+
 function StoreCard({ store }: { store: OnlineStore }) {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  const storeUrl = `${baseUrl}/online-store/s/${store.slug}`;
+  const storeUrl = storefrontUrl(store.slug);
 
   return (
     <Card>
@@ -63,7 +69,7 @@ function StoreCard({ store }: { store: OnlineStore }) {
           variant="outline"
           size="sm"
           className="gap-2"
-          onClick={() => window.open(storeUrl, '_blank')}
+          onClick={() => window.open(storeUrl, '_blank', 'noopener,noreferrer')}
         >
           <ExternalLink className="h-4 w-4" />
           Lihat Toko
@@ -99,8 +105,8 @@ function LoadingCards() {
 
 export function OnlineStorePage() {
   const queryClient = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const businessId = user?.businessId || '';
+  // POST /online-store/stores is for owner/manager only.
+  const canManage = useHasRole('MANAGEMENT');
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [storeName, setStoreName] = useState('');
@@ -111,6 +117,8 @@ export function OnlineStorePage() {
     data: stores,
     isLoading,
     isError,
+    error,
+    refetch,
   } = useQuery({
     queryKey: ['online-stores'],
     queryFn: () => onlineStoreApi.getStores(),
@@ -123,7 +131,13 @@ export function OnlineStorePage() {
       toast.success({ title: 'Toko berhasil dibuat' });
       closeDialog();
     },
-    onError: (error) => handleMutationError(error, 'Gagal membuat toko'),
+    onError: (error) => {
+      if (isAxiosError(error) && error.response?.status === 409) {
+        toast.error({ title: 'Slug sudah dipakai', description: 'Gunakan slug lain untuk toko ini.' });
+        return;
+      }
+      handleMutationError(error, 'Gagal membuat toko');
+    },
   });
 
   function openDialog() {
@@ -148,7 +162,6 @@ export function OnlineStorePage() {
   function handleSubmit() {
     if (!storeName.trim() || !storeSlug.trim()) return;
     createMutation.mutate({
-      businessId,
       name: storeName.trim(),
       slug: storeSlug.trim(),
       description: storeDescription.trim() || undefined,
@@ -158,10 +171,12 @@ export function OnlineStorePage() {
   return (
     <div>
       <PageHeader title="Toko Online" description="Kelola toko online Anda">
-        <Button onClick={openDialog} className="gap-2" aria-keyshortcuts="N">
-          <Plus className="h-4 w-4" />
-          Buat Toko
-        </Button>
+        {canManage && (
+          <Button onClick={openDialog} className="gap-2" aria-keyshortcuts="N">
+            <Plus className="h-4 w-4" />
+            Buat Toko
+          </Button>
+        )}
       </PageHeader>
 
       {/* Loading */}
@@ -169,15 +184,7 @@ export function OnlineStorePage() {
 
       {/* Error */}
       {isError && (
-        <Card>
-          <CardContent className="py-8">
-            <EmptyState
-              icon={Globe}
-              title="Gagal memuat data toko"
-              description="Terjadi kesalahan saat memuat data. Silakan coba lagi."
-            />
-          </CardContent>
-        </Card>
+        <ErrorState title="Gagal memuat data toko" error={error} onRetry={() => refetch()} />
       )}
 
       {/* Empty */}
@@ -189,10 +196,12 @@ export function OnlineStorePage() {
               title="Belum ada toko online"
               description="Buat toko online pertama Anda untuk mulai menerima pesanan secara online."
               action={
-                <Button onClick={openDialog} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Buat Toko
-                </Button>
+                canManage ? (
+                  <Button onClick={openDialog} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Buat Toko
+                  </Button>
+                ) : undefined
               }
             />
           </CardContent>
@@ -220,8 +229,9 @@ export function OnlineStorePage() {
 
           <div className="space-y-4">
             <div>
-              <Label>Nama Toko</Label>
+              <Label htmlFor="store-name">Nama Toko</Label>
               <Input
+                id="store-name"
                 value={storeName}
                 onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Contoh: Kedai Kopi Nusantara"
@@ -229,20 +239,22 @@ export function OnlineStorePage() {
             </div>
 
             <div>
-              <Label>Slug</Label>
+              <Label htmlFor="store-slug">Slug</Label>
               <Input
+                id="store-slug"
                 value={storeSlug}
                 onChange={(e) => setStoreSlug(slugify(e.target.value))}
                 placeholder="kedai-kopi-nusantara"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                URL toko: /online-store/s/{storeSlug || '...'}
+                URL toko: {storefrontUrl(storeSlug || '...')}
               </p>
             </div>
 
             <div>
-              <Label>Deskripsi</Label>
+              <Label htmlFor="store-description">Deskripsi</Label>
               <Textarea
+                id="store-description"
                 value={storeDescription}
                 onChange={(e) => setStoreDescription(e.target.value)}
                 placeholder="Deskripsi singkat toko Anda"

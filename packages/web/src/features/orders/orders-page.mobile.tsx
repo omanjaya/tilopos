@@ -33,7 +33,11 @@ import {
   Eye,
   ShoppingBag,
 } from 'lucide-react';
-import type { Order, OrderStatus } from '@/types/order.types';
+import type { Order } from '@/types/order.types';
+import { useAuthStore } from '@/stores/auth.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { orderStatusBadge } from './order-labels';
+import { CancelOrderDialog } from './components/cancel-order-dialog';
 
 /**
  * OrdersPage Mobile Version
@@ -46,19 +50,10 @@ import type { Order, OrderStatus } from '@/types/order.types';
  * - Search orders
  */
 
-const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary'; color: string }> = {
-  pending: { label: 'Menunggu', variant: 'secondary', color: 'text-yellow-600' },
-  preparing: { label: 'Diproses', variant: 'outline', color: 'text-blue-600' },
-  ready: { label: 'Siap', variant: 'default', color: 'text-green-600' },
-  served: { label: 'Disajikan', variant: 'default', color: 'text-primary' },
-  completed: { label: 'Selesai', variant: 'default', color: 'text-muted-foreground' },
-  cancelled: { label: 'Dibatalkan', variant: 'destructive', color: 'text-destructive' },
-};
-
 const ORDER_TYPE_MAP: Record<string, { label: string; icon: React.ReactNode }> = {
-  dine_in: { label: 'Dine In', icon: <ChefHat className="h-4 w-4" /> },
-  takeaway: { label: 'Take Away', icon: <ShoppingBag className="h-4 w-4" /> },
-  delivery: { label: 'Delivery', icon: <ShoppingBag className="h-4 w-4" /> },
+  dine_in: { label: 'Makan di Tempat', icon: <ChefHat className="h-4 w-4" /> },
+  takeaway: { label: 'Bawa Pulang', icon: <ShoppingBag className="h-4 w-4" /> },
+  delivery: { label: 'Antar', icon: <ShoppingBag className="h-4 w-4" /> },
 };
 
 const STATUS_TABS: { value: string; label: string }[] = [
@@ -68,16 +63,19 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: 'ready', label: 'Siap' },
 ];
 
+type ForwardStatus = 'preparing' | 'ready' | 'served' | 'completed';
+
 interface StatusAction {
   label: string;
-  status: OrderStatus;
+  status: ForwardStatus | 'cancelled';
   variant: 'default' | 'destructive';
   icon: React.ReactNode;
 }
 
-function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
+function getActionsForStatus(currentStatus: string): StatusAction[] {
   switch (currentStatus) {
     case 'pending':
+    case 'confirmed':
       return [
         { label: 'Proses Pesanan', status: 'preparing', variant: 'default', icon: <Play className="h-5 w-5" /> },
         { label: 'Batalkan Pesanan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="h-5 w-5" /> },
@@ -85,10 +83,12 @@ function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
     case 'preparing':
       return [
         { label: 'Tandai Siap', status: 'ready', variant: 'default', icon: <Check className="h-5 w-5" /> },
+        { label: 'Batalkan Pesanan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="h-5 w-5" /> },
       ];
     case 'ready':
       return [
         { label: 'Tandai Disajikan', status: 'served', variant: 'default', icon: <HandPlatter className="h-5 w-5" /> },
+        { label: 'Batalkan Pesanan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="h-5 w-5" /> },
       ];
     case 'served':
       return [
@@ -103,23 +103,23 @@ export function OrdersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const userOutletId = useAuthStore((s) => s.user?.outletId);
+  // No outlet selected → backend lists every outlet the caller may access.
+  const outletId = selectedOutletId || userOutletId || undefined;
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ order: Order; action: StatusAction } | null>(null);
 
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ['orders', selectedOutletId, statusFilter],
-    queryFn: () =>
-      ordersApi.list({
-        outletId: selectedOutletId || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-      }),
+  const { data: orders, isLoading, error, refetch } = useQuery({
+    queryKey: ['orders', outletId ?? 'all', 'active'],
+    queryFn: () => ordersApi.list({ outletId }),
     refetchInterval: 30000,
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: ForwardStatus }) =>
       ordersApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -131,7 +131,9 @@ export function OrdersPage() {
   });
 
   // Filter by search
+  // Active orders only (backend default); status tabs filter them client-side.
   const filteredOrders = (orders || []).filter((order) => {
+    if (statusFilter !== 'all' && order.status !== statusFilter) return false;
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (
@@ -185,7 +187,9 @@ export function OrdersPage() {
 
       {/* Orders List */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {isLoading ? (
+        {error ? (
+          <ErrorState error={error} onRetry={() => void refetch()} />
+        ) : isLoading ? (
           <div className="space-y-3">
             {[...Array(5)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -242,8 +246,8 @@ export function OrdersPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Status</span>
-                    <Badge variant={STATUS_MAP[selectedOrder.status].variant}>
-                      {STATUS_MAP[selectedOrder.status].label}
+                    <Badge variant={orderStatusBadge(selectedOrder.status).variant}>
+                      {orderStatusBadge(selectedOrder.status).label}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
@@ -261,10 +265,6 @@ export function OrdersPage() {
                       <span className="text-sm font-medium">{selectedOrder.tableName}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Kasir</span>
-                    <span className="text-sm font-medium">{selectedOrder.employeeName}</span>
-                  </div>
                 </div>
 
                 {/* Order Items */}
@@ -304,7 +304,11 @@ export function OrdersPage() {
                         action.variant === 'destructive' &&
                           'text-destructive hover:text-destructive hover:bg-destructive/10'
                       )}
-                      onClick={() => setConfirmAction({ order: selectedOrder, action })}
+                      onClick={() =>
+                        action.status === 'cancelled'
+                          ? setCancelTarget(selectedOrder)
+                          : setConfirmAction({ order: selectedOrder, action })
+                      }
                     >
                       {action.icon && <span className="mr-3">{action.icon}</span>}
                       {action.label}
@@ -321,17 +325,24 @@ export function OrdersPage() {
       <ConfirmDialog
         open={!!confirmAction}
         onOpenChange={(open) => !open && setConfirmAction(null)}
-        onConfirm={() =>
-          confirmAction &&
-          updateStatusMutation.mutate({
-            id: confirmAction.order.id,
-            status: confirmAction.action.status,
-          })
-        }
+        onConfirm={() => {
+          if (confirmAction && confirmAction.action.status !== 'cancelled') {
+            updateStatusMutation.mutate({
+              id: confirmAction.order.id,
+              status: confirmAction.action.status,
+            });
+          }
+        }}
         title={`Konfirmasi ${confirmAction?.action.label}`}
         description={`Apakah Anda yakin ingin ${confirmAction?.action.label.toLowerCase()} pesanan #${confirmAction?.order.orderNumber}?`}
         confirmLabel={confirmAction?.action.label || 'Konfirmasi'}
         isLoading={updateStatusMutation.isPending}
+      />
+
+      <CancelOrderDialog
+        order={cancelTarget}
+        onClose={() => setCancelTarget(null)}
+        onCancelled={() => setSelectedOrder(null)}
       />
     </div>
   );
@@ -347,11 +358,23 @@ interface OrderCardProps {
 }
 
 function OrderCard({ order, onClick }: OrderCardProps) {
-  const status = STATUS_MAP[order.status];
+  const status = orderStatusBadge(order.status);
   const orderType = ORDER_TYPE_MAP[order.orderType];
 
   return (
-    <Card className="overflow-hidden cursor-pointer active:scale-[0.98] transition-transform" onClick={onClick}>
+    <Card
+      className="overflow-hidden cursor-pointer active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label={`Pesanan ${order.orderNumber}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
@@ -379,10 +402,6 @@ function OrderCard({ order, onClick }: OrderCardProps) {
             <span className="text-muted-foreground">{orderType?.label || order.orderType}</span>
             <span className="text-muted-foreground">•</span>
             <span className="text-muted-foreground">{(order.items || []).length} item</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Kasir:</span>
-            <span>{order.employeeName}</span>
           </div>
         </div>
       </CardContent>

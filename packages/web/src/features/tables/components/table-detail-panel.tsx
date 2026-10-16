@@ -17,7 +17,7 @@ export function TableDetailPanel({ table, onClose }: TableDetailPanelProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Detail Meja</CardTitle>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Tutup">
             <X className="h-4 w-4" />
           </Button>
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { shiftsApi } from '@/api/endpoints/shifts.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Button } from '@/components/ui/button';
@@ -72,13 +73,50 @@ export function ShiftsPage() {
 
   const employeeId = user?.employeeId || '';
 
-  const { data: shifts, isLoading } = useQuery({
+  const outletId = selectedOutletId ?? user?.outletId ?? null;
+
+  const {
+    data: shifts,
+    isLoading,
+    error: shiftsError,
+    refetch: refetchShifts,
+  } = useQuery({
     queryKey: ['shifts', employeeId],
     queryFn: () => shiftsApi.list(employeeId),
     enabled: !!employeeId,
   });
 
-  const activeShift = shifts?.find((s) => !s.endedAt) ?? null;
+  // The open shift comes from /employees/shifts/current (source of truth);
+  // the list only enriches it with outlet name and sales totals.
+  const {
+    data: currentShift,
+    isSuccess: currentLoaded,
+    error: currentError,
+    refetch: refetchCurrent,
+  } = useQuery({
+    queryKey: ['shifts', 'current', employeeId],
+    queryFn: () => shiftsApi.current(),
+    enabled: !!employeeId,
+  });
+
+  const activeShift: Shift | null = currentShift
+    ? shifts?.find((s) => s.id === currentShift.id) ?? {
+        id: currentShift.id,
+        employeeId: currentShift.employeeId,
+        employeeName: user?.name ?? '',
+        outletId: currentShift.outletId,
+        outletName: '-',
+        openingCash: Number(currentShift.openingCash) || 0,
+        closingCash: null,
+        expectedCash: null,
+        cashDifference: null,
+        startedAt: currentShift.startedAt,
+        endedAt: null,
+        notes: null,
+        totalSales: 0,
+        totalTransactions: 0,
+      }
+    : null;
 
   const startShiftMutation = useMutation({
     mutationFn: (data: { outletId: string; openingCash: number }) =>
@@ -93,8 +131,8 @@ export function ShiftsPage() {
   });
 
   const endShiftMutation = useMutation({
-    mutationFn: (data: { closingCash: number; notes?: string }) =>
-      shiftsApi.end(employeeId, data),
+    mutationFn: (data: { shiftId: string; closingCash: number; notes?: string }) =>
+      shiftsApi.end(data.shiftId, { closingCash: data.closingCash, notes: data.notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
       toast.success({ title: 'Shift berhasil ditutup' });
@@ -196,12 +234,20 @@ export function ShiftsPage() {
   return (
     <div>
       <PageHeader title="Manajemen Shift" description="Kelola shift karyawan">
-        {!activeShift && (
+        {currentLoaded && !activeShift && (
           <Button onClick={() => setStartShiftOpen(true)}>
             <Play className="mr-2 h-4 w-4" /> Mulai Shift
           </Button>
         )}
       </PageHeader>
+
+      {currentError && (
+        <ErrorState
+          title="Gagal memuat shift aktif"
+          error={currentError}
+          onRetry={() => void refetchCurrent()}
+        />
+      )}
 
       {/* Active Shift */}
       {activeShift && (
@@ -275,6 +321,9 @@ export function ShiftsPage() {
       {/* Shift History */}
       <div>
         <h2 className="mb-4 text-lg font-semibold">Riwayat Shift</h2>
+        {shiftsError && (
+          <ErrorState error={shiftsError} onRetry={() => void refetchShifts()} />
+        )}
         <DataTable
           columns={columns}
           data={historyShifts}
@@ -315,14 +364,14 @@ export function ShiftsPage() {
             </Button>
             <Button
               onClick={() => {
-                if (!selectedOutletId) {
+                if (!outletId) {
                   toast.error({
                     title: 'Pilih outlet terlebih dahulu',
                   });
                   return;
                 }
                 startShiftMutation.mutate({
-                  outletId: selectedOutletId,
+                  outletId,
                   openingCash: Number(openingCash) || 0,
                 });
               }}
@@ -378,12 +427,14 @@ export function ShiftsPage() {
             <Button
               variant="destructive"
               onClick={() => {
+                if (!activeShift) return;
                 endShiftMutation.mutate({
+                  shiftId: activeShift.id,
                   closingCash: Number(closingCash) || 0,
                   notes: endShiftNotes || undefined,
                 });
               }}
-              disabled={endShiftMutation.isPending}
+              disabled={endShiftMutation.isPending || !activeShift}
               aria-busy={endShiftMutation.isPending}
               aria-label={endShiftMutation.isPending ? 'Menutup shift...' : undefined}
             >

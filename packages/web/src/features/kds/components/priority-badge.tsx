@@ -19,7 +19,7 @@ export function PriorityBadge({ priority }: PriorityBadgeProps) {
     return (
       <Badge className="bg-orange-500 text-white font-bold gap-1">
         <AlertTriangle className="h-3 w-3" />
-        Urgent
+        Mendesak
       </Badge>
     );
   }

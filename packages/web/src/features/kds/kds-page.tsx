@@ -33,7 +33,7 @@ export function KDSPage() {
   } = useKdsOrders(outletId);
 
   // Real-time WebSocket updates from /kds namespace
-  useKdsSocket(outletId);
+  const { realtimeError } = useKdsSocket(outletId);
 
   // Sound effects
   useKdsSound(orders);
@@ -70,6 +70,7 @@ export function KDSPage() {
         onBack={() => navigate('/app')}
         onRefresh={refetch}
         isRefreshing={isFetching}
+        realtimeError={realtimeError}
       />
 
       {/* Kitchen Performance Stats */}

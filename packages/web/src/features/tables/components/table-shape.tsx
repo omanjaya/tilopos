@@ -1,7 +1,7 @@
 import { Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { LayoutTable } from '../types/layout.types';
-import { STATUS_COLORS, GRID_COLS, GRID_ROWS } from '../utils/table-layout.utils';
+import { STATUS_COLORS, STATUS_LABELS, GRID_COLS, GRID_ROWS } from '../utils/table-layout.utils';
 
 interface TableShapeProps {
   table: LayoutTable;
@@ -10,7 +10,16 @@ interface TableShapeProps {
   editable: boolean;
   onClick: (table: LayoutTable) => void;
   onDragStart: (table: LayoutTable, clientX: number, clientY: number) => void;
+  /** Arrow-key move by one grid cell (keyboard alternative to dragging). */
+  onKeyboardMove?: (table: LayoutTable, dx: number, dy: number) => void;
 }
+
+const ARROW_DELTAS: Record<string, [number, number]> = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+};
 
 export function TableShape({
   table,
@@ -19,11 +28,30 @@ export function TableShape({
   editable,
   onClick,
   onDragStart,
+  onKeyboardMove,
 }: TableShapeProps) {
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`Meja ${table.name}, ${table.capacity} orang, ${STATUS_LABELS[table.status]}${
+        editable ? '. Gunakan tombol panah untuk memindahkan' : ''
+      }`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(table);
+          return;
+        }
+        const delta = ARROW_DELTAS[e.key];
+        if (delta && editable && onKeyboardMove) {
+          e.preventDefault();
+          onKeyboardMove(table, delta[0], delta[1]);
+        }
+      }}
       className={cn(
-        'absolute rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer transition-shadow',
+        'absolute rounded-lg border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex flex-col items-center justify-center cursor-pointer transition-shadow',
         STATUS_COLORS[table.status],
         isDragging && 'opacity-80 shadow-xl z-30 ring-2 ring-primary',
         isSelected && !isDragging && 'ring-2 ring-primary shadow-lg z-20',

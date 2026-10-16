@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { transactionsApi } from '@/api/endpoints/transactions.api';
+import { transactionsApi, type TransactionListResponse } from '@/api/endpoints/transactions.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButtons } from '@/components/shared/export-buttons';
@@ -37,6 +37,10 @@ import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { formatCurrency, formatTime } from '@/lib/format';
 import { generateFilename } from '@/lib/export-utils';
 import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
+import { ErrorState } from '@/components/shared/error-state';
+import { RefundDialog } from './components/refund-dialog';
+import { useReprint } from './components/use-reprint';
 import {
   MoreHorizontal, Eye, XCircle, RotateCcw, Printer, Loader2,
   Receipt, TrendingUp, ShoppingCart, Ban, Package,
@@ -74,6 +78,10 @@ export function TransactionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const outletName = useAuthStore((s) => s.user?.outletName);
+  const role = useAuthStore((s) => s.user?.role);
+  // Backend POST /pos/void and /pos/refunds: @Roles(SUPERVISOR, MANAGER, OWNER)
+  const canVoidOrRefund = hasRole(role, 'SUPERVISION');
+  const { reprint, dialog: reprintDialog } = useReprint();
 
   // Filters
   const [activeTab, setActiveTab] = useState<TabId>('all');
@@ -84,7 +92,6 @@ export function TransactionsPage() {
   const [voidTarget, setVoidTarget] = useState<Transaction | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [refundTarget, setRefundTarget] = useState<Transaction | null>(null);
-  const [refundReason, setRefundReason] = useState('');
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
@@ -93,20 +100,25 @@ export function TransactionsPage() {
     queryFn: () => settingsApi.getOutlets(),
   });
 
-  // Map status tab → API param
+  // Map status tab → API param (backend accepts one status or a CSV list).
   const statusParam =
     activeTab === 'all' ? undefined
-      : activeTab === 'cancelled' ? ('refunded' as const)
+      : activeTab === 'cancelled' ? 'refunded,partially_refunded'
         : activeTab;
 
   const filters = useMemo(() => ({
     outletId: outletFilter !== 'all' ? outletFilter : undefined,
     status: statusParam,
+    // YYYY-MM-DD = Asia/Jakarta business day (endDate inclusive)
     startDate: selectedDate,
     endDate: selectedDate,
   }), [outletFilter, statusParam, selectedDate]);
 
-  const { data: transactionsData, isLoading, pagination, sort, setSearch } = usePaginatedList<Transaction>({
+  const { data: transactionsData, response: listResponse, isLoading, error, refetch, pagination, setSearch } = usePaginatedList<
+    Transaction,
+    typeof filters,
+    TransactionListResponse
+  >({
     queryKey: ['transactions'],
     queryFn: (params) => transactionsApi.listPaginated({ ...params, ...filters }),
     filters,
@@ -123,10 +135,7 @@ export function TransactionsPage() {
 
   const transactions = transactionsData;
 
-  // For "cancelled" tab, include both refunded and partial_refund
-  const filtered = activeTab === 'cancelled'
-    ? transactions.filter((t) => t.status === 'refunded' || t.status === 'partial_refund')
-    : transactions;
+  const filtered = transactions;
 
   // Flatten voided transaction items for "Item Void" tab
   const voidItems = useMemo<VoidItemRow[]>(() => {
@@ -159,12 +168,13 @@ export function TransactionsPage() {
         netSales: 0,
       };
     }
+    // Server summary covers every page of the current filter
     return {
-      count: filtered.length,
-      totalCollected: filtered.reduce((s, t) => s + t.totalAmount, 0),
-      netSales: filtered.reduce((s, t) => s + t.totalAmount - t.discountAmount, 0),
+      count: listResponse?.summary.count ?? pagination.total,
+      totalCollected: listResponse?.summary.grandTotal ?? 0,
+      netSales: listResponse?.summary.netSales ?? 0,
     };
-  }, [activeTab, filtered, voidItems]);
+  }, [activeTab, voidItems, listResponse, pagination.total]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
 
@@ -179,29 +189,6 @@ export function TransactionsPage() {
     onError: (error) => handleMutationError(error, 'Gagal void transaksi'),
   });
 
-  const refundMutation = useMutation({
-    mutationFn: (data: { transactionId: string; items: { transactionItemId: string; quantity: number }[]; reason: string }) =>
-      transactionsApi.refund(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast.success({ title: 'Refund berhasil diproses' });
-      setRefundTarget(null);
-      setRefundReason('');
-    },
-    onError: (error) => handleMutationError(error, 'Gagal memproses refund'),
-  });
-
-  const handleReprint = async (id: string) => {
-    try {
-      await transactionsApi.reprint(id);
-      toast.success({ title: 'Struk berhasil dicetak ulang' });
-    } catch {
-      toast.error({
-        title: 'Gagal cetak ulang',
-        description: 'Terjadi kesalahan saat mencetak ulang struk',
-      });
-    }
-  };
 
   // ── Action Column (shared for transaction tabs) ─────────────────────────
 
@@ -219,7 +206,7 @@ export function TransactionsPage() {
           <DropdownMenuItem onClick={() => navigate(`/app/transactions/${row.id}`)}>
             <Eye className="mr-2 h-4 w-4" /> Lihat Detail
           </DropdownMenuItem>
-          {row.status === 'completed' && (
+          {canVoidOrRefund && row.status === 'completed' && (
             <DropdownMenuItem
               onClick={() => setVoidTarget(row)}
               className="text-destructive"
@@ -227,12 +214,12 @@ export function TransactionsPage() {
               <XCircle className="mr-2 h-4 w-4" /> Void
             </DropdownMenuItem>
           )}
-          {row.status === 'completed' && (
+          {canVoidOrRefund && row.status === 'completed' && (
             <DropdownMenuItem onClick={() => setRefundTarget(row)}>
               <RotateCcw className="mr-2 h-4 w-4" /> Refund
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={() => handleReprint(row.id)}>
+          <DropdownMenuItem onClick={() => reprint(row.id)}>
             <Printer className="mr-2 h-4 w-4" /> Cetak Ulang
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -266,7 +253,6 @@ export function TransactionsPage() {
     {
       key: 'totalAmount',
       header: 'Total Harga',
-      sortable: true,
       cell: (row) => <span className="font-medium">{formatCurrency(row.totalAmount)}</span>,
     },
     actionColumn,
@@ -356,15 +342,15 @@ export function TransactionsPage() {
       return (
         <div className="grid grid-cols-2 gap-4">
           <SummaryCard icon={Receipt} label="TRANSAKSI" value={summary.count.toString()} />
-          <SummaryCard icon={Ban} label="TOTAL DIBATALKAN" value={formatCurrency(summary.totalCollected)} />
+          <SummaryCard icon={Ban} label="TOTAL DIBATALKAN (HALAMAN INI)" value={formatCurrency(summary.totalCollected)} />
         </div>
       );
     }
     if (activeTab === 'voided') {
       return (
         <div className="grid grid-cols-2 gap-4">
-          <SummaryCard icon={Package} label="TOTAL ITEM VOID" value={summary.count.toString()} />
-          <SummaryCard icon={XCircle} label="TOTAL HARGA VOID" value={formatCurrency(summary.totalCollected)} />
+          <SummaryCard icon={Package} label="ITEM VOID (HALAMAN INI)" value={summary.count.toString()} />
+          <SummaryCard icon={XCircle} label="HARGA VOID (HALAMAN INI)" value={formatCurrency(summary.totalCollected)} />
         </div>
       );
     }
@@ -372,8 +358,8 @@ export function TransactionsPage() {
     return (
       <div className="grid grid-cols-3 gap-4">
         <SummaryCard icon={Receipt} label="TRANSAKSI" value={summary.count.toString()} />
-        <SummaryCard icon={ShoppingCart} label="TOTAL TERKUMPUL" value={formatCurrency(summary.totalCollected)} />
-        <SummaryCard icon={TrendingUp} label="PENJUALAN BERSIH" value={formatCurrency(summary.netSales)} />
+        <SummaryCard icon={ShoppingCart} label="TOTAL TERKUMPUL (HALAMAN INI)" value={formatCurrency(summary.totalCollected)} />
+        <SummaryCard icon={TrendingUp} label="PENJUALAN BERSIH (HALAMAN INI)" value={formatCurrency(summary.netSales)} />
       </div>
     );
   }
@@ -500,13 +486,16 @@ export function TransactionsPage() {
       {renderSummaryCards()}
 
       {/* Data Table — void tab uses different data type */}
-      {activeTab === 'voided' ? (
+      {error ? (
+        <ErrorState error={error} onRetry={refetch} />
+      ) : activeTab === 'voided' ? (
         <DataTable
           columns={voidItemColumns}
           data={voidItems}
           isLoading={isLoading}
           searchPlaceholder="Cari nama item..."
           onSearch={setSearch}
+          pagination={pagination}
           emptyTitle="Data Tidak Ditemukan"
           emptyDescription="Item void akan muncul di sini."
         />
@@ -518,7 +507,6 @@ export function TransactionsPage() {
           searchPlaceholder="Cari no. receipt..."
           onSearch={setSearch}
           pagination={pagination}
-          sort={sort}
           emptyTitle="Data Tidak Ditemukan"
           emptyDescription="Transaksi akan muncul di sini setelah ada penjualan."
         />
@@ -555,64 +543,17 @@ export function TransactionsPage() {
               onClick={() => voidTarget && voidMutation.mutate({ id: voidTarget.id, reason: voidReason })}
               disabled={voidMutation.isPending || !voidReason.trim()}
               aria-busy={voidMutation.isPending}
-              aria-label={voidMutation.isPending ? 'Voiding transaction...' : undefined}
             >
               {voidMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Void Transaksi
+              {voidMutation.isPending ? 'Memproses void...' : 'Void Transaksi'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Refund Dialog */}
-      <Dialog open={!!refundTarget} onOpenChange={(open) => { if (!open) { setRefundTarget(null); setRefundReason(''); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Refund Transaksi</DialogTitle>
-            <DialogDescription>
-              Refund seluruh item dari transaksi &quot;{refundTarget?.transactionNumber}&quot;.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="refund-reason">Alasan Refund</Label>
-            <Textarea
-              id="refund-reason"
-              placeholder="Masukkan alasan refund..."
-              value={refundReason}
-              onChange={(e) => setRefundReason(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => { setRefundTarget(null); setRefundReason(''); }}
-              disabled={refundMutation.isPending}
-            >
-              Batal
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                refundTarget &&
-                refundMutation.mutate({
-                  transactionId: refundTarget.id,
-                  items: (refundTarget.items ?? []).map((item) => ({
-                    transactionItemId: item.id,
-                    quantity: item.quantity,
-                  })),
-                  reason: refundReason,
-                })
-              }
-              disabled={refundMutation.isPending || !refundReason.trim()}
-              aria-busy={refundMutation.isPending}
-              aria-label={refundMutation.isPending ? 'Processing refund...' : undefined}
-            >
-              {refundMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Proses Refund
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RefundDialog transaction={refundTarget} onClose={() => setRefundTarget(null)} />
+
+      {reprintDialog}
     </div>
   );
 }

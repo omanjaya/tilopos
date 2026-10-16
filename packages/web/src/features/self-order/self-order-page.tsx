@@ -26,6 +26,7 @@ import {
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { selfOrderApi } from '@/api/endpoints/self-order.api';
+import { settingsApi } from '@/api/endpoints/settings.api';
 import { formatCurrency } from '@/lib/format';
 import type { SelfOrderMenuItem } from '@/types/self-order.types';
 
@@ -38,7 +39,7 @@ const WORKFLOW_STEPS = [
   {
     icon: Smartphone,
     title: 'Buka menu dan pilih pesanan',
-    description: 'Pelanggan melihat menu lengkap dengan gambar, harga, dan modifier.',
+    description: 'Pelanggan melihat menu lengkap dengan gambar, harga, dan varian.',
   },
   {
     icon: ShoppingCart,
@@ -119,6 +120,11 @@ export function SelfOrderPage() {
     enabled: !!previewOutletId && showMenu,
   });
 
+  const { data: outlets, isError: outletsError } = useQuery({
+    queryKey: ['settings-outlets'],
+    queryFn: () => settingsApi.getOutlets(),
+  });
+
   function handlePreviewMenu() {
     if (!previewOutletId) return;
     setShowMenu(true);
@@ -164,53 +170,6 @@ export function SelfOrderPage() {
         </CardContent>
       </Card>
 
-      {/* QR Code Generator */}
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <QrCode className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-base">QR Code Generator</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Generate QR code untuk setiap meja
-              </p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="max-w-sm">
-              <Select value={previewOutletId} onValueChange={setPreviewOutletId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih outlet" />
-                </SelectTrigger>
-                <SelectContent>
-                  {outletId && (
-                    <SelectItem value={outletId}>
-                      {user?.outletName || 'Outlet saat ini'}
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-center rounded-lg border border-dashed p-8">
-              <div className="text-center">
-                <QrCode className="mx-auto h-24 w-24 text-muted-foreground/30" />
-                <p className="mt-4 text-sm text-muted-foreground">
-                  QR code generator akan tersedia setelah fitur meja dikonfigurasi
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Setiap QR code mengarahkan pelanggan ke halaman pemesanan meja tersebut
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Menu Preview */}
       <Card>
         <CardHeader>
@@ -242,6 +201,33 @@ export function SelfOrderPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 max-w-sm">
+            <Select
+              value={previewOutletId}
+              onValueChange={(v) => {
+                setPreviewOutletId(v);
+                setShowMenu(false);
+              }}
+            >
+              <SelectTrigger aria-label="Pilih outlet">
+                <SelectValue placeholder="Pilih outlet" />
+              </SelectTrigger>
+              <SelectContent>
+                {(outlets ?? []).map((outlet) => (
+                  <SelectItem key={outlet.id} value={outlet.id}>
+                    {outlet.name}
+                  </SelectItem>
+                ))}
+                {!outlets && outletId && (
+                  <SelectItem value={outletId}>{user?.outletName || 'Outlet saat ini'}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {outletsError && (
+              <p className="mt-1 text-xs text-destructive">Gagal memuat daftar outlet.</p>
+            )}
+          </div>
+
           {!showMenu && (
             <div className="rounded-lg border border-dashed p-8">
               <EmptyState
@@ -279,7 +265,7 @@ export function SelfOrderPage() {
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  {(menuItems ?? []).length} produk tersedia
+                  {(menuItems ?? []).length} produk
                 </p>
                 <Badge variant="outline">
                   {(menuItems ?? []).filter((i) => i.isAvailable).length} tersedia

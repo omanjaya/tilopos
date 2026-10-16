@@ -8,6 +8,5 @@ export { OfflineIndicator } from './offline-indicator';
 export { OrderConfirmation } from './order-confirmation';
 export { ProductDetailModal } from './product-detail-modal';
 export { ProductLightbox } from './product-lightbox';
-export { ProductRecommendations } from './product-recommendations';
 export { SessionNotFound } from './session-not-found';
 export { StickyCartFooter } from './sticky-cart-footer';

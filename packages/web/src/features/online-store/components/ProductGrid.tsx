@@ -14,17 +14,16 @@ export function ProductGrid({ products, categories, searchQuery, onProductSelect
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Filter products
+  // Backend groups products without a category under the id 'uncategorized'.
+  const categoryOf = (p: StorefrontProduct) => p.categoryId ?? 'uncategorized';
   const filteredProducts = products.filter((product) => {
-    const matchesCategory = selectedCategory === 'all' || product.categoryId === selectedCategory;
+    const matchesCategory = selectedCategory === 'all' || categoryOf(product) === selectedCategory;
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
   // Categories with "all" option
-  const allCategories = [
-    { id: 'all', name: 'Semua', slug: 'all' },
-    ...categories,
-  ];
+  const allCategories = [{ id: 'all', name: 'Semua' }, ...categories];
 
   return (
     <div className="grid grid-cols-12 gap-6">
@@ -36,6 +35,8 @@ export function ProductGrid({ products, categories, searchQuery, onProductSelect
             {allCategories.map((cat) => (
               <button
                 key={cat.id}
+                type="button"
+                aria-pressed={selectedCategory === cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
                 className={clsx(
                   'w-full text-left px-3 py-2 rounded-md transition-colors',
@@ -44,7 +45,7 @@ export function ProductGrid({ products, categories, searchQuery, onProductSelect
                     : 'hover:bg-gray-100'
                 )}
               >
-                {cat.name} ({cat.id === 'all' ? products.length : products.filter(p => p.categoryId === cat.id).length})
+                {cat.name} ({cat.id === 'all' ? products.length : products.filter((p) => categoryOf(p) === cat.id).length})
               </button>
             ))}
           </nav>

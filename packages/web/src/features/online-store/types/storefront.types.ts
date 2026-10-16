@@ -1,12 +1,14 @@
 export interface CartItem {
+  /** Stable line id: productId + variantId. */
+  lineId: string;
   productId: string;
   variantId?: string;
   name: string;
+  variantName?: string;
+  /** Unit price shown to the customer (variant price when chosen). Server re-prices on checkout. */
   price: number;
   quantity: number;
   imageUrl?: string | null;
-  variant?: { id: string; name: string; price: number };
-  modifiers?: { id: string; name: string; price: number }[];
 }
 
 export interface CustomerInfo {

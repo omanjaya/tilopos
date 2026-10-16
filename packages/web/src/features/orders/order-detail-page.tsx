@@ -28,42 +28,32 @@ import {
   CheckCircle2,
   XCircle,
   Calendar,
-  UserCheck,
   User,
   UtensilsCrossed,
   ClipboardList,
 } from 'lucide-react';
-import type { OrderStatus, OrderType } from '@/types/order.types';
+import { isAxiosError } from 'axios';
+import { ErrorState } from '@/components/shared/error-state';
+import { orderStatusBadge, orderTypeBadge, CANCELLABLE_STATUSES } from './order-labels';
+import { CancelOrderDialog } from './components/cancel-order-dialog';
 
-const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
-  pending: { label: 'Menunggu', variant: 'secondary' },
-  preparing: { label: 'Diproses', variant: 'outline' },
-  ready: { label: 'Siap', variant: 'default' },
-  served: { label: 'Disajikan', variant: 'default' },
-  completed: { label: 'Selesai', variant: 'default' },
-  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
-};
-
-const ORDER_TYPE_MAP: Record<OrderType, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
-  dine_in: { label: 'Dine In', variant: 'default' },
-  takeaway: { label: 'Take Away', variant: 'secondary' },
-  delivery: { label: 'Delivery', variant: 'outline' },
-};
+type ForwardStatus = 'preparing' | 'ready' | 'served' | 'completed';
 
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [confirmStatus, setConfirmStatus] = useState<{ status: OrderStatus; label: string; variant: 'default' | 'destructive' } | null>(null);
+  const [confirmStatus, setConfirmStatus] = useState<{ status: ForwardStatus; label: string } | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
 
-  const { data: order, isLoading } = useQuery({
+  const { data: order, isLoading, error, refetch } = useQuery({
     queryKey: ['order', id],
     queryFn: () => ordersApi.get(id!),
     enabled: !!id,
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ orderId, status }: { orderId: string; status: string }) =>
+    mutationFn: ({ orderId, status }: { orderId: string; status: ForwardStatus }) =>
       ordersApi.updateStatus(orderId, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['order', id] });
@@ -90,6 +80,20 @@ export function OrderDetailPage() {
     );
   }
 
+  const isNotFound = isAxiosError(error) && error.response?.status === 404;
+  if (error && !isNotFound) {
+    return (
+      <div>
+        <PageHeader title="Detail Pesanan">
+          <Button variant="outline" onClick={() => navigate('/app/orders')}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+          </Button>
+        </PageHeader>
+        <ErrorState error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
   if (!order) {
     return (
       <div>
@@ -102,8 +106,9 @@ export function OrderDetailPage() {
     );
   }
 
-  const status = STATUS_MAP[order.status];
-  const orderType = ORDER_TYPE_MAP[order.orderType];
+  const status = orderStatusBadge(order.status);
+  const orderType = orderTypeBadge(order.orderType);
+  const canCancel = CANCELLABLE_STATUSES.includes(order.status);
 
   return (
     <div>
@@ -114,40 +119,37 @@ export function OrderDetailPage() {
         <Button variant="outline" onClick={() => navigate('/app/orders')}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
         </Button>
-        {order.status === 'pending' && (
-          <>
-            <Button
-              onClick={() => setConfirmStatus({ status: 'preparing', label: 'Proses', variant: 'default' })}
-            >
-              <Play className="mr-2 h-4 w-4" /> Proses
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => setConfirmStatus({ status: 'cancelled', label: 'Batalkan', variant: 'destructive' })}
-            >
-              <XCircle className="mr-2 h-4 w-4" /> Batalkan
-            </Button>
-          </>
+        {(order.status === 'pending' || (order.status as string) === 'confirmed') && (
+          <Button
+            onClick={() => setConfirmStatus({ status: 'preparing', label: 'Proses' })}
+          >
+            <Play className="mr-2 h-4 w-4" /> Proses
+          </Button>
         )}
         {order.status === 'preparing' && (
           <Button
-            onClick={() => setConfirmStatus({ status: 'ready', label: 'Tandai Siap', variant: 'default' })}
+            onClick={() => setConfirmStatus({ status: 'ready', label: 'Tandai Siap' })}
           >
             <Check className="mr-2 h-4 w-4" /> Tandai Siap
           </Button>
         )}
         {order.status === 'ready' && (
           <Button
-            onClick={() => setConfirmStatus({ status: 'served', label: 'Tandai Disajikan', variant: 'default' })}
+            onClick={() => setConfirmStatus({ status: 'served', label: 'Tandai Disajikan' })}
           >
             <HandPlatter className="mr-2 h-4 w-4" /> Tandai Disajikan
           </Button>
         )}
         {order.status === 'served' && (
           <Button
-            onClick={() => setConfirmStatus({ status: 'completed', label: 'Selesai', variant: 'default' })}
+            onClick={() => setConfirmStatus({ status: 'completed', label: 'Selesai' })}
           >
             <CheckCircle2 className="mr-2 h-4 w-4" /> Selesai
+          </Button>
+        )}
+        {canCancel && (
+          <Button variant="destructive" onClick={() => setCancelOpen(true)}>
+            <XCircle className="mr-2 h-4 w-4" /> Batalkan
           </Button>
         )}
       </PageHeader>
@@ -167,11 +169,6 @@ export function OrderDetailPage() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <UtensilsCrossed className="h-4 w-4" />
               Meja: {order.tableName || '-'}
-            </div>
-            <Separator orientation="vertical" className="h-8" />
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <UserCheck className="h-4 w-4" />
-              Kasir: {order.employeeName}
             </div>
             {order.customerName && (
               <>
@@ -222,7 +219,7 @@ export function OrderDetailPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {order.items.length === 0 ? (
+                  {(order.items ?? []).length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
                         Tidak ada item
@@ -230,7 +227,7 @@ export function OrderDetailPage() {
                     </TableRow>
                   ) : (
                     order.items.map((item) => {
-                      const itemStatus = STATUS_MAP[item.status];
+                      const itemStatus = orderStatusBadge(item.status);
                       return (
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.productName}</TableCell>
@@ -255,18 +252,10 @@ export function OrderDetailPage() {
       <ConfirmDialog
         open={!!confirmStatus}
         onOpenChange={(open) => { if (!open) setConfirmStatus(null); }}
-        title={
-          confirmStatus?.variant === 'destructive'
-            ? 'Batalkan Pesanan'
-            : 'Ubah Status Pesanan'
-        }
-        description={
-          confirmStatus?.variant === 'destructive'
-            ? `Apakah Anda yakin ingin membatalkan pesanan "${order.orderNumber}"? Tindakan ini tidak dapat dibatalkan.`
-            : `Ubah status pesanan "${order.orderNumber}" menjadi "${confirmStatus?.label}"?`
-        }
+        title="Ubah Status Pesanan"
+        description={`Ubah status pesanan "${order.orderNumber}" menjadi "${confirmStatus?.label}"?`}
         confirmLabel={confirmStatus?.label || 'Konfirmasi'}
-        variant={confirmStatus?.variant === 'destructive' ? 'destructive' : 'default'}
+        variant="default"
         onConfirm={() => {
           if (confirmStatus) {
             updateStatusMutation.mutate({
@@ -276,6 +265,11 @@ export function OrderDetailPage() {
           }
         }}
         isLoading={updateStatusMutation.isPending}
+      />
+
+      <CancelOrderDialog
+        order={cancelOpen ? order : null}
+        onClose={() => setCancelOpen(false)}
       />
     </div>
   );

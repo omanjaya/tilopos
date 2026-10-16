@@ -2,7 +2,8 @@
 // Table Layout Types
 // ---------------------------------------------------------------------------
 
-export type TableStatus = 'available' | 'occupied' | 'reserved' | 'merged' | 'cleaning';
+/** Mirrors backend TableStatus enum. */
+export type TableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning';
 
 export interface LayoutTable {
   id: string;
@@ -26,7 +27,7 @@ export interface TableLayoutEditorProps {
   /** Tables to render. The editor reads positions from the table objects. */
   tables: LayoutTable[];
   /** Called when the user repositions tables via drag-and-drop. */
-  onSavePositions?: (positions: Array<{ id: string; gridX: number; gridY: number }>) => void;
+  onSavePositions?: (positions: Array<{ id: string; gridX: number; gridY: number }>) => void | Promise<void>;
   /** Whether the user can drag tables to new positions. Defaults to true. */
   editable?: boolean;
 }

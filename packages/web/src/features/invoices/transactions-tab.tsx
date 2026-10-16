@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { invoicesApi, type TransactionSummaryItem } from '@/api/endpoints/invoices.api';
 import { DataTable, type Column } from '@/components/shared/data-table';
@@ -27,21 +27,35 @@ const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'destruct
   completed: { label: 'Selesai', variant: 'default' },
   voided: { label: 'Void', variant: 'destructive' },
   refunded: { label: 'Refund', variant: 'outline' },
-  held: { label: 'Ditahan', variant: 'secondary' },
-  partial_refund: { label: 'Refund Sebagian', variant: 'secondary' },
+  partially_refunded: { label: 'Refund Sebagian', variant: 'secondary' },
+  credit: { label: 'Kredit (BON)', variant: 'secondary' },
+  partially_paid: { label: 'Dibayar Sebagian', variant: 'secondary' },
+  split: { label: 'Dipisah', variant: 'secondary' },
+  pending: { label: 'Menunggu', variant: 'secondary' },
 };
+
+/** GET /reports/invoices/transactions is paged (limit <= 100). */
+const PAGE_SIZE = 50;
 
 export function TransactionsTab({ outletId, startDate, endDate }: TransactionsTabProps) {
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['invoices-transactions', outletId, startDate, endDate, search],
+  // Reset to the first page whenever the filter set changes.
+  useEffect(() => {
+    setPage(1);
+  }, [outletId, startDate, endDate, search]);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['invoices-transactions', outletId, startDate, endDate, search, page],
     queryFn: () =>
       invoicesApi.transactions({
         outletId,
         startDate,
         endDate,
         search: search || undefined,
+        page,
+        limit: PAGE_SIZE,
       }),
     enabled: !!outletId,
   });
@@ -129,6 +143,19 @@ export function TransactionsTab({ outletId, startDate, endDate }: TransactionsTa
         columns={columns}
         data={data?.transactions ?? []}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
+        pagination={
+          data?.pagination
+            ? {
+                page: data.pagination.page,
+                totalPages: data.pagination.totalPages,
+                total: data.pagination.total,
+                limit: data.pagination.limit,
+                onPageChange: setPage,
+              }
+            : undefined
+        }
         searchPlaceholder="Cari no. transaksi..."
         onSearch={setSearch}
         emptyTitle="Belum ada transaksi"

@@ -53,6 +53,7 @@ export function InvoicePage() {
         {TABS.map((tab) => (
           <button
             key={tab.id}
+            type="button"
             onClick={() => setActiveTab(tab.id)}
             className={cn(
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
@@ -68,6 +69,11 @@ export function InvoicePage() {
       </div>
 
       {/* Tab Content */}
+      {!outletId ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          Pilih outlet terlebih dahulu untuk melihat invoice.
+        </div>
+      ) : (
       <div>
         {activeTab === 'invoice' && (
           <InvoiceTab
@@ -84,6 +90,7 @@ export function InvoicePage() {
           <ItemDetailsTab outletId={outletId} startDate={startDate} endDate={endDate} />
         )}
       </div>
+      )}
 
       {/* Invoice Detail Modal */}
       <InvoiceDetailModal

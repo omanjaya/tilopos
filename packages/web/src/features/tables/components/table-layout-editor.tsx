@@ -10,14 +10,15 @@ import { TableLegend } from './table-legend';
 import { TableCanvas } from './table-canvas';
 import { TableDetailPanel } from './table-detail-panel';
 import { TableSummary } from './table-summary';
+import { GRID_COLS, GRID_ROWS } from '../utils/table-layout.utils';
 
 export function TableLayoutEditor({
   tables: rawTables,
   onSavePositions,
   editable = true,
 }: TableLayoutEditorProps) {
-  // Manage table positions (local storage + save callback)
-  const { mergedTables, hasUnsavedChanges, updatePosition, handleSave, handleReset } =
+  // Unsaved drag moves on top of server positions; saved via onSavePositions
+  const { mergedTables, hasUnsavedChanges, isSaving, updatePosition, handleSave, handleReset } =
     useTablePositions({
       tables: rawTables,
       onSavePositions,
@@ -49,6 +50,16 @@ export function TableLayoutEditor({
     onPositionChange: updatePosition,
   });
 
+  const handleKeyboardMove = useCallback(
+    (table: { id: string; gridX: number; gridY: number; gridW: number; gridH: number }, dx: number, dy: number) => {
+      updatePosition(table.id, {
+        gridX: Math.min(Math.max(table.gridX + dx, 0), GRID_COLS - table.gridW),
+        gridY: Math.min(Math.max(table.gridY + dy, 0), GRID_ROWS - table.gridH),
+      });
+    },
+    [updatePosition],
+  );
+
   // Handle reset with clear selection
   const handleResetWithClear = useCallback(() => {
     handleReset();
@@ -67,8 +78,8 @@ export function TableLayoutEditor({
         onZoomOut={zoomOut}
         onZoomReset={resetZoom}
         editable={editable}
-        hasUnsavedChanges={hasUnsavedChanges}
-        onSave={handleSave}
+        hasUnsavedChanges={hasUnsavedChanges && !isSaving}
+        onSave={() => void handleSave()}
         onReset={handleResetWithClear}
       />
 
@@ -90,6 +101,7 @@ export function TableLayoutEditor({
           onTouchEnd={handleTouchEnd}
           onTableClick={toggleTable}
           onTableDragStart={handleDragStart}
+          onTableKeyboardMove={editable ? handleKeyboardMove : undefined}
         />
 
         {/* Detail Panel */}

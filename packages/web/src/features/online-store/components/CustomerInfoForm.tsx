@@ -22,8 +22,9 @@ export function CustomerInfoForm({
       <h2 className="text-lg font-semibold mb-4">Informasi Pelanggan</h2>
       <div className="space-y-4">
         <div>
-          <label className="block mb-1 font-medium">Nama Lengkap *</label>
+          <label htmlFor="checkout-name" className="block mb-1 font-medium">Nama Lengkap *</label>
           <Input
+            id="checkout-name"
             value={customerInfo.name}
             onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
             placeholder="Masukkan nama lengkap"
@@ -31,8 +32,9 @@ export function CustomerInfoForm({
           />
         </div>
         <div>
-          <label className="block mb-1 font-medium">Nomor HP *</label>
+          <label htmlFor="checkout-phone" className="block mb-1 font-medium">Nomor HP *</label>
           <Input
+            id="checkout-phone"
             type="tel"
             value={customerInfo.phone}
             onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
@@ -41,8 +43,9 @@ export function CustomerInfoForm({
           />
         </div>
         <div>
-          <label className="block mb-1 font-medium">Email</label>
+          <label htmlFor="checkout-email" className="block mb-1 font-medium">Email</label>
           <Input
+            id="checkout-email"
             type="email"
             value={customerInfo.email}
             onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}

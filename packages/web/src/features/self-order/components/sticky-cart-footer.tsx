@@ -36,7 +36,7 @@ export function StickyCartFooter({ itemCount, total, onViewCart }: StickyCartFoo
             </div>
             <div>
               <p className="text-sm text-muted-foreground">
-                {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                {itemCount} item
               </p>
               <p className="text-xs text-muted-foreground">Keranjang</p>
             </div>

@@ -14,6 +14,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/format';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
+import { ErrorState } from '@/components/shared/error-state';
 import type { Transaction, TransactionPayment } from '@/types/transaction.types';
 
 interface InvoiceDetailModalProps {
@@ -22,28 +24,18 @@ interface InvoiceDetailModalProps {
   onClose: () => void;
 }
 
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Tunai',
-  qris: 'QRIS',
-  debit_card: 'Kartu Debit',
-  credit_card: 'Kartu Kredit',
-  gopay: 'GoPay',
-  ovo: 'OVO',
-  dana: 'DANA',
-  shopeepay: 'ShopeePay',
-  linkaja: 'LinkAja',
-};
-
 const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   completed: { label: 'Selesai', variant: 'default' },
   voided: { label: 'Void', variant: 'destructive' },
   refunded: { label: 'Refund', variant: 'outline' },
   held: { label: 'Ditahan', variant: 'secondary' },
-  partial_refund: { label: 'Refund Sebagian', variant: 'secondary' },
+  partially_refunded: { label: 'Refund Sebagian', variant: 'secondary' },
+  credit: { label: 'Kredit (BON)', variant: 'secondary' },
+  partially_paid: { label: 'Dibayar Sebagian', variant: 'secondary' },
 };
 
 export function InvoiceDetailModal({ invoiceId, open, onClose }: InvoiceDetailModalProps) {
-  const { data: transaction, isLoading } = useQuery({
+  const { data: transaction, isLoading, error, refetch } = useQuery({
     queryKey: ['transaction', invoiceId],
     queryFn: () => transactionsApi.get(invoiceId!),
     enabled: !!invoiceId && open,
@@ -65,7 +57,7 @@ export function InvoiceDetailModal({ invoiceId, open, onClose }: InvoiceDetailMo
               <DialogDescription className="sr-only">Detail invoice transaksi</DialogDescription>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Button variant="outline" size="sm" onClick={handlePrint} disabled={!transaction}>
                 <Printer className="h-4 w-4 mr-2" />
                 Cetak
               </Button>
@@ -76,6 +68,14 @@ export function InvoiceDetailModal({ invoiceId, open, onClose }: InvoiceDetailMo
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="p-6 pt-0">
+            <ErrorState
+              title="Gagal memuat invoice"
+              error={error}
+              onRetry={() => void refetch()}
+            />
           </div>
         ) : transaction ? (
           <InvoiceContent transaction={transaction} status={status ?? null} />
@@ -199,7 +199,7 @@ function InvoiceContent({
         <p className="font-medium mb-2">Pembayaran</p>
         {transaction.payments?.map((payment: TransactionPayment) => (
           <div key={payment.id} className="flex justify-between">
-            <span className="text-muted-foreground">{PAYMENT_LABELS[payment.method] || payment.method}</span>
+            <span className="text-muted-foreground">{paymentMethodLabel(payment.method)}</span>
             <span>{formatCurrency(payment.amount)}</span>
           </div>
         ))}

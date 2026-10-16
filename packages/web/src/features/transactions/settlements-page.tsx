@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settlementsApi } from '@/api/endpoints/settlements.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Button } from '@/components/ui/button';
@@ -70,7 +71,7 @@ export function SettlementsPage() {
   const [endDate, setEndDate] = useState('');
   const [detailTarget, setDetailTarget] = useState<Settlement | null>(null);
 
-  const { data: settlements, isLoading } = useQuery({
+  const { data: settlements, isLoading, error, refetch } = useQuery({
     queryKey: ['settlements', outletId, statusFilter, startDate, endDate],
     queryFn: () =>
       settlementsApi.list({
@@ -115,19 +116,24 @@ export function SettlementsPage() {
       cell: (row) => row.outletName,
     },
     {
+      key: 'paymentMethod',
+      header: 'Metode',
+      cell: (row) => getPaymentMethodLabel(row.paymentMethod),
+    },
+    {
       key: 'totalSales',
-      header: 'Total Penjualan',
+      header: 'Bruto',
       cell: (row) => <span className="font-medium">{formatCurrency(row.totalSales)}</span>,
     },
     {
-      key: 'cashAmount',
-      header: 'Tunai',
-      cell: (row) => <span className="text-muted-foreground">{formatCurrency(row.cashAmount)}</span>,
+      key: 'feeAmount',
+      header: 'Biaya',
+      cell: (row) => <span className="text-muted-foreground">{formatCurrency(row.feeAmount)}</span>,
     },
     {
-      key: 'nonCashAmount',
-      header: 'Non-Tunai',
-      cell: (row) => <span className="text-muted-foreground">{formatCurrency(row.nonCashAmount)}</span>,
+      key: 'netAmount',
+      header: 'Neto',
+      cell: (row) => <span className="text-muted-foreground">{formatCurrency(row.netAmount)}</span>,
     },
     {
       key: 'status',
@@ -145,6 +151,7 @@ export function SettlementsPage() {
           variant="ghost"
           size="icon"
           className="h-8 w-8"
+          aria-label="Lihat detail"
           onClick={() => setDetailTarget(row)}
         >
           <Eye className="h-4 w-4" />
@@ -174,6 +181,8 @@ export function SettlementsPage() {
           icon={XCircle}
         />
       </div>
+
+      {error && <ErrorState error={error} onRetry={() => void refetch()} />}
 
       <DataTable
         columns={columns}

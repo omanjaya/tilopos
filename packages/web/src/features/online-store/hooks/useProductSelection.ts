@@ -1,88 +1,62 @@
 import { useState } from 'react';
 import type { StorefrontProduct } from '@/types/online-store.types';
 import type { CartItem } from '../types/storefront.types';
+import { cartLineId } from './useCart';
 
 /**
- * Hook to manage product/variant/modifier selection logic
+ * Hook to manage product/variant selection. Products with variants require a
+ * variant (the first one is preselected) because the server prices by variant.
  */
 export function useProductSelection() {
   const [selectedProduct, setSelectedProduct] = useState<StorefrontProduct | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string>('');
-  const [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(1);
 
-  // Toggle modifier selection
-  const toggleModifier = (modifierId: string) => {
-    setSelectedModifiers((prev) =>
-      prev.includes(modifierId)
-        ? prev.filter((id) => id !== modifierId)
-        : [...prev, modifierId]
-    );
+  const unitPrice = (product: StorefrontProduct) => {
+    const variant = product.variants.find((v) => v.id === selectedVariant);
+    return variant ? variant.price : product.price;
   };
 
-  // Calculate total for current selection
-  const calculateTotal = (product: StorefrontProduct) => {
-    const variant = product.variants?.find((v) => v.id === selectedVariant);
-    const basePrice = variant?.price || product.price;
+  const calculateTotal = (product: StorefrontProduct) => unitPrice(product) * quantity;
 
-    const modifiersPrice = selectedModifiers.reduce((sum, modId) => {
-      const modifier = product.modifierGroups
-        ?.flatMap((g) => g.modifiers)
-        .find((m) => m.id === modId);
-      return sum + (modifier?.price || 0);
-    }, 0);
+  const canAddToCart = (product: StorefrontProduct) =>
+    product.isAvailable &&
+    (product.variants.length === 0 || product.variants.some((v) => v.id === selectedVariant));
 
-    return (basePrice + modifiersPrice) * quantity;
-  };
-
-  // Convert selection to cart item
   const toCartItem = (product: StorefrontProduct): CartItem => {
-    const variant = product.variants?.find((v) => v.id === selectedVariant);
-    const modifiers = selectedModifiers
-      .map((id) =>
-        product.modifierGroups
-          ?.flatMap((g) => g.modifiers)
-          .find((m) => m.id === id)
-      )
-      .filter((m): m is { id: string; name: string; price: number; isAvailable: boolean } => m !== undefined);
-
+    const variant = product.variants.find((v) => v.id === selectedVariant);
     return {
+      lineId: cartLineId(product.id, variant?.id),
       productId: product.id,
       variantId: variant?.id,
       name: product.name,
-      price: product.price,
+      variantName: variant?.name,
+      price: unitPrice(product),
       quantity,
       imageUrl: product.imageUrl,
-      variant,
-      modifiers,
     };
   };
 
-  // Reset selection
   const resetSelection = () => {
     setSelectedProduct(null);
     setSelectedVariant('');
-    setSelectedModifiers([]);
     setQuantity(1);
   };
 
-  // Open product for selection
   const selectProduct = (product: StorefrontProduct) => {
     setSelectedProduct(product);
     setQuantity(1);
-    setSelectedVariant('');
-    setSelectedModifiers([]);
+    setSelectedVariant(product.variants[0]?.id ?? '');
   };
 
   return {
     selectedProduct,
     selectedVariant,
-    selectedModifiers,
     quantity,
     setQuantity,
     setSelectedVariant,
-    toggleModifier,
     calculateTotal,
+    canAddToCart,
     toCartItem,
     resetSelection,
     selectProduct,

@@ -1,19 +1,21 @@
 import { useState, useMemo, useCallback } from 'react';
 import type { LayoutTable, TablePosition } from '../types/layout.types';
-import { loadPositions, savePositions, STORAGE_KEY } from '../utils/table-layout.utils';
 
 interface UseTablePositionsProps {
   tables: LayoutTable[];
-  onSavePositions?: (positions: Array<{ id: string; gridX: number; gridY: number }>) => void;
+  /** Persists moved tables (PUT /tables/:id). Throw to keep the changes unsaved. */
+  onSavePositions?: (positions: Array<{ id: string; gridX: number; gridY: number }>) => void | Promise<void>;
 }
 
+/**
+ * Tracks unsaved drag moves on top of the server positions carried by
+ * `tables`. Nothing is stored locally: positions live on the backend.
+ */
 export function useTablePositions({ tables, onSavePositions }: UseTablePositionsProps) {
-  const [positionOverrides, setPositionOverrides] = useState<Record<string, TablePosition>>(
-    () => loadPositions()
-  );
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [positionOverrides, setPositionOverrides] = useState<Record<string, TablePosition>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const hasUnsavedChanges = Object.keys(positionOverrides).length > 0;
 
-  // Merge saved positions into tables
   const mergedTables = useMemo(() => {
     return tables.map((t) => {
       const override = positionOverrides[t.id];
@@ -29,36 +31,36 @@ export function useTablePositions({ tables, onSavePositions }: UseTablePositions
       ...prev,
       [tableId]: position,
     }));
-    setHasUnsavedChanges(true);
   }, []);
 
-  const handleSave = useCallback(() => {
-    savePositions(positionOverrides);
-    setHasUnsavedChanges(false);
-
-    if (onSavePositions) {
-      const positions = Object.entries(positionOverrides).map(([id, pos]) => ({
-        id,
-        gridX: pos.gridX,
-        gridY: pos.gridY,
-      }));
-      onSavePositions(positions);
+  const handleSave = useCallback(async () => {
+    if (!onSavePositions) return;
+    const positions = Object.entries(positionOverrides).map(([id, pos]) => ({
+      id,
+      gridX: pos.gridX,
+      gridY: pos.gridY,
+    }));
+    if (positions.length === 0) return;
+    setIsSaving(true);
+    try {
+      await onSavePositions(positions);
+      setPositionOverrides({});
+    } catch (error) {
+      // keep overrides so the user can retry; the caller already reported the error
+      console.warn('[tables] saving positions failed', error);
+    } finally {
+      setIsSaving(false);
     }
   }, [positionOverrides, onSavePositions]);
 
   const handleReset = useCallback(() => {
     setPositionOverrides({});
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    setHasUnsavedChanges(false);
   }, []);
 
   return {
     mergedTables,
     hasUnsavedChanges,
+    isSaving,
     updatePosition,
     handleSave,
     handleReset,

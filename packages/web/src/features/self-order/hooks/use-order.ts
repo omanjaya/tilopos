@@ -1,85 +1,85 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { selfOrderApi } from '@/api/endpoints/self-order.api';
 import type { CartItem } from './use-cart';
 
-interface OrderItem {
-  productId: string;
-  variantId?: string;
-  quantity: number;
-  notes?: string;
-}
-
 type OrderStatus = 'idle' | 'submitting' | 'success' | 'error';
 
+export interface SubmittedOrder {
+  orderNumber: string;
+  /** Server-computed grand total (incl. tax & service charge). */
+  total: number;
+}
+
 /**
- * Hook to manage order submission
- * @param sessionCode - The session code for the order
- * @param onSuccess - Callback when order is submitted successfully
- * @returns Order state and submission function
+ * Hook to manage order submission.
+ *
+ * The backend has no single atomic "add items + submit" endpoint, so lines that
+ * were already added to the session are remembered (by line id + quantity) and
+ * not re-sent on retry — a failed submit no longer duplicates dishes.
  */
-export function useOrder(sessionCode: string | undefined, onSuccess?: (orderNumber: string) => void) {
+export function useOrder(sessionCode: string | undefined, onSuccess?: (order: SubmittedOrder) => void) {
   const [orderStatus, setOrderStatus] = useState<OrderStatus>('idle');
-  const [orderNumber, setOrderNumber] = useState('');
+  const [order, setOrder] = useState<SubmittedOrder | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const addedLines = useRef(new Map<string, number>());
   const queryClient = useQueryClient();
 
-  // Submit order mutation
   const submitOrderMutation = useMutation({
-    mutationFn: async (items: OrderItem[]) => {
-      if (!sessionCode) throw new Error('No session code');
+    mutationFn: async (items: CartItem[]): Promise<SubmittedOrder> => {
+      if (!sessionCode) throw new Error('Sesi tidak ditemukan');
 
-      // Add items to session
       for (const item of items) {
-        await selfOrderApi.addItem(sessionCode, item);
+        const alreadyAdded = addedLines.current.get(item.lineId) ?? 0;
+        const remaining = item.quantity - alreadyAdded;
+        if (remaining <= 0) continue;
+        await selfOrderApi.addItem(sessionCode, {
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: remaining,
+          notes: item.notes,
+        });
+        addedLines.current.set(item.lineId, item.quantity);
       }
 
-      // Submit session
+      const totals = await selfOrderApi.getSessionTotal(sessionCode);
       const result = await selfOrderApi.submitSession(sessionCode);
-      return result;
+      if (!result?.orderNumber) {
+        throw new Error('Server tidak mengembalikan nomor pesanan');
+      }
+      return { orderNumber: result.orderNumber, total: totals.grandTotal };
     },
     onSuccess: (data) => {
-      const orderNum = data.orderNumber || `ORD-${Date.now()}`;
-      setOrderNumber(orderNum);
+      addedLines.current.clear();
+      setOrder(data);
+      setErrorMessage(null);
       setOrderStatus('success');
       queryClient.invalidateQueries({ queryKey: ['self-order-session', sessionCode] });
-      onSuccess?.(orderNum);
+      onSuccess?.(data);
     },
-    onError: () => {
+    onError: (error) => {
+      setErrorMessage(error instanceof Error ? error.message : null);
       setOrderStatus('error');
     },
   });
 
-  // Submit order handler
   const submitOrder = useCallback(
     (cart: CartItem[], isOnline: boolean) => {
       if (!isOnline || cart.length === 0) {
         return false;
       }
-
       setOrderStatus('submitting');
-      const orderItems: OrderItem[] = cart.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        notes: item.notes,
-      }));
-
-      submitOrderMutation.mutate(orderItems);
+      submitOrderMutation.mutate(cart);
       return true;
     },
     [submitOrderMutation]
   );
 
-  // Reset order state
-  const resetOrder = useCallback(() => {
-    setOrderStatus('idle');
-    setOrderNumber('');
-  }, []);
-
   return {
     orderStatus,
-    orderNumber,
+    order,
+    errorMessage,
     submitOrder,
-    resetOrder,
     isSubmitting: orderStatus === 'submitting',
     isSuccess: orderStatus === 'success',
     isError: orderStatus === 'error',

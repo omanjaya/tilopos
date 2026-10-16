@@ -1,8 +1,8 @@
 import type { CartItem, CustomerInfo, DeliveryMethod, OrderStatus, CheckoutStep } from '../types/storefront.types';
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { CustomerInfoForm } from './CustomerInfoForm';
 import { DeliveryMethodSelect } from './DeliveryMethodSelect';
 import { OrderSummary } from './OrderSummary';
-import { clsx } from 'clsx';
 
 interface CheckoutFlowProps {
   cart: CartItem[];
@@ -12,7 +12,10 @@ interface CheckoutFlowProps {
   setCustomerInfo: (info: CustomerInfo) => void;
   deliveryMethod: DeliveryMethod;
   setDeliveryMethod: (method: DeliveryMethod) => void;
+  isDeliveryEnabled: boolean;
+  isPickupEnabled: boolean;
   orderStatus: OrderStatus;
+  errorMessage: string | null;
   submitOrder: () => void;
   onClose: () => void;
 }
@@ -25,15 +28,21 @@ export function CheckoutFlow({
   setCustomerInfo,
   deliveryMethod,
   setDeliveryMethod,
+  isDeliveryEnabled,
+  isPickupEnabled,
   orderStatus,
+  errorMessage,
   submitOrder,
   onClose,
 }: CheckoutFlowProps) {
   return (
-    <div className={clsx('fixed inset-0 z-50', checkoutStep > 0 ? 'block' : 'hidden')}>
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white shadow-xl p-6 overflow-y-auto">
+    <Sheet
+      open={checkoutStep > 0}
+      onOpenChange={(isOpen) => !isOpen && orderStatus !== 'submitting' && onClose()}
+    >
+      <SheetContent side="right" className="w-full max-w-2xl overflow-y-auto p-6 sm:max-w-2xl">
+        <SheetTitle className="sr-only">Checkout</SheetTitle>
+        <SheetDescription className="sr-only">Lengkapi data untuk membuat pesanan</SheetDescription>
         {checkoutStep === 1 && (
           <CustomerInfoForm
             customerInfo={customerInfo}
@@ -47,6 +56,8 @@ export function CheckoutFlow({
           <DeliveryMethodSelect
             deliveryMethod={deliveryMethod}
             setDeliveryMethod={setDeliveryMethod}
+            isDeliveryEnabled={isDeliveryEnabled}
+            isPickupEnabled={isPickupEnabled}
             customerInfo={customerInfo}
             setCustomerInfo={setCustomerInfo}
             onNext={() => setCheckoutStep(3)}
@@ -59,11 +70,12 @@ export function CheckoutFlow({
             cart={cart}
             deliveryMethod={deliveryMethod}
             orderStatus={orderStatus}
+            errorMessage={errorMessage}
             onSubmit={submitOrder}
             onBack={() => setCheckoutStep(2)}
           />
         )}
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

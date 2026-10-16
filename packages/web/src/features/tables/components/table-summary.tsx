@@ -15,7 +15,7 @@ export function TableSummary({ tables }: TableSummaryProps) {
       <span>Total: {totalTables} meja</span>
       <span>Tersedia: {availableTables}</span>
       <span>Terisi: {occupiedTables}</span>
-      <span>Reserved: {reservedTables}</span>
+      <span>Dipesan: {reservedTables}</span>
     </div>
   );
 }

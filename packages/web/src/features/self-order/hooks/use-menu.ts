@@ -11,10 +11,9 @@ export function useMenu(outletId: string | undefined) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fetch menu items
-  const { data: menuItems, isLoading } = useQuery({
+  const { data: menuItems, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['self-order-menu', outletId],
-    queryFn: () => selfOrderApi.getMenu(outletId || ''),
+    queryFn: () => selfOrderApi.getMenu(outletId!),
     enabled: !!outletId,
   });
 
@@ -31,8 +30,7 @@ export function useMenu(outletId: string | undefined) {
     return menuItems.filter((item) => {
       const matchesCategory = selectedCategory === 'all' || item.categoryName === selectedCategory;
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const isAvailable = item.isAvailable;
-      return matchesCategory && matchesSearch && isAvailable;
+      return matchesCategory && matchesSearch && item.isAvailable;
     });
   }, [menuItems, selectedCategory, searchQuery]);
 
@@ -45,5 +43,8 @@ export function useMenu(outletId: string | undefined) {
     searchQuery,
     setSearchQuery,
     isLoading,
+    isError,
+    error,
+    refetch,
   };
 }

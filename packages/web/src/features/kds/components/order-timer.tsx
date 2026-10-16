@@ -18,7 +18,7 @@ export function OrderTimer({ elapsedMinutes, className }: OrderTimerProps) {
           'rounded px-2 py-0.5',
         )}
       >
-        {elapsedMinutes}m
+        {elapsedMinutes} mnt
       </span>
     </div>
   );

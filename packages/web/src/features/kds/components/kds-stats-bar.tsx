@@ -33,7 +33,7 @@ export interface KDSStatsBarProps {
 interface StatsData {
   ordersInQueue: number;
   averagePrepTime: number;
-  completedToday: number;
+  readyOrders: number;
   overdueOrders: number;
 }
 
@@ -51,18 +51,17 @@ function computeStats(orders: KDSStatsOrder[], targetMinutes: number): StatsData
     (o) => o.elapsedMinutes > targetMinutes,
   );
 
+  // Only active orders are loaded, so this is the average waiting time of the
+  // orders on screen — not a daily prep-time metric.
   const avgPrepTime =
-    completedOrders.length > 0
-      ? completedOrders.reduce(
-          (sum, o) => sum + (o.prepTimeMinutes ?? o.elapsedMinutes),
-          0,
-        ) / completedOrders.length
+    orders.length > 0
+      ? orders.reduce((sum, o) => sum + o.elapsedMinutes, 0) / orders.length
       : 0;
 
   return {
     ordersInQueue: activeOrders.length,
     averagePrepTime: isNaN(avgPrepTime) ? 0 : Math.round(avgPrepTime * 10) / 10,
-    completedToday: completedOrders.length,
+    readyOrders: completedOrders.length,
     overdueOrders: overdueOrders.length,
   };
 }
@@ -140,6 +139,7 @@ export function KDSStatsBar({
       <div className="flex items-center justify-between px-4 py-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed}
           className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors"
         >
           <BarChart3 className="h-4 w-4" />
@@ -160,6 +160,7 @@ export function KDSStatsBar({
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
+              aria-label="Muat ulang statistik"
               className="text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
             >
               {isRefreshing ? (
@@ -183,15 +184,15 @@ export function KDSStatsBar({
           />
           <StatCard
             icon={BarChart3}
-            label="Rata-rata Persiapan"
+            label="Rata-rata Waktu Tunggu"
             value={stats.averagePrepTime}
             unit="menit"
             color="text-purple-400"
           />
           <StatCard
             icon={CheckCircle2}
-            label="Selesai Hari Ini"
-            value={stats.completedToday}
+            label="Siap Disajikan"
+            value={stats.readyOrders}
             color="text-green-400"
           />
           <StatCard

@@ -16,6 +16,7 @@ interface TableCanvasProps {
   onTouchEnd: () => void;
   onTableClick: (table: LayoutTable) => void;
   onTableDragStart: (table: LayoutTable, clientX: number, clientY: number) => void;
+  onTableKeyboardMove?: (table: LayoutTable, dx: number, dy: number) => void;
 }
 
 export function TableCanvas({
@@ -31,6 +32,7 @@ export function TableCanvas({
   onTouchEnd,
   onTableClick,
   onTableDragStart,
+  onTableKeyboardMove,
 }: TableCanvasProps) {
   return (
     <div className="flex-1 overflow-auto rounded-lg border bg-muted/20">
@@ -70,6 +72,7 @@ export function TableCanvas({
               editable={editable}
               onClick={onTableClick}
               onDragStart={onTableDragStart}
+              onKeyboardMove={onTableKeyboardMove}
             />
           ))}
         </div>

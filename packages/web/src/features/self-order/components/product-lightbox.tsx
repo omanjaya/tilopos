@@ -22,7 +22,7 @@ export function ProductLightbox({ images, initialIndex = 0, open, onOpenChange }
       <button
         onClick={() => onOpenChange(false)}
         className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 transition-colors"
-        aria-label="Close"
+        aria-label="Tutup"
       >
         <X className="h-6 w-6" />
       </button>
@@ -31,7 +31,7 @@ export function ProductLightbox({ images, initialIndex = 0, open, onOpenChange }
       <div className="relative h-full w-full max-w-4xl max-h-[80vh]">
         <img
           src={images[currentIndex]}
-          alt={`Image ${currentIndex + 1}`}
+          alt={`Gambar ${currentIndex + 1}`}
           className="h-full w-full object-contain"
         />
 
@@ -42,7 +42,7 @@ export function ProductLightbox({ images, initialIndex = 0, open, onOpenChange }
               <button
                 onClick={() => setCurrentIndex((i) => i - 1)}
                 className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white hover:bg-black/70 transition-colors"
-                aria-label="Previous image"
+                aria-label="Gambar sebelumnya"
               >
                 <ChevronLeft className="h-6 w-6" />
               </button>
@@ -51,7 +51,7 @@ export function ProductLightbox({ images, initialIndex = 0, open, onOpenChange }
               <button
                 onClick={() => setCurrentIndex((i) => i + 1)}
                 className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white hover:bg-black/70 transition-colors"
-                aria-label="Next image"
+                aria-label="Gambar berikutnya"
               >
                 <ChevronRight className="h-6 w-6" />
               </button>
@@ -70,7 +70,7 @@ export function ProductLightbox({ images, initialIndex = 0, open, onOpenChange }
                   'h-2 w-2 rounded-full transition-all',
                   idx === currentIndex ? 'bg-white scale-125' : 'bg-white/50'
                 )}
-                aria-label={`Go to image ${idx + 1}`}
+                aria-label={`Lihat gambar ${idx + 1}`}
               />
             ))}
           </div>

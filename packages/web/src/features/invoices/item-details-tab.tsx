@@ -14,7 +14,7 @@ interface ItemDetailsTabProps {
 export function ItemDetailsTab({ outletId, startDate, endDate }: ItemDetailsTabProps) {
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['invoices-items', outletId, startDate, endDate, search],
     queryFn: () =>
       invoicesApi.itemsSummary({
@@ -77,6 +77,8 @@ export function ItemDetailsTab({ outletId, startDate, endDate }: ItemDetailsTabP
         columns={columns}
         data={data?.items ?? []}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
         searchPlaceholder="Cari nama produk..."
         onSearch={setSearch}
         emptyTitle="Belum ada data item"

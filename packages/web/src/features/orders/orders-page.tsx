@@ -21,42 +21,37 @@ import { toast } from '@/lib/toast-utils';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
 import { MoreHorizontal, Eye, Play, Check, HandPlatter, CheckCircle2, XCircle } from 'lucide-react';
 import type { Order, OrderStatus } from '@/types/order.types';
+import { useAuthStore } from '@/stores/auth.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { orderStatusBadge, orderTypeBadge } from './order-labels';
+import { CancelOrderDialog } from './components/cancel-order-dialog';
 import { handleMutationError } from '@/lib/api-error-handler';
 
-const STATUS_MAP: Record<OrderStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
-  pending: { label: 'Menunggu', variant: 'secondary' },
-  preparing: { label: 'Diproses', variant: 'outline' },
-  ready: { label: 'Siap', variant: 'default' },
-  served: { label: 'Disajikan', variant: 'default' },
-  completed: { label: 'Selesai', variant: 'default' },
-  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
-};
-
-const ORDER_TYPE_MAP: Record<string, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
-  dine_in: { label: 'Dine In', variant: 'default' },
-  takeaway: { label: 'Take Away', variant: 'secondary' },
-  delivery: { label: 'Delivery', variant: 'outline' },
-};
-
-const STATUS_TABS: { value: string; label: string }[] = [
-  { value: 'all', label: 'Semua' },
+// 'all' = active orders (backend default); every other tab is a server-side status filter.
+const STATUS_TABS: { value: 'all' | OrderStatus; label: string }[] = [
+  { value: 'all', label: 'Semua Aktif' },
   { value: 'pending', label: 'Menunggu' },
+  { value: 'confirmed', label: 'Dikonfirmasi' },
   { value: 'preparing', label: 'Diproses' },
   { value: 'ready', label: 'Siap' },
   { value: 'served', label: 'Disajikan' },
   { value: 'completed', label: 'Selesai' },
+  { value: 'cancelled', label: 'Dibatalkan' },
 ];
+
+type ForwardStatus = 'preparing' | 'ready' | 'served' | 'completed';
 
 interface StatusAction {
   label: string;
-  status: OrderStatus;
+  status: ForwardStatus | 'cancelled';
   variant: 'default' | 'destructive';
   icon: React.ReactNode;
 }
 
-function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
+function getActionsForStatus(currentStatus: string): StatusAction[] {
   switch (currentStatus) {
     case 'pending':
+    case 'confirmed':
       return [
         { label: 'Proses', status: 'preparing', variant: 'default', icon: <Play className="mr-2 h-4 w-4" /> },
         { label: 'Batalkan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="mr-2 h-4 w-4" /> },
@@ -64,10 +59,12 @@ function getActionsForStatus(currentStatus: OrderStatus): StatusAction[] {
     case 'preparing':
       return [
         { label: 'Tandai Siap', status: 'ready', variant: 'default', icon: <Check className="mr-2 h-4 w-4" /> },
+        { label: 'Batalkan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="mr-2 h-4 w-4" /> },
       ];
     case 'ready':
       return [
         { label: 'Tandai Disajikan', status: 'served', variant: 'default', icon: <HandPlatter className="mr-2 h-4 w-4" /> },
+        { label: 'Batalkan', status: 'cancelled', variant: 'destructive', icon: <XCircle className="mr-2 h-4 w-4" /> },
       ];
     case 'served':
       return [
@@ -82,28 +79,29 @@ export function OrdersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const userOutletId = useAuthStore((s) => s.user?.outletId);
+  // No outlet selected → backend lists every outlet the caller may access.
+  const outletId = selectedOutletId || userOutletId || undefined;
+  const [statusFilter, setStatusFilter] = useState<'all' | OrderStatus>('all');
   const [confirmAction, setConfirmAction] = useState<{ order: Order; action: StatusAction } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
   // Feature checks
   const { hasTableManagement } = useBusinessFeatures();
 
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ['orders', selectedOutletId, statusFilter],
+  const { data: orders = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['orders', outletId ?? 'all', statusFilter],
     queryFn: () =>
-      ordersApi.list({
-        outletId: selectedOutletId || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-      }),
+      ordersApi.list({ outletId, status: statusFilter === 'all' ? undefined : statusFilter }),
     refetchInterval: 30000,
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: ForwardStatus }) =>
       ordersApi.updateStatus(id, status),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
-      const statusLabel = STATUS_MAP[variables.status as OrderStatus]?.label || variables.status;
+      const statusLabel = orderStatusBadge(variables.status).label;
       toast.success({
         title: 'Status pesanan diperbarui',
         description: `Pesanan "${confirmAction?.order.orderNumber}" telah diubah menjadi "${statusLabel}"`,
@@ -131,7 +129,7 @@ export function OrdersPage() {
       key: 'orderType',
       header: 'Tipe',
       cell: (row) => {
-        const type = ORDER_TYPE_MAP[row.orderType] ?? { label: row.orderType, variant: 'secondary' as const };
+        const type = orderTypeBadge(row.orderType);
         return <Badge variant={type.variant}>{type.label}</Badge>;
       },
     },
@@ -146,14 +144,9 @@ export function OrdersPage() {
       key: 'status',
       header: 'Status',
       cell: (row) => {
-        const status = STATUS_MAP[row.status] ?? { label: row.status, variant: 'secondary' as const };
+        const status = orderStatusBadge(row.status);
         return <Badge variant={status.variant}>{status.label}</Badge>;
       },
-    },
-    {
-      key: 'employeeName',
-      header: 'Kasir',
-      cell: (row) => row.employeeName,
     },
     {
       key: 'createdAt',
@@ -167,12 +160,13 @@ export function OrdersPage() {
       header: '',
       cell: (row) => {
         const actions = getActionsForStatus(row.status);
-        if (actions.length === 0 && row.status !== 'pending' && row.status !== 'preparing' && row.status !== 'ready' && row.status !== 'served') {
+        if (actions.length === 0) {
           return (
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8"
+              aria-label="Lihat detail"
               onClick={() => navigate(`/app/orders/${row.id}`)}
             >
               <Eye className="h-4 w-4" />
@@ -194,7 +188,11 @@ export function OrdersPage() {
               {actions.map((action) => (
                 <DropdownMenuItem
                   key={action.status}
-                  onClick={() => setConfirmAction({ order: row, action })}
+                  onClick={() =>
+                    action.status === 'cancelled'
+                      ? setCancelTarget(row)
+                      : setConfirmAction({ order: row, action })
+                  }
                   className={action.variant === 'destructive' ? 'text-destructive' : ''}
                 >
                   {action.icon} {action.label}
@@ -214,7 +212,7 @@ export function OrdersPage() {
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
       // Number keys 1-5 for tab switching
-      const tabMap: Record<string, OrderStatus | 'all'> = {
+      const tabMap: Record<string, 'all' | OrderStatus> = {
         '1': 'all',
         '2': 'pending',
         '3': 'preparing',
@@ -242,7 +240,7 @@ export function OrdersPage() {
       <InlineHelpCard page="orders" className="mb-4" />
 
       <div className="mb-4">
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+        <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as 'all' | OrderStatus)}>
           <TabsList>
             {STATUS_TABS.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
@@ -253,32 +251,30 @@ export function OrdersPage() {
         </Tabs>
       </div>
 
+      {error ? (
+        <ErrorState error={error} onRetry={() => void refetch()} />
+      ) : (
       <DataTable
         columns={columns}
-        data={orders ?? []}
+        data={orders}
         isLoading={isLoading}
         searchPlaceholder="Cari no. pesanan..."
         emptyTitle="Belum ada pesanan"
         emptyDescription="Pesanan akan muncul di sini setelah pelanggan memesan. Gunakan POS untuk membuat pesanan baru."
       />
+      )}
+
+      <CancelOrderDialog order={cancelTarget} onClose={() => setCancelTarget(null)} />
 
       <ConfirmDialog
         open={!!confirmAction}
         onOpenChange={(open) => { if (!open) setConfirmAction(null); }}
-        title={
-          confirmAction?.action.variant === 'destructive'
-            ? 'Batalkan Pesanan'
-            : 'Ubah Status Pesanan'
-        }
-        description={
-          confirmAction?.action.variant === 'destructive'
-            ? `Apakah Anda yakin ingin membatalkan pesanan "${confirmAction?.order.orderNumber}"? Tindakan ini tidak dapat dibatalkan.`
-            : `Ubah status pesanan "${confirmAction?.order.orderNumber}" menjadi "${confirmAction?.action.label}"?`
-        }
+        title="Ubah Status Pesanan"
+        description={`Ubah status pesanan "${confirmAction?.order.orderNumber}" menjadi "${confirmAction?.action.label}"?`}
         confirmLabel={confirmAction?.action.label || 'Konfirmasi'}
-        variant={confirmAction?.action.variant === 'destructive' ? 'destructive' : 'default'}
+        variant="default"
         onConfirm={() => {
-          if (confirmAction) {
+          if (confirmAction && confirmAction.action.status !== 'cancelled') {
             updateStatusMutation.mutate({
               id: confirmAction.order.id,
               status: confirmAction.action.status,

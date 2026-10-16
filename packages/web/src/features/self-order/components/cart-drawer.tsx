@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/format';
-import { AlertCircle, Check, Loader2, Plus, RefreshCw, ShoppingCart, X } from 'lucide-react';
+import { AlertCircle, Check, Loader2, Minus, Plus, RefreshCw, ShoppingCart, X } from 'lucide-react';
 import type { CartItem } from '../hooks/use-cart';
 
 interface CartDrawerProps {
@@ -10,11 +10,12 @@ interface CartDrawerProps {
   onClose: () => void;
   cart: CartItem[];
   cartTotal: number;
-  onUpdateQuantity: (productId: string, delta: number) => void;
-  onRemoveItem: (productId: string) => void;
+  onUpdateQuantity: (lineId: string, delta: number) => void;
+  onRemoveItem: (lineId: string) => void;
   onSubmitOrder: () => void;
   isSubmitting: boolean;
   isError: boolean;
+  errorMessage?: string | null;
   isOnline: boolean;
 }
 
@@ -32,6 +33,7 @@ export function CartDrawer({
   onSubmitOrder,
   isSubmitting,
   isError,
+  errorMessage,
   isOnline,
 }: CartDrawerProps) {
   return (
@@ -57,7 +59,7 @@ export function CartDrawer({
             {/* Cart Items */}
             <div className="max-h-64 space-y-3 overflow-y-auto">
               {cart.map((item) => (
-                <div key={item.productId} className="flex gap-3 rounded-lg border p-3">
+                <div key={item.lineId} className="flex gap-3 rounded-lg border p-3">
                   {item.imageUrl && (
                     <img
                       src={item.imageUrl}
@@ -67,6 +69,7 @@ export function CartDrawer({
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-900">{item.name}</p>
+                    {item.variantName && <p className="text-xs text-gray-500">{item.variantName}</p>}
                     <p className="text-sm text-gray-600">{formatCurrency(item.price)}</p>
                     {item.notes && (
                       <p className="mt-1 text-xs text-gray-500">Catatan: {item.notes}</p>
@@ -77,7 +80,8 @@ export function CartDrawer({
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => onRemoveItem(item.productId)}
+                      aria-label={`Hapus ${item.name}`}
+                      onClick={() => onRemoveItem(item.lineId)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -86,16 +90,18 @@ export function CartDrawer({
                         variant="outline"
                         size="icon"
                         className="h-9 w-9 min-h-[44px]"
-                        onClick={() => onUpdateQuantity(item.productId, -1)}
+                        aria-label={`Kurangi jumlah ${item.name}`}
+                        onClick={() => onUpdateQuantity(item.lineId, -1)}
                       >
-                        <Plus className="h-4 w-4 rotate-45" />
+                        <Minus className="h-4 w-4" />
                       </Button>
                       <span className="w-9 text-center font-medium">{item.quantity}</span>
                       <Button
                         variant="outline"
                         size="icon"
                         className="h-9 w-9 min-h-[44px]"
-                        onClick={() => onUpdateQuantity(item.productId, 1)}
+                        aria-label={`Tambah jumlah ${item.name}`}
+                        onClick={() => onUpdateQuantity(item.lineId, 1)}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -108,9 +114,12 @@ export function CartDrawer({
             {/* Total */}
             <div className="border-t pt-4">
               <div className="flex items-center justify-between text-lg font-semibold">
-                <span>Total</span>
+                <span>Estimasi Subtotal</span>
                 <span>{formatCurrency(cartTotal)}</span>
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Total akhir (termasuk pajak &amp; biaya layanan) dihitung oleh restoran saat pesanan dikirim.
+              </p>
             </div>
 
             {/* Submit Button */}
@@ -142,7 +151,9 @@ export function CartDrawer({
             {isError && (
               <Alert variant="destructive" className="mt-4">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>Gagal mengirim pesanan. Silakan coba lagi.</AlertDescription>
+                <AlertDescription>
+                  Gagal mengirim pesanan{errorMessage ? `: ${errorMessage}` : ''}. Silakan coba lagi.
+                </AlertDescription>
               </Alert>
             )}
           </div>

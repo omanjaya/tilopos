@@ -10,6 +10,8 @@ interface KdsHeaderProps {
   onBack: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  /** Realtime socket state; null while connecting. */
+  realtimeError?: string | null;
 }
 
 export function KdsHeader({
@@ -19,6 +21,7 @@ export function KdsHeader({
   onBack,
   onRefresh,
   isRefreshing,
+  realtimeError,
 }: KdsHeaderProps) {
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-700 bg-zinc-950 px-4">
@@ -28,19 +31,29 @@ export function KdsHeader({
           size="icon"
           className="text-zinc-400 hover:text-white hover:bg-zinc-800 min-h-[44px] min-w-[44px]"
           onClick={onBack}
+          aria-label="Kembali"
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex items-center gap-3">
           <UtensilsCrossed className="h-6 w-6 text-orange-400" />
           <div>
-            <h1 className="text-lg font-bold">Kitchen Display</h1>
+            <h1 className="text-lg font-bold">Tampilan Dapur</h1>
             <p className="text-xs text-zinc-400">{outletName}</p>
           </div>
         </div>
       </div>
 
       <div className="flex items-center gap-4">
+        {realtimeError && (
+          <Badge
+            variant="destructive"
+            className="text-xs px-2 py-1"
+            title={realtimeError}
+          >
+            Realtime terputus — memuat ulang tiap 10 detik
+          </Badge>
+        )}
         <Badge className="bg-orange-600 text-white text-sm px-3 py-1">
           {activeOrderCount} pesanan aktif
         </Badge>
@@ -49,6 +62,7 @@ export function KdsHeader({
           size="icon"
           className="text-zinc-400 hover:text-white hover:bg-zinc-800 min-h-[44px] min-w-[44px]"
           onClick={onRefresh}
+          aria-label="Muat ulang"
         >
           {isRefreshing ? (
             <Loader2 className="h-5 w-5 animate-spin" />

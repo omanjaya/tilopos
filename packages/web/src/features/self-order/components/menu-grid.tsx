@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Menu, Plus } from 'lucide-react';
 import { formatCurrency } from '@/lib/format';
 import type { SelfOrderMenuItem } from '@/types/self-order.types';
+import { requiresVariant } from '../hooks/use-cart';
 
 interface MenuGridProps {
   items: SelfOrderMenuItem[];
@@ -31,8 +32,17 @@ export function MenuGrid({ items, onProductClick, onAddToCart }: MenuGridProps) 
       {items.map((item) => (
         <Card
           key={item.id}
-          className="cursor-pointer overflow-hidden transition-shadow hover:shadow-lg"
+          role="button"
+          tabIndex={0}
+          aria-label={`Lihat detail ${item.name}`}
+          className="cursor-pointer overflow-hidden transition-shadow hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onProductClick(item)}
+          onKeyDown={(e) => {
+            if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+              e.preventDefault();
+              onProductClick(item);
+            }
+          }}
         >
           <div className="aspect-video w-full overflow-hidden bg-gray-100 relative group">
             {item.imageUrl ? (
@@ -59,12 +69,18 @@ export function MenuGrid({ items, onProductClick, onAddToCart }: MenuGridProps) 
               <p className="mt-2 line-clamp-2 text-sm text-gray-600">{item.description}</p>
             )}
             <div className="mt-3 flex items-center justify-between">
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(item.price)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {requiresVariant(item) && <span className="mr-1 text-xs font-normal text-gray-500">mulai</span>}
+                {formatCurrency(item.price)}
+              </p>
               <Button
                 size="sm"
+                aria-label={requiresVariant(item) ? `Pilih varian ${item.name}` : `Tambah ${item.name} ke keranjang`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onAddToCart(item);
+                  // Variant products must be added from the detail modal with a chosen variant.
+                  if (requiresVariant(item)) onProductClick(item);
+                  else onAddToCart(item);
                 }}
                 className="min-h-[44px] min-w-[44px]"
               >

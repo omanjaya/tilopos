@@ -39,6 +39,7 @@ export function OrderItemRow({ item, onBump, isBumping }: OrderItemRowProps) {
           className="shrink-0 bg-green-600 text-white hover:bg-green-700 min-h-[44px] min-w-[44px]"
           onClick={() => onBump(item.id)}
           disabled={isBumping}
+          aria-label={`Selesaikan ${item.productName}`}
         >
           {isBumping ? (
             <Loader2 className="h-4 w-4 animate-spin" />

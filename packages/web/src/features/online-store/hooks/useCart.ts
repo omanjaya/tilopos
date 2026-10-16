@@ -1,68 +1,48 @@
 import { useState } from 'react';
 import type { CartItem } from '../types/storefront.types';
 
+export function cartLineId(productId: string, variantId?: string): string {
+  return `${productId}:${variantId ?? ''}`;
+}
+
 /**
- * Hook to manage shopping cart state and operations
+ * Hook to manage shopping cart state and operations.
+ * Lines are keyed by lineId (product + variant), so updating one line never
+ * touches another.
  */
 export function useCart() {
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  // Calculate item total
-  const getItemTotal = (item: CartItem) => {
-    const basePrice = item.variant?.price || item.price;
-    const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + m.price, 0) || 0;
-    return (basePrice + modifiersPrice) * item.quantity;
-  };
+  const getItemTotal = (item: CartItem) => item.price * item.quantity;
 
-  // Cart calculations
+  // Estimated from displayed prices; the authoritative total comes back from checkout.
   const cartTotal = cart.reduce((sum, item) => sum + getItemTotal(item), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Add item to cart
   const addItem = (item: CartItem) => {
     setCart((prev) => {
-      const existing = prev.find(
-        (cartItem) =>
-          cartItem.productId === item.productId &&
-          cartItem.variantId === item.variantId &&
-          JSON.stringify(cartItem.modifiers?.map((m) => m?.id) || []) ===
-          JSON.stringify(item.modifiers?.map((m) => m?.id) || [])
-      );
-
+      const existing = prev.find((c) => c.lineId === item.lineId);
       if (existing) {
-        return prev.map((cartItem) =>
-          cartItem.productId === item.productId &&
-          cartItem.variantId === item.variantId &&
-          JSON.stringify(cartItem.modifiers?.map((m) => m?.id) || []) ===
-          JSON.stringify(item.modifiers?.map((m) => m?.id) || [])
-            ? { ...cartItem, quantity: cartItem.quantity + item.quantity }
-            : cartItem
+        return prev.map((c) =>
+          c.lineId === item.lineId ? { ...c, quantity: c.quantity + item.quantity } : c,
         );
       }
-
       return [...prev, item];
     });
   };
 
-  // Update quantity
-  const updateQuantity = (productId: string, variantId: string | undefined, delta: number) => {
+  const updateQuantity = (lineId: string, delta: number) => {
     setCart((prev) =>
-      prev
-        .map((item) =>
-          item.productId === productId && item.variantId === variantId
-            ? { ...item, quantity: Math.max(1, item.quantity + delta) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
+      prev.map((item) =>
+        item.lineId === lineId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item,
+      ),
     );
   };
 
-  // Remove from cart
-  const removeItem = (productId: string, variantId: string | undefined) => {
-    setCart((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
+  const removeItem = (lineId: string) => {
+    setCart((prev) => prev.filter((item) => item.lineId !== lineId));
   };
 
-  // Clear cart
   const clearCart = () => {
     setCart([]);
   };

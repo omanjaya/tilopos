@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { invoicesApi, type InvoiceItem } from '@/api/endpoints/invoices.api';
+import { invoicesApi, type InvoiceItem, type InvoiceStatusFilter } from '@/api/endpoints/invoices.api';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -25,15 +25,26 @@ const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'destruct
   voided: { label: 'Void', variant: 'destructive' },
   refunded: { label: 'Refund', variant: 'outline' },
   held: { label: 'Ditahan', variant: 'secondary' },
-  partial_refund: { label: 'Refund Sebagian', variant: 'secondary' },
+  partially_refunded: { label: 'Refund Sebagian', variant: 'secondary' },
+  credit: { label: 'Kredit (BON)', variant: 'secondary' },
+  partially_paid: { label: 'Dibayar Sebagian', variant: 'secondary' },
+  pending: { label: 'Menunggu', variant: 'secondary' },
 };
+
+const PAGE_SIZE = 50;
 
 export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: InvoiceTabProps) {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('all');
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['invoices', outletId, startDate, endDate, search, statusFilter],
+  // Reset to the first page whenever the filter set changes.
+  useEffect(() => {
+    setPage(1);
+  }, [outletId, startDate, endDate, search, statusFilter]);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['invoices', outletId, startDate, endDate, search, statusFilter, page],
     queryFn: () =>
       invoicesApi.list({
         outletId,
@@ -41,6 +52,8 @@ export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: In
         endDate,
         search: search || undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
+        page,
+        limit: PAGE_SIZE,
       }),
     enabled: !!outletId,
   });
@@ -51,6 +64,7 @@ export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: In
       header: 'No. Invoice',
       cell: (row) => (
         <button
+          type="button"
           className="font-medium text-primary hover:underline text-left"
           onClick={() => onSelectInvoice(row.id)}
         >
@@ -121,7 +135,7 @@ export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: In
       {summary && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <SummaryCard icon={FileText} label="Total Invoice" value={summary.totalInvoices.toString()} />
-          <SummaryCard icon={Receipt} label="Total Amount" value={formatCurrency(summary.totalAmount)} />
+          <SummaryCard icon={Receipt} label="Total Penjualan" value={formatCurrency(summary.totalAmount)} />
           <SummaryCard icon={Calculator} label="Total Pajak" value={formatCurrency(summary.totalTax)} />
           <SummaryCard icon={Percent} label="Total Diskon" value={formatCurrency(summary.totalDiscount)} />
         </div>
@@ -132,12 +146,25 @@ export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: In
         columns={columns}
         data={data?.invoices ?? []}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
+        pagination={
+          data?.pagination
+            ? {
+                page: data.pagination.page,
+                totalPages: data.pagination.totalPages,
+                total: data.pagination.total,
+                limit: data.pagination.limit,
+                onPageChange: setPage,
+              }
+            : undefined
+        }
         searchPlaceholder="Cari no. invoice atau nama pelanggan..."
         onSearch={setSearch}
         emptyTitle="Belum ada invoice"
         emptyDescription="Invoice akan muncul setelah ada transaksi penjualan."
         filters={
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as InvoiceStatusFilter)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Semua Status" />
             </SelectTrigger>
@@ -146,7 +173,7 @@ export function InvoiceTab({ outletId, startDate, endDate, onSelectInvoice }: In
               <SelectItem value="completed">Selesai</SelectItem>
               <SelectItem value="voided">Void</SelectItem>
               <SelectItem value="refunded">Refund</SelectItem>
-              <SelectItem value="partial_refund">Refund Sebagian</SelectItem>
+              <SelectItem value="partially_refunded">Refund Sebagian</SelectItem>
             </SelectContent>
           </Select>
         }

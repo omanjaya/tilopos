@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { ErrorState } from '@/components/shared/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Store } from 'lucide-react';
 
@@ -17,7 +18,6 @@ import {
 } from './components';
 
 export function StorefrontPage() {
-  const navigate = useNavigate();
   const { slug: routeSlug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const slug = routeSlug || searchParams.get('slug') || '';
@@ -27,17 +27,16 @@ export function StorefrontPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Custom hooks
-  const { storefront, products, categories, isLoading } = useStorefront(slug);
-  const { cart, cartTotal, cartItemCount, getItemTotal, addItem, updateQuantity, removeItem, clearCart } = useCart();
+  const { storefront, products, categories, isLoading, isNotFound, error, refetch } = useStorefront(slug);
+  const { cart, cartItemCount, getItemTotal, addItem, updateQuantity, removeItem, clearCart } = useCart();
   const {
     selectedProduct,
     selectedVariant,
-    selectedModifiers,
     quantity,
     setQuantity,
     setSelectedVariant,
-    toggleModifier,
     calculateTotal,
+    canAddToCart,
     toCartItem,
     resetSelection,
     selectProduct,
@@ -50,14 +49,15 @@ export function StorefrontPage() {
     deliveryMethod,
     setDeliveryMethod,
     orderStatus,
-    setOrderStatus,
-    orderNumber,
+    order,
+    errorMessage,
     submitOrder: submitCheckoutOrder,
+    resetCheckout,
   } = useCheckout(slug);
 
   // Handlers
   const handleAddToCart = () => {
-    if (selectedProduct) {
+    if (selectedProduct && canAddToCart(selectedProduct)) {
       const cartItem = toCartItem(selectedProduct);
       addItem(cartItem);
       resetSelection();
@@ -69,11 +69,7 @@ export function StorefrontPage() {
   };
 
   const handleShopAgain = () => {
-    setOrderStatus('idle');
-  };
-
-  const handleBackToStore = () => {
-    navigate(`/store/${slug}`);
+    resetCheckout();
   };
 
   // Loading state
@@ -98,6 +94,15 @@ export function StorefrontPage() {
     );
   }
 
+  // Transient failure: offer retry instead of claiming the store doesn't exist
+  if (!storefront && !isNotFound) {
+    return (
+      <div className="mx-auto max-w-md p-8">
+        <ErrorState title="Gagal memuat toko" error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   // Not found state
   if (!storefront) {
     return (
@@ -112,17 +117,9 @@ export function StorefrontPage() {
   }
 
   // Order success state
-  if (orderStatus === 'success' && orderNumber) {
+  if (orderStatus === 'success' && order) {
     return (
-      <OrderSuccess
-        orderNumber={orderNumber}
-        cartTotal={cartTotal}
-        deliveryMethod={deliveryMethod}
-        customerInfo={customerInfo}
-        slug={slug}
-        onShopAgain={handleShopAgain}
-        onBackToStore={handleBackToStore}
-      />
+      <OrderSuccess order={order} deliveryMethod={deliveryMethod} onShopAgain={handleShopAgain} />
     );
   }
 
@@ -156,9 +153,8 @@ export function StorefrontPage() {
           setQuantity={setQuantity}
           selectedVariant={selectedVariant}
           setSelectedVariant={setSelectedVariant}
-          selectedModifiers={selectedModifiers}
-          toggleModifier={toggleModifier}
           calculateTotal={calculateTotal}
+          canAddToCart={canAddToCart(selectedProduct)}
           onAddToCart={handleAddToCart}
           onClose={resetSelection}
         />
@@ -181,6 +177,9 @@ export function StorefrontPage() {
       {/* Checkout Flow */}
       {(checkoutStep > 0 || orderStatus === 'submitting') && (
         <CheckoutFlow
+          isDeliveryEnabled={storefront.isDeliveryEnabled}
+          isPickupEnabled={storefront.isPickupEnabled}
+          errorMessage={errorMessage}
           cart={cart}
           checkoutStep={checkoutStep}
           setCheckoutStep={setCheckoutStep}
