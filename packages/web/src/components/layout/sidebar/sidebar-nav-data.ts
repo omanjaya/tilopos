@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { EmployeeRole } from '@/types/auth.types';
+import { canAccessPath, homePathForRole } from '@/config/permissions';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,45 +29,9 @@ export type NavSection = {
   maxVisible?: number;
 };
 
-// ── Role-based access mapping ────────────────────────────────────────────────
-
-/** Paths each role is allowed to see. Empty array = sees everything. */
-export const ROLE_ALLOWED_PATHS: Record<EmployeeRole, string[]> = {
-  super_admin: [],
-  owner: [],
-  manager: [],
-  supervisor: [
-    '/app', '/pos', '/kds',
-    '/app/transactions', '/app/orders', '/app/tables', '/app/waiting-list',
-    '/app/shifts', '/app/settlements',
-    '/app/products', '/app/bundle-packages', '/app/ingredients',
-    '/app/inventory/stock', '/app/inventory/stock-opname', '/app/inventory/transfers', '/app/inventory/suppliers',
-    '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
-    '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
-    '/app/inventory/serial-numbers', '/app/inventory/product-assignment',
-    '/app/customers', '/app/customers/segments',
-    '/app/promotions', '/app/promotions/vouchers', '/app/loyalty',
-    '/app/invoices',
-    '/app/reports', '/app/reports/sales', '/app/employees',
-    '/app/appointments', '/app/work-orders', '/app/item-tracking',
-  ],
-  cashier: [
-    '/app', '/pos',
-    '/app/transactions', '/app/orders', '/app/tables', '/app/shifts',
-  ],
-  kitchen: [
-    '/app', '/kds',
-    '/app/orders',
-  ],
-  inventory: [
-    '/app',
-    '/app/products', '/app/bundle-packages', '/app/ingredients',
-    '/app/inventory/stock', '/app/inventory/stock-opname', '/app/inventory/transfers', '/app/inventory/suppliers',
-    '/app/inventory/purchase-orders', '/app/inventory/price-tiers',
-    '/app/inventory/unit-conversion', '/app/inventory/batch-tracking',
-    '/app/inventory/serial-numbers', '/app/inventory/product-assignment',
-  ],
-};
+// ── Role-based access ────────────────────────────────────────────────────────
+// Visibility per role comes from ROUTE_ROLES in config/permissions.ts (single
+// source shared with RoleGuard); see isNavPathAllowed below.
 
 // ── Navigation structure ─────────────────────────────────────────────────────
 
@@ -226,6 +191,15 @@ export const settingsItems: NavItem[] = [
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Whether a nav entry should be shown to `role`: the route must be allowed by
+ * ROUTE_ROLES, and the dashboard is only listed for roles that land on it.
+ */
+export function isNavPathAllowed(role: string | undefined, path: string): boolean {
+  if (path === '/app') return homePathForRole(role) === '/app';
+  return canAccessPath(role, path);
+}
 
 /** Collect all nav paths to detect which need `end` (exact match only) */
 function buildExactMatchSet(sections: NavSection[]): Set<string> {

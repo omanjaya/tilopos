@@ -36,7 +36,7 @@ export function LoadingSpinner({
       )}
       role="status"
       aria-live="polite"
-      aria-label={message || 'Loading...'}
+      aria-label={message || 'Memuat...'}
     >
       <Loader2
         className={cn('animate-spin text-primary', sizeClasses[size])}
@@ -45,21 +45,7 @@ export function LoadingSpinner({
       {message && (
         <p className="text-sm text-muted-foreground">{message}</p>
       )}
-      <span className="sr-only">{message || 'Loading...'}</span>
-    </div>
-  );
-}
-
-/**
- * FullPageSpinner
- *
- * Loading spinner that covers the entire viewport.
- * Use for initial app loading or full page transitions.
- */
-export function FullPageSpinner({ message }: { message?: string }) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background">
-      <LoadingSpinner size="lg" message={message} />
+      <span className="sr-only">{message || 'Memuat...'}</span>
     </div>
   );
 }

@@ -5,6 +5,15 @@ import {
   exportToExcel,
   printReport,
 } from '@/lib/export-utils';
+import { toast } from '@/lib/toast-utils';
+
+function reportExportError(format: string, error: unknown) {
+  console.error(`Export ${format} failed`, error);
+  toast.error({
+    title: `Gagal ekspor ${format}`,
+    description: error instanceof Error ? error.message : 'Silakan coba lagi.',
+  });
+}
 
 interface ExportButtonsProps {
   title: string;
@@ -30,18 +39,26 @@ export function ExportButtons({
   onExport,
 }: ExportButtonsProps) {
   const handleExportPDF = () => {
-    exportToPDF(title, headers, data, filename, {
-      summary,
-      outletName,
-      period,
-      columnStyles,
-    });
-    onExport?.();
+    try {
+      exportToPDF(title, headers, data, filename, {
+        summary,
+        outletName,
+        period,
+        columnStyles,
+      });
+      onExport?.();
+    } catch (error) {
+      reportExportError('PDF', error);
+    }
   };
 
   const handleExportExcel = async () => {
-    await exportToExcel(title, headers, data, filename, summary);
-    onExport?.();
+    try {
+      await exportToExcel(title, headers, data, filename, summary);
+      onExport?.();
+    } catch (error) {
+      reportExportError('Excel', error);
+    }
   };
 
   const handlePrint = () => {
@@ -76,7 +93,7 @@ export function ExportButtons({
         className="gap-2"
       >
         <Printer className="h-4 w-4" />
-        Print
+        Cetak
       </Button>
     </div>
   );

@@ -96,11 +96,14 @@ export function SidebarNavItem({
             'transition-all duration-200',
             isPinned
               ? 'text-amber-500 opacity-70 hover:opacity-100 hover:bg-sidebar-accent hover:scale-110'
-              : 'opacity-0 group-hover/item:opacity-40 hover:!opacity-100 hover:bg-sidebar-accent hover:scale-110 text-sidebar-muted-foreground',
+              : 'opacity-0 group-hover/item:opacity-40 focus-visible:opacity-100 hover:!opacity-100 hover:bg-sidebar-accent hover:scale-110 text-sidebar-muted-foreground',
           )}
+          type="button"
           title={isPinned ? 'Hapus dari favorit' : 'Pin ke favorit'}
+          aria-label={isPinned ? `Hapus ${item.label} dari favorit` : `Pin ${item.label} ke favorit`}
+          aria-pressed={isPinned}
         >
-          <Pin className={cn('h-3 w-3 transition-transform duration-200', isPinned && 'fill-current')} />
+          <Pin className={cn('h-3 w-3 transition-transform duration-200', isPinned && 'fill-current')} aria-hidden="true" />
         </button>
       )}
     </div>

@@ -31,7 +31,7 @@ export function Header() {
           size="icon"
           className="lg:hidden flex-shrink-0"
           onClick={toggleMobileSidebar}
-          aria-label="Toggle sidebar"
+          aria-label="Buka/tutup sidebar"
         >
           <Menu className="h-5 w-5" />
         </Button>

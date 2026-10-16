@@ -15,9 +15,11 @@ import { handleMutationError } from '@/lib/api-error-handler';
 import { useFeatureStore } from '@/stores/feature.store';
 import { featuresApi } from '@/api/endpoints/features.api';
 import { cn } from '@/lib/utils';
+import { useCan } from '@/features/auth/use-permission';
+import { ErrorState } from '@/components/shared/error-state';
 import {
     CheckCircle2, Utensils, Coffee, ShoppingCart, Shirt, Hammer,
-    Scissors, Warehouse, Settings, Sparkles, ArrowRight,
+    Scissors, Warehouse, Settings, Sparkles, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -30,11 +32,14 @@ const STORAGE_KEY = 'tilo_business_type_prompted';
 export function useBusinessTypeMigration() {
     const businessType = useFeatureStore((s) => s.businessType);
     const isLoaded = useFeatureStore((s) => s.isLoaded);
+    // PUT /business/type and GET /business/types/presets are @Roles(OWNER, MANAGER)
+    const canMigrate = useCan('businessType.migrate');
 
     const wasPrompted = () => {
         try {
             return localStorage.getItem(STORAGE_KEY) === 'true';
-        } catch {
+        } catch (error) {
+            console.warn('Cannot read business-type prompt flag', error);
             return false;
         }
     };
@@ -42,8 +47,9 @@ export function useBusinessTypeMigration() {
     const setPrompted = () => {
         try {
             localStorage.setItem(STORAGE_KEY, 'true');
-        } catch {
-            // Ignore
+        } catch (error) {
+            // intentionally ignored: storage unavailable only means the prompt may reappear
+            console.warn('Cannot persist business-type prompt flag', error);
         }
     };
 
@@ -51,7 +57,8 @@ export function useBusinessTypeMigration() {
     // 1. Features are loaded
     // 2. Business type is 'custom' or null (legacy user)
     // 3. User hasn't been prompted before
-    const shouldShowPrompt = isLoaded &&
+    // 4. User's role may change the business type (owner/manager)
+    const shouldShowPrompt = canMigrate && isLoaded &&
         (businessType === 'custom' || businessType === null) &&
         !wasPrompted();
 
@@ -70,9 +77,10 @@ export function BusinessTypeMigrationModal({
     onComplete,
 }: BusinessTypeMigrationModalProps) {
     const [selected, setSelected] = useState<string | null>(null);
+    const [confirming, setConfirming] = useState(false);
     const setBusinessType = useFeatureStore((s) => s.setBusinessType);
 
-    const { data: presetsData, isLoading } = useQuery({
+    const { data: presetsData, isLoading, isError, error, refetch } = useQuery({
         queryKey: ['business-type-presets'],
         queryFn: featuresApi.getTypePresets,
         enabled: open,
@@ -96,9 +104,12 @@ export function BusinessTypeMigrationModal({
     };
 
     const handleSubmit = () => {
-        if (selected) {
-            migrateMutation.mutate(selected);
+        if (!selected) return;
+        if (!confirming) {
+            setConfirming(true);
+            return;
         }
+        migrateMutation.mutate(selected);
     };
 
     const groupedPresets = presetsData?.grouped ?? {};
@@ -121,14 +132,20 @@ export function BusinessTypeMigrationModal({
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto py-4">
-                    {isLoading ? (
+                    {isError ? (
+                        <ErrorState
+                            title="Gagal memuat tipe bisnis"
+                            error={error}
+                            onRetry={() => void refetch()}
+                        />
+                    ) : isLoading ? (
                         <div className="grid grid-cols-2 gap-3">
                             {[1, 2, 3, 4, 5, 6].map((i) => (
                                 <Skeleton key={i} className="h-32" />
                             ))}
                         </div>
                     ) : (
-                        <div className="space-y-4">
+                        <div className="space-y-4" role="radiogroup" aria-label="Tipe bisnis">
                             {Object.entries(groupedPresets).map(([category, presets]) => (
                                 <div key={category}>
                                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -146,7 +163,12 @@ export function BusinessTypeMigrationModal({
                                                 <button
                                                     key={preset.code}
                                                     type="button"
-                                                    onClick={() => setSelected(preset.code)}
+                                                    role="radio"
+                                                    aria-checked={isSelected}
+                                                    onClick={() => {
+                                                        setSelected(preset.code);
+                                                        setConfirming(false);
+                                                    }}
                                                     className={cn(
                                                         'relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all hover:shadow-md',
                                                         isSelected
@@ -190,6 +212,21 @@ export function BusinessTypeMigrationModal({
                     )}
                 </div>
 
+                {confirming && (
+                    <div
+                        role="alert"
+                        className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                    >
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                        <p>
+                            Mengubah tipe bisnis akan <strong>menonaktifkan produk, kategori, modifier, dan meja</strong> di
+                            outlet ini, mengatur ulang fitur yang aktif, lalu memasang template tipe baru. Data lama
+                            tidak dihapus permanen, tetapi tidak lagi tampil di POS. Tekan &quot;Ya, Terapkan&quot; untuk
+                            melanjutkan.
+                        </p>
+                    </div>
+                )}
+
                 <div className="pt-4 border-t flex gap-3">
                     <Button
                         type="button"
@@ -207,7 +244,7 @@ export function BusinessTypeMigrationModal({
                     >
                         {migrateMutation.isPending ? 'Menyimpan...' : (
                             <>
-                                Terapkan
+                                {confirming ? 'Ya, Terapkan' : 'Terapkan'}
                                 <ArrowRight className="h-4 w-4 ml-2" />
                             </>
                         )}

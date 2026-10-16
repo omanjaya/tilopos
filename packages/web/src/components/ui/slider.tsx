@@ -9,10 +9,14 @@ export interface SliderProps {
   step?: number;
   className?: string;
   disabled?: boolean;
+  id?: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-valuetext'?: string;
 }
 
 const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
-  ({ value, onValueChange, min = 0, max = 100, step = 1, className, disabled = false }, ref) => {
+  ({ value, onValueChange, min = 0, max = 100, step = 1, className, disabled = false, ...inputProps }, ref) => {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       onValueChange([Number(e.target.value)]);
     };
@@ -27,6 +31,7 @@ const Slider = React.forwardRef<HTMLDivElement, SliderProps>(
           value={value[0]}
           onChange={handleChange}
           disabled={disabled}
+          {...inputProps}
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50
             [&::-webkit-slider-thumb]:h-4
             [&::-webkit-slider-thumb]:w-4

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from './empty-state';
+import { ErrorState } from './error-state';
 import { Search, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +54,10 @@ interface DataTableProps<T> {
   highlightedRowId?: string | null;
   /** Key extractor for row identity — needed for highlightedRowId to work */
   rowId?: (row: T) => string;
+  /** Query error — when set, an error row with retry is shown instead of the empty state */
+  error?: unknown;
+  /** Retry handler for the error row (usually the query's refetch) */
+  onRetry?: () => void;
 }
 
 export function DataTable<T>({
@@ -69,6 +74,8 @@ export function DataTable<T>({
   sort,
   highlightedRowId,
   rowId,
+  error,
+  onRetry,
 }: DataTableProps<T>) {
   const data = useMemo(() => Array.isArray(rawData) ? rawData : [], [rawData]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,6 +142,12 @@ export function DataTable<T>({
                   ))}
                 </TableRow>
               ))
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <ErrorState error={error} onRetry={onRetry} />
+                </TableCell>
+              </TableRow>
             ) : data.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-64">
@@ -173,7 +186,7 @@ export function DataTable<T>({
 
       {/* Live region for screen readers — announces data count changes */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {!isLoading && (pagination
+        {!isLoading && !error && (pagination
           ? `Menampilkan ${Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total)} sampai ${Math.min(pagination.page * pagination.limit, pagination.total)} dari ${pagination.total} data`
           : `${data.length} data ditampilkan`
         )}

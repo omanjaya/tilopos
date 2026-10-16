@@ -15,7 +15,9 @@ interface ImageUploadProps {
 }
 
 export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: ImageUploadProps) {
-  const [preview, setPreview] = useState<string | null>(value ?? null);
+  // Local preview of an image that is still uploading; otherwise show the committed value.
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+  const preview = pendingPreview ?? value ?? null;
   const [isDragging, setIsDragging] = useState(false);
   const [cropperOpen, setCropperOpen] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -23,11 +25,16 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   const uploadMutation = useMutation({
     mutationFn: uploadsApi.image,
     onSuccess: (data) => {
-      setPreview(data.url);
+      setPendingPreview(null);
       onChange(data.url);
-      toast.success({ title: 'Berhasil!', description: 'Gambar berhasil diupload' });
+      toast.success({ title: 'Berhasil!', description: 'Gambar berhasil diunggah' });
     },
-    onError: (error) => handleMutationError(error, 'Upload gagal'),
+    onError: (error) => {
+      // Revert to the last committed image so the form never shows an unsaved upload.
+      setPendingPreview(null);
+      if (inputRef.current) inputRef.current.value = '';
+      handleMutationError(error, 'Unggah gambar gagal');
+    },
   });
 
   const validateAndUpload = async (file: File) => {
@@ -59,7 +66,7 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   const handleCropComplete = async (croppedFile: File) => {
     // Show preview immediately
     const reader = new FileReader();
-    reader.onload = () => setPreview(reader.result as string);
+    reader.onload = () => setPendingPreview(reader.result as string);
     reader.readAsDataURL(croppedFile);
 
     // Compress image before upload (if > 1MB)
@@ -155,7 +162,7 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   };
 
   const handleRemove = () => {
-    setPreview(null);
+    setPendingPreview(null);
     onChange(null);
     if (inputRef.current) inputRef.current.value = '';
   };
@@ -163,30 +170,33 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
   return (
     <>
       <div className={cn('relative', className)}>
-        <input ref={inputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+        <input ref={inputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" tabIndex={-1} aria-hidden="true" />
       {preview ? (
         <div className="relative h-48 w-48 overflow-hidden rounded-lg border-2 border-muted">
           <img src={preview} alt="Preview" className="h-full w-full object-cover" />
           <button
             type="button"
             onClick={handleRemove}
+            aria-label="Hapus gambar"
             className="absolute right-2 top-2 rounded-full bg-destructive p-1.5 text-destructive-foreground shadow-md transition-transform hover:scale-110"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
           {uploadMutation.isPending && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 backdrop-blur-sm">
               <Loader2 className="h-8 w-8 animate-spin text-white" />
-              <p className="text-xs text-white">Uploading...</p>
+              <p className="text-xs text-white">Mengunggah...</p>
             </div>
           )}
         </div>
       ) : (
-        <div
+        <button
+          type="button"
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => inputRef.current?.click()}
+          aria-label="Pilih gambar untuk diunggah"
           className={cn(
             'flex h-48 w-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed transition-all hover:border-primary hover:bg-accent/50',
             isDragging && 'border-primary bg-accent',
@@ -196,20 +206,20 @@ export function ImageUpload({ value, onChange, className, maxSizeMB = 5 }: Image
             <>
               <Upload className="h-10 w-10 text-primary" />
               <div className="text-center">
-                <p className="text-sm font-medium text-primary">Drop gambar di sini</p>
+                <p className="text-sm font-medium text-primary">Lepas gambar di sini</p>
               </div>
             </>
           ) : (
             <>
               <ImagePlus className="h-10 w-10 text-muted-foreground" />
               <div className="text-center">
-                <p className="text-sm font-medium">Upload Gambar</p>
-                <p className="text-xs text-muted-foreground">Klik atau drag & drop</p>
-                <p className="mt-1 text-xs text-muted-foreground">Max {maxSizeMB}MB</p>
+                <p className="text-sm font-medium">Unggah Gambar</p>
+                <p className="text-xs text-muted-foreground">Klik atau seret & lepas</p>
+                <p className="mt-1 text-xs text-muted-foreground">Maks. {maxSizeMB}MB</p>
               </div>
             </>
           )}
-        </div>
+        </button>
       )}
       </div>
 

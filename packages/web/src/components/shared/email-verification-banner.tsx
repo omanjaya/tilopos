@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Mail, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { authApi } from '@/api/endpoints/auth.api';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 export function EmailVerificationBanner() {
   const [dismissed, setDismissed] = useState(false);
@@ -15,8 +16,8 @@ export function EmailVerificationBanner() {
     try {
       await authApi.sendVerificationEmail();
       setSent(true);
-    } catch {
-      // Silently fail — user can try again
+    } catch (error) {
+      handleMutationError(error, 'Gagal mengirim email verifikasi');
     } finally {
       setSending(false);
     }
@@ -46,10 +47,12 @@ export function EmailVerificationBanner() {
           </Button>
         )}
         <button
+          type="button"
           onClick={() => setDismissed(true)}
+          aria-label="Tutup banner"
           className="text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-200"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>

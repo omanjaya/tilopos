@@ -116,14 +116,15 @@ export function ImageCropperModal({
             {/* Zoom Control */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <ZoomIn className="h-4 w-4" />
-                  Zoom
+                <Label htmlFor="image-crop-zoom" className="flex items-center gap-2">
+                  <ZoomIn className="h-4 w-4" aria-hidden="true" />
+                  Perbesar
                 </Label>
                 <span className="text-sm text-muted-foreground">{Math.round(zoom * 100)}%</span>
               </div>
               <Slider
                 value={[zoom]}
+                id="image-crop-zoom"
                 onValueChange={(value) => setZoom(value[0] ?? 1)}
                 min={0.5}
                 max={3}
@@ -135,8 +136,8 @@ export function ImageCropperModal({
             {/* Rotation Control */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <RotateCw className="h-4 w-4" />
+                <Label htmlFor="image-crop-rotation" className="flex items-center gap-2">
+                  <RotateCw className="h-4 w-4" aria-hidden="true" />
                   Rotasi
                 </Label>
                 <span className="text-sm text-muted-foreground">{rotation}°</span>
@@ -144,6 +145,7 @@ export function ImageCropperModal({
               <div className="flex gap-2">
                 <Slider
                   value={[rotation]}
+                  id="image-crop-rotation"
                   onValueChange={(value) => setRotation(value[0] ?? 0)}
                   min={0}
                   max={360}
@@ -155,8 +157,9 @@ export function ImageCropperModal({
                   variant="outline"
                   size="sm"
                   onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                  aria-label="Putar 90°"
                 >
-                  <RotateCw className="h-4 w-4" />
+                  <RotateCw className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -189,7 +192,7 @@ export function ImageCropperModal({
           </Button>
           <Button type="button" onClick={handleCrop}>
             <Check className="mr-2 h-4 w-4" />
-            Crop & Upload
+            Potong & Unggah
           </Button>
         </DialogFooter>
       </DialogContent>

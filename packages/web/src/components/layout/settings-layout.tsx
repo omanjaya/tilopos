@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/stores/auth.store';
+import { useNavVisibility } from './sidebar/use-nav-visibility';
 import {
   Settings, Building2, Monitor, Bell, Calculator, Printer,
   Clock, ListPlus, Store, ToggleLeft, Palette, CreditCard, CalendarClock, Crown,
@@ -11,7 +11,6 @@ interface SettingsNavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  roles?: string[];
 }
 
 interface SettingsNavGroup {
@@ -23,20 +22,20 @@ const settingsGroups: SettingsNavGroup[] = [
   {
     title: 'Umum',
     items: [
-      { to: '/app/settings/business', label: 'Bisnis', icon: Settings, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/business', label: 'Bisnis', icon: Settings },
       { to: '/app/settings/outlets', label: 'Outlet', icon: Building2 },
-      { to: '/app/settings/business-type', label: 'Tipe Bisnis', icon: Store, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/business-type', label: 'Tipe Bisnis', icon: Store },
       { to: '/app/settings/hours', label: 'Jam Operasional', icon: Clock },
     ],
   },
   {
     title: 'Produk & Penjualan',
     items: [
-      { to: '/app/settings/tax', label: 'Pajak', icon: Calculator, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/tax', label: 'Pajak', icon: Calculator },
       { to: '/app/settings/modifiers', label: 'Modifier', icon: ListPlus },
-      { to: '/app/settings/features', label: 'Fitur', icon: ToggleLeft, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/features', label: 'Fitur', icon: ToggleLeft },
       { to: '/app/settings/receipt', label: 'Struk', icon: Printer },
-      { to: '/app/settings/payments', label: 'Pembayaran', icon: CreditCard, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/payments', label: 'Pembayaran', icon: CreditCard },
     ],
   },
   {
@@ -51,23 +50,20 @@ const settingsGroups: SettingsNavGroup[] = [
     items: [
       { to: '/app/settings/notifications', label: 'Notifikasi', icon: Bell },
       { to: '/app/settings/appearance', label: 'Tampilan', icon: Palette },
-      { to: '/app/settings/report-schedule', label: 'Jadwal Laporan', icon: CalendarClock, roles: ['owner', 'super_admin'] },
-      { to: '/app/subscription', label: 'Langganan', icon: Crown, roles: ['owner', 'super_admin'] },
+      { to: '/app/settings/report-schedule', label: 'Jadwal Laporan', icon: CalendarClock },
+      { to: '/app/subscription', label: 'Langganan', icon: Crown },
     ],
   },
 ];
 
 export function SettingsLayout() {
-  const user = useAuthStore((s) => s.user);
-  const userRole = user?.role ?? 'cashier';
+  // Same ROUTE_ROLES + feature-flag rules as the main sidebar
+  const isVisible = useNavVisibility();
 
   const visibleGroups = settingsGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => {
-        if (!item.roles) return true;
-        return item.roles.includes(userRole);
-      }),
+      items: group.items.filter((item) => isVisible(item.to)),
     }))
     .filter((group) => group.items.length > 0);
 

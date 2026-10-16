@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from '@/components/ui/sheet';
@@ -10,7 +11,6 @@ import {
   AlertTriangle,
   Info,
   ChevronRight,
-  X,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import {
@@ -18,7 +18,6 @@ import {
   getPageTips,
   getCommonIssues,
 } from '@/config/help-content.config';
-import { HelpTooltip } from './help-tooltip';
 
 interface HelpSidebarProps {
   page: string;
@@ -33,6 +32,7 @@ export function HelpSidebar({
   open: controlledOpen,
   onOpenChange,
 }: HelpSidebarProps) {
+  const navigate = useNavigate();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
 
@@ -58,24 +58,14 @@ export function HelpSidebar({
         {trigger || (
           <Button variant="outline" size="sm">
             <HelpCircle className="mr-2 h-4 w-4" />
-            Help
+            Bantuan
           </Button>
         )}
       </SheetTrigger>
       <SheetContent className="w-[400px] sm:w-[540px]">
         <div className="flex flex-col h-full">
           <SheetHeader className="flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <SheetTitle>{pageHelp.title}</SheetTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => setOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            <SheetTitle className="pr-8">{pageHelp.title}</SheetTitle>
             <SheetDescription className="mt-2">{pageHelp.description}</SheetDescription>
           </SheetHeader>
 
@@ -111,7 +101,7 @@ export function HelpSidebar({
                 <section>
                   <div className="flex items-center gap-2 mb-3">
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <h3 className="font-semibold text-sm">Common Issues</h3>
+                    <h3 className="font-semibold text-sm">Masalah Umum</h3>
                   </div>
                   <div className="space-y-3">
                     {commonIssues.map((issue, idx) => (
@@ -124,7 +114,7 @@ export function HelpSidebar({
                             variant="outline"
                             className="flex-shrink-0 mt-0.5 bg-destructive/10 text-destructive border-destructive/20"
                           >
-                            Issue
+                            Masalah
                           </Badge>
                           <div className="space-y-1 flex-1">
                             <p className="text-sm font-medium">{issue.problem}</p>
@@ -148,11 +138,11 @@ export function HelpSidebar({
               className="w-full justify-start"
               onClick={() => {
                 setOpen(false);
-                window.open('/app/help', '_self');
+                navigate('/app/help');
               }}
             >
               <HelpCircle className="mr-2 h-4 w-4" />
-              View Full Help Center
+              Lihat Pusat Bantuan
             </Button>
           </div>
         </div>
@@ -194,7 +184,7 @@ export function InlineHelpCard({
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
             <Lightbulb className="h-4 w-4 text-amber-500" />
-            <h4 className="font-semibold text-sm">Quick Tips</h4>
+            <h4 className="font-semibold text-sm">Tips Singkat</h4>
           </div>
           <ul className="space-y-1">
             {tips.slice(0, 3).map((tip, idx) => (
@@ -212,7 +202,7 @@ export function InlineHelpCard({
         <div>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <h4 className="font-semibold text-sm">Need Help?</h4>
+            <h4 className="font-semibold text-sm">Butuh Bantuan?</h4>
           </div>
           <div className="space-y-2">
             {commonIssues.slice(0, 2).map((issue, idx) => (
@@ -231,28 +221,5 @@ export function InlineHelpCard({
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * FieldHelpTooltip component - Displays help tooltip for a specific field
- */
-interface FieldHelpTooltipProps {
-  page: string;
-  field: string;
-  trigger?: React.ReactNode;
-}
-
-export function FieldHelpTooltip({ page, field, trigger }: FieldHelpTooltipProps) {
-  const fieldHelp = getPageHelp(page)?.fields?.[field];
-
-  if (!fieldHelp) {
-    return null;
-  }
-
-  return (
-    <span className="inline-flex ml-1">
-      {trigger || <HelpTooltip content={fieldHelp.help} title={fieldHelp.title} variant={fieldHelp.variant} />}
-    </span>
   );
 }

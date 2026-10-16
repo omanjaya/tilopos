@@ -130,6 +130,18 @@ export function Sidebar() {
                       onDragStart={(e) => handleDragStart(index, e)}
                       onDragOver={(e) => handleDragOver(index, e)}
                       onDragEnd={handleDragEnd}
+                      onKeyDown={(e) => {
+                        // Keyboard reorder: Alt+ArrowUp / Alt+ArrowDown
+                        if (!e.altKey) return;
+                        if (e.key === 'ArrowUp' && index > 0) {
+                          e.preventDefault();
+                          reorderPins(index, index - 1);
+                        } else if (e.key === 'ArrowDown' && index < pinnedNavItems.length - 1) {
+                          e.preventDefault();
+                          reorderPins(index, index + 1);
+                        }
+                      }}
+                      title="Seret atau tekan Alt+↑/↓ untuk mengurutkan"
                       className={cn(
                         'group/drag relative transition-all duration-150',
                         dragIndex === index && 'opacity-40',

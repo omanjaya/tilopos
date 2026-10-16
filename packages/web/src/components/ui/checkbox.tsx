@@ -10,7 +10,7 @@ interface CheckboxProps extends React.ComponentPropsWithoutRef<typeof CheckboxPr
 const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
   CheckboxProps
->(({ className, indeterminate, ...props }, ref) => (
+>(({ className, indeterminate, checked, ...props }, ref) => (
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
@@ -18,8 +18,8 @@ const Checkbox = React.forwardRef<
       indeterminate && 'bg-primary text-primary-foreground',
       className
     )}
-    checked={indeterminate ? 'indeterminate' : props.checked}
     {...props}
+    checked={indeterminate ? 'indeterminate' : checked}
   >
     <CheckboxPrimitive.Indicator className={cn('flex items-center justify-center text-current')}>
       {indeterminate ? <Minus className="h-4 w-4" /> : <Check className="h-4 w-4" />}

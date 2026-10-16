@@ -60,39 +60,3 @@ export function DeviceRoute({
     </Suspense>
   );
 }
-
-/**
- * Simple device-based conditional rendering
- * Use when you need to render different content inline
- *
- * @example
- * ```tsx
- * <ShowOn mobile>
- *   <MobileNavigation />
- * </ShowOn>
- * <ShowOn desktop>
- *   <DesktopSidebar />
- * </ShowOn>
- * ```
- */
-interface ShowOnProps {
-  mobile?: boolean;
-  tablet?: boolean;
-  desktop?: boolean;
-  children: React.ReactNode;
-}
-
-export function ShowOn({ mobile, tablet, desktop, children }: ShowOnProps) {
-  const isMobile = useMediaQuery(BREAKPOINTS.mobile);
-  const isTablet = useMediaQuery(BREAKPOINTS.tablet);
-  const isDesktop = useMediaQuery(BREAKPOINTS.desktop);
-
-  const shouldShow =
-    (mobile && isMobile) ||
-    (tablet && isTablet) ||
-    (desktop && isDesktop);
-
-  if (!shouldShow) return null;
-
-  return <>{children}</>;
-}

@@ -189,4 +189,18 @@ describe('DataTable', () => {
       expect(screen.getByText('Filter Status')).toBeInTheDocument();
     });
   });
+
+  describe('error state', () => {
+    it('shows the error with retry instead of the empty state', async () => {
+      const onRetry = vi.fn();
+      render(
+        <DataTable columns={columns} data={[]} error={new Error('boom')} onRetry={onRetry} />,
+      );
+
+      expect(screen.getByText('Gagal memuat data')).toBeInTheDocument();
+      expect(screen.queryByText('Tidak ada data')).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Coba Lagi' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
 });

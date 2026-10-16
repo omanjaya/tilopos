@@ -8,7 +8,7 @@ import {
   navSections,
   settingsItems,
   navItemMap,
-  ROLE_ALLOWED_PATHS,
+  isNavPathAllowed,
   MAX_PINS,
   loadPinnedItems,
   savePinnedItems,
@@ -20,6 +20,11 @@ export function useSidebarState() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const isPathVisible = useFeatureStore((s) => s.isPathVisible);
+  // isPathVisible is a stable function; subscribe to its inputs so the menu
+  // re-filters when features load or change.
+  const enabledFeatures = useFeatureStore((s) => s.enabledFeatures);
+  const restrictedFeatures = useFeatureStore((s) => s.restrictedFeatures);
+  const featuresLoaded = useFeatureStore((s) => s.isLoaded);
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
 
@@ -59,14 +64,11 @@ export function useSidebarState() {
   // ── Role + feature filtering ───────────────────────────────────────────────
 
   const filteredSections = useMemo(() => {
-    const allowedPaths = ROLE_ALLOWED_PATHS[userRole];
-    const hasRoleFilter = allowedPaths.length > 0;
-
     return navSections
       .map((section) => ({
         ...section,
         items: section.items.filter((item) => {
-          if (hasRoleFilter && !allowedPaths.includes(item.to)) return false;
+          if (!isNavPathAllowed(userRole, item.to)) return false;
           if (!isPathVisible(item.to)) return false;
           // Hide pinned items from their original section (they appear in Favorit)
           if (pinnedSet.has(item.to)) return false;
@@ -74,20 +76,19 @@ export function useSidebarState() {
         }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [isPathVisible, userRole, pinnedSet]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- feature inputs trigger recompute of isPathVisible
+  }, [isPathVisible, userRole, pinnedSet, enabledFeatures, restrictedFeatures, featuresLoaded]);
 
   const pinnedNavItems = useMemo(() => {
-    const allowedPaths = ROLE_ALLOWED_PATHS[userRole];
-    const hasRoleFilter = allowedPaths.length > 0;
-
     return pinnedPaths
       .map((path) => navItemMap.get(path))
       .filter((item): item is NavItem => {
         if (!item) return false;
-        if (hasRoleFilter && !allowedPaths.includes(item.to)) return false;
+        if (!isNavPathAllowed(userRole, item.to)) return false;
         return isPathVisible(item.to);
       });
-  }, [pinnedPaths, isPathVisible, userRole]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- feature inputs trigger recompute of isPathVisible
+  }, [pinnedPaths, isPathVisible, userRole, enabledFeatures, restrictedFeatures, featuresLoaded]);
 
   // ── Section expand/collapse ────────────────────────────────────────────────
 

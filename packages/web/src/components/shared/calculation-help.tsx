@@ -20,8 +20,9 @@ export function CalculationHelp({ title, formula, description }: CalculationHelp
           <button
             type="button"
             className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={`Penjelasan ${title}`}
           >
-            <HelpCircle className="h-4 w-4" />
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs">

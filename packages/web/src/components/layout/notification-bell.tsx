@@ -17,25 +17,44 @@ import {
   AlertTriangle,
   Check,
   CheckCheck,
+  RotateCcw,
+  Globe,
+  Cake,
+  CreditCard,
 } from 'lucide-react';
+import { toast } from '@/lib/toast-utils';
 import type { NotificationLog } from '@/types/settings.types';
 
-type NotificationType = 'low_stock' | 'large_transaction' | 'order_ready' | 'shift_reminder' | 'system_alert';
+/** Mirrors Prisma NotificationType (+ realtime-only order_ready / system_alert). */
+type NotificationType =
+  | 'low_stock'
+  | 'large_transaction'
+  | 'refund'
+  | 'online_order'
+  | 'shift_reminder'
+  | 'system_error'
+  | 'birthday'
+  | 'subscription_trial_expiring'
+  | 'subscription_expired'
+  | 'subscription_payment_success'
+  | 'subscription_payment_failed'
+  | 'order_ready'
+  | 'system_alert';
 
-const NOTIFICATION_ICONS: Record<NotificationType, React.ElementType> = {
-  low_stock: Package,
-  large_transaction: DollarSign,
-  order_ready: ChefHat,
-  shift_reminder: Clock,
-  system_alert: AlertTriangle,
-};
-
-const NOTIFICATION_COLORS: Record<NotificationType, string> = {
-  low_stock: 'text-yellow-500',
-  large_transaction: 'text-green-500',
-  order_ready: 'text-blue-500',
-  shift_reminder: 'text-purple-500',
-  system_alert: 'text-red-500',
+const NOTIFICATION_META: Record<NotificationType, { icon: React.ElementType; color: string; title: string }> = {
+  low_stock: { icon: Package, color: 'text-yellow-500', title: 'Stok Rendah' },
+  large_transaction: { icon: DollarSign, color: 'text-green-500', title: 'Transaksi Besar' },
+  refund: { icon: RotateCcw, color: 'text-orange-500', title: 'Refund' },
+  online_order: { icon: Globe, color: 'text-blue-500', title: 'Pesanan Online' },
+  shift_reminder: { icon: Clock, color: 'text-purple-500', title: 'Pengingat Shift' },
+  system_error: { icon: AlertTriangle, color: 'text-red-500', title: 'Kesalahan Sistem' },
+  birthday: { icon: Cake, color: 'text-pink-500', title: 'Ulang Tahun Pelanggan' },
+  subscription_trial_expiring: { icon: CreditCard, color: 'text-amber-500', title: 'Masa Trial Segera Berakhir' },
+  subscription_expired: { icon: CreditCard, color: 'text-red-500', title: 'Langganan Berakhir' },
+  subscription_payment_success: { icon: CreditCard, color: 'text-green-500', title: 'Pembayaran Langganan Berhasil' },
+  subscription_payment_failed: { icon: CreditCard, color: 'text-red-500', title: 'Pembayaran Langganan Gagal' },
+  order_ready: { icon: ChefHat, color: 'text-blue-500', title: 'Pesanan Siap' },
+  system_alert: { icon: AlertTriangle, color: 'text-red-500', title: 'Peringatan Sistem' },
 };
 
 function formatRelativeTime(dateStr: string): string {
@@ -49,8 +68,12 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 function getNotificationType(type: string): NotificationType {
-  if (type in NOTIFICATION_ICONS) return type as NotificationType;
+  if (type in NOTIFICATION_META) return type as NotificationType;
   return 'system_alert';
+}
+
+function getTitleForType(type: string): string {
+  return type in NOTIFICATION_META ? NOTIFICATION_META[type as NotificationType].title : 'Notifikasi';
 }
 
 interface RealtimeNotification {
@@ -71,9 +94,9 @@ export function NotificationBell() {
 
   const employeeId = user?.employeeId || '';
 
-  const { data: serverLogs } = useQuery({
+  const { data: serverLogs, isError: logsError, refetch: refetchLogs } = useQuery({
     queryKey: ['notification-logs', employeeId],
-    queryFn: () => settingsApi.getNotificationLogs(employeeId),
+    queryFn: () => settingsApi.getNotificationLogs({ limit: 20 }),
     enabled: !!employeeId,
     refetchInterval: 60_000,
   });
@@ -83,6 +106,11 @@ export function NotificationBell() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['notification-logs'] });
     },
+    onError: (_error, id) => {
+      // Revert the optimistic "read" flag
+      setRealtimeNotifs((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: false } : n)));
+      toast.error({ title: 'Gagal menandai notifikasi sebagai dibaca' });
+    },
   });
 
   // Merge server logs with realtime notifications
@@ -90,7 +118,7 @@ export function NotificationBell() {
     const serverItems: RealtimeNotification[] = (serverLogs ?? []).map((log: NotificationLog) => ({
       id: log.id,
       type: log.type,
-      title: getTitleForType(log.type),
+      title: log.title || getTitleForType(log.type),
       message: log.message,
       isRead: log.isRead,
       createdAt: log.createdAt,
@@ -153,13 +181,17 @@ export function NotificationBell() {
     }
   };
 
-  const handleMarkAllRead = () => {
-    setRealtimeNotifs((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    for (const n of allNotifications) {
-      if (!n.isRead) {
-        markReadMutation.mutate(n.id);
-      }
+  const handleMarkAllRead = async () => {
+    const unreadIds = allNotifications.filter((n) => !n.isRead).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    setRealtimeNotifs((prev) => prev.map((n) => (unreadIds.includes(n.id) ? { ...n, isRead: true } : n)));
+    try {
+      await settingsApi.markAllNotificationsRead();
+    } catch {
+      setRealtimeNotifs((prev) => prev.map((n) => (unreadIds.includes(n.id) ? { ...n, isRead: false } : n)));
+      toast.error({ title: 'Gagal menandai semua notifikasi sebagai dibaca' });
     }
+    void queryClient.invalidateQueries({ queryKey: ['notification-logs'] });
   };
 
   return (
@@ -192,7 +224,7 @@ export function NotificationBell() {
               variant="ghost"
               size="sm"
               className="h-auto px-2 py-1 text-xs text-muted-foreground"
-              onClick={handleMarkAllRead}
+              onClick={() => void handleMarkAllRead()}
             >
               <CheckCheck className="mr-1 h-3 w-3" />
               Tandai semua dibaca
@@ -202,8 +234,16 @@ export function NotificationBell() {
 
         {/* Notification list */}
         <ScrollArea className="h-80">
+          {logsError && (
+            <div className="flex items-center justify-between gap-2 border-b bg-destructive/5 px-4 py-2 text-xs text-destructive" role="alert">
+              <span>Gagal memuat notifikasi.</span>
+              <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => void refetchLogs()}>
+                Coba lagi
+              </Button>
+            </div>
+          )}
           {allNotifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground">
+            logsError ? null : <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground">
               <Bell className="mb-2 h-8 w-8 opacity-30" />
               <p>Belum ada notifikasi</p>
             </div>
@@ -211,12 +251,12 @@ export function NotificationBell() {
             <div className="divide-y">
               {allNotifications.map((notification) => {
                 const nType = getNotificationType(notification.type);
-                const Icon = NOTIFICATION_ICONS[nType];
-                const iconColor = NOTIFICATION_COLORS[nType];
+                const { icon: Icon, color: iconColor } = NOTIFICATION_META[nType];
 
                 return (
                   <button
                     key={notification.id}
+                    type="button"
                     className={cn(
                       'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent',
                       !notification.isRead && 'bg-accent/50',
@@ -265,21 +305,4 @@ export function NotificationBell() {
       </PopoverContent>
     </Popover>
   );
-}
-
-function getTitleForType(type: string): string {
-  switch (type) {
-    case 'low_stock':
-      return 'Stok Rendah';
-    case 'large_transaction':
-      return 'Transaksi Besar';
-    case 'order_ready':
-      return 'Pesanan Siap';
-    case 'shift_reminder':
-      return 'Pengingat Shift';
-    case 'system_alert':
-      return 'Peringatan Sistem';
-    default:
-      return 'Notifikasi';
-  }
 }

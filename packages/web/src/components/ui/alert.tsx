@@ -33,26 +33,24 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
 Alert.displayName = 'Alert';
 
 const AlertTitle = React.forwardRef<
-  HTMLParagraphElement,
+  HTMLHeadingElement,
   React.HTMLAttributes<HTMLHeadingElement>
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 >(({ className, ...props }, ref) => (
   <h5
     ref={ref}
-    className="mb-1 font-medium leading-none tracking-tight"
+    className={cn('mb-1 font-medium leading-none tracking-tight', className)}
     {...props}
   />
 ));
 AlertTitle.displayName = 'AlertTitle';
 
 const AlertDescription = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLParagraphElement>
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className="text-sm [&_svg]:text-foreground [&_svg]:text-muted-foreground"
+    className={cn('text-sm [&_svg]:text-muted-foreground', className)}
     {...props}
   />
 ));

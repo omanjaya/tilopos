@@ -23,6 +23,8 @@ import { cn } from '@/lib/utils';
 import { MobileNav } from '@/components/shared/mobile-nav';
 import { EmailVerificationBanner } from '@/components/shared/email-verification-banner';
 import { useMediaQuery, BREAKPOINTS } from '@/hooks/use-media-query';
+import { RoleGuard } from '@/features/auth/role-guard';
+import { can, hasRole } from '@/config/permissions';
 
 export function AppLayout() {
   const location = useLocation();
@@ -31,6 +33,8 @@ export function AppLayout() {
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const user = useAuthStore((s) => s.user);
+  // POST /onboarding/setup is @Roles(OWNER); managers must not get a wizard that 403s
+  const canManageOnboarding = can(user?.role, 'onboarding.setup');
   const { openOnboarding, completeOnboarding } = useOnboarding();
   const { completeOnboarding: apiCompleteOnboarding } = useCompleteOnboarding();
   const { open: commandPaletteOpen, setOpen: setCommandPaletteOpen } = useCommandPalette();
@@ -62,48 +66,61 @@ export function AppLayout() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const setBrandColor = useUIStore((s) => s.setBrandColor);
 
-  // Determine active outlet: selectedOutletId from UI store or from JWT
-  const activeOutletId = selectedOutletId || user?.outletId || null;
+  // Business-level feature/type/settings endpoints are @Roles(owner, manager);
+  // other roles only read the outlet-level (role-neutral) endpoints.
+  const isManagement = hasRole(user?.role, 'MANAGEMENT');
+
+  // Active outlet: only roles that may switch outlets use the UI selection
+  // (a stale selection from a previous user on a shared terminal is ignored).
+  const activeOutletId = (can(user?.role, 'outlets.switch') ? selectedOutletId : null) || user?.outletId || null;
 
   useEffect(() => {
+    // On failure keep the previous state (isLoaded stays false => menus stay visible)
+    // instead of hiding every feature-gated page after one transient error.
+    const warn = (what: string) => (error: unknown) => {
+      console.warn(`[app-layout] failed to load ${what}`, error);
+    };
+
     if (activeOutletId) {
-      // Load outlet-level features and type
       setCurrentOutletId(activeOutletId);
-      featuresApi.getOutletEnabledFeatures(activeOutletId).then(setEnabledFeatures).catch(() => {
+      featuresApi.getOutletEnabledFeatures(activeOutletId).then(setEnabledFeatures).catch((error: unknown) => {
+        if (!isManagement) return warn('outlet features')(error);
         // Fallback to business-level
-        featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+        featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(warn('business features'));
       });
       featuresApi.getOutletType(activeOutletId).then((data) => {
         setOutletType(data.outletType?.code ?? null);
-      }).catch(() => {
-        // Fallback to business-level type
+      }).catch((error: unknown) => {
+        if (!isManagement) return warn('outlet type')(error);
         featuresApi.getBusinessType().then((data) => {
           setBusinessType(data.businessType?.code ?? null);
-        }).catch(() => { });
+        }).catch(warn('business type'));
       });
-    } else {
-      // No outlet context — use business-level (legacy)
+    } else if (isManagement) {
+      // No outlet context — use business-level
       setCurrentOutletId(null);
-      featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(() => setEnabledFeatures([]));
+      featuresApi.getEnabledFeatures().then(setEnabledFeatures).catch(warn('business features'));
       featuresApi.getBusinessType().then((data) => {
         setBusinessType(data.businessType?.code ?? null);
-      }).catch(() => { });
+      }).catch(warn('business type'));
     }
+
+    if (!isManagement) return;
 
     // Load restricted features (plan-gated)
     featuresApi.getFeatures().then((features) => {
       const restricted = features.filter((f) => f.restrictedByPlan).map((f) => f.key);
       setRestrictedFeatures(restricted);
-    }).catch(() => { });
+    }).catch(warn('plan-restricted features'));
 
     // Sync brand color from server
     import('@/api/endpoints/settings.api').then(({ settingsApi }) => {
       settingsApi.getBusiness().then((biz) => {
         const color = (biz?.settings as Record<string, unknown> | null)?.brandColor as string | undefined;
         if (color) setBrandColor(color);
-      }).catch(() => { });
-    });
-  }, [activeOutletId, setEnabledFeatures, setRestrictedFeatures, setBusinessType, setOutletType, setCurrentOutletId, setBrandColor]);
+      }).catch(warn('brand color'));
+    }).catch(warn('settings module'));
+  }, [activeOutletId, isManagement, setEnabledFeatures, setRestrictedFeatures, setBusinessType, setOutletType, setCurrentOutletId, setBrandColor]);
 
   // Auto-collapse sidebar on POS and KDS pages for maximum screen space
   useEffect(() => {
@@ -140,10 +157,8 @@ export function AppLayout() {
     const disableAutoShow = localStorage.getItem('tilo-disable-onboarding-autoshow') === 'true';
     if (disableAutoShow) return;
 
-    const shouldShowOnboarding =
-      user &&
-      user.role !== 'cashier' &&
-      user.role !== 'kitchen';
+    // The wizard finishes with POST /onboarding/setup (@Roles owner)
+    const shouldShowOnboarding = canManageOnboarding;
 
     if (shouldShowOnboarding) {
       // Small delay to allow app to render first
@@ -152,15 +167,16 @@ export function AppLayout() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [user, openOnboarding]);
+  }, [user, canManageOnboarding, openOnboarding]);
 
   const handleOnboardingComplete = async () => {
     // Always close the modal first to prevent stuck overlay
     completeOnboarding();
     try {
       await apiCompleteOnboarding();
-    } catch {
-      // API failure is non-critical — localStorage already persisted
+    } catch (error) {
+      // Non-critical: completion is also persisted locally; the server flag is retried next time
+      console.warn('[onboarding] failed to save completion on server', error);
     }
   };
 
@@ -214,32 +230,37 @@ export function AppLayout() {
               )}
             >
               {user && !user.emailVerified && <EmailVerificationBanner />}
-              <Outlet />
+              <RoleGuard>
+                <Outlet />
+              </RoleGuard>
             </main>
           </div>
 
           {/* Mobile Bottom Navigation */}
           {(isMobile || isTablet) && <MobileNav />}
 
-          {/* Floating Help Button - Re-open Onboarding */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={openOnboarding}
-                size="icon"
-                className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all z-30"
-              >
-                <HelpCircle className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              <p>Buka Panduan Onboarding</p>
-            </TooltipContent>
-          </Tooltip>
+          {/* Floating Help Button - Re-open Onboarding (guided setup is owner only) */}
+          {canManageOnboarding && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={openOnboarding}
+                  size="icon"
+                  aria-label="Buka panduan onboarding"
+                  className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-all z-30"
+                >
+                  <HelpCircle className="h-5 w-5" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Buka Panduan Onboarding</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <GlobalShortcutsDialog />
           <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
-          <OnboardingWizard onComplete={handleOnboardingComplete} />
+          {canManageOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
           <BusinessTypeMigrationModal
             open={showMigrationModal}
             onClose={setMigrationPrompted}

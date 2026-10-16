@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { useCartStore } from '@/stores/cart.store';
 import { useUIStore } from '@/stores/ui.store';
+import { useNavVisibility } from '@/components/layout/sidebar/use-nav-visibility';
 
 /**
  * MobileNav Component
@@ -42,6 +43,10 @@ export function MobileNav() {
   const location = useLocation();
   const { items } = useCartStore();
   const cartItemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  // Same role (ROUTE_ROLES) + feature-flag filtering as the sidebar
+  const isVisible = useNavVisibility();
+  const visibleItems = primaryNavItems.filter((item) => isVisible(item.path));
+  const showPos = isVisible('/pos');
 
   const isActive = (path: string) => {
     if (path === '/app') {
@@ -54,11 +59,11 @@ export function MobileNav() {
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
       role="navigation"
-      aria-label="Mobile navigation"
+      aria-label="Navigasi utama"
     >
       <div className="flex items-center justify-around h-16">
         {/* Primary Nav Items */}
-        {primaryNavItems.map((item) => (
+        {visibleItems.map((item) => (
           <NavButton
             key={item.path}
             {...item}
@@ -67,6 +72,7 @@ export function MobileNav() {
         ))}
 
         {/* POS Cart Button */}
+        {showPos && (
         <Link
           to="/pos"
           className={cn(
@@ -89,6 +95,7 @@ export function MobileNav() {
             </Badge>
           )}
         </Link>
+        )}
 
         {/* More Menu - Triggers Global Sidebar */}
         <button

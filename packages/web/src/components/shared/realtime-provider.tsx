@@ -1,17 +1,6 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useRealtimeSync } from '@/hooks/use-realtime';
 import { toast } from '@/lib/toast-utils';
-
-interface RealtimeContextValue {
-  isConnected: boolean;
-}
-
-const RealtimeContext = createContext<RealtimeContextValue>({ isConnected: false });
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function useRealtimeStatus() {
-  return useContext(RealtimeContext);
-}
 
 interface RealtimeProviderProps {
   children: ReactNode;
@@ -56,9 +45,5 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     }
   }, [isConnected]);
 
-  return (
-    <RealtimeContext.Provider value={{ isConnected }}>
-      {children}
-    </RealtimeContext.Provider>
-  );
+  return <>{children}</>;
 }

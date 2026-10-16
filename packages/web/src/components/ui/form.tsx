@@ -1,6 +1,8 @@
 import * as React from "react"
 import { Controller, ControllerProps, FieldPath, FieldValues, FormProvider, useFormContext } from "react-hook-form"
 
+import { Slot } from "@radix-ui/react-slot"
+
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 
@@ -35,11 +37,11 @@ const useFormField = () => {
   const itemContext = React.useContext(FormItemContext)
   const { getFieldState, formState } = useFormContext()
 
-  const fieldState = getFieldState(fieldContext.name, formState)
-
-  if (!fieldContext) {
+  if (!fieldContext?.name) {
     throw new Error("useFormField should be used within <FormField>")
   }
+
+  const fieldState = getFieldState(fieldContext.name, formState)
 
   const { id } = itemContext
 
@@ -154,25 +156,6 @@ const FormMessage = React.forwardRef<
   )
 })
 FormMessage.displayName = "FormMessage"
-
-// Slot component for FormControl
-const Slot = React.forwardRef<
-  HTMLElement,
-  React.HTMLAttributes<HTMLElement>
->((props, ref) => {
-  const { children, ...slotProps } = props
-
-  if (React.isValidElement(children)) {
-    return React.cloneElement(children, {
-      ...slotProps,
-      ...children.props,
-      ref,
-    } as React.HTMLAttributes<HTMLElement>)
-  }
-
-  return null
-})
-Slot.displayName = "Slot"
 
 /* eslint-disable react-refresh/only-export-components */
 export {

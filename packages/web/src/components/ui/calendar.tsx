@@ -108,8 +108,9 @@ export function Calendar({
           type="button"
           onClick={handlePrevMonth}
           className="p-1 hover:bg-accent rounded-md"
+          aria-label="Bulan sebelumnya"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </button>
         <div className="font-semibold">
           {format(currentMonth, 'MMMM yyyy', { locale: idLocale })}
@@ -118,8 +119,9 @@ export function Calendar({
           type="button"
           onClick={handleNextMonth}
           className="p-1 hover:bg-accent rounded-md"
+          aria-label="Bulan berikutnya"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
 
@@ -150,6 +152,8 @@ export function Calendar({
               type="button"
               onClick={() => handleDayClick(day)}
               disabled={isDisabled}
+              aria-label={format(day, 'EEEE, d MMMM yyyy', { locale: idLocale })}
+              aria-pressed={!!selected}
               className={clsx(
                 'h-9 w-9 text-sm rounded-md transition-colors',
                 !isCurrentMonth && 'text-muted-foreground opacity-50',

@@ -9,7 +9,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      aria-label="Toggle theme"
+      aria-label="Ganti tema"
       className={cn(
         'flex h-8 w-8 items-center justify-center rounded-md',
         'text-muted-foreground transition-all duration-200',

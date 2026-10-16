@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
+import { can } from '@/config/permissions';
 import {
   Select,
   SelectContent,
@@ -15,8 +16,8 @@ export function OutletSelector() {
   const setSelectedOutletId = useUIStore((s) => s.setSelectedOutletId);
   const user = useAuthStore((s) => s.user);
 
-  // Only owner/manager can switch outlets
-  const canSwitchOutlets = user?.role && ['super_admin', 'owner', 'manager', 'supervisor'].includes(user.role);
+  // GET /settings/outlets is @Roles(owner, manager): only they can switch outlets
+  const canSwitchOutlets = can(user?.role, 'outlets.switch');
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],
@@ -28,7 +29,7 @@ export function OutletSelector() {
 
   return (
     <Select value={selectedOutletId ?? undefined} onValueChange={setSelectedOutletId}>
-      <SelectTrigger className="w-[180px]">
+      <SelectTrigger className="w-[180px]" aria-label="Pilih outlet">
         <SelectValue placeholder="Pilih outlet" />
       </SelectTrigger>
       <SelectContent>

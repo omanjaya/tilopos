@@ -111,7 +111,7 @@ export function SyncIndicator() {
                         config.bgColor,
                     )}
                     title={config.label}
-                    aria-label={`Sync status: ${config.label}`}
+                    aria-label={`Status sinkronisasi: ${config.label}`}
                 >
                     <span
                         className={cn('h-2 w-2 rounded-full', config.dotColor)}
