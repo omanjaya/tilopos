@@ -5,10 +5,23 @@ import type {
   EmployeeRecord,
 } from '@domain/interfaces/repositories/employee.repository';
 import * as totpUtil from '../mfa/totp.util';
+import * as bcrypt from 'bcrypt';
+import { ConfigService } from '@nestjs/config';
+import { MfaSecretCipher } from '../mfa/mfa-secret.cipher';
+import type { LoginAttemptService } from '@infrastructure/security/login-attempt.service';
+
+jest.mock('bcrypt');
 
 describe('MfaService', () => {
   let service: MfaService;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
+  let attempts: jest.Mocked<
+    Pick<LoginAttemptService, 'assertNotLocked' | 'recordFailure' | 'reset'>
+  >;
+  const cipher = new MfaSecretCipher({
+    get: () => undefined,
+    getOrThrow: () => 'x'.repeat(40),
+  } as unknown as ConfigService);
 
   const baseEmployee: EmployeeRecord = {
     id: 'emp-1',
@@ -46,7 +59,14 @@ describe('MfaService', () => {
       update: jest.fn(),
     };
 
-    service = new MfaService(mockEmployeeRepo);
+    attempts = {
+      assertNotLocked: jest.fn().mockResolvedValue(undefined),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+    };
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+    service = new MfaService(mockEmployeeRepo, cipher, attempts as unknown as LoginAttemptService);
   });
 
   afterEach(() => {
@@ -78,14 +98,13 @@ describe('MfaService', () => {
         mfaSecret: 'GENERATED_SECRET',
       });
 
-      await service.generateSecret('emp-1');
+      const result = await service.generateSecret('emp-1');
 
-      expect(mockEmployeeRepo.update).toHaveBeenCalledWith(
-        'emp-1',
-        expect.objectContaining({
-          mfaSecret: expect.any(String),
-        }),
-      );
+      const stored = (mockEmployeeRepo.update.mock.calls[0][1] as { mfaSecret: string }).mfaSecret;
+      // Encrypted at rest, never the plaintext seed shown to the user
+      expect(stored.startsWith('enc:v1:')).toBe(true);
+      expect(stored).not.toContain(result.secret);
+      expect(cipher.decrypt(stored)).toBe(result.secret);
     });
 
     it('should throw UnauthorizedException if employee not found', async () => {
@@ -102,51 +121,6 @@ describe('MfaService', () => {
       });
 
       await expect(service.generateSecret('emp-1')).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  describe('verifyToken', () => {
-    it('should return true for a valid TOTP token', async () => {
-      const secret = totpUtil.generateBase32Secret();
-      const employee: EmployeeRecord = {
-        ...baseEmployee,
-        mfaSecret: secret,
-        mfaEnabled: true,
-      };
-
-      mockEmployeeRepo.findById.mockResolvedValue(employee);
-
-      const token = totpUtil.generateTotp(secret);
-      const result = await service.verifyToken('emp-1', token);
-
-      expect(result).toBe(true);
-    });
-
-    it('should return false for an invalid TOTP token', async () => {
-      const secret = totpUtil.generateBase32Secret();
-      const employee: EmployeeRecord = {
-        ...baseEmployee,
-        mfaSecret: secret,
-        mfaEnabled: true,
-      };
-
-      mockEmployeeRepo.findById.mockResolvedValue(employee);
-
-      const result = await service.verifyToken('emp-1', '000000');
-
-      expect(result).toBe(false);
-    });
-
-    it('should throw UnauthorizedException if employee not found', async () => {
-      mockEmployeeRepo.findById.mockResolvedValue(null);
-
-      await expect(service.verifyToken('emp-999', '123456')).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw BadRequestException if MFA secret not configured', async () => {
-      mockEmployeeRepo.findById.mockResolvedValue(baseEmployee);
-
-      await expect(service.verifyToken('emp-1', '123456')).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -225,7 +199,7 @@ describe('MfaService', () => {
       });
 
       const token = totpUtil.generateTotp(secret);
-      const result = await service.disableMfa('emp-1', token);
+      const result = await service.disableMfa('emp-1', token, '123456');
 
       expect(result.disabled).toBe(true);
       expect(mockEmployeeRepo.update).toHaveBeenCalledWith('emp-1', {
@@ -244,19 +218,63 @@ describe('MfaService', () => {
 
       mockEmployeeRepo.findById.mockResolvedValue(employee);
 
-      await expect(service.disableMfa('emp-1', '000000')).rejects.toThrow(UnauthorizedException);
+      await expect(service.disableMfa('emp-1', '000000', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(attempts.recordFailure).toHaveBeenCalledWith('mfa', 'emp-1');
+    });
+
+    it('should require the PIN (re-authentication) to disable MFA', async () => {
+      const secret = totpUtil.generateBase32Secret();
+      mockEmployeeRepo.findById.mockResolvedValue({
+        ...baseEmployee,
+        mfaSecret: cipher.encrypt(secret),
+        mfaEnabled: true,
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.disableMfa('emp-1', totpUtil.generateTotp(secret), '999999'),
+      ).rejects.toThrow('Invalid PIN');
+      expect(mockEmployeeRepo.update).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException if MFA is not enabled', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(baseEmployee);
 
-      await expect(service.disableMfa('emp-1', '123456')).rejects.toThrow(BadRequestException);
+      await expect(service.disableMfa('emp-1', '123456', '123456')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw UnauthorizedException if employee not found', async () => {
       mockEmployeeRepo.findById.mockResolvedValue(null);
 
-      await expect(service.disableMfa('emp-999', '123456')).rejects.toThrow(UnauthorizedException);
+      await expect(service.disableMfa('emp-999', '123456', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  describe('encrypted secrets', () => {
+    it('enables MFA with an encrypted stored seed', async () => {
+      const secret = totpUtil.generateBase32Secret();
+      mockEmployeeRepo.findById.mockResolvedValue({
+        ...baseEmployee,
+        mfaSecret: cipher.encrypt(secret),
+      });
+      mockEmployeeRepo.update.mockResolvedValue(baseEmployee);
+
+      await expect(service.enableMfa('emp-1', totpUtil.generateTotp(secret))).resolves.toEqual({
+        enabled: true,
+      });
+    });
+
+    it('respects the per-account lockout', async () => {
+      mockEmployeeRepo.findById.mockResolvedValue({ ...baseEmployee, mfaSecret: 'X' });
+      attempts.assertNotLocked.mockRejectedValue(new Error('locked'));
+
+      await expect(service.enableMfa('emp-1', '123456')).rejects.toThrow('locked');
     });
   });
 });

@@ -1,6 +1,50 @@
 export interface LoginRequest {
   email: string;
+  /** 4-8 digits (LoginDto); new PINs are always 6 digits. */
   pin: string;
+  outletId?: string;
+}
+
+/** POST /auth/login when the employee has MFA enabled (login.use-case.ts). */
+export interface MfaChallengeResponse {
+  requiresMfa: true;
+  mfaToken: string;
+}
+
+export type LoginResult = LoginResponse | MfaChallengeResponse;
+
+export function isMfaChallenge(r: LoginResult): r is MfaChallengeResponse {
+  return (r as MfaChallengeResponse).requiresMfa === true;
+}
+
+/** POST /auth/mfa/verify response (auth.service.ts createLoginResponse). */
+export interface MfaVerifyResponse {
+  accessToken: string;
+  employeeId: string;
+  employeeName: string;
+  role: EmployeeRole;
+  businessId: string;
+  outletId: string | null;
+}
+
+/** GET /auth/me response (auth.service.ts getEmployeeProfile). */
+export interface MeResponse {
+  id: string;
+  businessId: string;
+  outletId: string | null;
+  outletName: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  role: EmployeeRole;
+  profilePhotoUrl: string | null;
+  onboardingCompleted: boolean;
+  isActive: boolean;
+  mfaEnabled: boolean;
+  emailVerified: boolean;
+  /** Stored profile preferences ({} when never set). */
+  preferences: UserPreferences;
+  createdAt: string;
 }
 
 export interface LoginResponse {

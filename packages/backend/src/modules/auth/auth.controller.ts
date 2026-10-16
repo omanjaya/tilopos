@@ -1,3 +1,4 @@
+import { SessionCookieService } from './session-cookie.service';
 import {
   Controller,
   Post,
@@ -7,12 +8,11 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  UseGuards,
+  Logger,
+  NotImplementedException,
   Req,
   Res,
   Query,
-  ParseIntPipe,
-  DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -27,19 +27,18 @@ import { LoginDto, UpdateProfileDto, ChangePinDto } from '../../application/dtos
 import { RegisterDto } from '../../application/dtos/register.dto';
 import { AuthService } from './auth.service';
 import { BusinessTypeService } from '../business/services/business-type.service';
-import { GoogleAuthGuard } from './guards/google-auth.guard';
-import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
+import { AllowAnyRole } from '@infrastructure/auth/roles.decorator';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
-import { OAuthGoogleTokenDto, GoogleOAuthProfile } from './dto/oauth-login.dto';
-
-interface GoogleAuthRequest extends Request {
-  user: GoogleOAuthProfile;
-}
+import { OAuthGoogleTokenDto } from './dto/oauth-login.dto';
+import { PaginationQueryDto } from '@shared/dtos/pagination-query.dto';
+import { Public } from '@shared/decorators/public.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly loginUseCase: LoginUseCase,
     private readonly registerUseCase: RegisterUseCase,
@@ -49,12 +48,19 @@ export class AuthController {
     private readonly logAuditEventUseCase: LogAuditEventUseCase,
     private readonly authService: AuthService,
     private readonly businessTypeService: BusinessTypeService,
+    private readonly sessionCookie: SessionCookieService,
   ) {}
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
-  async login(@Body() dto: LoginDto, @Req() req: Request) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.sessionCookie.assertRequest(req);
     const result = await this.loginUseCase.execute({
       email: dto.email,
       pin: dto.pin,
@@ -63,36 +69,48 @@ export class AuthController {
 
     // Log successful login (non-blocking)
     if ('accessToken' in result) {
-      const ipAddress =
-        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
-      const userAgent = req.headers['user-agent'] || null;
-      this.logAuditEventUseCase
-        .execute({
-          businessId: result.businessId,
-          outletId: result.outletId || undefined,
-          employeeId: result.employeeId,
-          action: 'LOGIN',
-          entityType: 'auth',
-          entityId: result.employeeId,
-          ipAddress: ipAddress || undefined,
-          metadata: { userAgent },
-        })
-        .catch(() => {
-          /* ignore audit log failures */
-        });
+      this.audit(req, {
+        businessId: result.businessId,
+        outletId: result.outletId,
+        employeeId: result.employeeId,
+        action: 'LOGIN',
+      });
     }
 
-    return result;
+    return this.sessionCookie.attach(result, req, res);
   }
 
+  @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ short: { limit: 3, ttl: 60000 } })
   @ApiOperation({ summary: 'Register new business account' })
-  async register(@Body() dto: RegisterDto) {
-    return this.registerUseCase.execute(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.sessionCookie.assertRequest(req);
+    return this.sessionCookie.attach(await this.registerUseCase.execute(dto), req, res);
   }
 
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 30, ttl: 60000 } })
+  refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.sessionCookie.refresh(req, res);
+  }
+
+  // Cookie-authenticated so an expired access token cannot prevent logout.
+  @Public()
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.sessionCookie.logout(req, res);
+  }
+
+  @Public()
   @Get('business-type-presets')
   @ApiOperation({ summary: 'Get all business type presets (public)' })
   getBusinessTypePresets() {
@@ -102,36 +120,37 @@ export class AuthController {
     };
   }
 
+  /**
+   * Server-side Google OAuth redirect flow is not implemented (no
+   * passport-google-oauth20 strategy). Use POST /auth/oauth/google with a
+   * Google ID token instead. Kept as honest 501s instead of a fake strategy
+   * that accepted any bearer JWT and put tokens in redirect URLs.
+   */
+  @Public()
   @Get('google')
-  @UseGuards(GoogleAuthGuard)
-  googleAuth() {
-    // Passport redirects to Google OAuth consent screen
+  googleAuth(): never {
+    throw new NotImplementedException('Use POST /auth/oauth/google with a Google ID token');
   }
 
+  @Public()
   @Get('google/callback')
-  @UseGuards(GoogleAuthGuard)
-  async googleAuthCallback(@Req() req: GoogleAuthRequest, @Res() res: Response) {
-    const profile = req.user;
-    const employee = await this.authService.validateOAuthUser(profile);
-    const result = await this.authService.loginWithOAuth(employee);
-
-    const frontendUrl = process.env['FRONTEND_URL'] ?? 'http://localhost:5173';
-
-    if ('requiresMfa' in result) {
-      res.redirect(`${frontendUrl}/auth/mfa?mfaToken=${encodeURIComponent(result.mfaToken)}`);
-      return;
-    }
-
-    res.redirect(`${frontendUrl}/auth/callback?token=${encodeURIComponent(result.accessToken)}`);
+  googleAuthCallback(): never {
+    throw new NotImplementedException('Use POST /auth/oauth/google with a Google ID token');
   }
 
+  @Public()
   @Post('oauth/google')
   @HttpCode(HttpStatus.OK)
   @Throttle({ short: { limit: 10, ttl: 60000 } })
-  async googleTokenLogin(@Body() dto: OAuthGoogleTokenDto) {
+  async googleTokenLogin(
+    @Body() dto: OAuthGoogleTokenDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.sessionCookie.assertRequest(req);
     const profile = await this.authService.verifyGoogleIdToken(dto.idToken);
     const employee = await this.authService.validateOAuthUser(profile);
-    return this.authService.loginWithOAuth(employee);
+    return this.sessionCookie.attach(await this.authService.loginWithOAuth(employee), req, res);
   }
 
   /**
@@ -139,7 +158,6 @@ export class AuthController {
    * GET /api/v1/auth/me
    */
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
   async getMe(@CurrentUser() user: AuthUser) {
@@ -151,7 +169,7 @@ export class AuthController {
    * POST /api/v1/auth/complete-onboarding
    */
   @Post('complete-onboarding')
-  @UseGuards(JwtAuthGuard)
+  @AllowAnyRole()
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark user onboarding as completed' })
@@ -164,7 +182,7 @@ export class AuthController {
    * PATCH /api/v1/auth/profile
    */
   @Patch('profile')
-  @UseGuards(JwtAuthGuard)
+  @AllowAnyRole()
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update user profile' })
@@ -181,21 +199,13 @@ export class AuthController {
       preferences: dto.preferences,
     });
 
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
-    const userAgent = req.headers['user-agent'] || null;
-    this.logAuditEventUseCase
-      .execute({
-        businessId: user.businessId,
-        outletId: user.outletId || undefined,
-        employeeId: user.employeeId,
-        action: 'UPDATE_PROFILE',
-        entityType: 'auth',
-        entityId: user.employeeId,
-        ipAddress: ipAddress || undefined,
-        metadata: { userAgent, updatedFields: Object.keys(dto) },
-      })
-      .catch(() => {});
+    this.audit(req, {
+      businessId: user.businessId,
+      outletId: user.outletId,
+      employeeId: user.employeeId,
+      action: 'UPDATE_PROFILE',
+      metadata: { updatedFields: Object.keys(dto) },
+    });
 
     return result;
   }
@@ -205,9 +215,10 @@ export class AuthController {
    * PUT /api/v1/auth/change-pin
    */
   @Put('change-pin')
-  @UseGuards(JwtAuthGuard)
+  @AllowAnyRole()
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Change user PIN' })
   async changePin(@CurrentUser() user: AuthUser, @Body() dto: ChangePinDto, @Req() req: Request) {
     const result = await this.changePinUseCase.execute({
@@ -216,21 +227,12 @@ export class AuthController {
       newPin: dto.newPin,
     });
 
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null;
-    const userAgent = req.headers['user-agent'] || null;
-    this.logAuditEventUseCase
-      .execute({
-        businessId: user.businessId,
-        outletId: user.outletId || undefined,
-        employeeId: user.employeeId,
-        action: 'CHANGE_PIN',
-        entityType: 'auth',
-        entityId: user.employeeId,
-        ipAddress: ipAddress || undefined,
-        metadata: { userAgent },
-      })
-      .catch(() => {});
+    this.audit(req, {
+      businessId: user.businessId,
+      outletId: user.outletId,
+      employeeId: user.employeeId,
+      action: 'CHANGE_PIN',
+    });
 
     return result;
   }
@@ -240,7 +242,7 @@ export class AuthController {
    * POST /api/v1/auth/send-verification-email
    */
   @Post('send-verification-email')
-  @UseGuards(JwtAuthGuard)
+  @AllowAnyRole()
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @Throttle({ short: { limit: 3, ttl: 60000 } })
@@ -253,6 +255,7 @@ export class AuthController {
    * Verify email from link (public)
    * GET /api/v1/auth/verify-email?token=xxx
    */
+  @Public()
   @Get('verify-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify email address using token' })
@@ -266,20 +269,45 @@ export class AuthController {
    * GET /api/v1/auth/activity
    */
   @Get('activity')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user activity log' })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  async getActivityLog(
-    @CurrentUser() user: AuthUser,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ) {
+  async getActivityLog(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto) {
     return this.getActivityLogUseCase.execute({
       employeeId: user.employeeId,
-      page,
-      limit,
+      page: query.page,
+      limit: query.limit,
     });
+  }
+
+  /**
+   * Security audit entry (non-blocking). The IP is req.ip, which honours the
+   * `trust proxy` setting in main.ts — never the raw X-Forwarded-For header.
+   */
+  private audit(
+    req: Request,
+    entry: {
+      businessId: string;
+      outletId: string | null;
+      employeeId: string;
+      action: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): void {
+    this.logAuditEventUseCase
+      .execute({
+        businessId: entry.businessId,
+        outletId: entry.outletId || undefined,
+        employeeId: entry.employeeId,
+        action: entry.action,
+        entityType: 'auth',
+        entityId: entry.employeeId,
+        ipAddress: req.ip || undefined,
+        metadata: { userAgent: req.headers['user-agent'] || null, ...entry.metadata },
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Audit log write failed for ${entry.action} (${entry.employeeId}): ${(error as Error).message}`,
+        );
+      });
   }
 }

@@ -16,11 +16,11 @@ const ICON_MAP: Record<string, React.ElementType> = {
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  fnb: 'Food & Beverage',
+  fnb: 'Makanan & Minuman',
   retail: 'Retail',
   service: 'Layanan',
   wholesale: 'Grosir',
-  custom: 'Custom',
+  custom: 'Lainnya',
 };
 
 interface BusinessTypeStepProps {

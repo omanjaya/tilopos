@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, Length } from 'class-validator';
+import { IsString, IsNotEmpty, Length, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class EnableMfaDto {
@@ -9,6 +9,7 @@ export class EnableMfaDto {
   @IsString()
   @IsNotEmpty()
   @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'token must be 6 digits' })
   token!: string;
 }
 
@@ -20,6 +21,7 @@ export class VerifyMfaDto {
   @IsString()
   @IsNotEmpty()
   @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'token must be 6 digits' })
   token!: string;
 
   @ApiProperty({
@@ -28,6 +30,7 @@ export class VerifyMfaDto {
   })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(2048)
   mfaToken!: string;
 }
 
@@ -39,5 +42,11 @@ export class DisableMfaDto {
   @IsString()
   @IsNotEmpty()
   @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'token must be 6 digits' })
   token!: string;
+
+  @ApiProperty({ description: 'Current PIN (re-authentication)', example: '123456' })
+  @IsString()
+  @Matches(/^\d{4,8}$/, { message: 'PIN must be 4-8 digits' })
+  pin!: string;
 }

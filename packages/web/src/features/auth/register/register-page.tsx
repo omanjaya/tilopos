@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useFeatureStore } from '@/stores/feature.store';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Card, CardContent } from '@/components/ui/card';
+import { ErrorState } from '@/components/shared/error-state';
 import { AccountStep, type AccountData } from './steps/account-step';
 import { BusinessTypeStep } from './steps/business-type-step';
 import { BusinessInfoStep, type BusinessInfoData } from './steps/business-info-step';
@@ -40,7 +41,13 @@ export function RegisterPage() {
   const setEnabledFeatures = useFeatureStore((s) => s.setEnabledFeatures);
   const queryClient = useQueryClient();
 
-  const { data: presetsData, isLoading: presetsLoading } = useQuery({
+  const {
+    data: presetsData,
+    isLoading: presetsLoading,
+    isError: presetsError,
+    error: presetsErrorObj,
+    refetch: refetchPresets,
+  } = useQuery({
     queryKey: ['business-type-presets-public'],
     queryFn: authApi.getBusinessTypePresets,
   });
@@ -55,12 +62,13 @@ export function RegisterPage() {
         {
           id: data.employeeId,
           name: data.employeeName,
-          email: null,
-          role: data.role as 'owner',
+          email: formData.account?.email ?? null,
+          role: data.role,
           businessId: data.businessId,
           outletId: data.outletId,
           outletName: formData.businessInfo?.outletName,
           employeeId: data.employeeId,
+          // register.use-case creates the owner with onboardingCompleted: true
           onboardingCompleted: true,
           emailVerified: data.emailVerified ?? false,
         },
@@ -153,7 +161,15 @@ export function RegisterPage() {
                 onNext={handleAccountNext}
               />
             )}
-            {currentStep === 1 && (
+            {currentStep === 1 && presetsError && (
+              <ErrorState
+                key="business-type-error"
+                title="Gagal memuat tipe bisnis"
+                error={presetsErrorObj}
+                onRetry={() => void refetchPresets()}
+              />
+            )}
+            {currentStep === 1 && !presetsError && (
               <BusinessTypeStep
                 key="business-type"
                 grouped={presetsData?.grouped}

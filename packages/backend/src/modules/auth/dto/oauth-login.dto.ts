@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class OAuthGoogleTokenDto {
@@ -8,12 +8,15 @@ export class OAuthGoogleTokenDto {
   })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(4096)
   idToken!: string;
 }
 
 export interface GoogleOAuthProfile {
   googleId: string;
   email: string;
+  /** Google's email_verified claim; only verified addresses may be matched. */
+  emailVerified: boolean;
   name: string;
   picture: string | null;
 }

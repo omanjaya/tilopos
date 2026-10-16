@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { meToAuthUser } from './auth-user';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,6 +17,15 @@ export function VerifyEmailPage() {
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
 
+  const resendMutation = useMutation({
+    mutationFn: authApi.sendVerificationEmail,
+    onSuccess: (res) => {
+      setMessage(res.message || 'Email verifikasi baru telah dikirim. Cek inbox kamu.');
+      setStatus('success');
+    },
+    onError: (error) => handleMutationError(error, 'Gagal mengirim ulang email verifikasi'),
+  });
+
   useEffect(() => {
     if (!token) {
       setStatus('error');
@@ -26,9 +38,15 @@ export function VerifyEmailPage() {
       .then((res) => {
         setStatus('success');
         setMessage(res.message);
-        // Update local user state if logged in
-        if (user) {
-          updateUser({ ...user, emailVerified: true });
+        // Refresh the logged-in user from the server (source of truth)
+        if (useAuthStore.getState().token) {
+          authApi
+            .getMe()
+            .then((me) => updateUser(meToAuthUser(me, useAuthStore.getState().user)))
+            .catch((err: unknown) => {
+              // intentionally ignored: the verification itself succeeded; profile refresh is best-effort
+              console.warn('Gagal memuat ulang profil setelah verifikasi email', err);
+            });
         }
       })
       .catch((err) => {
@@ -68,13 +86,11 @@ export function VerifyEmailPage() {
             {user && (
               <Button
                 variant="outline"
-                onClick={() => {
-                  authApi.sendVerificationEmail().then(() => {
-                    setMessage('Email verifikasi baru telah dikirim. Cek inbox kamu.');
-                    setStatus('success');
-                  });
-                }}
+                disabled={resendMutation.isPending}
+                aria-busy={resendMutation.isPending}
+                onClick={() => resendMutation.mutate()}
               >
+                {resendMutation.isPending && <Loader2 className="animate-spin" />}
                 Kirim Ulang Email Verifikasi
               </Button>
             )}

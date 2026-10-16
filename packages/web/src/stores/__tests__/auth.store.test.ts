@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAuthStore } from '../auth.store';
+import { useAuthStore, requestLogout } from '../auth.store';
+import { useCartStore } from '../cart.store';
 import type { AuthUser } from '@/types/auth.types';
 
 const mockUser: AuthUser = {
@@ -47,12 +48,12 @@ describe('auth.store', () => {
       expect(state.isAuthenticated).toBe(true);
     });
 
-    it('persists user and token to localStorage', () => {
+    it('persists offline identity but never the access token', () => {
       const token = createMockToken(3600);
       useAuthStore.getState().setAuth(mockUser, token);
 
       expect(localStorage.getItem('user')).toBe(JSON.stringify(mockUser));
-      expect(localStorage.getItem('token')).toBe(token);
+      expect(localStorage.getItem('token')).toBeNull();
     });
   });
 
@@ -92,6 +93,45 @@ describe('auth.store', () => {
     });
   });
 
+  describe('offline data on logout', () => {
+    it('keeps the offline sales queue and held bills', () => {
+      localStorage.setItem('tilopos-offline-queue', '[{"id":"x"}]');
+      useAuthStore.getState().setAuth(mockUser, createMockToken(3600));
+      useCartStore.setState({ heldBills: [{ id: 'held-1', items: [], createdAt: '' } as never] });
+      useAuthStore.getState().logout();
+      expect(localStorage.getItem('tilopos-offline-queue')).toBe('[{"id":"x"}]');
+      expect(useCartStore.getState().heldBills).toHaveLength(1);
+    });
+
+    it('preserves offline held bills of another business on login', () => {
+      useAuthStore.getState().setAuth(mockUser, createMockToken(3600));
+      useCartStore.setState({ heldBills: [{ id: 'held-1', items: [], createdAt: '' } as never] });
+      useAuthStore.getState().logout();
+      useAuthStore.getState().setAuth({ ...mockUser, businessId: 'biz-2' }, createMockToken(3600));
+      expect(useCartStore.getState().heldBills).toHaveLength(1);
+    });
+
+    it('requestLogout asks for confirmation when unsynced sales exist and aborts on cancel', async () => {
+      useAuthStore.getState().setAuth(mockUser, createMockToken(3600));
+      localStorage.setItem(
+        'tilopos-offline-queue',
+        JSON.stringify([{ outletId: 'o', shiftId: 's', orderType: 'takeaway', items: [], payments: [] }]),
+      );
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      let asked = '';
+      const loggedOut = await requestLogout((msg) => {
+        asked = msg;
+        return false;
+      });
+      expect(loggedOut).toBe(false);
+      expect(asked).toContain('belum tersinkron');
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+      const { syncEngine } = await import('@/services/sync');
+      syncEngine.destroy();
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    });
+  });
+
   describe('isAuthenticated', () => {
     it('is false when no token is set', () => {
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
@@ -126,6 +166,16 @@ describe('auth.store', () => {
       const token = createMockToken(-100); // expired 100 seconds ago
       useAuthStore.getState().setAuth(mockUser, token);
       expect(useAuthStore.getState().isTokenExpired()).toBe(true);
+    });
+
+    it('decodes base64url payloads without padding (- and _ characters)', () => {
+      // Payload chosen so its base64url encoding contains '-' / '_' and needs padding
+      const payload = { sub: 'user-\u00ff\u00fe?>', exp: Math.floor(Date.now() / 1000) + 3600, n: '>>>???' };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const b64url = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      expect(b64url).toMatch(/[-_]/);
+      useAuthStore.setState({ token: `h.${b64url}.sig` });
+      expect(useAuthStore.getState().isTokenExpired()).toBe(false);
     });
 
     it('returns true for a malformed token', () => {
@@ -163,7 +213,7 @@ describe('auth.store', () => {
   });
 
   describe('token persistence', () => {
-    it('initializes from localStorage when token exists', () => {
+    it('removes a legacy persisted token on login', () => {
       const token = createMockToken(3600);
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(mockUser));
@@ -178,7 +228,7 @@ describe('auth.store', () => {
       expect(state.user).toEqual(mockUser);
     });
 
-    it('survives setAuth -> read cycle via localStorage', () => {
+    it('keeps only the offline identity across reloads', () => {
       const token = createMockToken(3600);
       useAuthStore.getState().setAuth(mockUser, token);
 
@@ -187,7 +237,7 @@ describe('auth.store', () => {
       const storedToken = localStorage.getItem('token');
 
       expect(storedUser).toEqual(mockUser);
-      expect(storedToken).toBe(token);
+      expect(storedToken).toBeNull();
     });
   });
 });

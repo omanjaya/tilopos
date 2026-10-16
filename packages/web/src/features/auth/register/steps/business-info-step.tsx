@@ -14,7 +14,11 @@ const businessInfoSchema = z.object({
   outletName: z.string().min(2, 'Nama outlet minimal 2 karakter').max(255),
   outletCode: z.string().optional(),
   outletAddress: z.string().optional(),
-  taxRate: z.coerce.number().min(0).max(100).default(11),
+  taxRate: z.coerce
+    .number({ invalid_type_error: 'Pajak harus berupa angka' })
+    .min(0, 'Pajak minimal 0%')
+    .max(100, 'Pajak maksimal 100%')
+    .default(11),
 });
 
 export type BusinessInfoData = z.infer<typeof businessInfoSchema>;

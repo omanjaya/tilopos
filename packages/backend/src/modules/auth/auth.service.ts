@@ -17,11 +17,12 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 import { EmailService } from '@infrastructure/notifications/email/email.service';
 import type { GoogleOAuthProfile } from './dto/oauth-login.dto';
 import { verifyTotp } from './mfa/totp.util';
+import { PurposeTokenService } from '@infrastructure/auth/purpose-token.service';
+import { LoginAttemptService } from '@infrastructure/security/login-attempt.service';
+import { MfaSecretCipher } from './mfa/mfa-secret.cipher';
 
-interface EmailVerificationPayload {
-  sub: string;
-  purpose: 'email_verification';
-}
+/** TOTP codes are accepted for 3 steps of 30s; remember used ones slightly longer. */
+const TOTP_REPLAY_TTL_SECONDS = 120;
 
 export interface OAuthLoginResult {
   accessToken: string;
@@ -39,10 +40,7 @@ export interface MfaPendingResult {
 
 export interface MfaTokenPayload {
   sub: string;
-  purpose: 'mfa_verification';
-  businessId: string;
   outletId: string | null;
-  role: string;
 }
 
 @Injectable()
@@ -57,24 +55,51 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly purposeTokens: PurposeTokenService,
+    private readonly attempts: LoginAttemptService,
+    private readonly mfaCipher: MfaSecretCipher,
   ) {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     this.googleClient = new OAuth2Client(clientId);
   }
 
+  /**
+   * Resolves the employee for a verified Google identity.
+   * - An existing googleId link wins.
+   * - Otherwise the e-mail must match exactly one active employee (e-mails are
+   *   not unique across tenants); ambiguous matches are refused instead of
+   *   picking an arbitrary tenant, and an account already linked to a
+   *   different Google identity is never re-linked.
+   */
   async validateOAuthUser(profile: GoogleOAuthProfile): Promise<EmployeeRecord> {
+    if (!profile.emailVerified) {
+      throw new UnauthorizedException('Google account e-mail is not verified');
+    }
+
     const existingByGoogleId = await this.employeeRepo.findByGoogleId(profile.googleId);
     if (existingByGoogleId) {
       return existingByGoogleId;
     }
 
-    const existingByEmail = await this.employeeRepo.findByEmail(profile.email);
-    if (existingByEmail) {
-      const updated = await this.employeeRepo.update(existingByEmail.id, {
+    const candidates = await this.prisma.employee.findMany({
+      where: { email: { equals: profile.email, mode: 'insensitive' }, isActive: true },
+      select: { id: true, googleId: true },
+      take: 2,
+    });
+
+    if (candidates.length > 1) {
+      this.logger.warn(`Google login refused: e-mail matches several employees (${profile.email})`);
+      throw new UnauthorizedException(
+        'This e-mail is used by more than one account. Sign in with your PIN instead.',
+      );
+    }
+
+    const match = candidates[0];
+    if (match && !match.googleId) {
+      return this.employeeRepo.update(match.id, {
         googleId: profile.googleId,
         authProvider: 'google',
       });
-      return updated;
     }
 
     throw new UnauthorizedException(
@@ -111,10 +136,14 @@ export class AuthService {
       if (!payload || !payload.sub || !payload.email) {
         throw new UnauthorizedException('Invalid Google ID token payload');
       }
+      if (payload.email_verified !== true) {
+        throw new UnauthorizedException('Google account e-mail is not verified');
+      }
 
       return {
         googleId: payload.sub,
         email: payload.email,
+        emailVerified: true,
         name: payload.name ?? payload.email,
         picture: payload.picture ?? null,
       };
@@ -128,20 +157,13 @@ export class AuthService {
   }
 
   async verifyMfaAndLogin(mfaToken: string, totpToken: string): Promise<OAuthLoginResult> {
-    let payload: MfaTokenPayload;
+    const payload = this.purposeTokens.verify<MfaTokenPayload>('mfa_verification', mfaToken);
 
-    try {
-      payload = this.jwtService.verify<MfaTokenPayload>(mfaToken);
-    } catch {
-      throw new UnauthorizedException('Invalid or expired MFA token');
-    }
-
-    if (payload.purpose !== 'mfa_verification') {
-      throw new UnauthorizedException('Invalid MFA token purpose');
-    }
+    // Per-account lockout: a fresh mfaToken per re-login must not reset the budget.
+    await this.attempts.assertNotLocked('mfa', payload.sub);
 
     const employee = await this.employeeRepo.findById(payload.sub);
-    if (!employee) {
+    if (!employee || !employee.isActive) {
       throw new UnauthorizedException('Employee not found');
     }
 
@@ -149,24 +171,29 @@ export class AuthService {
       throw new UnauthorizedException('MFA is not configured for this employee');
     }
 
-    const isValid = verifyTotp(employee.mfaSecret, totpToken);
+    const isValid = verifyTotp(this.mfaCipher.decrypt(employee.mfaSecret), totpToken);
     if (!isValid) {
+      await this.attempts.recordFailure('mfa', employee.id);
       throw new UnauthorizedException('Invalid TOTP token');
     }
 
-    return this.createLoginResponse(employee);
+    // A code stays valid for ~90s (window ±1 step); refuse to accept it twice.
+    const fresh = await this.attempts.markCodeUsed(employee.id, totpToken, TOTP_REPLAY_TTL_SECONDS);
+    if (!fresh) {
+      throw new UnauthorizedException('TOTP token already used');
+    }
+    await this.attempts.reset('mfa', employee.id);
+
+    // Keep the outlet chosen at the PIN step (already validated by LoginUseCase)
+    return this.createLoginResponse(employee, payload.outletId ?? employee.outletId);
   }
 
   createMfaPendingResponse(employee: EmployeeRecord): MfaPendingResult {
-    const mfaPayload: MfaTokenPayload = {
-      sub: employee.id,
-      purpose: 'mfa_verification',
-      businessId: employee.businessId,
-      outletId: employee.outletId,
-      role: employee.role,
-    };
-
-    const mfaToken = this.jwtService.sign(mfaPayload, { expiresIn: '5m' });
+    const mfaToken = this.purposeTokens.sign<MfaTokenPayload>(
+      'mfa_verification',
+      { sub: employee.id, outletId: employee.outletId },
+      '5m',
+    );
 
     return {
       requiresMfa: true,
@@ -174,11 +201,14 @@ export class AuthService {
     };
   }
 
-  private createLoginResponse(employee: EmployeeRecord): OAuthLoginResult {
+  private createLoginResponse(
+    employee: EmployeeRecord,
+    outletId: string | null = employee.outletId,
+  ): OAuthLoginResult {
     const jwtPayload = {
       sub: employee.id,
       businessId: employee.businessId,
-      outletId: employee.outletId,
+      outletId,
       role: employee.role,
       emailVerified: employee.emailVerified ?? false,
     };
@@ -191,7 +221,7 @@ export class AuthService {
       employeeName: employee.name,
       role: employee.role,
       businessId: employee.businessId,
-      outletId: employee.outletId,
+      outletId,
     };
   }
 
@@ -228,6 +258,8 @@ export class AuthService {
       isActive: employee.isActive,
       mfaEnabled: employee.mfaEnabled,
       emailVerified: employee.emailVerified ?? false,
+      preferences: employee.preferences ?? {},
+      createdAt: employee.createdAt,
     };
   }
 
@@ -259,13 +291,8 @@ export class AuthService {
       throw new BadRequestException('Employee does not have an email address');
     }
 
-    const payload: EmailVerificationPayload = {
-      sub: employee.id,
-      purpose: 'email_verification',
-    };
-
-    const token = this.jwtService.sign(payload, { expiresIn: '24h' });
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const token = this.purposeTokens.sign('email_verification', { sub: employee.id }, '24h');
+    const frontendUrl = this.frontendUrl();
     const verificationLink = `${frontendUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
 
     await this.emailService.send({
@@ -285,16 +312,11 @@ export class AuthService {
    * Verify email using token from email link
    */
   async verifyEmail(token: string): Promise<{ success: boolean; message: string }> {
-    let payload: EmailVerificationPayload;
-
+    let payload: { sub: string };
     try {
-      payload = this.jwtService.verify<EmailVerificationPayload>(token);
+      payload = this.purposeTokens.verify<{ sub: string }>('email_verification', token);
     } catch {
       throw new BadRequestException('Token verifikasi tidak valid atau sudah kadaluarsa');
-    }
-
-    if (payload.purpose !== 'email_verification') {
-      throw new BadRequestException('Token tidak valid');
     }
 
     const employee = await this.employeeRepo.findById(payload.sub);
@@ -311,5 +333,17 @@ export class AuthService {
     });
 
     return { success: true, message: 'Email berhasil diverifikasi' };
+  }
+
+  /** FRONTEND_URL is required in production (env.validation.ts); localhost only in dev. */
+  private frontendUrl(): string {
+    const url = this.configService.get<string>('FRONTEND_URL');
+    if (url) {
+      return url;
+    }
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new Error('FRONTEND_URL is not configured');
+    }
+    return 'http://localhost:5173';
   }
 }

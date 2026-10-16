@@ -7,15 +7,9 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const isTokenExpired = useAuthStore((s) => s.isTokenExpired);
-  const logout = useAuthStore((s) => s.logout);
-
-  if (!isAuthenticated || isTokenExpired()) {
-    if (isAuthenticated) {
-      logout(); // Clean up expired session
-    }
-    return <Navigate to="/login" replace />;
-  }
+  // Access-token expiry is recovered by the API client. Offline checkout keeps
+  // its operator identity even while a fresh server token is unavailable.
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return <>{children}</>;
 }

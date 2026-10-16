@@ -73,7 +73,7 @@ describe('AuthGuard', () => {
     expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
   });
 
-  it('redirects to /login when token is expired', () => {
+  it('keeps the route while expired credentials are refreshed by the client', () => {
     const expiredToken = createMockToken(-100);
     useAuthStore.setState({
       user: {
@@ -91,11 +91,11 @@ describe('AuthGuard', () => {
 
     renderWithRouter();
 
-    expect(screen.getByText('Login Page')).toBeInTheDocument();
-    expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
+    expect(screen.getByText('Protected Content')).toBeInTheDocument();
+    expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
   });
 
-  it('cleans up auth state when token is expired', () => {
+  it('retains the offline operator when a token expires', () => {
     const expiredToken = createMockToken(-100);
     useAuthStore.setState({
       user: {
@@ -115,12 +115,12 @@ describe('AuthGuard', () => {
 
     // After redirect, auth state should be cleaned up
     const state = useAuthStore.getState();
-    expect(state.user).toBeNull();
-    expect(state.token).toBeNull();
-    expect(state.isAuthenticated).toBe(false);
+    expect(state.user?.id).toBe('user-1');
+    expect(state.token).toBe(expiredToken);
+    expect(state.isAuthenticated).toBe(true);
   });
 
-  it('redirects when token is malformed', () => {
+  it('leaves token validation to the API client', () => {
     useAuthStore.setState({
       user: {
         id: 'user-1',
@@ -137,7 +137,7 @@ describe('AuthGuard', () => {
 
     renderWithRouter();
 
-    expect(screen.getByText('Login Page')).toBeInTheDocument();
-    expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
+    expect(screen.getByText('Protected Content')).toBeInTheDocument();
+    expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
   });
 });

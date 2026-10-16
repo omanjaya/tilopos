@@ -1,3 +1,4 @@
+import { corsOrigins } from './config/cors';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
@@ -7,37 +8,24 @@ import { join } from 'path';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './shared/filters/global-exception.filter';
 import { RequestLoggerMiddleware } from './infrastructure/logging/request-logger.middleware';
-
-function validateEnvironment() {
-  const required = ['DATABASE_URL', 'JWT_SECRET', 'JWT_EXPIRES_IN'];
-  const missing = required.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    throw new Error(
-      `FATAL: Missing required environment variables:\n${missing.map((k) => `  - ${k}`).join('\n')}`,
-    );
-  }
-
-  if (process.env.CORS_ORIGIN === '*') {
-    throw new Error(
-      'FATAL: CORS_ORIGIN=* is not allowed. Set explicit origins (e.g. http://localhost:5173)',
-    );
-  }
-
-  const optional: Record<string, string> = {
-    XENDIT_WEBHOOK_TOKEN: 'Xendit payment webhooks will be rejected',
-    MIDTRANS_SERVER_KEY: 'Midtrans payment webhooks will be rejected',
-  };
-  Object.entries(optional).forEach(([key, warning]) => {
-    if (!process.env[key]) {
-      console.warn(`WARNING: ${key} not set — ${warning}`);
-    }
-  });
-}
+import { ElkLoggerService } from './infrastructure/logging/elk-logger.service';
+import { parseTrustProxy } from './config/env.validation';
 
 async function bootstrap() {
-  validateEnvironment();
+  // Environment is validated by ConfigModule (src/config/env.validation.ts)
+  // rawBody: webhook HMACs (self-order) are verified over the exact bytes received.
+  // bufferLogs + useLogger: boot logs go through the structured ELK logger (LoggingModule).
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+    bufferLogs: true,
+  });
+  app.useLogger(app.get(ElkLoggerService));
+  app.enableShutdownHooks();
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Behind a load balancer req.ip is the proxy address unless Express is told
+  // how many hops to trust. Per-IP throttling and audit IPs depend on it.
+  // TRUST_PROXY: false (default) | true | <hop count> | comma-separated subnets.
+  app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
 
   app.setGlobalPrefix('api/v1');
 
@@ -67,9 +55,8 @@ async function bootstrap() {
     }),
   );
 
-  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
   app.enableCors({
-    origin: corsOrigin.split(',').map((o) => o.trim()),
+    origin: corsOrigins(process.env.CORS_ORIGIN, process.env.NODE_ENV),
     credentials: true,
   });
 
@@ -87,7 +74,7 @@ async function bootstrap() {
 
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001; // matches Docker, Vite proxy and README
   await app.listen(port);
 }
 
