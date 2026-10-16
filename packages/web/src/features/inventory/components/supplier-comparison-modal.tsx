@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/format';
 import { TrendingDown, DollarSign } from 'lucide-react';
+import { ErrorState } from '@/components/shared/error-state';
 
 interface SupplierComparisonModalProps {
   open: boolean;
@@ -22,7 +23,7 @@ export function SupplierComparisonModal({
   open,
   onOpenChange,
 }: SupplierComparisonModalProps) {
-  const { data: comparison, isLoading } = useQuery({
+  const { data: comparison, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['supplier-comparison'],
     queryFn: supplierAnalyticsApi.getSupplierComparison,
     enabled: open,
@@ -32,9 +33,9 @@ export function SupplierComparisonModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl">Supplier Price Comparison</DialogTitle>
+          <DialogTitle className="text-xl">Perbandingan Harga Supplier</DialogTitle>
           <DialogDescription>
-            Compare harga produk antar supplier untuk hemat biaya
+            Bandingkan harga produk antar supplier untuk menghemat biaya
           </DialogDescription>
         </DialogHeader>
 
@@ -44,13 +45,15 @@ export function SupplierComparisonModal({
               <Skeleton key={i} className="h-32" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
         ) : comparison && comparison.comparisons.length > 0 ? (
           <div className="space-y-4">
             <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
               <DollarSign className="h-5 w-5 text-blue-600" />
               <p className="text-sm text-blue-900">
-                <strong>{comparison.totalProducts} produk</strong> memiliki multiple suppliers.
-                Potential savings dengan pilih supplier termurah!
+                <strong>{comparison.totalProducts} produk</strong> dipasok oleh lebih dari satu supplier.
+                Pilih supplier termurah untuk menghemat biaya.
               </p>
             </div>
 
@@ -61,13 +64,13 @@ export function SupplierComparisonModal({
                     <div className="flex-1">
                       <h3 className="font-bold text-lg">{product.productName}</h3>
                       <p className="text-sm text-muted-foreground">
-                        {product.suppliers.length} suppliers available
+                        {product.suppliers.length} supplier tersedia
                       </p>
                     </div>
                     {product.savingsPercentage > 0 && (
                       <Badge className="bg-green-600">
                         <TrendingDown className="h-3 w-3 mr-1" />
-                        Save {product.savingsPercentage.toFixed(1)}%
+                        Hemat {product.savingsPercentage.toFixed(1)}%
                       </Badge>
                     )}
                   </div>
@@ -104,7 +107,7 @@ export function SupplierComparisonModal({
                               <div>
                                 <p className="font-semibold">{supplier.supplierName}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {supplier.orderCount}x order • Range:{' '}
+                                  {supplier.orderCount}x pesanan • Rentang:{' '}
                                   {formatCurrency(supplier.minPrice)} -{' '}
                                   {formatCurrency(supplier.maxPrice)}
                                 </p>
@@ -125,7 +128,7 @@ export function SupplierComparisonModal({
                               </p>
                               {isCheapest && (
                                 <Badge variant="default" className="bg-green-600 mt-1">
-                                  💰 Termurah
+                                  Termurah
                                 </Badge>
                               )}
                               {isMostExpensive && product.suppliers.length > 1 && (
@@ -143,7 +146,7 @@ export function SupplierComparisonModal({
                   {product.priceDifference > 0 && (
                     <div className="mt-3 p-3 bg-yellow-50 rounded-lg">
                       <p className="text-sm text-yellow-900">
-                        💡 <strong>Potential savings:</strong>{' '}
+                        <strong>Potensi penghematan:</strong>{' '}
                         {formatCurrency(product.priceDifference)} per unit dengan pilih{' '}
                         <strong>{product.cheapestSupplier}</strong>
                       </p>
@@ -156,7 +159,7 @@ export function SupplierComparisonModal({
         ) : (
           <div className="text-center py-12 text-muted-foreground">
             <DollarSign className="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p>Belum ada data comparison</p>
+            <p>Belum ada data perbandingan</p>
             <p className="text-sm mt-1">
               Minimal 2 supplier harus punya order untuk produk yang sama
             </p>

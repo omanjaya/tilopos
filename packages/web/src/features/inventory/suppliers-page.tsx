@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -24,7 +26,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast-utils';
-import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { Plus, MoreHorizontal, Pencil, Trash2, Loader2, BarChart3, AlertCircle, Eye } from 'lucide-react';
 import { SupplierDetailModal } from './components/supplier-detail-modal';
@@ -45,9 +46,11 @@ const EMPTY_FORM: CreateSupplierRequest = {
 export function SuppliersPage() {
   const queryClient = useQueryClient();
   const { highlightedRowId, highlightRow } = useRowHighlight();
-  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
-  const user = useAuthStore((s) => s.user);
-  const outletId = selectedOutletId ?? user?.outletId ?? '';
+  const role = useAuthStore((s) => s.user?.role);
+  // Backend @Roles: create/update = MANAGER/OWNER/INVENTORY, delete = MANAGER/OWNER,
+  // supplier analytics (detail) = OWNER/MANAGER/INVENTORY.
+  const canManage = hasRole(role, 'STOCK');
+  const canDelete = hasRole(role, 'MANAGEMENT');
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
@@ -57,10 +60,19 @@ export function SuppliersPage() {
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [reorderAlertsOpen, setReorderAlertsOpen] = useState(false);
 
-  const { data: suppliers, isLoading } = useQuery({
-    queryKey: ['suppliers', outletId, search],
-    queryFn: () => inventoryApi.listSuppliers({ outletId: outletId || undefined, search: search || undefined }),
+  const { data: suppliers, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => inventoryApi.listSuppliers(),
   });
+
+  // GET /suppliers has no search param — filter client-side.
+  const filteredSuppliers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return suppliers ?? [];
+    return (suppliers ?? []).filter((s) =>
+      [s.name, s.contactName, s.email, s.phone].some((v) => v?.toLowerCase().includes(q)),
+    );
+  }, [suppliers, search]);
 
   const createMutation = useMutation({
     mutationFn: inventoryApi.createSupplier,
@@ -168,7 +180,8 @@ export function SuppliersPage() {
     {
       key: 'actions',
       header: '',
-      cell: (row) => (
+      cell: (row) =>
+        !canManage ? null : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi supplier">
@@ -177,17 +190,19 @@ export function SuppliersPage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setDetailTarget(row)}>
-              <Eye className="mr-2 h-4 w-4" /> View Details
+              <Eye className="mr-2 h-4 w-4" /> Lihat Detail
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openEditDialog(row)}>
-              <Pencil className="mr-2 h-4 w-4" /> Edit
+              <Pencil className="mr-2 h-4 w-4" /> Ubah
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setDeleteTarget(row)}
-              className="text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
-            </DropdownMenuItem>
+            {canDelete && (
+              <DropdownMenuItem
+                onClick={() => setDeleteTarget(row)}
+                className="text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Hapus
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -198,19 +213,24 @@ export function SuppliersPage() {
     <div>
       <PageHeader title="Supplier" description="Kelola data supplier">
         <Button variant="outline" onClick={() => setReorderAlertsOpen(true)}>
-          <AlertCircle className="mr-2 h-4 w-4" /> Reorder Alerts
+          <AlertCircle className="mr-2 h-4 w-4" /> Peringatan Restok
         </Button>
         <Button variant="outline" onClick={() => setComparisonOpen(true)}>
-          <BarChart3 className="mr-2 h-4 w-4" /> Compare Prices
+          <BarChart3 className="mr-2 h-4 w-4" /> Bandingkan Harga
         </Button>
-        <Button onClick={openCreateDialog} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
-        </Button>
+        {canManage && (
+          <Button onClick={openCreateDialog} aria-keyshortcuts="N">
+            <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
+          </Button>
+        )}
       </PageHeader>
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
-        data={suppliers ?? []}
+        data={filteredSuppliers}
         isLoading={isLoading}
         searchPlaceholder="Cari supplier..."
         onSearch={setSearch}
@@ -219,17 +239,20 @@ export function SuppliersPage() {
         emptyTitle="Belum ada supplier"
         emptyDescription="Tambahkan supplier pertama Anda."
         emptyAction={
-          <Button onClick={openCreateDialog}>
-            <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
-          </Button>
+          canManage ? (
+            <Button onClick={openCreateDialog}>
+              <Plus className="mr-2 h-4 w-4" /> Tambah Supplier
+            </Button>
+          ) : undefined
         }
       />
+      )}
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editTarget ? 'Edit Supplier' : 'Tambah Supplier'}</DialogTitle>
+            <DialogTitle>{editTarget ? 'Ubah Supplier' : 'Tambah Supplier'}</DialogTitle>
             <DialogDescription>
               {editTarget ? 'Perbarui informasi supplier.' : 'Masukkan informasi supplier baru.'}
             </DialogDescription>
@@ -288,7 +311,7 @@ export function SuppliersPage() {
               onClick={handleSubmit}
               disabled={!form.name || isSaving}
               aria-busy={isSaving}
-              aria-label={isSaving ? (editTarget ? 'Saving supplier...' : 'Adding supplier...') : undefined}
+              aria-label={isSaving ? (editTarget ? 'Menyimpan supplier...' : 'Menambahkan supplier...') : undefined}
             >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {editTarget ? 'Simpan' : 'Tambah'}

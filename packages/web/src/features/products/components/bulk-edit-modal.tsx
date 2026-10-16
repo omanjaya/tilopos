@@ -24,6 +24,8 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 import { Loader2, Edit } from 'lucide-react';
 import type { Product, BulkUpdateProductsRequest } from '@/types/product.types';
 
@@ -43,6 +45,8 @@ export function BulkEditModal({
   onComplete,
 }: BulkEditModalProps) {
   const queryClient = useQueryClient();
+  // DELETE /inventory/products/bulk is MANAGER/OWNER only (PATCH bulk also allows INVENTORY)
+  const canDelete = hasRole(useAuthStore((s) => s.user?.role), 'MANAGEMENT');
   const [action, setAction] = useState<EditAction>('category');
 
   // Category action
@@ -129,7 +133,7 @@ export function BulkEditModal({
       onComplete();
       onOpenChange(false);
     },
-    onError: (error) => handleMutationError(error, action === 'delete' ? 'Gagal menghapus produk' : 'Gagal mengupdate produk'),
+    onError: (error) => handleMutationError(error, action === 'delete' ? 'Gagal menghapus produk' : 'Gagal memperbarui produk'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -237,12 +241,14 @@ export function BulkEditModal({
                   Ubah Pelacakan Stok
                 </Label>
               </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="delete" id="delete" />
-                <Label htmlFor="delete" className="font-normal cursor-pointer text-destructive">
-                  Hapus Produk
-                </Label>
-              </div>
+              {canDelete && (
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="delete" id="delete" />
+                  <Label htmlFor="delete" className="font-normal cursor-pointer text-destructive">
+                    Hapus Produk
+                  </Label>
+                </div>
+              )}
             </RadioGroup>
           </div>
 
@@ -397,12 +403,12 @@ export function BulkEditModal({
           )}
 
           {/* Delete Action */}
-          {action === 'delete' && (
+          {canDelete && action === 'delete' && (
             <div className="space-y-4">
               <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm">
                 <p className="font-medium text-destructive">Peringatan!</p>
                 <p className="mt-1 text-muted-foreground">
-                  {selectedProducts.length} produk akan dihapus. Secara default, produk akan dinonaktifkan (soft delete).
+                  {selectedProducts.length} produk akan dihapus. Secara default, produk akan dinonaktifkan (tidak dihapus permanen).
                 </p>
               </div>
               <div className="flex items-center space-x-2">

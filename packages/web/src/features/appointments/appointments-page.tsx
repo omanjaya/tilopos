@@ -11,6 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { useCan } from '@/features/auth/use-permission';
+import { format } from 'date-fns';
+import { ErrorState } from '@/components/shared/error-state';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import type { Appointment } from '@/api/endpoints/appointments.api';
 import { Calendar, Clock, Plus, User, Phone, X } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,16 +40,19 @@ function formatTime(date: string) {
   return new Date(date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+function formatCurrency(value: number | string) {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(Number(value) || 0);
 }
 
 export function AppointmentsPage() {
   const queryClient = useQueryClient();
   const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [showForm, setShowForm] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
+  // Cancelling (PUT /appointments/:id/cancel, status 'cancelled') is supervisor+
+  const canCancel = useCan('appointments.cancel');
 
   // Form state
   const [serviceName, setServiceName] = useState('');
@@ -55,7 +63,7 @@ export function AppointmentsPage() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: appointments, isLoading } = useQuery({
+  const { data: appointments, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['appointments', outletId, selectedDate],
     queryFn: () => appointmentsApi.listByDate(outletId, selectedDate),
     enabled: !!outletId,
@@ -75,7 +83,7 @@ export function AppointmentsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast.success({ title: 'Appointment berhasil dibuat' });
+      toast.success({ title: 'Janji temu berhasil dibuat' });
       setShowForm(false);
       setServiceName('');
       setServicePrice('');
@@ -85,22 +93,24 @@ export function AppointmentsPage() {
       setCustomerPhone('');
       setNotes('');
     },
-    onError: (error) => handleMutationError(error, 'Gagal membuat appointment'),
+    onError: (error) => handleMutationError(error, 'Gagal membuat janji temu'),
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: Appointment['status'] }) =>
       status === 'cancelled' ? appointmentsApi.cancel(id) : appointmentsApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       toast.success({ title: 'Status berhasil diperbarui' });
+      setCancelTarget(null);
     },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status janji temu'),
   });
 
   if (!outletId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Appointments" />
+        <PageHeader title="Janji Temu" />
         <Card>
           <CardContent className="flex h-40 items-center justify-center text-muted-foreground">
             Pilih outlet terlebih dahulu di pengaturan
@@ -113,11 +123,11 @@ export function AppointmentsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Appointments"
+        title="Janji Temu"
         description="Kelola jadwal layanan dan booking pelanggan"
       >
         <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="mr-1 h-4 w-4" /> Buat Appointment
+          <Plus className="mr-1 h-4 w-4" /> Buat Janji Temu
         </Button>
       </PageHeader>
 
@@ -130,46 +140,46 @@ export function AppointmentsPage() {
           onChange={(e) => setSelectedDate(e.target.value)}
           className="w-48"
         />
-        <Badge variant="secondary">{appointments?.length ?? 0} appointment</Badge>
+        <Badge variant="secondary">{appointments?.length ?? 0} janji temu</Badge>
       </div>
 
       {/* Create Form */}
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Buat Appointment Baru</CardTitle>
+            <CardTitle className="text-base">Buat Janji Temu Baru</CardTitle>
             <CardDescription>Jadwalkan layanan untuk tanggal {selectedDate}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Nama Layanan</Label>
-                <Input value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="Potong Rambut" />
+                <Label htmlFor="apt-service">Nama Layanan</Label>
+                <Input id="apt-service" value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="Potong Rambut" />
               </div>
               <div>
-                <Label>Harga Layanan</Label>
-                <Input type="number" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} placeholder="50000" />
+                <Label htmlFor="apt-price">Harga Layanan</Label>
+                <Input id="apt-price" type="number" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} placeholder="50000" />
               </div>
               <div>
-                <Label>Jam Mulai</Label>
-                <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                <Label htmlFor="apt-start">Jam Mulai</Label>
+                <Input id="apt-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </div>
               <div>
-                <Label>Durasi (menit)</Label>
-                <Input type="number" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} placeholder="60" />
+                <Label htmlFor="apt-duration">Durasi (menit)</Label>
+                <Input id="apt-duration" type="number" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} placeholder="60" />
               </div>
               <div>
-                <Label>Nama Pelanggan</Label>
-                <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Opsional" />
+                <Label htmlFor="apt-customer">Nama Pelanggan</Label>
+                <Input id="apt-customer" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Opsional" />
               </div>
               <div>
-                <Label>No. Telepon</Label>
-                <Input type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="08xxx" />
+                <Label htmlFor="apt-phone">No. Telepon</Label>
+                <Input id="apt-phone" type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="08xxx" />
               </div>
             </div>
             <div>
-              <Label>Catatan</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Catatan..." />
+              <Label htmlFor="apt-notes">Catatan</Label>
+              <Input id="apt-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Catatan..." />
             </div>
             <div className="flex gap-2">
               <Button
@@ -189,8 +199,10 @@ export function AppointmentsPage() {
         <CardContent className="pt-6">
           {isLoading ? (
             <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => refetch()} />
           ) : (appointments ?? []).length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-8">Tidak ada appointment untuk tanggal ini</p>
+            <p className="text-center text-sm text-muted-foreground py-8">Tidak ada janji temu untuk tanggal ini</p>
           ) : (
             <div className="space-y-3">
               {(appointments ?? []).map((apt) => (
@@ -198,7 +210,7 @@ export function AppointmentsPage() {
                   <div className="flex items-center gap-4">
                     <div className="text-center">
                       <p className="text-lg font-bold">{formatTime(apt.startTime)}</p>
-                      <p className="text-xs text-muted-foreground">{apt.durationMinutes}min</p>
+                      <p className="text-xs text-muted-foreground">{apt.durationMinutes} mnt</p>
                     </div>
                     <div className={`h-12 w-1 rounded-full ${STATUS_COLORS[apt.status] ?? 'bg-gray-300'}`} />
                     <div>
@@ -231,8 +243,13 @@ export function AppointmentsPage() {
                         Selesai
                       </Button>
                     )}
-                    {['scheduled', 'confirmed'].includes(apt.status) && (
-                      <Button size="sm" variant="ghost" onClick={() => statusMutation.mutate({ id: apt.id, status: 'cancelled' })}>
+                    {canCancel && ['scheduled', 'confirmed'].includes(apt.status) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Batalkan janji temu"
+                        onClick={() => setCancelTarget(apt)}
+                      >
                         <X className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
@@ -243,6 +260,17 @@ export function AppointmentsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!cancelTarget}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        title="Batalkan janji temu?"
+        description={cancelTarget ? `Janji temu "${cancelTarget.serviceName}" pukul ${formatTime(cancelTarget.startTime)} akan dibatalkan.` : ''}
+        confirmLabel="Batalkan Janji Temu"
+        cancelLabel="Kembali"
+        isLoading={statusMutation.isPending}
+        onConfirm={() => cancelTarget && statusMutation.mutate({ id: cancelTarget.id, status: 'cancelled' })}
+      />
     </div>
   );
 }

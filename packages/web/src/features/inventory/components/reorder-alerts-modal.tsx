@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { AlertTriangle, Package, TrendingDown } from 'lucide-react';
+import { ErrorState } from '@/components/shared/error-state';
 
 interface ReorderAlertsModalProps {
   open: boolean;
@@ -19,7 +20,7 @@ interface ReorderAlertsModalProps {
 }
 
 export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalProps) {
-  const { data: alerts, isLoading } = useQuery({
+  const { data: alerts, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['reorder-alerts'],
     queryFn: supplierAnalyticsApi.getReorderAlerts,
     enabled: open,
@@ -31,7 +32,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-600" />
-            Auto Reorder Alerts
+            Peringatan Pemesanan Ulang
           </DialogTitle>
           <DialogDescription>
             Produk dengan stok rendah yang perlu segera di-order
@@ -44,6 +45,8 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
         ) : alerts && alerts.alerts.length > 0 ? (
           <div className="space-y-4">
             {/* Summary */}
@@ -58,7 +61,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
                       <p className="text-2xl font-bold text-orange-900">
                         {formatNumber(alerts.totalAlerts)}
                       </p>
-                      <p className="text-sm text-orange-700">Total low stock items</p>
+                      <p className="text-sm text-orange-700">Total produk stok rendah</p>
                     </div>
                   </div>
                 </CardContent>
@@ -74,7 +77,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
                       <p className="text-2xl font-bold text-red-900">
                         {formatNumber(alerts.criticalAlerts)}
                       </p>
-                      <p className="text-sm text-red-700">Critical (≤5 units)</p>
+                      <p className="text-sm text-red-700">Kritis (≤5 unit)</p>
                     </div>
                   </div>
                 </CardContent>
@@ -101,7 +104,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
                           <div className="flex items-center gap-2 mb-2">
                             <h3 className="font-bold text-lg">{alert.productName}</h3>
                             {isCritical && (
-                              <Badge variant="destructive">🚨 CRITICAL</Badge>
+                              <Badge variant="destructive">KRITIS</Badge>
                             )}
                           </div>
                           <div className="space-y-1 text-sm">
@@ -117,7 +120,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
                               }`}
                             >
                               <Package className="inline h-4 w-4 mr-1" />
-                              Stok tersisa: <strong>{alert.currentStock} units</strong>
+                              Stok tersisa: <strong>{alert.currentStock} unit</strong>
                             </p>
                           </div>
                         </div>
@@ -126,34 +129,34 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
                           {alert.recommendedSupplier ? (
                             <div className="p-3 bg-white rounded-lg border min-w-[200px]">
                               <p className="text-xs text-muted-foreground mb-1">
-                                Recommended Supplier
+                                Supplier Rekomendasi
                               </p>
                               <p className="font-bold text-blue-600">
                                 {alert.recommendedSupplier.name}
                               </p>
                               <p className="text-sm text-muted-foreground mt-2">
-                                Last price:
+                                Harga terakhir:
                               </p>
                               <p className="text-lg font-bold">
                                 {formatCurrency(alert.recommendedSupplier.lastPrice)}
                               </p>
                               <p className="text-xs text-muted-foreground mt-2">
-                                Suggested order:
+                                Saran pesanan:
                               </p>
                               <p className="text-md font-semibold text-green-600">
-                                {alert.suggestedOrderQuantity} units
+                                {alert.suggestedOrderQuantity} unit
                               </p>
                             </div>
                           ) : (
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-sm text-muted-foreground">
-                                No supplier history
+                                Belum ada riwayat supplier
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Suggested order:
+                                Saran pesanan:
                               </p>
                               <p className="text-md font-semibold text-green-600">
-                                {alert.suggestedOrderQuantity} units
+                                {alert.suggestedOrderQuantity} unit
                               </p>
                             </div>
                           )}
@@ -168,7 +171,7 @@ export function ReorderAlertsModal({ open, onOpenChange }: ReorderAlertsModalPro
         ) : (
           <div className="text-center py-12 text-muted-foreground">
             <Package className="h-12 w-12 mx-auto mb-3 opacity-50 text-green-600" />
-            <p className="text-lg font-semibold text-green-700">Semua stok aman! ✅</p>
+            <p className="text-lg font-semibold text-green-700">Semua stok aman!</p>
             <p className="text-sm mt-1">Tidak ada produk dengan stok rendah</p>
           </div>
         )}

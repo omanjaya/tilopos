@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
@@ -23,8 +23,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/lib/toast-utils';
-import { Loader2, Plus, Trash2, Zap } from 'lucide-react';
+import { Loader2, Plus, Send, Trash2, Zap } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
+import type { TransferTemplate } from '@/types/transfer-template.types';
 
 interface TransferItem {
   productId: string;
@@ -35,14 +36,42 @@ interface TransferItem {
 interface DirectTransferModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * 'direct' = POST /stock-transfers/direct (stock moves immediately);
+   * 'request' = POST /stock-transfers (creates a pending request that goes through approval).
+   */
+  mode?: 'direct' | 'request';
+  /** Prefill outlets and items from a transfer template. */
+  template?: TransferTemplate | null;
 }
 
-export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalProps) {
+export function DirectTransferModal({
+  open,
+  onOpenChange,
+  mode = 'direct',
+  template,
+}: DirectTransferModalProps) {
   const queryClient = useQueryClient();
+  const isRequest = mode === 'request';
   const [sourceOutletId, setSourceOutletId] = useState('');
   const [destinationOutletId, setDestinationOutletId] = useState('');
   const [items, setItems] = useState<TransferItem[]>([]);
   const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (!open || !template) return;
+    setSourceOutletId(template.sourceOutletId);
+    setDestinationOutletId(template.destinationOutletId);
+    setItems(
+      template.items
+        .filter((i) => i.productId)
+        .map((i) => ({
+          productId: i.productId as string,
+          productName: i.itemName,
+          quantity: Number(i.defaultQuantity),
+        })),
+    );
+  }, [open, template]);
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],
@@ -57,8 +86,8 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
   });
 
   const directTransferMutation = useMutation({
-    mutationFn: () =>
-      inventoryApi.directTransfer({
+    mutationFn: async () => {
+      const payload = {
         sourceOutletId,
         destinationOutletId,
         items: items.map((item) => ({
@@ -67,18 +96,34 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
           quantity: item.quantity,
         })),
         notes: notes || undefined,
-      }),
+        // Counts the transfer towards the template's usage (backend validates ownership)
+        templateId: template?.id,
+      };
+      if (isRequest) {
+        await inventoryApi.createTransfer(payload);
+        return null;
+      }
+      return inventoryApi.directTransfer(payload);
+    },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
       queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
-      toast.success({
-        title: 'Transfer langsung berhasil',
-        description: `${result.itemCount} item ditransfer (${result.transferNumber})`,
-      });
+      if (result) {
+        toast.success({
+          title: 'Transfer langsung berhasil',
+          description: `${result.itemCount} item ditransfer (${result.transferNumber})`,
+        });
+      } else {
+        toast.success({
+          title: 'Permintaan transfer dibuat',
+          description: 'Transfer menunggu persetujuan manajer.',
+        });
+      }
       resetForm();
       onOpenChange(false);
     },
-    onError: (error) => handleMutationError(error, 'Gagal melakukan transfer'),
+    onError: (error) =>
+      handleMutationError(error, isRequest ? 'Gagal membuat permintaan transfer' : 'Gagal melakukan transfer'),
   });
 
   const resetForm = () => {
@@ -123,11 +168,13 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-warning" />
-            Transfer Langsung
+            {isRequest ? <Send className="h-5 w-5" /> : <Zap className="h-5 w-5 text-warning" />}
+            {isRequest ? 'Buat Permintaan Transfer' : 'Transfer Langsung'}
           </DialogTitle>
           <DialogDescription>
-            Transfer stok langsung tanpa proses approval. Stok akan langsung dipindahkan.
+            {isRequest
+              ? 'Permintaan transfer akan diproses setelah disetujui, dikirim, lalu diterima outlet tujuan.'
+              : 'Transfer stok langsung tanpa proses approval. Stok akan langsung dipindahkan.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -227,6 +274,7 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
                     size="icon"
                     onClick={() => removeItem(index)}
                     className="shrink-0 text-destructive"
+                    aria-label={`Hapus item ${item.productName || index + 1}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -256,8 +304,8 @@ export function DirectTransferModal({ open, onOpenChange }: DirectTransferModalP
             onClick={() => directTransferMutation.mutate()}
           >
             {directTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            <Zap className="mr-2 h-4 w-4" />
-            Transfer Sekarang
+            {isRequest ? <Send className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+            {isRequest ? 'Kirim Permintaan' : 'Transfer Sekarang'}
           </Button>
         </DialogFooter>
       </DialogContent>

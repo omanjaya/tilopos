@@ -11,11 +11,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, ArrowRight, RefreshCw } from 'lucide-react';
+import { ErrorState } from '@/components/shared/error-state';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { handleMutationError } from '@/lib/api-error-handler';
 
 function ConversionEditor({ productId, productName }: { productId: string; productName: string }) {
   const queryClient = useQueryClient();
 
-  const { data: conversions, isLoading } = useQuery({
+  const { data: conversions, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['unit-conversions', productId],
     queryFn: () => unitConversionApi.listByProduct(productId),
   });
@@ -25,6 +28,9 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
   const [toUnit, setToUnit] = useState('');
   const [toLabel, setToLabel] = useState('');
   const [factor, setFactor] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const factorValue = Number(factor);
+  const factorValid = factor !== '' && Number.isFinite(factorValue) && factorValue > 0;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -34,7 +40,7 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
         fromUnitLabel: fromLabel,
         toUnit,
         toUnitLabel: toLabel,
-        conversionFactor: parseFloat(factor),
+        conversionFactor: factorValue,
         isDefault: (conversions?.length ?? 0) === 0,
       }),
     onSuccess: () => {
@@ -46,7 +52,7 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
       setToLabel('');
       setFactor('');
     },
-    onError: () => toast.error({ title: 'Gagal menambahkan' }),
+    onError: (err) => handleMutationError(err, 'Gagal menambahkan konversi satuan'),
   });
 
   const deleteMutation = useMutation({
@@ -54,10 +60,14 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['unit-conversions', productId] });
       toast.success({ title: 'Konversi dihapus' });
+      setDeleteId(null);
     },
+    onError: (err) => handleMutationError(err, 'Gagal menghapus konversi satuan'),
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
+  // isDefault of the next conversion depends on the current list, so don't allow adding without it
+  if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
 
   return (
     <Card>
@@ -76,7 +86,8 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => deleteMutation.mutate(conv.id)}
+              onClick={() => setDeleteId(conv.id)}
+              aria-label={`Hapus konversi ${conv.fromUnitLabel} ke ${conv.toUnitLabel}`}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -105,17 +116,29 @@ function ConversionEditor({ productId, productName }: { productId: string; produ
           </div>
           <div>
             <Label className="text-xs">Faktor Konversi (1 satuan asal = ? satuan tujuan)</Label>
-            <Input type="number" value={factor} onChange={(e) => setFactor(e.target.value)} placeholder="12" className="h-9" />
+            <Input type="number" min={0} step="any" value={factor} onChange={(e) => setFactor(e.target.value)} placeholder="12" className="h-9" />
+            {factor !== '' && !factorValid && (
+              <p className="mt-1 text-xs text-destructive">Faktor konversi harus lebih besar dari 0</p>
+            )}
           </div>
           <Button
             size="sm"
             onClick={() => createMutation.mutate()}
-            disabled={!fromUnit || !toUnit || !factor || createMutation.isPending}
+            disabled={!fromUnit || !toUnit || !factorValid || createMutation.isPending}
           >
             <Plus className="mr-1 h-4 w-4" /> Tambah
           </Button>
         </div>
       </CardContent>
+      <ConfirmDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Hapus konversi satuan?"
+        description="Konversi satuan ini akan dihapus permanen."
+        confirmLabel="Hapus"
+        onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
+        isLoading={deleteMutation.isPending}
+      />
     </Card>
   );
 }
@@ -124,7 +147,7 @@ export function UnitConversionPage() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  const { data: products, isLoading } = useQuery({
+  const { data: products, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['products-for-units'],
     queryFn: () => productsApi.list(),
   });
@@ -147,6 +170,7 @@ export function UnitConversionPage() {
           <Input placeholder="Cari produk..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="max-h-[calc(100vh-250px)] space-y-1 overflow-y-auto">
             {isLoading && [1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+            {isError && <ErrorState error={error} onRetry={() => refetch()} />}
             {filteredProducts.map((p: { id: string; name: string; sku?: string }) => (
               <button
                 key={p.id}

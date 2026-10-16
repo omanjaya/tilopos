@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { stockOpnameApi } from '@/api/endpoints/stock-opname.api';
 import { useAuthStore } from '@/stores/auth.store';
+import { useUIStore } from '@/stores/ui.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -47,16 +50,22 @@ export function StockOpnamePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  // Owners have no outlet in their token; use the outlet picked in the app header
+  const outletId = selectedOutletId || user?.outletId || '';
+  // Backend: create = MANAGER/OWNER/INVENTORY, cancel/complete = MANAGER/OWNER
+  const canCreate = hasRole(user?.role, 'STOCK');
+  const canCancel = hasRole(user?.role, 'MANAGEMENT');
+  const [statusFilter, setStatusFilter] = useState<StockOpnameStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
   const [createNotes, setCreateNotes] = useState('');
   const [cancelTarget, setCancelTarget] = useState<StockOpname | null>(null);
 
-  const { data: opnames, isLoading } = useQuery({
-    queryKey: ['stock-opname', statusFilter],
+  const { data: opnames, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['stock-opname', outletId, statusFilter],
     queryFn: () =>
       stockOpnameApi.list({
-        outletId: user?.outletId || undefined,
+        outletId: outletId || undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
       }),
   });
@@ -139,7 +148,12 @@ export function StockOpnamePage() {
       cell: (row) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Aksi untuk opname ${row.opnameNumber}`}
+            >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -148,7 +162,7 @@ export function StockOpnamePage() {
               <Eye className="mr-2 h-4 w-4" />
               Lihat Detail
             </DropdownMenuItem>
-            {(row.status === 'draft' || row.status === 'in_progress') && (
+            {canCancel && (row.status === 'draft' || row.status === 'in_progress') && (
               <DropdownMenuItem
                 onClick={() => setCancelTarget(row)}
                 className="text-destructive"
@@ -169,14 +183,16 @@ export function StockOpnamePage() {
         title="Stock Opname"
         description="Hitung fisik stok dan sesuaikan dengan sistem"
       >
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Buat Opname
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Buat Opname
+          </Button>
+        )}
       </PageHeader>
 
       <div className="flex items-center gap-4">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StockOpnameStatus | 'all')}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter status" />
           </SelectTrigger>
@@ -190,13 +206,17 @@ export function StockOpnamePage() {
         </Select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={opnames || []}
-        isLoading={isLoading}
-        emptyTitle="Belum ada stock opname"
-        emptyDescription="Buat sesi stock opname baru untuk mulai menghitung stok fisik."
-      />
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={opnames || []}
+          isLoading={isLoading}
+          emptyTitle="Belum ada stock opname"
+          emptyDescription="Buat sesi stock opname baru untuk mulai menghitung stok fisik."
+        />
+      )}
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
@@ -227,12 +247,12 @@ export function StockOpnamePage() {
             </Button>
             <Button
               onClick={() => {
-                if (!user?.outletId) {
-                  toast.error({ title: 'Outlet tidak ditemukan' });
+                if (!outletId) {
+                  toast.error({ title: 'Pilih outlet terlebih dahulu' });
                   return;
                 }
                 createMutation.mutate({
-                  outletId: user.outletId,
+                  outletId,
                   notes: createNotes || undefined,
                 });
               }}

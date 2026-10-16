@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { productsApi } from '@/api/endpoints/products.api';
-import type { TransferTemplateData } from '@/types/inventory.types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +17,10 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
-import type { TransferTemplate } from '@/types/transfer-template.types';
+import type {
+  TransferTemplate,
+  CreateTransferTemplateRequest,
+} from '@/types/transfer-template.types';
 import { handleMutationError } from '@/lib/api-error-handler';
 
 interface TransferTemplateFormModalProps {
@@ -86,7 +88,7 @@ export function TransferTemplateFormModal({
   }, [template, open]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: TransferTemplateData) => {
+    mutationFn: async (data: CreateTransferTemplateRequest) => {
       if (template) {
         return inventoryApi.updateTransferTemplate(template.id, data);
       }
@@ -170,7 +172,7 @@ export function TransferTemplateFormModal({
       return;
     }
 
-    const data = {
+    const data: CreateTransferTemplateRequest = {
       name: name.trim(),
       description: description.trim() || undefined,
       sourceOutletId,
@@ -202,7 +204,7 @@ export function TransferTemplateFormModal({
             <Label htmlFor="name">Nama Template *</Label>
             <Input
               id="name"
-              placeholder="e.g., Weekly Restock from Warehouse"
+              placeholder="mis. Restok Mingguan dari Gudang"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -257,7 +259,7 @@ export function TransferTemplateFormModal({
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <Label>Items *</Label>
+              <Label>Item *</Label>
               <Button size="sm" variant="outline" onClick={handleAddItem}>
                 <Plus className="h-3 w-3 mr-1" /> Tambah Item
               </Button>
@@ -296,6 +298,7 @@ export function TransferTemplateFormModal({
                     variant="outline"
                     onClick={() => handleRemoveItem(item.id)}
                     disabled={items.length === 1}
+                    aria-label={`Hapus item ${item.productName || ''}`.trim()}
                   >
                     <Trash2 className="h-4 w-4 text-red-600" />
                   </Button>

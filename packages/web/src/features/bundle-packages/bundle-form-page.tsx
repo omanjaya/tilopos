@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bundlePackagesApi } from '@/api/endpoints/bundle-packages.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
-import { Plus, Trash2, GripVertical } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Loader2 } from 'lucide-react';
 import { BundleItemPicker } from './components/bundle-item-picker';
 
 interface BundleItem {
@@ -39,12 +40,23 @@ export function BundleFormPage() {
   const [selectedOutletIds, setSelectedOutletIds] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const { data: outlets = [] } = useQuery({
+  const {
+    data: outlets = [],
+    isError: isOutletsError,
+    error: outletsError,
+    refetch: refetchOutlets,
+  } = useQuery({
     queryKey: ['outlets'],
     queryFn: () => settingsApi.getOutlets(),
   });
 
-  const { data: existingBundle } = useQuery({
+  const {
+    data: existingBundle,
+    isLoading: isLoadingBundle,
+    isError: isBundleError,
+    error: bundleError,
+    refetch: refetchBundle,
+  } = useQuery({
     queryKey: ['bundle-packages', id],
     queryFn: () => bundlePackagesApi.get(id!),
     enabled: isEdit,
@@ -133,6 +145,10 @@ export function BundleFormPage() {
       toast.error({ title: 'Tambahkan minimal 1 item ke paket' });
       return;
     }
+    if (items.some((item) => !(item.quantity > 0))) {
+      toast.error({ title: 'Jumlah setiap item harus lebih dari 0' });
+      return;
+    }
 
     const data = {
       name: name.trim(),
@@ -158,6 +174,23 @@ export function BundleFormPage() {
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
+  if (isEdit && isBundleError) {
+    return (
+      <div>
+        <PageHeader title="Edit Paket Bundle" />
+        <ErrorState error={bundleError} onRetry={() => refetchBundle()} />
+      </div>
+    );
+  }
+
+  if (isEdit && isLoadingBundle) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Memuat paket bundle" />
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -171,8 +204,9 @@ export function BundleFormPage() {
           <h3 className="font-semibold">Informasi Paket</h3>
 
           <div>
-            <label className="text-sm font-medium">Nama Paket *</label>
+            <label htmlFor="bundle-name" className="text-sm font-medium">Nama Paket *</label>
             <Input
+              id="bundle-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="contoh: Paket Kombo A"
@@ -180,8 +214,9 @@ export function BundleFormPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium">Deskripsi</label>
+            <label htmlFor="bundle-description" className="text-sm font-medium">Deskripsi</label>
             <Textarea
+              id="bundle-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Deskripsi opsional..."
@@ -191,8 +226,9 @@ export function BundleFormPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium">Harga Paket *</label>
+              <label htmlFor="bundle-price" className="text-sm font-medium">Harga Paket *</label>
               <Input
+                id="bundle-price"
                 type="number"
                 min={0}
                 value={price}
@@ -200,8 +236,9 @@ export function BundleFormPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Harga Modal</label>
+              <label htmlFor="bundle-cost-price" className="text-sm font-medium">Harga Modal</label>
               <Input
+                id="bundle-cost-price"
                 type="number"
                 min={0}
                 value={costPrice}
@@ -214,8 +251,8 @@ export function BundleFormPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Switch checked={isActive} onCheckedChange={setIsActive} />
-            <label className="text-sm font-medium">Aktif</label>
+            <Switch id="bundle-active" checked={isActive} onCheckedChange={setIsActive} />
+            <label htmlFor="bundle-active" className="text-sm font-medium">Aktif</label>
           </div>
         </div>
 
@@ -255,6 +292,7 @@ export function BundleFormPage() {
                       step={1}
                       value={item.quantity}
                       onChange={(e) => handleUpdateQuantity(index, Number(e.target.value))}
+                      aria-label={`Jumlah ${item.productName}`}
                       className="h-8 text-center"
                     />
                   </div>
@@ -263,6 +301,7 @@ export function BundleFormPage() {
                     size="icon"
                     className="h-8 w-8 shrink-0 text-destructive"
                     onClick={() => handleRemoveItem(index)}
+                    aria-label={`Hapus item ${item.productName}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -278,6 +317,13 @@ export function BundleFormPage() {
           <p className="text-sm text-muted-foreground">
             Pilih outlet yang menjual paket ini
           </p>
+          {isOutletsError && (
+            <ErrorState
+              title="Gagal memuat outlet"
+              error={outletsError}
+              onRetry={() => refetchOutlets()}
+            />
+          )}
           <div className="space-y-2">
             {outlets.map((outlet) => (
               <label

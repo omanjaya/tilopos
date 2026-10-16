@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { itemTrackingApi } from '@/api/endpoints/item-tracking.api';
+import { itemTrackingApi, type ServiceItemStatus } from '@/api/endpoints/item-tracking.api';
 import { useUIStore } from '@/stores/ui.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { isAxiosError } from 'axios';
+import { ErrorState } from '@/components/shared/error-state';
 import { Package, Plus, Search, Ticket, User, Phone, ArrowRight } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -29,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-red-500',
 };
 
-const NEXT_STATUS: Record<string, string> = {
+const NEXT_STATUS: Partial<Record<ServiceItemStatus, ServiceItemStatus>> = {
   received: 'processing',
   processing: 'ready',
   ready: 'delivered',
@@ -41,8 +43,8 @@ const NEXT_LABEL: Record<string, string> = {
   ready: 'Serahkan',
 };
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+function formatCurrency(value: number | string) {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(Number(value) || 0);
 }
 
 export function ItemTrackingPage() {
@@ -51,7 +53,7 @@ export function ItemTrackingPage() {
 
   const [activeTab, setActiveTab] = useState<'active' | 'all' | 'lookup' | 'receive'>('active');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ServiceItemStatus | ''>('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketResult, setTicketResult] = useState<Awaited<ReturnType<typeof itemTrackingApi.findByTicket>> | null>(null);
   const [ticketError, setTicketError] = useState('');
@@ -67,14 +69,27 @@ export function ItemTrackingPage() {
   const [custPhone, setCustPhone] = useState('');
   const [recNotes, setRecNotes] = useState('');
 
-  const { data: activeItems, isLoading: activeLoading } = useQuery({
-    queryKey: ['item-tracking-active', outletId],
+  // Keys share the 'item-tracking' prefix so mutations can invalidate them all.
+  const {
+    data: activeItems,
+    isLoading: activeLoading,
+    isError: activeIsError,
+    error: activeError,
+    refetch: refetchActive,
+  } = useQuery({
+    queryKey: ['item-tracking', 'active', outletId],
     queryFn: () => itemTrackingApi.getActive(outletId),
     enabled: !!outletId && activeTab === 'active',
   });
 
-  const { data: allItems, isLoading: allLoading } = useQuery({
-    queryKey: ['item-tracking-all', outletId, statusFilter, search],
+  const {
+    data: allItems,
+    isLoading: allLoading,
+    isError: allIsError,
+    error: allError,
+    refetch: refetchAll,
+  } = useQuery({
+    queryKey: ['item-tracking', 'all', outletId, statusFilter, search],
     queryFn: () => itemTrackingApi.listByOutlet(outletId, { status: statusFilter || undefined, search: search || undefined }),
     enabled: !!outletId && activeTab === 'all',
   });
@@ -88,7 +103,8 @@ export function ItemTrackingPage() {
         quantity: quantity ? parseInt(quantity, 10) : undefined,
         serviceName,
         servicePrice: parseFloat(servicePrice),
-        estimatedReady: estimatedReady || undefined,
+        // datetime-local has no offset: convert the local time to an ISO instant.
+        estimatedReady: estimatedReady ? new Date(estimatedReady).toISOString() : undefined,
         customerName: custName || undefined,
         customerPhone: custPhone || undefined,
         notes: recNotes || undefined,
@@ -111,11 +127,16 @@ export function ItemTrackingPage() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => itemTrackingApi.updateStatus(id, status),
-    onSuccess: () => {
+    mutationFn: ({ id, status }: { id: string; status: ServiceItemStatus }) => itemTrackingApi.updateStatus(id, status),
+    onSuccess: (updated, variables) => {
       queryClient.invalidateQueries({ queryKey: ['item-tracking'] });
       toast.success({ title: 'Status diperbarui' });
+      // Keep the looked-up ticket in sync so its next-step button is current.
+      if (ticketResult && ticketResult.id === variables.id) {
+        setTicketResult({ ...ticketResult, ...updated });
+      }
     },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status'),
   });
 
   const lookupMutation = useMutation({
@@ -124,16 +145,20 @@ export function ItemTrackingPage() {
       setTicketResult(data);
       setTicketError('');
     },
-    onError: () => {
+    onError: (error) => {
       setTicketResult(null);
-      setTicketError('Tiket tidak ditemukan');
+      setTicketError(
+        isAxiosError(error) && error.response?.status === 404
+          ? 'Tiket tidak ditemukan'
+          : 'Gagal memeriksa tiket. Periksa koneksi lalu coba lagi.',
+      );
     },
   });
 
   if (!outletId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Item Tracking" />
+        <PageHeader title="Pelacakan Item" />
         <Card>
           <CardContent className="flex h-40 items-center justify-center text-muted-foreground">
             Pilih outlet terlebih dahulu di pengaturan
@@ -184,7 +209,7 @@ export function ItemTrackingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Item Tracking"
+        title="Pelacakan Item"
         description="Tracking item pelanggan (laundry, service, dll)"
       >
         <Button onClick={() => setActiveTab('receive')}>
@@ -215,6 +240,8 @@ export function ItemTrackingPage() {
           <CardContent>
             {activeLoading ? (
               <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+            ) : activeIsError ? (
+              <ErrorState error={activeError} onRetry={() => refetchActive()} />
             ) : (activeItems ?? []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">Tidak ada item aktif</p>
             ) : (
@@ -234,8 +261,9 @@ export function ItemTrackingPage() {
                 <Input placeholder="Cari..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
               </div>
               <select
+                aria-label="Filter status"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => setStatusFilter(e.target.value as ServiceItemStatus | '')}
                 className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="">Semua Status</option>
@@ -248,6 +276,8 @@ export function ItemTrackingPage() {
           <CardContent>
             {allLoading ? (
               <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+            ) : allIsError ? (
+              <ErrorState error={allError} onRetry={() => refetchAll()} />
             ) : (allItems ?? []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">Tidak ada item</p>
             ) : (
@@ -291,43 +321,43 @@ export function ItemTrackingPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Nama Item</Label>
-                <Input value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Kemeja Putih" />
+                <Label htmlFor="it-name">Nama Item</Label>
+                <Input id="it-name" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Kemeja Putih" />
               </div>
               <div>
-                <Label>Jumlah</Label>
-                <Input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="1" />
+                <Label htmlFor="it-qty">Jumlah</Label>
+                <Input id="it-qty" type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="1" />
               </div>
               <div>
-                <Label>Nama Layanan</Label>
-                <Input value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="Cuci Setrika" />
+                <Label htmlFor="it-service">Nama Layanan</Label>
+                <Input id="it-service" value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="Cuci Setrika" />
               </div>
               <div>
-                <Label>Harga Layanan</Label>
-                <Input type="number" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} placeholder="25000" />
+                <Label htmlFor="it-price">Harga Layanan</Label>
+                <Input id="it-price" type="number" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} placeholder="25000" />
               </div>
               <div>
-                <Label>Estimasi Selesai</Label>
-                <Input type="datetime-local" value={estimatedReady} onChange={(e) => setEstimatedReady(e.target.value)} />
+                <Label htmlFor="it-ready">Estimasi Selesai</Label>
+                <Input id="it-ready" type="datetime-local" value={estimatedReady} onChange={(e) => setEstimatedReady(e.target.value)} />
               </div>
             </div>
             <div>
-              <Label>Deskripsi Item (opsional)</Label>
-              <Input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder="Noda di bagian depan" />
+              <Label htmlFor="it-desc">Deskripsi Item (opsional)</Label>
+              <Input id="it-desc" value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder="Noda di bagian depan" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Nama Pelanggan</Label>
-                <Input value={custName} onChange={(e) => setCustName(e.target.value)} />
+                <Label htmlFor="it-customer">Nama Pelanggan</Label>
+                <Input id="it-customer" value={custName} onChange={(e) => setCustName(e.target.value)} />
               </div>
               <div>
-                <Label>No. Telepon</Label>
-                <Input type="tel" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="08xxx" />
+                <Label htmlFor="it-phone">No. Telepon</Label>
+                <Input id="it-phone" type="tel" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="08xxx" />
               </div>
             </div>
             <div>
-              <Label>Catatan</Label>
-              <Input value={recNotes} onChange={(e) => setRecNotes(e.target.value)} />
+              <Label htmlFor="it-notes">Catatan</Label>
+              <Input id="it-notes" value={recNotes} onChange={(e) => setRecNotes(e.target.value)} />
             </div>
             <Button
               onClick={() => receiveMutation.mutate()}

@@ -11,6 +11,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast-utils';
 import { Plus, Trash2, Save, TrendingUp } from 'lucide-react';
+import { ErrorState } from '@/components/shared/error-state';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 
 interface TierRow {
   tierName: string;
@@ -19,10 +23,43 @@ interface TierRow {
   price: string;
 }
 
-function PriceTierEditor({ productId, productName }: { productId: string; productName: string }) {
+/** Returns an error message for the first invalid row, or null when all rows are valid. */
+function validateRows(rows: TierRow[]): string | null {
+  const parsed: { min: number; max: number | null; idx: number }[] = [];
+  for (const [idx, r] of rows.entries()) {
+    const n = idx + 1;
+    if (!r.tierName.trim()) return `Tier ${n}: nama tier wajib diisi`;
+    const min = Number(r.minQuantity);
+    if (r.minQuantity === '' || !Number.isInteger(min) || min < 1) return `Tier ${n}: Min Qty harus bilangan bulat ≥ 1`;
+    const max = r.maxQuantity === '' ? null : Number(r.maxQuantity);
+    if (max !== null && (!Number.isInteger(max) || max < min)) return `Tier ${n}: Max Qty harus ≥ Min Qty`;
+    const price = Number(r.price);
+    if (r.price === '' || !Number.isFinite(price) || price < 0) return `Tier ${n}: harga harus diisi dan ≥ 0`;
+    parsed.push({ min, max, idx: n });
+  }
+  const sorted = [...parsed].sort((a, b) => a.min - b.min);
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const cur = sorted[i]!;
+    if (prev.max === null || prev.max >= cur.min) {
+      return `Rentang jumlah tier ${prev.idx} dan tier ${cur.idx} saling tumpang tindih`;
+    }
+  }
+  return null;
+}
+
+function PriceTierEditor({
+  productId,
+  productName,
+  canEdit,
+}: {
+  productId: string;
+  productName: string;
+  canEdit: boolean;
+}) {
   const queryClient = useQueryClient();
 
-  const { data: tiers, isLoading } = useQuery({
+  const { data: tiers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['price-tiers', productId],
     queryFn: () => priceTiersApi.listByProduct(productId),
   });
@@ -46,9 +83,8 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
     mutationFn: () =>
       priceTiersApi.bulkCreate(
         productId,
-        rows
-          .filter((r) => r.tierName && r.minQuantity && r.price)
-          .map((r) => ({
+        // Bulk save replaces every tier, so all rows are validated (never silently dropped)
+        rows.map((r) => ({
             tierName: r.tierName,
             minQuantity: parseInt(r.minQuantity, 10),
             maxQuantity: r.maxQuantity ? parseInt(r.maxQuantity, 10) : null,
@@ -60,7 +96,7 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
       queryClient.invalidateQueries({ queryKey: ['price-tiers', productId] });
       toast.success({ title: 'Harga bertingkat berhasil disimpan' });
     },
-    onError: () => toast.error({ title: 'Gagal menyimpan' }),
+    onError: (err) => handleMutationError(err, 'Gagal menyimpan harga bertingkat'),
   });
 
   const addRow = () => setRows([...rows, { tierName: '', minQuantity: '', maxQuantity: '', price: '' }]);
@@ -70,6 +106,17 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
   };
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
+  // Never allow editing when the current tiers failed to load: saving would replace them with an empty list
+  if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
+
+  const handleSave = () => {
+    const problem = validateRows(rows);
+    if (problem) {
+      toast.error({ title: 'Data tier tidak valid', description: problem });
+      return;
+    }
+    saveMutation.mutate();
+  };
 
   return (
     <Card>
@@ -87,6 +134,7 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
                 onChange={(e) => updateRow(idx, 'tierName', e.target.value)}
                 placeholder="Grosir"
                 className="h-9"
+                disabled={!canEdit}
               />
             </div>
             <div>
@@ -97,6 +145,7 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
                 onChange={(e) => updateRow(idx, 'minQuantity', e.target.value)}
                 placeholder="10"
                 className="h-9"
+                disabled={!canEdit}
               />
             </div>
             <div>
@@ -107,6 +156,7 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
                 onChange={(e) => updateRow(idx, 'maxQuantity', e.target.value)}
                 placeholder="∞"
                 className="h-9"
+                disabled={!canEdit}
               />
             </div>
             <div>
@@ -117,21 +167,36 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
                 onChange={(e) => updateRow(idx, 'price', e.target.value)}
                 placeholder="50000"
                 className="h-9"
+                disabled={!canEdit}
               />
             </div>
-            <Button variant="ghost" size="icon" onClick={() => removeRow(idx)} className="h-9 w-9">
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => removeRow(idx)}
+                className="h-9 w-9"
+                aria-label={`Hapus tier ${row.tierName || idx + 1}`}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            )}
           </div>
         ))}
-        <div className="flex gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={addRow}>
-            <Plus className="mr-1 h-4 w-4" /> Tambah Tier
-          </Button>
-          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-            <Save className="mr-1 h-4 w-4" /> Simpan
-          </Button>
-        </div>
+        {canEdit ? (
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={addRow}>
+              <Plus className="mr-1 h-4 w-4" /> Tambah Tier
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending}>
+              <Save className="mr-1 h-4 w-4" /> Simpan
+            </Button>
+          </div>
+        ) : (
+          <p className="pt-2 text-xs text-muted-foreground">
+            Hanya manajer atau pemilik yang dapat mengubah harga bertingkat.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -140,8 +205,11 @@ function PriceTierEditor({ productId, productName }: { productId: string; produc
 export function PriceTiersPage() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const role = useAuthStore((s) => s.user?.role);
+  // Changing selling prices is a management action
+  const canEdit = hasRole(role, 'MANAGEMENT');
 
-  const { data: products, isLoading } = useQuery({
+  const { data: products, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['products-for-tiers'],
     queryFn: () => productsApi.list(),
   });
@@ -168,6 +236,7 @@ export function PriceTiersPage() {
           />
           <div className="max-h-[calc(100vh-250px)] space-y-1 overflow-y-auto">
             {isLoading && [1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+            {isError && <ErrorState error={error} onRetry={() => refetch()} />}
             {filteredProducts.map((p: { id: string; name: string; sku?: string; basePrice: number }) => (
               <button
                 key={p.id}
@@ -191,6 +260,7 @@ export function PriceTiersPage() {
             <PriceTierEditor
               key={selectedProductId}
               productId={selectedProductId}
+              canEdit={canEdit}
               productName={filteredProducts.find((p: { id: string }) => p.id === selectedProductId)?.name ?? ''}
             />
           ) : (

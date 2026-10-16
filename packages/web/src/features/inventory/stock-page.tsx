@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi } from '@/api/endpoints/inventory.api';
+import { inventoryApi, type StockLevelRow } from '@/api/endpoints/inventory.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { MetricCard } from '@/components/shared/metric-card';
@@ -29,8 +29,16 @@ import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { toast } from '@/lib/toast-utils';
 import { Package, AlertTriangle, XCircle, Loader2, SlidersHorizontal } from 'lucide-react';
-import type { StockLevel } from '@/types/inventory.types';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
+
+type StockLevel = StockLevelRow;
+
+function stockLabel(item: StockLevel): string {
+  if (!item.variantId) return item.productName;
+  return `${item.productName} (${item.variantName ?? 'varian'})`;
+}
 
 type StockFilter = 'all' | 'low' | 'out';
 
@@ -45,6 +53,8 @@ export function StockPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId || user?.outletId || '';
+  // POST /inventory/stock/adjust: @Roles(MANAGER, OWNER, INVENTORY)
+  const canAdjust = hasRole(user?.role, 'STOCK');
 
   const [filter, setFilter] = useState<StockFilter>('all');
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
@@ -54,7 +64,7 @@ export function StockPage() {
   const [adjustReason, setAdjustReason] = useState('');
   const [adjustUnitCost, setAdjustUnitCost] = useState('');
 
-  const { data: stockData, isLoading } = useQuery({
+  const { data: stockData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stock-levels', outletId],
     queryFn: () => inventoryApi.getStockLevels(outletId),
     enabled: !!outletId,
@@ -66,7 +76,7 @@ export function StockPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
       toast.success({
         title: 'Stok berhasil disesuaikan',
-        description: `Stok "${adjustProduct?.productName}" telah diperbarui`,
+        description: `Stok "${adjustProduct ? stockLabel(adjustProduct) : ''}" telah diperbarui`,
       });
       closeAdjustDialog();
     },
@@ -108,14 +118,19 @@ export function StockPage() {
   }
 
   function handleAdjustSubmit() {
-    if (!adjustProduct || !adjustQuantity || !adjustReason) return;
+    if (!adjustProduct || adjustQuantity === '' || !adjustReason) return;
     const qty = Number(adjustQuantity);
-    if (!qty || qty <= 0) {
-      toast.error({ title: 'Jumlah harus lebih besar dari 0' });
+    // 'set' may set stock to 0 (backend @Min(0)); add/remove need a positive amount
+    const invalid = !Number.isFinite(qty) || qty < 0 || (adjustType !== 'set' && qty === 0);
+    if (invalid) {
+      toast.error({
+        title: adjustType === 'set' ? 'Jumlah tidak boleh negatif' : 'Jumlah harus lebih besar dari 0',
+      });
       return;
     }
     adjustMutation.mutate({
       productId: adjustProduct.productId,
+      variantId: adjustProduct.variantId,
       outletId,
       quantity: qty,
       reason: adjustReason,
@@ -130,7 +145,7 @@ export function StockPage() {
     {
       key: 'product',
       header: 'Produk',
-      cell: (row) => <span className="font-medium">{row.productName}</span>,
+      cell: (row) => <span className="font-medium">{stockLabel(row)}</span>,
     },
     {
       key: 'sku',
@@ -157,23 +172,29 @@ export function StockPage() {
         return <Badge className="bg-green-500 hover:bg-green-600">Normal</Badge>;
       },
     },
-    {
-      key: 'actions',
-      header: 'Aksi',
-      cell: (row) => (
-        <Button variant="outline" size="sm" onClick={() => openAdjustDialog(row)}>
-          <SlidersHorizontal className="mr-2 h-4 w-4" /> Adjust
-        </Button>
-      ),
-    },
+    ...(canAdjust
+      ? [
+          {
+            key: 'actions',
+            header: 'Aksi',
+            cell: (row: StockLevel) => (
+              <Button variant="outline" size="sm" onClick={() => openAdjustDialog(row)}>
+                <SlidersHorizontal className="mr-2 h-4 w-4" /> Sesuaikan
+              </Button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
     <div>
       <PageHeader title="Stok Barang" description="Monitor stok per outlet">
-        <Button onClick={() => openAdjustDialog()} aria-keyshortcuts="N">
-          <SlidersHorizontal className="mr-2 h-4 w-4" /> Adjustment Stok
-        </Button>
+        {canAdjust && (
+          <Button onClick={() => openAdjustDialog()} aria-keyshortcuts="N">
+            <SlidersHorizontal className="mr-2 h-4 w-4" /> Penyesuaian Stok
+          </Button>
+        )}
       </PageHeader>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -190,6 +211,9 @@ export function StockPage() {
         </TabsList>
       </Tabs>
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={filteredData}
@@ -198,12 +222,13 @@ export function StockPage() {
         emptyTitle="Tidak ada data stok"
         emptyDescription="Belum ada data stok untuk outlet ini. Tambahkan produk terlebih dahulu untuk mulai tracking stok."
       />
+      )}
 
       {/* Stock Adjustment Dialog */}
       <Dialog open={adjustDialogOpen} onOpenChange={(open) => !open && closeAdjustDialog()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adjustment Stok</DialogTitle>
+            <DialogTitle>Penyesuaian Stok</DialogTitle>
             <DialogDescription>
               Sesuaikan jumlah stok produk.
             </DialogDescription>
@@ -214,7 +239,7 @@ export function StockPage() {
               <div>
                 <Label>Produk</Label>
                 <p className="text-sm font-medium mt-1">
-                  {adjustProduct.productName} ({adjustProduct.sku})
+                  {stockLabel(adjustProduct)} ({adjustProduct.sku})
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Stok saat ini: {adjustProduct.currentStock}
@@ -226,7 +251,7 @@ export function StockPage() {
                 <Select
                   value=""
                   onValueChange={(val) => {
-                    const found = stockData?.find((s) => s.productId === val);
+                    const found = stockData?.find((s) => s.id === val);
                     if (found) setAdjustProduct(found);
                   }}
                 >
@@ -235,8 +260,8 @@ export function StockPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {stockData?.map((item) => (
-                      <SelectItem key={item.productId} value={item.productId}>
-                        {item.productName} ({item.sku})
+                      <SelectItem key={item.id} value={item.id}>
+                        {stockLabel(item)} ({item.sku})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -245,7 +270,7 @@ export function StockPage() {
             )}
 
             <div>
-              <Label>Tipe Adjustment</Label>
+              <Label>Tipe Penyesuaian</Label>
               <Select value={adjustType} onValueChange={(v) => setAdjustType(v as 'add' | 'remove' | 'set')}>
                 <SelectTrigger>
                   <SelectValue />
@@ -253,7 +278,7 @@ export function StockPage() {
                 <SelectContent>
                   <SelectItem value="add">Tambah</SelectItem>
                   <SelectItem value="remove">Kurang</SelectItem>
-                  <SelectItem value="set">Set</SelectItem>
+                  <SelectItem value="set">Atur Jumlah</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -290,7 +315,7 @@ export function StockPage() {
               <Textarea
                 value={adjustReason}
                 onChange={(e) => setAdjustReason(e.target.value)}
-                placeholder="Masukkan alasan adjustment"
+                placeholder="Masukkan alasan penyesuaian"
               />
             </div>
           </div>
@@ -301,9 +326,9 @@ export function StockPage() {
             </Button>
             <Button
               onClick={handleAdjustSubmit}
-              disabled={!adjustProduct || !adjustQuantity || !adjustReason || adjustMutation.isPending}
+              disabled={!adjustProduct || adjustQuantity === '' || !adjustReason || adjustMutation.isPending}
               aria-busy={adjustMutation.isPending}
-              aria-label={adjustMutation.isPending ? 'Menyimpan adjustment...' : undefined}
+              aria-label={adjustMutation.isPending ? 'Menyimpan penyesuaian...' : undefined}
             >
               {adjustMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Simpan

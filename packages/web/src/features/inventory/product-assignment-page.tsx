@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
-import { productsApi } from '@/api/endpoints/products.api';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
@@ -29,6 +28,7 @@ import { Store, Package, Search, CheckCircle2, XCircle } from 'lucide-react';
 import type { Product } from '@/types/product.types';
 import type { Outlet } from '@/types/settings.types';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { ErrorState } from '@/components/shared/error-state';
 
 export function ProductAssignmentPage() {
   const queryClient = useQueryClient();
@@ -38,26 +38,38 @@ export function ProductAssignmentPage() {
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
 
   // Fetch outlets
-  const { data: outlets = [] } = useQuery({
+  const {
+    data: outlets = [],
+    isError: outletsIsError,
+    error: outletsError,
+    refetch: refetchOutlets,
+  } = useQuery({
     queryKey: ['outlets'],
     queryFn: settingsApi.listOutlets,
   });
 
-  // Fetch all products
-  const { data: allProducts = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => productsApi.list(),
-  });
-
-  // Fetch assigned products for selected outlet
-  const { data: assignedProducts = [], isLoading: loadingAssigned } = useQuery({
+  // Product universe = assigned + unassigned for the selected outlet. (GET /inventory/products is
+  // outlet-scoped for managers, so it would never list the products that still need assigning.)
+  const {
+    data: assignedProducts = [],
+    isLoading: loadingAssigned,
+    isError: assignedIsError,
+    error: assignedError,
+    refetch: refetchAssigned,
+  } = useQuery({
     queryKey: ['outlet-products', selectedOutletId],
     queryFn: () => inventoryApi.getOutletProducts(selectedOutletId),
     enabled: !!selectedOutletId,
   });
 
   // Fetch unassigned products for selected outlet
-  const { data: unassignedProducts = [], isLoading: loadingUnassigned } = useQuery({
+  const {
+    data: unassignedProducts = [],
+    isLoading: loadingUnassigned,
+    isError: unassignedIsError,
+    error: unassignedError,
+    refetch: refetchUnassigned,
+  } = useQuery({
     queryKey: ['outlet-products-unassigned', selectedOutletId],
     queryFn: () => inventoryApi.getUnassignedProducts(selectedOutletId),
     enabled: !!selectedOutletId,
@@ -66,33 +78,43 @@ export function ProductAssignmentPage() {
   // Assign products mutation
   const assignMutation = useMutation({
     mutationFn: (productIds: string[]) => inventoryApi.assignProducts(selectedOutletId, productIds),
-    onSuccess: () => {
+    onSuccess: ({ assigned, skipped }) => {
       queryClient.invalidateQueries({ queryKey: ['outlet-products', selectedOutletId] });
       queryClient.invalidateQueries({ queryKey: ['outlet-products-unassigned', selectedOutletId] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       toast.success({
         title: 'Produk berhasil di-assign',
-        description: `${selectedProducts.size} produk ditambahkan ke outlet`,
+        description:
+          skipped > 0
+            ? `${assigned} produk ditambahkan ke outlet, ${skipped} dilewati`
+            : `${assigned} produk ditambahkan ke outlet`,
       });
       setSelectedProducts(new Set());
     },
     onError: (error) => handleMutationError(error, 'Gagal assign produk'),
   });
 
-  // Remove product mutation
+  // Remove products mutation: DELETE /inventory/outlets/:id/products (bulk)
   const removeMutation = useMutation({
-    mutationFn: (productId: string) => inventoryApi.removeProductFromOutlet(selectedOutletId, productId),
-    onSuccess: () => {
+    mutationFn: (productIds: string[]) =>
+      inventoryApi.removeProductsFromOutlet(selectedOutletId, productIds),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['outlet-products', selectedOutletId] });
       queryClient.invalidateQueries({ queryKey: ['outlet-products-unassigned', selectedOutletId] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+    onSuccess: ({ removed }) => {
       toast.success({
         title: 'Produk berhasil dihapus',
-        description: 'Produk telah dihapus dari outlet',
+        description: `${removed} produk dihapus dari outlet`,
       });
+      setSelectedProducts(new Set());
     },
     onError: (error) => handleMutationError(error, 'Gagal menghapus produk'),
   });
+
+  const allProducts: Product[] = [...assignedProducts, ...unassignedProducts];
+  const productsIsError = assignedIsError || unassignedIsError;
 
   // Get assigned product IDs set for quick lookup
   const assignedProductIds = new Set(assignedProducts.map((p: Product) => p.id));
@@ -170,20 +192,14 @@ export function ProductAssignmentPage() {
       return;
     }
 
-    // Remove products one by one
-    Promise.all(productsToRemove.map((id) => removeMutation.mutateAsync(id)))
-      .then(() => {
-        setSelectedProducts(new Set());
-      })
-      .catch(() => {
-        // Error already handled by mutation
-      });
+    removeMutation.mutate(productsToRemove);
   };
 
   const selectedOutlet = outlets.find((o: Outlet) => o.id === selectedOutletId);
   const isLoading = loadingAssigned || loadingUnassigned;
 
   const assignedCount = assignedProducts.length;
+
   const unassignedCount = unassignedProducts.length;
   const totalCount = allProducts.length;
 
@@ -197,6 +213,7 @@ export function ProductAssignmentPage() {
       {/* Outlet Selector */}
       <div className="rounded-lg border bg-card p-6">
         <div className="space-y-4">
+          {outletsIsError && <ErrorState error={outletsError} onRetry={() => refetchOutlets()} />}
           <div>
             <label className="text-sm font-medium">Pilih Outlet</label>
             <Select value={selectedOutletId} onValueChange={setSelectedOutletId}>
@@ -312,6 +329,7 @@ export function ProductAssignmentPage() {
                     <Checkbox
                       checked={selectedProducts.size === displayProducts.length && displayProducts.length > 0}
                       onCheckedChange={handleToggleAll}
+                      aria-label="Pilih semua produk"
                     />
                   </TableHead>
                   <TableHead>Produk</TableHead>
@@ -326,6 +344,18 @@ export function ProductAssignmentPage() {
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       Memuat data...
+                    </TableCell>
+                  </TableRow>
+                ) : productsIsError ? (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <ErrorState
+                        error={assignedError ?? unassignedError}
+                        onRetry={() => {
+                          void refetchAssigned();
+                          void refetchUnassigned();
+                        }}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : displayProducts.length === 0 ? (
@@ -345,6 +375,7 @@ export function ProductAssignmentPage() {
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => handleToggleProduct(product.id)}
+                            aria-label={`Pilih ${product.name}`}
                           />
                         </TableCell>
                         <TableCell>

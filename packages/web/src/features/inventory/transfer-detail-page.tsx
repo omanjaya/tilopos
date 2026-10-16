@@ -1,18 +1,21 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { inventoryApi } from '@/api/endpoints/inventory.api';
-import type { TransferDiscrepancy } from '@/types/inventory.types';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
+import { useAuthStore } from '@/stores/auth.store';
 import { TransferTimeline } from './components/transfer-timeline';
+import { transferStatusConfig, transferPermissions } from './transfer-status';
 import {
   Table,
   TableBody,
@@ -23,26 +26,17 @@ import {
 } from '@/components/ui/table';
 import { toast } from '@/lib/toast-utils';
 import { formatDateTime } from '@/lib/format';
-import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2, AlertTriangle } from 'lucide-react';
-import type { TransferStatus } from '@/types/inventory.types';
+import { ArrowLeft, CheckCircle, Truck, PackageCheck, Loader2, Info } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
-
-const STATUS_CONFIG: Record<TransferStatus, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
-  requested: { label: 'Diminta', variant: 'info' },
-  approved: { label: 'Disetujui', variant: 'warning' },
-  shipped: { label: 'Dikirim', variant: 'secondary' },
-  in_transit: { label: 'Dikirim', variant: 'secondary' },
-  received: { label: 'Diterima', variant: 'success' },
-  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
-};
-
 
 export function TransferDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-
-  const [receivedQuantities, setReceivedQuantities] = useState<Record<string, string>>({});
+  const role = useAuthStore((s) => s.user?.role);
+  const { canApprove, canManage, canReceive } = transferPermissions(role);
+  /** Received quantities edited by the user, keyed by stockTransferItemId (default = quantitySent). */
+  const [receivedQty, setReceivedQty] = useState<Record<string, string>>({});
 
   // Real-time WebSocket updates
   useTransferSocket({
@@ -56,83 +50,67 @@ export function TransferDetailPage() {
     showNotifications: true,
   });
 
-  const { data: transfer, isLoading } = useQuery({
+  const {
+    data: transfer,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['stock-transfer', id],
     queryFn: () => inventoryApi.getTransfer(id!),
-    enabled: !!id && id !== 'new',
+    enabled: !!id,
   });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
+    queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+  };
 
   const approveMutation = useMutation({
     mutationFn: () => inventoryApi.approveTransfer(id!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
-      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      invalidate();
       toast.success({ title: 'Transfer disetujui' });
     },
-    onError: (error) => handleMutationError(error, 'Gagal menyetujui transfer'),
+    onError: (err) => handleMutationError(err, 'Gagal menyetujui transfer'),
   });
 
   const shipMutation = useMutation({
     mutationFn: () => inventoryApi.shipTransfer(id!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
-      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      invalidate();
       toast.success({ title: 'Transfer ditandai dikirim' });
     },
-    onError: (error) => handleMutationError(error, 'Gagal menandai pengiriman'),
+    onError: (err) => handleMutationError(err, 'Gagal menandai pengiriman'),
   });
 
   const receiveMutation = useMutation({
-    mutationFn: () => {
-      const items = transfer!.items.map((item) => ({
-        stockTransferItemId: item.id,
-        receivedQuantity: Number(receivedQuantities[item.id] ?? item.quantitySent),
-      }));
-      return inventoryApi.receiveTransfer(id!, items);
-    },
+    mutationFn: (items: { stockTransferItemId: string; quantityReceived: number }[]) =>
+      inventoryApi.receiveTransfer(id!, items),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stock-transfer', id] });
-      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      setReceivedQty({});
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
       toast.success({ title: 'Transfer diterima' });
     },
-    onError: (error) => handleMutationError(error, 'Gagal menerima transfer'),
+    onError: (err) => handleMutationError(err, 'Gagal menerima transfer'),
   });
 
   const isMutating = approveMutation.isPending || shipMutation.isPending || receiveMutation.isPending;
 
-  // Calculate discrepancies
-  const discrepancies = useMemo(() => {
-    if (!transfer || transfer.status !== 'shipped') return [];
-
-    return transfer.items
-      .map((item) => {
-        const receivedQty = Number(receivedQuantities[item.id] ?? item.quantitySent);
-        const sentQty = item.quantitySent;
-        const diff = receivedQty - sentQty;
-
-        if (diff !== 0) {
-          return {
-            itemName: item.productName,
-            sent: sentQty,
-            received: receivedQty,
-            difference: diff,
-          };
-        }
-        return null;
-      })
-      .filter(Boolean);
-  }, [transfer, receivedQuantities]);
-
-  const hasDiscrepancies = discrepancies.length > 0;
+  const header = (
+    <PageHeader title={transfer?.transferNumber ?? 'Detail Transfer'} description="Detail transfer stok">
+      <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
+        <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+      </Button>
+    </PageHeader>
+  );
 
   if (isLoading) {
     return (
       <div>
-        <PageHeader title="Detail Transfer">
-          <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
-          </Button>
-        </PageHeader>
+        {header}
         <div className="space-y-4">
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-40 w-full" />
@@ -142,28 +120,58 @@ export function TransferDetailPage() {
     );
   }
 
+  const isNotFound = isError && isAxiosError(error) && error.response?.status === 404;
+
+  if (isError && !isNotFound) {
+    return (
+      <div>
+        {header}
+        <ErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   if (!transfer) {
     return (
       <div>
-        <PageHeader title="Detail Transfer">
-          <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
-          </Button>
-        </PageHeader>
+        {header}
         <p className="text-muted-foreground">Transfer tidak ditemukan.</p>
       </div>
     );
   }
 
-  const statusConfig = STATUS_CONFIG[transfer.status];
+  const statusConfig = transferStatusConfig(transfer.status);
+  const isReceived = transfer.status === 'received';
+  const isReceiving = transfer.status === 'in_transit' && canReceive;
+
+  /** Only lines whose received quantity differs from what was sent are sent to the backend. */
+  type ReceiveLine = { stockTransferItemId: string; quantityReceived: number };
+  const buildReceiveItems = (): { items: ReceiveLine[] } | { error: string } => {
+    const items: ReceiveLine[] = [];
+    for (const item of transfer.items) {
+      const raw = receivedQty[item.id];
+      if (raw === undefined || raw === '') continue;
+      const qty = Number(raw);
+      if (!Number.isFinite(qty) || qty < 0 || qty > item.quantitySent) {
+        return { error: `Jumlah diterima "${item.itemName}" harus antara 0 dan ${item.quantitySent}` };
+      }
+      if (qty !== item.quantitySent) items.push({ stockTransferItemId: item.id, quantityReceived: qty });
+    }
+    return { items };
+  };
+
+  const handleReceive = () => {
+    const result = buildReceiveItems();
+    if ('error' in result) {
+      toast.error({ title: result.error });
+      return;
+    }
+    receiveMutation.mutate(result.items);
+  };
 
   return (
     <div>
-      <PageHeader title={transfer.transferNumber} description="Detail transfer stok">
-        <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
-        </Button>
-      </PageHeader>
+      {header}
 
       {/* Transfer Timeline */}
       <Card className="mb-6">
@@ -177,12 +185,12 @@ export function TransferDetailPage() {
           <TransferTimeline
             currentStatus={transfer.status}
             requestedAt={transfer.createdAt}
-            requestedBy={transfer.requestedBy}
+            requestedBy={transfer.requestedByName}
             approvedAt={transfer.approvedAt}
-            approvedBy={transfer.approvedBy}
+            approvedBy={transfer.approvedByName}
             shippedAt={transfer.shippedAt}
             receivedAt={transfer.receivedAt}
-            receivedBy={transfer.receivedBy}
+            receivedBy={transfer.receivedByName}
           />
         </CardContent>
       </Card>
@@ -202,18 +210,20 @@ export function TransferDetailPage() {
               <p className="text-sm text-muted-foreground">Outlet Tujuan</p>
               <p className="text-sm font-medium">{transfer.destinationOutletName}</p>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Dibuat oleh</p>
-              <p className="text-sm font-medium">{transfer.requestedBy}</p>
-            </div>
+            {transfer.requestedByName && (
+              <div>
+                <p className="text-sm text-muted-foreground">Dibuat oleh</p>
+                <p className="text-sm font-medium">{transfer.requestedByName}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground">Tanggal</p>
               <p className="text-sm font-medium">{formatDateTime(transfer.createdAt)}</p>
             </div>
-            {transfer.approvedBy && (
+            {transfer.approvedByName && (
               <div>
                 <p className="text-sm text-muted-foreground">Disetujui oleh</p>
-                <p className="text-sm font-medium">{transfer.approvedBy}</p>
+                <p className="text-sm font-medium">{transfer.approvedByName}</p>
               </div>
             )}
             {transfer.notes && (
@@ -226,27 +236,12 @@ export function TransferDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Discrepancy Warning */}
-      {hasDiscrepancies && transfer.status === 'shipped' && (
-        <Alert className="mb-6 border-yellow-500 bg-yellow-50">
-          <AlertTriangle className="h-4 w-4 text-yellow-600" />
-          <AlertTitle className="text-yellow-900">Terdeteksi Perbedaan Quantity!</AlertTitle>
-          <AlertDescription className="text-yellow-800">
-            <p className="mb-2">
-              Ada {discrepancies.length} item dengan quantity berbeda dari yang dikirim:
-            </p>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              {discrepancies.map((disc: TransferDiscrepancy, idx: number) => (
-                <li key={idx}>
-                  <strong>{disc.itemName}</strong>: Dikirim {disc.sent}, Diterima {disc.received}
-                  {disc.difference > 0 && <span className="text-green-700"> (+{disc.difference})</span>}
-                  {disc.difference < 0 && <span className="text-red-700"> ({disc.difference})</span>}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs">
-              ℹ️ Pastikan quantity yang diterima sudah sesuai. System akan menyesuaikan stok berdasarkan quantity yang Anda input.
-            </p>
+      {isReceiving && (
+        <Alert className="mb-6">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            Isi kolom Qty Diterima bila jumlah yang tiba berbeda dari yang dikirim. Stok outlet asal
+            berkurang sesuai jumlah dikirim, stok outlet tujuan bertambah sesuai jumlah diterima.
           </AlertDescription>
         </Alert>
       )}
@@ -262,47 +257,43 @@ export function TransferDetailPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Produk</TableHead>
-                  <TableHead>Qty Diminta</TableHead>
+                  <TableHead>Qty Dikirim</TableHead>
                   <TableHead>Qty Diterima</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transfer.items.map((item) => {
-                  const receivedQty = Number(receivedQuantities[item.id] ?? item.quantitySent);
-                  const hasDiff = receivedQty !== item.quantitySent;
-
-                  return (
-                    <TableRow key={item.id} className={hasDiff && transfer.status === 'shipped' ? 'bg-yellow-50' : ''}>
-                      <TableCell className="font-medium">
-                        {item.productName}
-                        {hasDiff && transfer.status === 'shipped' && (
-                          <AlertTriangle className="inline ml-2 h-3 w-3 text-yellow-600" />
-                        )}
-                      </TableCell>
-                      <TableCell>{item.quantitySent}</TableCell>
-                      <TableCell>
-                        {transfer.status === 'shipped' ? (
-                          <Input
-                            type="number"
-                            min={0}
-                            className={`w-24 ${hasDiff ? 'border-yellow-500 border-2' : ''}`}
-                            value={receivedQuantities[item.id] ?? String(item.quantitySent)}
-                            onChange={(e) =>
-                              setReceivedQuantities((prev) => ({
-                                ...prev,
-                                [item.id]: e.target.value,
-                              }))
-                            }
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {item.receivedQuantity !== null ? item.receivedQuantity : '-'}
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {transfer.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{item.itemName}</TableCell>
+                    <TableCell>{item.quantitySent}</TableCell>
+                    <TableCell>
+                      {isReceiving ? (
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          max={item.quantitySent}
+                          step="any"
+                          className="h-8 w-28"
+                          aria-label={`Qty diterima ${item.itemName}`}
+                          value={receivedQty[item.id] ?? String(item.quantitySent)}
+                          onChange={(e) =>
+                            setReceivedQty((prev) => ({ ...prev, [item.id]: e.target.value }))
+                          }
+                          disabled={isMutating}
+                        />
+                      ) : (
+                      <span className="text-muted-foreground">
+                        {item.quantityReceived !== null
+                          ? item.quantityReceived
+                          : isReceived
+                            ? item.quantitySent
+                            : '-'}
+                      </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -312,20 +303,20 @@ export function TransferDetailPage() {
       {/* Action Buttons */}
       <Separator className="mb-4" />
       <div className="flex justify-end gap-2">
-        {transfer.status === 'requested' && (
+        {transfer.status === 'pending' && canApprove && (
           <Button onClick={() => approveMutation.mutate()} disabled={isMutating}>
             {approveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             <CheckCircle className="mr-2 h-4 w-4" /> Setujui
           </Button>
         )}
-        {transfer.status === 'approved' && (
+        {transfer.status === 'approved' && canManage && (
           <Button onClick={() => shipMutation.mutate()} disabled={isMutating}>
             {shipMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             <Truck className="mr-2 h-4 w-4" /> Kirim
           </Button>
         )}
-        {transfer.status === 'shipped' && (
-          <Button onClick={() => receiveMutation.mutate()} disabled={isMutating}>
+        {isReceiving && (
+          <Button onClick={handleReceive} disabled={isMutating}>
             {receiveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             <PackageCheck className="mr-2 h-4 w-4" /> Terima
           </Button>

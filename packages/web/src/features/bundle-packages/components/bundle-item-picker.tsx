@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { Search, Plus } from 'lucide-react';
 import { formatCurrency } from '@/lib/format';
+import { ErrorState } from '@/components/shared/error-state';
 
 interface BundleItemPickerProps {
   open: boolean;
@@ -31,13 +32,26 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
 
-  const { data: products = [] } = useQuery({
+  const {
+    data: products = [],
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['products', search],
     queryFn: () => productsApi.list({ search: search || undefined }),
     enabled: open,
   });
 
-  const product = products.find((p) => p.id === selectedProduct);
+  // The product list does not include variants; load the selected product's detail.
+  const { data: productDetail, isLoading: isLoadingDetail } = useQuery({
+    queryKey: ['products', 'detail', selectedProduct],
+    queryFn: () => productsApi.get(selectedProduct!),
+    enabled: open && !!selectedProduct,
+  });
+
+  const listedProduct = products.find((p) => p.id === selectedProduct);
+  const product = productDetail ?? listedProduct;
 
   const handleAdd = () => {
     if (!product) return;
@@ -77,9 +91,12 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
             />
           </div>
 
+          {isError && <ErrorState error={error} onRetry={() => refetch()} />}
+
           <div className="max-h-60 overflow-auto space-y-1">
             {products.map((p) => (
               <button
+                type="button"
                 key={p.id}
                 onClick={() => {
                   setSelectedProduct(p.id);
@@ -100,12 +117,9 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
                   <p className="text-sm font-medium truncate">{p.name}</p>
                   <p className="text-xs text-muted-foreground">{formatCurrency(p.basePrice)}</p>
                 </div>
-                {p.variants && p.variants.length > 0 && (
-                  <span className="text-xs text-muted-foreground">{p.variants?.length ?? 0} varian</span>
-                )}
               </button>
             ))}
-            {products.length === 0 && (
+            {!isError && products.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-4">
                 Tidak ada produk ditemukan
               </p>
@@ -116,9 +130,13 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
             <div className="border-t pt-4 space-y-3">
               <p className="text-sm font-medium">Produk: {product.name}</p>
 
-              {product.variants && product.variants.length > 0 && product.variants && product.variants.length > 0 && (
+              {isLoadingDetail && (
+                <p className="text-xs text-muted-foreground">Memuat varian...</p>
+              )}
+
+              {product.variants && product.variants.length > 0 && (
                 <Select value={selectedVariant} onValueChange={setSelectedVariant}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Pilih varian">
                     <SelectValue placeholder="Pilih Varian" />
                   </SelectTrigger>
                   <SelectContent>
@@ -132,8 +150,9 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
               )}
 
               <div>
-                <label className="text-sm text-muted-foreground">Jumlah</label>
+                <label htmlFor="bundle-item-quantity" className="text-sm text-muted-foreground">Jumlah</label>
                 <Input
+                  id="bundle-item-quantity"
                   type="number"
                   min={0.001}
                   step={1}
@@ -142,7 +161,7 @@ export function BundleItemPicker({ open, onOpenChange, onAdd }: BundleItemPicker
                 />
               </div>
 
-              <Button onClick={handleAdd} className="w-full" disabled={product.variants && product.variants.length > 0 && !selectedVariant}>
+              <Button onClick={handleAdd} className="w-full" disabled={isLoadingDetail || quantity <= 0 || (!!product.variants && product.variants.length > 0 && !selectedVariant)}>
                 <Plus className="mr-2 h-4 w-4" /> Tambahkan
               </Button>
             </div>

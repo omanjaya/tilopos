@@ -4,9 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { productsApi } from '@/api/endpoints/products.api';
+import { productsApi, type ProductUpdatePayload } from '@/api/endpoints/products.api';
 import { categoriesApi } from '@/api/endpoints/categories.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
+import { useAuthStore } from '@/stores/auth.store';
+import { can } from '@/config/permissions';
 import { ImageUpload } from '@/components/shared/image-upload';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
@@ -44,7 +47,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, ArrowLeft, Barcode, Save, Power, Wand2 } from 'lucide-react';
 import { generateEAN13 } from '@/lib/barcode-utils';
 import { BarcodePreview } from './components/barcode-generator';
-import type { CreateProductRequest, CreateVariantRequest, ProductVariant } from '@/types/product.types';
+import type { CreateProductRequest, CreateVariantRequest, Product, ProductVariant } from '@/types/product.types';
 
 // Zod schema for product variant validation
 const variantSchema = z.object({
@@ -76,6 +79,11 @@ export function ProductFormPage() {
 
   // Feature checks
   const { hasBarcodeScanning } = useBusinessFeatures();
+  const role = useAuthStore((s) => s.user?.role);
+  // Mirrors backend @Roles on POST/PUT /inventory/products(/:id/variants): MANAGER, OWNER, INVENTORY
+  const canWrite = can(role, 'products.write');
+  // POST/PUT/DELETE /inventory/products/:id/variants: MANAGER, OWNER, INVENTORY
+  const canDeactivateVariant = can(role, 'variants.write');
 
   // React Hook Form
   const form = useForm<ProductFormData>({
@@ -103,7 +111,13 @@ export function ProductFormPage() {
     queryFn: categoriesApi.list,
   });
 
-  const { data: product } = useQuery({
+  const {
+    data: product,
+    isLoading: isProductLoading,
+    isError: isProductError,
+    error: productError,
+    refetch: refetchProduct,
+  } = useQuery({
     queryKey: ['products', id],
     queryFn: () => productsApi.get(id!),
     enabled: isEdit,
@@ -116,14 +130,14 @@ export function ProductFormPage() {
         sku: product.sku,
         description: product.description ?? '',
         categoryId: product.categoryId ?? '',
-        basePrice: product.basePrice,
-        costPrice: product.costPrice,
+        basePrice: product.basePrice ?? 0,
+        costPrice: product.costPrice ?? 0,
         trackStock: product.trackStock,
-        imageUrl: product.imageUrl,
+        imageUrl: product.imageUrl ?? null,
         variants: (product.variants ?? []).map((v) => ({
           name: v.name,
-          price: v.price,
-          costPrice: v.costPrice,
+          price: v.price ?? 0,
+          costPrice: v.costPrice ?? 0,
         })),
       });
     }
@@ -143,14 +157,16 @@ export function ProductFormPage() {
     onError: (error) => handleMutationError(error, 'Gagal membuat produk'),
   });
 
+  // PUT /inventory/products/:id persists name, sku, description, categoryId, imageUrl,
+  // prices, trackStock and isActive; a duplicate SKU returns 409.
   const updateMutation = useMutation({
-    mutationFn: (data: CreateProductRequest) => productsApi.update(id!, data),
-    onSuccess: (data) => {
+    mutationFn: (data: ProductUpdatePayload) => productsApi.update(id!, data),
+    onSuccess: (saved: Product) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
       toast.success({
         title: 'Produk berhasil diperbarui',
-        description: `Perubahan pada "${data.name}" telah disimpan`,
+        description: `Perubahan pada "${saved.name}" telah disimpan`,
       });
       navigate('/app/products');
     },
@@ -208,12 +224,27 @@ export function ProductFormPage() {
 
   const startEditVariant = (v: ProductVariant) => {
     setEditingVariantId(v.id);
-    setEditingVariantData({ name: v.name, sku: v.sku, barcode: v.barcode ?? '', price: v.price, costPrice: v.costPrice });
+    setEditingVariantData({ name: v.name, sku: v.sku, barcode: v.barcode ?? '', price: v.price, costPrice: v.costPrice ?? undefined });
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   const onSubmit = (formData: ProductFormData) => {
+    if (isEdit) {
+      // Variants are edited via their own endpoints in edit mode; never sent here.
+      updateMutation.mutate({
+        name: formData.name,
+        sku: formData.sku,
+        description: formData.description ?? '',
+        categoryId: formData.categoryId || null,
+        basePrice: formData.basePrice,
+        costPrice: formData.costPrice,
+        trackStock: formData.trackStock,
+        imageUrl: formData.imageUrl ?? null,
+      });
+      return;
+    }
+
     const data: CreateProductRequest = {
       name: formData.name,
       sku: formData.sku,
@@ -226,11 +257,7 @@ export function ProductFormPage() {
       variants: formData.variants && formData.variants.length > 0 ? formData.variants : undefined,
     };
 
-    if (isEdit) {
-      updateMutation.mutate(data);
-    } else {
-      createMutation.mutate(data);
-    }
+    createMutation.mutate(data);
   };
 
   const handleFormSubmit = form.handleSubmit(onSubmit, () => {
@@ -243,6 +270,39 @@ export function ProductFormPage() {
   // Watched sku value for barcode preview
   // eslint-disable-next-line react-hooks/incompatible-library
   const skuValue = form.watch('sku');
+
+  if (!canWrite) {
+    return (
+      <div>
+        <PageHeader title={isEdit ? 'Edit Produk' : 'Tambah Produk'} />
+        <ErrorState
+          title="Akses ditolak"
+          description="Hanya pemilik, manajer, atau staf inventori yang dapat menambah atau mengubah produk."
+        />
+      </div>
+    );
+  }
+
+  if (isEdit && isProductError) {
+    return (
+      <div>
+        <PageHeader title="Edit Produk" />
+        <ErrorState
+          title="Gagal memuat produk"
+          error={productError}
+          onRetry={() => void refetchProduct()}
+        />
+      </div>
+    );
+  }
+
+  if (isEdit && (isProductLoading || !product)) {
+    return (
+      <div className="flex items-center justify-center py-16" role="status" aria-label="Memuat produk">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -304,7 +364,7 @@ export function ProductFormPage() {
                           className="shrink-0"
                           onClick={() => form.setValue('sku', generateEAN13(), { shouldValidate: true })}
                         >
-                          <Wand2 className="mr-1 h-3.5 w-3.5" /> Generate
+                          <Wand2 className="mr-1 h-3.5 w-3.5" /> Buat Otomatis
                         </Button>
                       </div>
                       <FormMessage />
@@ -558,22 +618,25 @@ export function ProductFormPage() {
                               </div>
                               <p className="text-sm text-muted-foreground">
                                 Rp {v.price.toLocaleString('id-ID')}
-                                {v.costPrice > 0 && <span className="ml-2 text-xs">(Modal: Rp {v.costPrice.toLocaleString('id-ID')})</span>}
+                                {v.costPrice != null && v.costPrice > 0 && <span className="ml-2 text-xs">(Modal: Rp {v.costPrice.toLocaleString('id-ID')})</span>}
                               </p>
                             </div>
                             <div className="flex gap-1">
                               <Button type="button" variant="ghost" size="sm" onClick={() => startEditVariant(v)}>
                                 Edit
                               </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive"
-                                onClick={() => setDeactivatingVariant(v)}
-                              >
-                                <Power className="h-3.5 w-3.5" />
-                              </Button>
+                              {canDeactivateVariant && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive"
+                                  aria-label={`Nonaktifkan varian ${v.name}`}
+                                  onClick={() => setDeactivatingVariant(v)}
+                                >
+                                  <Power className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                             </div>
                           </div>
                         )}
@@ -717,6 +780,7 @@ export function ProductFormPage() {
                                 size="icon"
                                 onClick={() => remove(index)}
                                 className="shrink-0 text-destructive"
+                                aria-label={`Hapus varian ${index + 1}`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -766,7 +830,7 @@ export function ProductFormPage() {
               type="submit"
               disabled={isPending}
               aria-busy={isPending}
-              aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Creating product...') : undefined}
+              aria-label={isPending ? (isEdit ? 'Menyimpan perubahan...' : 'Membuat produk...') : undefined}
             >
               {isPending && <Loader2 className="animate-spin" />}
               {isEdit ? 'Simpan Perubahan' : 'Buat Produk'}

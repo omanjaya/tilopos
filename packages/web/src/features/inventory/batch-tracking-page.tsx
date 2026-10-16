@@ -3,6 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { batchTrackingApi } from '@/api/endpoints/batch-tracking.api';
 import { productsApi } from '@/api/endpoints/products.api';
 import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
+import { ErrorState } from '@/components/shared/error-state';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,20 +26,25 @@ function formatDate(date: string | null) {
 }
 
 function ExpiryBadge({ expiresAt }: { expiresAt: string | null }) {
-  if (!expiresAt) return <Badge variant="secondary">No expiry</Badge>;
+  if (!expiresAt) return <Badge variant="secondary">Tanpa kadaluarsa</Badge>;
   const expiry = new Date(expiresAt);
   const now = new Date();
   const daysLeft = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (daysLeft < 0) return <Badge variant="destructive">Expired</Badge>;
-  if (daysLeft <= 7) return <Badge variant="destructive">Exp: {daysLeft}d</Badge>;
-  if (daysLeft <= 30) return <Badge className="bg-amber-500">Exp: {daysLeft}d</Badge>;
-  return <Badge variant="secondary">Exp: {formatDate(expiresAt)}</Badge>;
+  if (daysLeft < 0) return <Badge variant="destructive">Kadaluarsa</Badge>;
+  if (daysLeft <= 7) return <Badge variant="destructive">Kadaluarsa {daysLeft} hari lagi</Badge>;
+  if (daysLeft <= 30) return <Badge className="bg-amber-500">Kadaluarsa {daysLeft} hari lagi</Badge>;
+  return <Badge variant="secondary">Kadaluarsa: {formatDate(expiresAt)}</Badge>;
 }
 
 export function BatchTrackingPage() {
   const queryClient = useQueryClient();
-  const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const userOutletId = useAuthStore((s) => s.user?.outletId);
+  // DELETE /batch-tracking/:id is @Roles(OWNER, MANAGER); create is also open to inventory.
+  const canDelete = hasRole(useAuthStore((s) => s.user?.role), 'MANAGEMENT');
+  const outletId = selectedOutletId || userOutletId || '';
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'expiring' | 'expired' | 'add'>('expiring');
   const [daysFilter, setDaysFilter] = useState(7);
@@ -47,19 +57,36 @@ export function BatchTrackingPage() {
   const [expiresAt, setExpiresAt] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: expiringData, isLoading: expiringLoading } = useQuery({
+  const {
+    data: expiringData,
+    isLoading: expiringLoading,
+    isError: expiringIsError,
+    error: expiringError,
+    refetch: refetchExpiring,
+  } = useQuery({
     queryKey: ['batch-expiring', outletId, daysFilter],
     queryFn: () => batchTrackingApi.getExpiring(outletId, daysFilter),
     enabled: !!outletId && activeTab === 'expiring',
   });
 
-  const { data: expiredBatches, isLoading: expiredLoading } = useQuery({
+  const {
+    data: expiredBatches,
+    isLoading: expiredLoading,
+    isError: expiredIsError,
+    error: expiredError,
+    refetch: refetchExpired,
+  } = useQuery({
     queryKey: ['batch-expired', outletId],
     queryFn: () => batchTrackingApi.getExpired(outletId),
     enabled: !!outletId && activeTab === 'expired',
   });
 
-  const { data: products } = useQuery({
+  const {
+    data: products,
+    isError: productsIsError,
+    error: productsError,
+    refetch: refetchProducts,
+  } = useQuery({
     queryKey: ['products-for-batch'],
     queryFn: () => productsApi.list(),
     enabled: activeTab === 'add',
@@ -85,7 +112,7 @@ export function BatchTrackingPage() {
       setExpiresAt('');
       setNotes('');
     },
-    onError: () => toast.error({ title: 'Gagal menambahkan batch' }),
+    onError: (err) => handleMutationError(err, 'Gagal menambahkan batch'),
   });
 
   const deleteMutation = useMutation({
@@ -94,16 +121,18 @@ export function BatchTrackingPage() {
       queryClient.invalidateQueries({ queryKey: ['batch-expiring'] });
       queryClient.invalidateQueries({ queryKey: ['batch-expired'] });
       toast.success({ title: 'Batch dihapus' });
+      setDeleteId(null);
     },
+    onError: (err) => handleMutationError(err, 'Gagal menghapus batch'),
   });
 
   if (!outletId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Batch & Expiry Tracking" />
+        <PageHeader title="Pelacakan Batch & Kadaluarsa" />
         <Card>
           <CardContent className="flex h-40 items-center justify-center text-muted-foreground">
-            Pilih outlet terlebih dahulu di pengaturan
+            Pilih outlet terlebih dahulu melalui pemilih outlet
           </CardContent>
         </Card>
       </div>
@@ -113,7 +142,7 @@ export function BatchTrackingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Batch & Expiry Tracking"
+        title="Pelacakan Batch & Kadaluarsa"
         description="Kelola batch produk dan pantau tanggal kadaluarsa"
       />
 
@@ -155,6 +184,8 @@ export function BatchTrackingPage() {
           <CardContent>
             {expiringLoading ? (
               <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}</div>
+            ) : expiringIsError ? (
+              <ErrorState error={expiringError} onRetry={() => refetchExpiring()} />
             ) : (expiringData?.batches ?? []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">Tidak ada produk yang hampir kadaluarsa</p>
             ) : (
@@ -164,7 +195,7 @@ export function BatchTrackingPage() {
                     <div className="flex items-center gap-3">
                       <Package className="h-5 w-5 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium">{batch.product?.name ?? 'Unknown'}</p>
+                        <p className="text-sm font-medium">{batch.product?.name ?? 'Produk tidak dikenal'}</p>
                         <p className="text-xs text-muted-foreground">
                           Batch: {batch.batchNumber} | Qty: {batch.quantity}
                         </p>
@@ -172,9 +203,17 @@ export function BatchTrackingPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <ExpiryBadge expiresAt={batch.expiresAt} />
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteMutation.mutate(batch.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setDeleteId(batch.id)}
+                          aria-label={`Hapus batch ${batch.batchNumber}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -193,6 +232,8 @@ export function BatchTrackingPage() {
           <CardContent>
             {expiredLoading ? (
               <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}</div>
+            ) : expiredIsError ? (
+              <ErrorState error={expiredError} onRetry={() => refetchExpired()} />
             ) : (expiredBatches ?? []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">Tidak ada produk kadaluarsa</p>
             ) : (
@@ -202,15 +243,23 @@ export function BatchTrackingPage() {
                     <div className="flex items-center gap-3">
                       <AlertTriangle className="h-5 w-5 text-destructive" />
                       <div>
-                        <p className="text-sm font-medium">{batch.product?.name ?? 'Unknown'}</p>
+                        <p className="text-sm font-medium">{batch.product?.name ?? 'Produk tidak dikenal'}</p>
                         <p className="text-xs text-muted-foreground">
-                          Batch: {batch.batchNumber} | Qty: {batch.quantity} | Expired: {formatDate(batch.expiresAt)}
+                          Batch: {batch.batchNumber} | Qty: {batch.quantity} | Kadaluarsa: {formatDate(batch.expiresAt)}
                         </p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteMutation.mutate(batch.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setDeleteId(batch.id)}
+                        aria-label={`Hapus batch ${batch.batchNumber}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -226,9 +275,13 @@ export function BatchTrackingPage() {
             <CardDescription>Catat batch produk baru yang masuk</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {productsIsError && (
+              <ErrorState error={productsError} onRetry={() => refetchProducts()} />
+            )}
             <div>
-              <Label>Produk</Label>
+              <Label htmlFor="batch-product">Produk</Label>
               <select
+                id="batch-product"
                 value={productId}
                 onChange={(e) => setProductId(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -270,6 +323,16 @@ export function BatchTrackingPage() {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Hapus batch?"
+        description="Data batch ini akan dihapus permanen."
+        confirmLabel="Hapus"
+        onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 }

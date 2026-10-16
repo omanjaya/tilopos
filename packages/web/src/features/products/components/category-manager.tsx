@@ -11,6 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Plus, Pencil, Check, X, Loader2 } from 'lucide-react';
@@ -26,10 +28,11 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [deactivateTarget, setDeactivateTarget] = useState<Category | null>(null);
 
-  const { data: categories, isLoading } = useQuery({
-    queryKey: ['categories'],
-    queryFn: categoriesApi.list,
+  const { data: categories, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['categories', 'all'],
+    queryFn: categoriesApi.listAll,
     enabled: open,
   });
 
@@ -40,7 +43,7 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
       setNewName('');
       toast.success({ title: 'Kategori ditambahkan' });
     },
-    onError: (error) => handleMutationError(error, 'Gagal'),
+    onError: (error) => handleMutationError(error, 'Gagal menambah kategori'),
   });
 
   const updateMutation = useMutation({
@@ -51,15 +54,18 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
       setEditingId(null);
       toast.success({ title: 'Kategori diperbarui' });
     },
-    onError: (error) => handleMutationError(error, 'Gagal'),
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui kategori'),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (cat: Category) =>
       categoriesApi.update(cat.id, { isActive: !cat.isActive }),
-    onSuccess: () => {
+    onSuccess: (_data, cat) => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
+      setDeactivateTarget(null);
+      toast.success({ title: cat.isActive ? 'Kategori dinonaktifkan' : 'Kategori diaktifkan' });
     },
+    onError: (error) => handleMutationError(error, 'Gagal mengubah status kategori'),
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -92,7 +98,12 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
-          <Button type="submit" size="sm" disabled={createMutation.isPending || !newName.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={createMutation.isPending || !newName.trim()}
+            aria-label="Tambah kategori"
+          >
             {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           </Button>
         </form>
@@ -100,6 +111,10 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
         <div className="mt-4 space-y-2">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Memuat...</p>
+          ) : isError ? (
+            <ErrorState title="Gagal memuat kategori" error={error} onRetry={() => void refetch()} />
+          ) : categories && categories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Belum ada kategori.</p>
           ) : (
             categories?.map((cat) => (
               <div key={cat.id} className="flex items-center justify-between rounded-md border px-3 py-2">
@@ -132,7 +147,7 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
                         size="sm"
                         variant={cat.isActive ? 'outline' : 'default'}
                         className="h-7 text-xs"
-                        onClick={() => toggleMutation.mutate(cat)}
+                        onClick={() => (cat.isActive ? setDeactivateTarget(cat) : toggleMutation.mutate(cat))}
                         disabled={toggleMutation.isPending}
                       >
                         {cat.isActive ? 'Nonaktifkan' : 'Aktifkan'}
@@ -144,6 +159,17 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
             ))
           )}
         </div>
+
+        <ConfirmDialog
+          open={!!deactivateTarget}
+          onOpenChange={(o) => !o && setDeactivateTarget(null)}
+          title="Nonaktifkan Kategori?"
+          description={`Kategori "${deactivateTarget?.name ?? ''}" akan disembunyikan dari daftar kategori dan POS.`}
+          confirmLabel="Nonaktifkan"
+          variant="destructive"
+          isLoading={toggleMutation.isPending}
+          onConfirm={() => deactivateTarget && toggleMutation.mutate(deactivateTarget)}
+        />
       </SheetContent>
     </Sheet>
   );

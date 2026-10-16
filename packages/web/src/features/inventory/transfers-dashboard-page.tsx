@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/shared/error-state';
 import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -32,7 +33,7 @@ export function TransfersDashboardPage() {
     showNotifications: false, // Dashboard doesn't need notifications
   });
 
-  const { data: allTransfers, isLoading } = useQuery({
+  const { data: allTransfers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stock-transfers'],
     queryFn: () => inventoryApi.listTransfers(),
   });
@@ -45,8 +46,8 @@ export function TransfersDashboardPage() {
     const today = new Date(renderTime);
     return {
       metrics: {
-        inTransit: allTransfers?.filter((t) => t.status === 'in_transit' || t.status === 'shipped').length || 0,
-        pendingApproval: allTransfers?.filter((t) => t.status === 'requested').length || 0,
+        inTransit: allTransfers?.filter((t) => t.status === 'in_transit').length || 0,
+        pendingApproval: allTransfers?.filter((t) => t.status === 'pending').length || 0,
         completedToday: allTransfers?.filter((t) => {
           if (t.status !== 'received' || !t.receivedAt) return false;
           const receivedDate = new Date(t.receivedAt);
@@ -63,10 +64,8 @@ export function TransfersDashboardPage() {
         const hoursSinceApproved = (renderTime - approvedDate.getTime()) / (1000 * 60 * 60);
         return hoursSinceApproved > 24;
       }) || [],
-      pendingTransfers: allTransfers?.filter((t) => t.status === 'requested').slice(0, 5) || [],
-      inTransitTransfers: allTransfers
-        ?.filter((t) => t.status === 'in_transit' || t.status === 'shipped')
-        .slice(0, 5) || [],
+      pendingTransfers: allTransfers?.filter((t) => t.status === 'pending').slice(0, 5) || [],
+      inTransitTransfers: allTransfers?.filter((t) => t.status === 'in_transit').slice(0, 5) || [],
     };
   }, [allTransfers, renderTime]);
 
@@ -84,10 +83,23 @@ export function TransfersDashboardPage() {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5);
 
+  if (isError) {
+    return (
+      <div>
+        <PageHeader title="Dasbor Transfer">
+          <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+          </Button>
+        </PageHeader>
+        <ErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div>
-        <PageHeader title="Transfer Dashboard">
+        <PageHeader title="Dasbor Transfer">
           <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
           </Button>
@@ -105,13 +117,13 @@ export function TransfersDashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Transfer Dashboard"
-        description="Monitoring & analytics transfer stok"
+        title="Dasbor Transfer"
+        description="Pemantauan & analitik transfer stok"
       >
         {isConnected && (
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse" />
-            Live
+            Langsung
           </Badge>
         )}
         <Button variant="outline" onClick={() => navigate('/app/inventory/transfers')}>
@@ -124,7 +136,7 @@ export function TransfersDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              In Transit
+              Dalam Pengiriman
             </CardTitle>
             <Truck className="h-4 w-4 text-purple-600" />
           </CardHeader>
@@ -139,7 +151,7 @@ export function TransfersDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending Approval
+              Menunggu Persetujuan
             </CardTitle>
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
@@ -154,7 +166,7 @@ export function TransfersDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Completed Today
+              Selesai Hari Ini
             </CardTitle>
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
@@ -169,7 +181,7 @@ export function TransfersDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              This Month
+              Bulan Ini
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-blue-600" />
           </CardHeader>
@@ -189,7 +201,7 @@ export function TransfersDashboardPage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-yellow-600" />
               <CardTitle className="text-base text-yellow-900">
-                ⚠️ Transfer Terhambat ({stuckTransfers.length})
+                Transfer Terhambat ({stuckTransfers.length})
               </CardTitle>
             </div>
           </CardHeader>
@@ -229,7 +241,7 @@ export function TransfersDashboardPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Pending Approvals
+              Menunggu Persetujuan
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -273,7 +285,7 @@ export function TransfersDashboardPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Truck className="h-4 w-4" />
-              In Transit
+              Dalam Pengiriman
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -318,7 +330,7 @@ export function TransfersDashboardPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <ArrowRightLeft className="h-4 w-4" />
-            Top Transfer Routes
+            Rute Transfer Teratas
           </CardTitle>
         </CardHeader>
         <CardContent>

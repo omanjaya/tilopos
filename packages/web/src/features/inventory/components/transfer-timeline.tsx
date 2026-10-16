@@ -1,7 +1,7 @@
 import { formatDateTime } from '@/lib/format';
 import { Check, Clock, Truck, PackageCheck, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { TransferStatus } from '@/types/inventory.types';
+import type { StockTransferStatus as TransferStatus } from '@/api/endpoints/inventory.api';
 
 interface TimelineStep {
   status: TransferStatus;
@@ -14,7 +14,7 @@ interface TimelineStep {
 interface TransferTimelineProps {
   currentStatus: TransferStatus;
   requestedAt?: string;
-  requestedBy?: string;
+  requestedBy?: string | null;
   approvedAt?: string | null;
   approvedBy?: string | null;
   shippedAt?: string | null;
@@ -23,9 +23,9 @@ interface TransferTimelineProps {
 }
 
 const TIMELINE_CONFIG: Record<TransferStatus, { icon: React.ReactNode; color: string }> = {
-  requested: { icon: <Clock className="h-4 w-4" />, color: 'text-blue-600 bg-blue-100' },
+  pending: { icon: <Clock className="h-4 w-4" />, color: 'text-blue-600 bg-blue-100' },
   approved: { icon: <Check className="h-4 w-4" />, color: 'text-yellow-600 bg-yellow-100' },
-  shipped: { icon: <Truck className="h-4 w-4" />, color: 'text-purple-600 bg-purple-100' },
+  rejected: { icon: <XCircle className="h-4 w-4" />, color: 'text-red-600 bg-red-100' },
   in_transit: { icon: <Truck className="h-4 w-4" />, color: 'text-purple-600 bg-purple-100' },
   received: { icon: <PackageCheck className="h-4 w-4" />, color: 'text-green-600 bg-green-100' },
   cancelled: { icon: <XCircle className="h-4 w-4" />, color: 'text-red-600 bg-red-100' },
@@ -43,11 +43,11 @@ export function TransferTimeline({
 }: TransferTimelineProps) {
   const steps: TimelineStep[] = [
     {
-      status: 'requested',
+      status: 'pending',
       label: 'Diminta',
       timestamp: requestedAt,
       actor: requestedBy,
-      icon: TIMELINE_CONFIG.requested.icon,
+      icon: TIMELINE_CONFIG.pending.icon,
     },
     {
       status: 'approved',
@@ -57,11 +57,11 @@ export function TransferTimeline({
       icon: TIMELINE_CONFIG.approved.icon,
     },
     {
-      status: currentStatus === 'in_transit' ? 'in_transit' : 'shipped',
+      status: 'in_transit',
       label: 'Dikirim',
       timestamp: shippedAt,
       actor: undefined,
-      icon: TIMELINE_CONFIG.shipped.icon,
+      icon: TIMELINE_CONFIG.in_transit.icon,
     },
     {
       status: 'received',
@@ -73,15 +73,16 @@ export function TransferTimeline({
   ];
 
   const getCurrentStepIndex = (): number => {
-    if (currentStatus === 'cancelled') return -1;
+    if (currentStatus === 'cancelled' || currentStatus === 'rejected') return -1;
     if (currentStatus === 'received') return 3;
-    if (currentStatus === 'shipped' || currentStatus === 'in_transit') return 2;
+    if (currentStatus === 'in_transit') return 2;
     if (currentStatus === 'approved') return 1;
     return 0;
   };
 
   const currentStepIndex = getCurrentStepIndex();
-  const isCancelled = currentStatus === 'cancelled';
+  const isCancelled = currentStatus === 'cancelled' || currentStatus === 'rejected';
+  const isRejected = currentStatus === 'rejected';
 
   if (isCancelled) {
     return (
@@ -91,8 +92,14 @@ export function TransferTimeline({
             <XCircle className="h-5 w-5 text-red-600" />
           </div>
           <div>
-            <p className="font-medium text-red-900">Transfer Dibatalkan</p>
-            <p className="text-sm text-red-700">Transfer ini telah dibatalkan dan tidak dapat dilanjutkan</p>
+            <p className="font-medium text-red-900">
+              {isRejected ? 'Transfer Ditolak' : 'Transfer Dibatalkan'}
+            </p>
+            <p className="text-sm text-red-700">
+              {isRejected
+                ? 'Permintaan transfer ini ditolak dan tidak dapat dilanjutkan'
+                : 'Transfer ini telah dibatalkan dan tidak dapat dilanjutkan'}
+            </p>
           </div>
         </div>
       </div>
@@ -147,7 +154,7 @@ export function TransferTimeline({
                     </h4>
                     {isCurrent && (
                       <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                        Current
+                        Saat ini
                       </span>
                     )}
                   </div>

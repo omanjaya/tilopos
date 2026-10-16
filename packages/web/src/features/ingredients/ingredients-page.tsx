@@ -1,12 +1,8 @@
 import { PageHeader } from '@/components/shared/page-header';
-import { MetricCard } from '@/components/shared/metric-card';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  Egg,
-  BookOpen,
-  AlertTriangle,
   Beaker,
   CookingPot,
   Construction,
@@ -16,18 +12,6 @@ export function IngredientsPage() {
   return (
     <div>
       <PageHeader title="Bahan & Resep" description="Kelola bahan baku dan resep produk" />
-
-      {/* Metric Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <MetricCard title="Total Bahan" value="0" icon={Egg} description="Bahan baku terdaftar" />
-        <MetricCard title="Total Resep" value="0" icon={BookOpen} description="Resep produk aktif" />
-        <MetricCard
-          title="Bahan Stok Rendah"
-          value="0"
-          icon={AlertTriangle}
-          description="Perlu restok"
-        />
-      </div>
 
       {/* Bahan Baku Card */}
       <Card className="mb-6">

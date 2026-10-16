@@ -5,6 +5,8 @@ import { bundlePackagesApi } from '@/api/endpoints/bundle-packages.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
+import { useCan } from '@/features/auth/use-permission';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -25,7 +27,9 @@ export function BundlePackagesPage() {
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<BundlePackage | null>(null);
 
-  const { data: bundles, isLoading } = useQuery({
+  const canWrite = useCan('bundles.write');
+
+  const { data: bundles, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['bundle-packages', search],
     queryFn: () => bundlePackagesApi.list({ search: search || undefined }),
   });
@@ -83,10 +87,10 @@ export function BundlePackagesPage() {
           <Badge variant="outline">Nonaktif</Badge>
         ),
     },
-    {
+    ...(canWrite ? [{
       key: 'actions',
       header: '',
-      cell: (row) => (
+      cell: (row: BundlePackage) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi paket">
@@ -106,17 +110,22 @@ export function BundlePackagesPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
       <PageHeader title="Paket Bundle" description="Kelola paket bundle produk">
-        <Button onClick={() => navigate('/app/bundle-packages/new')}>
-          <Plus className="mr-2 h-4 w-4" /> Tambah Paket
-        </Button>
+        {canWrite && (
+          <Button onClick={() => navigate('/app/bundle-packages/new')}>
+            <Plus className="mr-2 h-4 w-4" /> Tambah Paket
+          </Button>
+        )}
       </PageHeader>
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={bundles ?? []}
@@ -126,11 +135,14 @@ export function BundlePackagesPage() {
         emptyTitle="Belum ada paket bundle"
         emptyDescription="Buat paket bundle pertama Anda untuk menggabungkan beberapa produk menjadi satu paket."
         emptyAction={
-          <Button onClick={() => navigate('/app/bundle-packages/new')}>
-            <Plus className="mr-2 h-4 w-4" /> Tambah Paket Bundle
-          </Button>
+          canWrite ? (
+            <Button onClick={() => navigate('/app/bundle-packages/new')}>
+              <Plus className="mr-2 h-4 w-4" /> Tambah Paket Bundle
+            </Button>
+          ) : undefined
         }
       />
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}

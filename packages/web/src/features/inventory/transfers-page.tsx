@@ -9,6 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTransferSocket } from '@/hooks/realtime/use-transfer-socket';
+import { useAuthStore } from '@/stores/auth.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { transferStatusConfig, transferPermissions } from './transfer-status';
+import type { TransferTemplate } from '@/types/transfer-template.types';
 import { TransferTemplatesModal } from './components/transfer-templates-modal';
 import { DirectTransferModal } from './components/direct-transfer-modal';
 import {
@@ -37,22 +41,15 @@ import {
   FileText,
   Zap,
 } from 'lucide-react';
-import type { StockTransfer } from '@/types/inventory.types';
+import type { StockTransferView as StockTransfer, StockTransferStatus } from '@/api/endpoints/inventory.api';
 import { handleMutationError } from '@/lib/api-error-handler';
-
-const STATUS_CONFIG: Record<string, { label: string; variant: 'info' | 'warning' | 'secondary' | 'success' | 'destructive' }> = {
-  requested: { label: 'Diminta', variant: 'info' },
-  approved: { label: 'Disetujui', variant: 'warning' },
-  shipped: { label: 'Dikirim', variant: 'secondary' },
-  in_transit: { label: 'Dikirim', variant: 'secondary' },
-  received: { label: 'Diterima', variant: 'success' },
-  cancelled: { label: 'Dibatalkan', variant: 'destructive' },
-};
 
 export function TransfersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const role = useAuthStore((s) => s.user?.role);
+  const { canApprove, canManage } = transferPermissions(role);
+  const [statusFilter, setStatusFilter] = useState<StockTransferStatus | 'all'>('all');
   const [selectedTransfers, setSelectedTransfers] = useState<StockTransfer[]>([]);
   const [confirmAction, setConfirmAction] = useState<{
     type: 'approve' | 'ship' | 'bulk-approve';
@@ -60,6 +57,13 @@ export function TransfersPage() {
   } | null>(null);
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
   const [directTransferOpen, setDirectTransferOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestTemplate, setRequestTemplate] = useState<TransferTemplate | null>(null);
+
+  const openRequest = (template: TransferTemplate | null = null) => {
+    setRequestTemplate(template);
+    setRequestOpen(true);
+  };
 
   // Real-time WebSocket updates
   const { isConnected } = useTransferSocket({
@@ -70,7 +74,7 @@ export function TransfersPage() {
     showNotifications: true,
   });
 
-  const { data: transfers, isLoading } = useQuery({
+  const { data: transfers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stock-transfers', statusFilter],
     queryFn: () =>
       inventoryApi.listTransfers({
@@ -115,6 +119,9 @@ export function TransfersPage() {
           title: `${successful} transfer disetujui`,
           description: failed > 0 ? `${failed} transfer gagal disetujui` : undefined,
         });
+      } else if (failed > 0) {
+        const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        handleMutationError(firstError?.reason, `${failed} transfer gagal disetujui`);
       }
 
       setSelectedTransfers([]);
@@ -131,7 +138,7 @@ export function TransfersPage() {
   function handleConfirmAction() {
     if (!confirmAction) return;
     if (confirmAction.type === 'bulk-approve') {
-      const transferIds = selectedTransfers.map((t) => t.id);
+      const transferIds = selectedTransfers.filter((t) => t.status === 'pending').map((t) => t.id);
       bulkApproveMutation.mutate(transferIds);
     } else if (confirmAction.type === 'approve') {
       approveMutation.mutate(confirmAction.transfer!.id);
@@ -167,14 +174,14 @@ export function TransfersPage() {
           checked={isAllSelected}
           indeterminate={isSomeSelected}
           onCheckedChange={toggleSelectAll}
-          aria-label="Select all transfers"
+          aria-label="Pilih semua transfer"
         />
       ),
       cell: (row) => (
         <Checkbox
           checked={selectedTransfers.some((t) => t.id === row.id)}
           onCheckedChange={() => toggleSelectTransfer(row)}
-          aria-label={`Select ${row.transferNumber}`}
+          aria-label={`Pilih ${row.transferNumber}`}
         />
       ),
     },
@@ -204,7 +211,7 @@ export function TransfersPage() {
       key: 'status',
       header: 'Status',
       cell: (row) => {
-        const config = STATUS_CONFIG[row.status] ?? { label: row.status, variant: 'secondary' as const };
+        const config = transferStatusConfig(row.status);
         return <Badge variant={config.variant}>{config.label}</Badge>;
       },
     },
@@ -227,17 +234,17 @@ export function TransfersPage() {
             <DropdownMenuItem onClick={() => navigate(`/app/inventory/transfers/${row.id}`)}>
               <Eye className="mr-2 h-4 w-4" /> Detail
             </DropdownMenuItem>
-            {row.status === 'requested' && (
+            {row.status === 'pending' && canApprove && (
               <DropdownMenuItem onClick={() => setConfirmAction({ type: 'approve', transfer: row })}>
                 <CheckCircle className="mr-2 h-4 w-4" /> Setujui
               </DropdownMenuItem>
             )}
-            {row.status === 'approved' && (
+            {row.status === 'approved' && canManage && (
               <DropdownMenuItem onClick={() => setConfirmAction({ type: 'ship', transfer: row })}>
                 <Truck className="mr-2 h-4 w-4" /> Kirim
               </DropdownMenuItem>
             )}
-            {(row.status === 'shipped' || row.status === 'in_transit') && (
+            {row.status === 'in_transit' && canManage && (
               <DropdownMenuItem onClick={() => navigate(`/app/inventory/transfers/${row.id}`)}>
                 <PackageCheck className="mr-2 h-4 w-4" /> Terima
               </DropdownMenuItem>
@@ -248,7 +255,7 @@ export function TransfersPage() {
     },
   ];
 
-  const requestedCount = selectedTransfers.filter((t) => t.status === 'requested').length;
+  const requestedCount = canApprove ? selectedTransfers.filter((t) => t.status === 'pending').length : 0;
 
   return (
     <div>
@@ -256,7 +263,7 @@ export function TransfersPage() {
         {isConnected && (
           <Badge variant="outline" className="bg-success/10 text-success border-success/30">
             <span className="inline-block h-2 w-2 rounded-full bg-success mr-2 animate-pulse" />
-            Live Updates
+            Langsung
           </Badge>
         )}
         {selectedTransfers.length > 0 && requestedCount > 0 && (
@@ -269,19 +276,26 @@ export function TransfersPage() {
           </Button>
         )}
         <Button variant="outline" onClick={() => setTemplatesModalOpen(true)}>
-          <FileText className="mr-2 h-4 w-4" /> Templates
+          <FileText className="mr-2 h-4 w-4" /> Template
         </Button>
         <Button variant="outline" onClick={() => navigate('/app/inventory/transfers/dashboard')}>
           <BarChart3 className="mr-2 h-4 w-4" /> Dashboard
         </Button>
-        <Button variant="outline" onClick={() => setDirectTransferOpen(true)}>
-          <Zap className="mr-2 h-4 w-4" /> Transfer Langsung
-        </Button>
-        <Button onClick={() => navigate('/app/inventory/transfers/new')} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Buat Transfer
-        </Button>
+        {canManage && (
+          <Button variant="outline" onClick={() => setDirectTransferOpen(true)}>
+            <Zap className="mr-2 h-4 w-4" /> Transfer Langsung
+          </Button>
+        )}
+        {canManage && (
+          <Button onClick={() => openRequest()} aria-keyshortcuts="N">
+            <Plus className="mr-2 h-4 w-4" /> Buat Transfer
+          </Button>
+        )}
       </PageHeader>
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={transfers ?? []}
@@ -290,33 +304,40 @@ export function TransfersPage() {
         emptyTitle="Belum ada transfer"
         emptyDescription="Buat transfer stok pertama Anda."
         emptyAction={
-          <Button onClick={() => navigate('/app/inventory/transfers/new')}>
-            <Plus className="mr-2 h-4 w-4" /> Buat Transfer Baru
-          </Button>
+          canManage ? (
+            <Button onClick={() => openRequest()}>
+              <Plus className="mr-2 h-4 w-4" /> Buat Transfer Baru
+            </Button>
+          ) : undefined
         }
         filters={
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as StockTransferStatus | 'all')}
+          >
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Semua Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Semua Status</SelectItem>
-              <SelectItem value="requested">Diminta</SelectItem>
+              <SelectItem value="pending">Diminta</SelectItem>
               <SelectItem value="approved">Disetujui</SelectItem>
-              <SelectItem value="shipped">Dikirim</SelectItem>
+              <SelectItem value="in_transit">Dalam Pengiriman</SelectItem>
               <SelectItem value="received">Diterima</SelectItem>
+              <SelectItem value="rejected">Ditolak</SelectItem>
               <SelectItem value="cancelled">Dibatalkan</SelectItem>
             </SelectContent>
           </Select>
         }
       />
+      )}
 
       <ConfirmDialog
         open={!!confirmAction}
         onOpenChange={(open) => !open && setConfirmAction(null)}
         title={
           confirmAction?.type === 'bulk-approve'
-            ? 'Bulk Approve Transfer'
+            ? 'Setujui Beberapa Transfer'
             : confirmAction?.type === 'approve'
               ? 'Setujui Transfer'
               : 'Kirim Transfer'
@@ -343,11 +364,22 @@ export function TransfersPage() {
       <TransferTemplatesModal
         open={templatesModalOpen}
         onOpenChange={setTemplatesModalOpen}
+        onUseTemplate={canManage ? (template) => openRequest(template) : undefined}
       />
 
       <DirectTransferModal
         open={directTransferOpen}
         onOpenChange={setDirectTransferOpen}
+      />
+
+      <DirectTransferModal
+        mode="request"
+        open={requestOpen}
+        template={requestTemplate}
+        onOpenChange={(open) => {
+          setRequestOpen(open);
+          if (!open) setRequestTemplate(null);
+        }}
       />
     </div>
   );

@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Printer } from 'lucide-react';
+import { toast } from '@/lib/toast-utils';
 
 interface BarcodePreviewProps {
   value: string;
@@ -70,12 +71,7 @@ export function BarcodePrintModal({ open, onOpenChange, items }: BarcodePrintMod
     const labelW = isSmall ? '40mm' : '50mm';
     const labelH = isSmall ? '30mm' : '25mm';
 
-    // Clone the rendered content into a new document safely
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <title>Print Barcode</title>
-  <style>
+    const css = `
     @page { margin: 5mm; size: auto; }
     body { margin: 0; font-family: sans-serif; }
     .grid { display: flex; flex-wrap: wrap; gap: 2mm; }
@@ -93,33 +89,43 @@ export function BarcodePrintModal({ open, onOpenChange, items }: BarcodePrintMod
     }
     .label .name { font-size: 7px; font-weight: bold; text-align: center; margin-bottom: 1mm; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .label svg { max-width: 100%; height: auto; }
-    @media print { .label { border: none; } }
-  </style>
-</head>
-<body>
-  <div class="grid" id="content"></div>
-  <script>window.onload = function() { window.print(); window.close(); }<${'/'}script>
-</body>
-</html>`;
+    @media print { .label { border: none; } }`;
 
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const printWindow = window.open(url, '_blank');
-    URL.revokeObjectURL(url);
+    // Print from a hidden same-origin iframe: the document is fully built via DOM
+    // APIs *before* print() is called (no inline script, CSP-safe, no race).
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
 
-    if (!printWindow) return;
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument;
+    if (!win || !doc) {
+      iframe.remove();
+      toast.error({ title: 'Gagal mencetak', description: 'Browser tidak mengizinkan jendela cetak.' });
+      return;
+    }
 
-    // Wait for window to load, then inject the rendered content safely via DOM
-    printWindow.addEventListener('load', () => {
-      const container = printWindow.document.getElementById('content');
-      if (container && printRef.current) {
-        // Import nodes from the source to prevent XSS via innerHTML
-        const cloned = printRef.current.cloneNode(true) as HTMLElement;
-        Array.from(cloned.children).forEach((child) => {
-          container.appendChild(printWindow.document.importNode(child, true));
-        });
-      }
+    doc.title = 'Cetak Barcode';
+    const style = doc.createElement('style');
+    style.textContent = css;
+    doc.head.appendChild(style);
+    const container = doc.createElement('div');
+    container.className = 'grid';
+    Array.from(printRef.current.children).forEach((child) => {
+      container.appendChild(doc.importNode(child, true));
     });
+    doc.body.appendChild(container);
+
+    const cleanup = () => iframe.remove();
+    win.addEventListener('afterprint', cleanup, { once: true });
+    win.focus();
+    win.print();
+    // Fallback cleanup for browsers that don't fire afterprint
+    window.setTimeout(cleanup, 60_000);
   }, [labelSize]);
 
   return (

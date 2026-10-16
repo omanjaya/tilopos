@@ -19,6 +19,9 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { TransferTemplateFormModal } from './transfer-template-form-modal';
 import type { TransferTemplate } from '@/types/transfer-template.types';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { ErrorState } from '@/components/shared/error-state';
+import { useAuthStore } from '@/stores/auth.store';
+import { transferPermissions } from '../transfer-status';
 
 interface TransferTemplatesModalProps {
   open: boolean;
@@ -32,11 +35,13 @@ export function TransferTemplatesModal({
   onUseTemplate,
 }: TransferTemplatesModalProps) {
   const queryClient = useQueryClient();
+  const role = useAuthStore((s) => s.user?.role);
+  const { canApprove: canDelete, canManage } = transferPermissions(role);
   const [formOpen, setFormOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TransferTemplate | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const { data: templates, isLoading } = useQuery({
+  const { data: templates, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['transfer-templates'],
     queryFn: () => inventoryApi.listTransferTemplates(),
     enabled: open,
@@ -55,10 +60,6 @@ export function TransferTemplatesModal({
   const handleUseTemplate = (template: TransferTemplate) => {
     onUseTemplate?.(template);
     onOpenChange(false);
-    toast.success({
-      title: 'Template diterapkan',
-      description: `Template "${template.name}" siap digunakan`,
-    });
   };
 
   const handleEdit = (template: TransferTemplate) => {
@@ -77,13 +78,15 @@ export function TransferTemplatesModal({
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <div className="flex items-center justify-between">
-              <DialogTitle>Transfer Templates</DialogTitle>
-              <Button
-                size="sm"
-                onClick={() => setFormOpen(true)}
-              >
-                <Plus className="mr-2 h-4 w-4" /> Buat Template
-              </Button>
+              <DialogTitle>Template Transfer</DialogTitle>
+              {canManage && (
+                <Button
+                  size="sm"
+                  onClick={() => setFormOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Buat Template
+                </Button>
+              )}
             </div>
             <DialogDescription>
               Kelola template transfer untuk pola transfer yang sering digunakan
@@ -94,24 +97,28 @@ export function TransferTemplatesModal({
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : templates && templates.length === 0 ? (
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => refetch()} />
+          ) : !templates || templates.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <FileText className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium">Belum Ada Template</h3>
               <p className="text-sm text-muted-foreground mt-2">
                 Buat template untuk transfer yang sering dilakukan
               </p>
-              <Button
-                className="mt-4"
-                onClick={() => setFormOpen(true)}
-              >
-                <Plus className="mr-2 h-4 w-4" /> Buat Template Pertama
-              </Button>
+              {canManage && (
+                <Button
+                  className="mt-4"
+                  onClick={() => setFormOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Buat Template Pertama
+                </Button>
+              )}
             </div>
           ) : (
             <ScrollArea className="max-h-[500px] pr-4">
               <div className="space-y-3">
-                {templates?.map((template: TransferTemplate) => (
+                {templates.map((template: TransferTemplate) => (
                   <div
                     key={template.id}
                     className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
@@ -137,7 +144,7 @@ export function TransferTemplatesModal({
                             {template.sourceOutletName} → {template.destinationOutletName}
                           </span>
                           <span className="text-xs">•</span>
-                          <span>{template.items.length} items</span>
+                          <span>{template.items.length} item</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-4">
@@ -150,20 +157,26 @@ export function TransferTemplatesModal({
                             <Copy className="mr-2 h-3 w-3" /> Gunakan
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleEdit(template)}
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setDeleteConfirmId(template.id)}
-                        >
-                          <Trash2 className="h-3 w-3 text-red-600" />
-                        </Button>
+                        {canManage && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEdit(template)}
+                            aria-label={`Ubah template ${template.name}`}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setDeleteConfirmId(template.id)}
+                            aria-label={`Hapus template ${template.name}`}
+                          >
+                            <Trash2 className="h-3 w-3 text-red-600" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { stockOpnameApi } from '@/api/endpoints/stock-opname.api';
 import { useAuthStore } from '@/stores/auth.store';
+import { useUIStore } from '@/stores/ui.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,15 +37,20 @@ export function StockOpnamePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  // Owners have no outlet in their token; use the outlet picked in the app header
+  const outletId = selectedOutletId || user?.outletId || '';
+  // POST /inventory/stock-opname: MANAGER/OWNER/INVENTORY
+  const canCreate = hasRole(user?.role, 'STOCK');
+  const [statusFilter, setStatusFilter] = useState<StockOpnameStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
   const [createNotes, setCreateNotes] = useState('');
 
-  const { data: opnames, isLoading } = useQuery({
-    queryKey: ['stock-opname', statusFilter],
+  const { data: opnames, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['stock-opname', outletId, statusFilter],
     queryFn: () =>
       stockOpnameApi.list({
-        outletId: user?.outletId || undefined,
+        outletId: outletId || undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
       }),
   });
@@ -67,15 +75,17 @@ export function StockOpnamePage() {
           <h1 className="text-lg font-bold">Stock Opname</h1>
           <p className="text-sm text-muted-foreground">Hitung fisik stok</p>
         </div>
-        <Button size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="mr-1 h-4 w-4" />
-          Buat
-        </Button>
+        {canCreate && (
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="mr-1 h-4 w-4" />
+            Buat
+          </Button>
+        )}
       </div>
 
       {/* Status Tabs */}
       <div className="px-4">
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+        <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StockOpnameStatus | 'all')}>
           <TabsList className="w-full">
             <TabsTrigger value="all" className="flex-1">Semua</TabsTrigger>
             <TabsTrigger value="in_progress" className="flex-1">Berlangsung</TabsTrigger>
@@ -90,14 +100,25 @@ export function StockOpnamePage() {
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : isError ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
         ) : opnames && opnames.length > 0 ? (
           opnames.map((opname: StockOpname) => {
             const config = STATUS_CONFIG[opname.status];
             return (
               <Card
                 key={opname.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Buka opname ${opname.opnameNumber}`}
                 className="cursor-pointer active:scale-[0.98] transition-transform"
                 onClick={() => navigate(`/app/inventory/stock-opname/${opname.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate(`/app/inventory/stock-opname/${opname.id}`);
+                  }
+                }}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
@@ -157,12 +178,12 @@ export function StockOpnamePage() {
             <Button
               className="w-full"
               onClick={() => {
-                if (!user?.outletId) {
-                  toast.error({ title: 'Outlet tidak ditemukan' });
+                if (!outletId) {
+                  toast.error({ title: 'Pilih outlet terlebih dahulu' });
                   return;
                 }
                 createMutation.mutate({
-                  outletId: user.outletId,
+                  outletId,
                   notes: createNotes || undefined,
                 });
               }}

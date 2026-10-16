@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Card, CardContent } from '@/components/ui/card';
+import { ErrorState } from '@/components/shared/error-state';
 import { useUIStore } from '@/stores/ui.store';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
@@ -26,6 +27,7 @@ import { SeatCustomerDialog } from './components/seat-customer-dialog';
 
 const STATUS_MAP: Record<WaitingListStatus, { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' }> = {
   waiting: { label: 'Menunggu', variant: 'secondary' },
+  notified: { label: 'Dipanggil', variant: 'secondary' },
   seated: { label: 'Duduk', variant: 'default' },
   cancelled: { label: 'Dibatalkan', variant: 'outline' },
   no_show: { label: 'Tidak Datang', variant: 'destructive' },
@@ -34,6 +36,7 @@ const STATUS_MAP: Record<WaitingListStatus, { label: string; variant: 'default' 
 const STATUS_TABS: { value: string; label: string }[] = [
   { value: 'all', label: 'Semua' },
   { value: 'waiting', label: 'Menunggu' },
+  { value: 'notified', label: 'Dipanggil' },
   { value: 'seated', label: 'Duduk' },
   { value: 'cancelled', label: 'Dibatalkan' },
 ];
@@ -52,20 +55,33 @@ export function WaitingListPage() {
   const [confirmAction, setConfirmAction] = useState<ActionState | null>(null);
 
   // Fetch waiting list entries
-  const { data: entries, isLoading } = useQuery({
+  // The waiting list is per outlet: never query without an outlet.
+  const {
+    data: entries,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['waiting-list', selectedOutletId, statusFilter],
     queryFn: () =>
-      waitingListApi.list({
-        outletId: selectedOutletId || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
+      waitingListApi.list(selectedOutletId!, {
+        status: statusFilter !== 'all' ? (statusFilter as WaitingListStatus) : undefined,
       }),
+    enabled: !!selectedOutletId,
     refetchInterval: 30000, // Refresh every 30s
   });
 
   // Fetch stats
-  const { data: stats } = useQuery({
+  const {
+    data: stats,
+    isError: isStatsError,
+    error: statsError,
+    refetch: refetchStats,
+  } = useQuery({
     queryKey: ['waiting-list-stats', selectedOutletId],
-    queryFn: () => waitingListApi.stats(selectedOutletId || undefined),
+    queryFn: () => waitingListApi.stats(selectedOutletId!),
+    enabled: !!selectedOutletId,
     refetchInterval: 30000,
   });
 
@@ -74,13 +90,14 @@ export function WaitingListPage() {
     mutationFn: (id: string) => waitingListApi.notify(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['waiting-list'] });
+      queryClient.invalidateQueries({ queryKey: ['waiting-list-stats'] });
       toast.success({
-        title: 'Notifikasi dikirim',
-        description: `Pelanggan "${confirmAction?.entry.customerName}" telah diberi notifikasi`,
+        title: 'Status diperbarui',
+        description: `"${confirmAction?.entry.customerName}" ditandai sudah dipanggil`,
       });
       setConfirmAction(null);
     },
-    onError: (error) => handleMutationError(error, 'Gagal mengirim notifikasi'),
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status'),
   });
 
   // Cancel mutation
@@ -129,8 +146,8 @@ export function WaitingListPage() {
     }
   };
 
-  const getWaitTime = (createdAt: string): string => {
-    const start = new Date(createdAt);
+  const getWaitTime = (queuedAt: string): string => {
+    const start = new Date(queuedAt);
     const now = new Date();
     const diffMs = now.getTime() - start.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -148,7 +165,7 @@ export function WaitingListPage() {
       cell: (row) => (
         <div>
           <span className="font-medium">{row.customerName}</span>
-          <p className="text-xs text-muted-foreground">{row.phoneNumber}</p>
+          <p className="text-xs text-muted-foreground">{row.phoneNumber ?? '-'}</p>
         </div>
       ),
     },
@@ -166,11 +183,11 @@ export function WaitingListPage() {
       key: 'waitTime',
       header: 'Waktu Tunggu',
       cell: (row) => {
-        if (row.status !== 'waiting') return '-';
+        if (row.status !== 'waiting' && row.status !== 'notified') return '-';
         return (
           <div className="flex items-center gap-1.5">
             <Timer className="h-4 w-4 text-muted-foreground" />
-            <span>{getWaitTime(row.createdAt)}</span>
+            <span>{getWaitTime(row.queuedAt)}</span>
           </div>
         );
       },
@@ -179,7 +196,7 @@ export function WaitingListPage() {
       key: 'status',
       header: 'Status',
       cell: (row) => {
-        const status = STATUS_MAP[row.status];
+        const status = STATUS_MAP[row.status] ?? { label: row.status, variant: 'outline' as const };
         return <Badge variant={status.variant}>{status.label}</Badge>;
       },
     },
@@ -201,14 +218,14 @@ export function WaitingListPage() {
       key: 'createdAt',
       header: 'Waktu Daftar',
       cell: (row) => (
-        <span className="text-muted-foreground text-sm">{formatDateTime(row.createdAt)}</span>
+        <span className="text-muted-foreground text-sm">{formatDateTime(row.queuedAt)}</span>
       ),
     },
     {
       key: 'actions',
       header: '',
       cell: (row) => {
-        if (row.status !== 'waiting') return null;
+        if (row.status !== 'waiting' && row.status !== 'notified') return null;
 
         return (
           <DropdownMenu>
@@ -218,9 +235,11 @@ export function WaitingListPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setConfirmAction({ entry: row, action: 'notify' })}>
-                <Bell className="mr-2 h-4 w-4" /> Kirim Notifikasi
-              </DropdownMenuItem>
+              {row.status === 'waiting' && (
+                <DropdownMenuItem onClick={() => setConfirmAction({ entry: row, action: 'notify' })}>
+                  <Bell className="mr-2 h-4 w-4" /> Tandai Dipanggil
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setSeatDialogData(row)}>
                 <Armchair className="mr-2 h-4 w-4" /> Dudukkan
               </DropdownMenuItem>
@@ -247,12 +266,28 @@ export function WaitingListPage() {
     <div>
       <PageHeader title="Daftar Tunggu" description="Kelola antrian pelanggan">
         <HelpSidebar page="waiting-list" />
-        <Button onClick={() => setAddDialogOpen(true)} aria-keyshortcuts="N">
+        <Button onClick={() => setAddDialogOpen(true)} aria-keyshortcuts="N" disabled={!selectedOutletId}>
           <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
         </Button>
       </PageHeader>
 
       <InlineHelpCard page="waiting-list" className="mb-4" />
+
+      {!selectedOutletId && (
+        <Card className="mb-6">
+          <CardContent className="flex h-32 items-center justify-center text-muted-foreground">
+            Pilih outlet terlebih dahulu untuk melihat daftar tunggu
+          </CardContent>
+        </Card>
+      )}
+
+      {isStatsError && (
+        <ErrorState
+          title="Gagal memuat statistik antrian"
+          error={statsError}
+          onRetry={() => refetchStats()}
+        />
+      )}
 
       {/* Stats Cards */}
       {stats && (
@@ -262,7 +297,7 @@ export function WaitingListPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Total Menunggu</p>
-                  <p className="text-3xl font-bold mt-1">{stats.totalWaiting}</p>
+                  <p className="text-3xl font-bold mt-1">{stats.waiting}</p>
                 </div>
                 <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
                   <Clock className="h-6 w-6 text-blue-600" />
@@ -275,8 +310,8 @@ export function WaitingListPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Rata-rata Tunggu</p>
-                  <p className="text-3xl font-bold mt-1">{stats.averageWaitTime} min</p>
+                  <p className="text-sm font-medium text-muted-foreground">Rata-rata Tunggu Hari Ini</p>
+                  <p className="text-3xl font-bold mt-1">{stats.avgWaitTime} menit</p>
                 </div>
                 <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
                   <Timer className="h-6 w-6 text-green-600" />
@@ -289,8 +324,8 @@ export function WaitingListPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Tunggu Terlama</p>
-                  <p className="text-3xl font-bold mt-1">{stats.longestWaitTime} min</p>
+                  <p className="text-sm font-medium text-muted-foreground">Sudah Duduk Hari Ini</p>
+                  <p className="text-3xl font-bold mt-1">{stats.seatedToday}</p>
                 </div>
                 <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
                   <Users className="h-6 w-6 text-orange-600" />
@@ -315,6 +350,9 @@ export function WaitingListPage() {
       </div>
 
       {/* Data Table */}
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : selectedOutletId ? (
       <DataTable
         columns={columns}
         data={entries ?? []}
@@ -328,6 +366,7 @@ export function WaitingListPage() {
           </Button>
         }
       />
+      ) : null}
 
       {/* Add Customer Dialog */}
       <AddCustomerDialog
@@ -360,21 +399,21 @@ export function WaitingListPage() {
         onOpenChange={(open) => !open && setConfirmAction(null)}
         title={
           confirmAction?.action === 'notify'
-            ? 'Kirim Notifikasi'
+            ? 'Tandai Dipanggil'
             : confirmAction?.action === 'cancel'
             ? 'Batalkan Antrian'
             : 'Tandai Tidak Datang'
         }
         description={
           confirmAction?.action === 'notify'
-            ? `Kirim notifikasi ke "${confirmAction?.entry.customerName}" bahwa mejanya sudah siap?`
+            ? `Tandai "${confirmAction?.entry.customerName}" sudah dipanggil karena mejanya siap? Sistem tidak mengirim pesan ke pelanggan, jadi panggil pelanggan secara langsung.`
             : confirmAction?.action === 'cancel'
             ? `Apakah Anda yakin ingin membatalkan antrian "${confirmAction?.entry.customerName}"?`
             : `Tandai "${confirmAction?.entry.customerName}" sebagai tidak datang? Tindakan ini tidak dapat dibatalkan.`
         }
         confirmLabel={
           confirmAction?.action === 'notify'
-            ? 'Kirim'
+            ? 'Tandai'
             : confirmAction?.action === 'cancel'
             ? 'Batalkan'
             : 'Tandai'

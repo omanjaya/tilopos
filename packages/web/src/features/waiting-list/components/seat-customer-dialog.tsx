@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { waitingListApi } from '@/api/endpoints/waiting-list.api';
-import { useUIStore } from '@/stores/ui.store';
+import { ErrorState } from '@/components/shared/error-state';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Armchair, Search, Check, Users, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { apiClient } from '@/api/client';
+import { tablesApi } from '@/api/endpoints/tables.api';
 import type { WaitingListEntry } from '@/types/waiting-list.types';
 
 interface Table {
@@ -36,22 +36,26 @@ interface SeatCustomerDialogProps {
   onSuccess: () => void;
 }
 
-// API for tables
-const tablesApi = {
-  list: (outletId: string) =>
-    apiClient.get<Table[]>('/tables', { params: { outletId } }).then((r) => r.data),
-};
-
 export function SeatCustomerDialog({ open, entry, onOpenChange, onSuccess }: SeatCustomerDialogProps) {
-  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  // Seating requires an available table of the entry's own outlet (backend 409 otherwise).
+  const outletId = entry.outletId;
   const [selectedTableId, setSelectedTableId] = useState<string>('');
   const [search, setSearch] = useState('');
 
   // Fetch tables
-  const { data: tables = [], isLoading: isLoadingTables } = useQuery({
-    queryKey: ['tables', selectedOutletId],
-    queryFn: () => tablesApi.list(selectedOutletId!),
-    enabled: open && !!selectedOutletId,
+  const { data: tables = [], isLoading: isLoadingTables, isError: isTablesError, error: tablesError, refetch: refetchTables } = useQuery({
+    queryKey: ['tables', outletId, 'active'],
+    queryFn: (): Promise<Table[]> =>
+      tablesApi.list({ outletId, activeOnly: true }).then((rows) =>
+        rows.map((t) => ({
+          id: t.id,
+          name: t.name,
+          capacity: t.capacity,
+          status: t.status as Table['status'],
+          section: t.section ?? undefined,
+        })),
+      ),
+    enabled: open && !!outletId,
   });
 
   const seatMutation = useMutation({
@@ -59,7 +63,7 @@ export function SeatCustomerDialog({ open, entry, onOpenChange, onSuccess }: Sea
     onSuccess: (data) => {
       toast.success({
         title: 'Pelanggan telah duduk',
-        description: `${entry.customerName} telah didudukkan di meja ${data.tableName}`,
+        description: `${entry.customerName} telah didudukkan di meja ${data.tableName ?? '-'}`,
       });
       setSelectedTableId('');
       setSearch('');
@@ -142,7 +146,14 @@ export function SeatCustomerDialog({ open, entry, onOpenChange, onSuccess }: Sea
 
         {/* Table Grid */}
         <ScrollArea className="h-[400px] -mx-6 px-6">
-          {isLoadingTables ? (
+          {!outletId ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <LayoutGrid className="h-12 w-12 mb-4 opacity-50" />
+              <p className="font-medium">Pilih outlet terlebih dahulu</p>
+            </div>
+          ) : isTablesError ? (
+            <ErrorState title="Gagal memuat meja" error={tablesError} onRetry={() => refetchTables()} />
+          ) : isLoadingTables ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>

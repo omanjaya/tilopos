@@ -13,6 +13,7 @@ import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Wrench, Plus, Search, ChevronRight, User, Phone } from 'lucide-react';
 import type { WorkOrder } from '@/api/endpoints/work-orders.api';
+import { ErrorState } from '@/components/shared/error-state';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Menunggu',
@@ -32,7 +33,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   cancelled: 'destructive',
 };
 
-const NEXT_STATUS: Record<string, string> = {
+const NEXT_STATUS: Record<string, WorkOrder['status']> = {
   pending: 'in_progress',
   in_progress: 'completed',
   completed: 'delivered',
@@ -44,8 +45,8 @@ const NEXT_LABEL: Record<string, string> = {
   completed: 'Serahkan',
 };
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+function formatCurrency(value: number | string) {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(Number(value) || 0);
 }
 
 function formatDate(date: string) {
@@ -56,11 +57,13 @@ function WorkOrderDetail({ workOrder, onBack }: { workOrder: WorkOrder; onBack: 
   const queryClient = useQueryClient();
 
   const statusMutation = useMutation({
-    mutationFn: (status: string) => workOrdersApi.updateStatus(workOrder.id, status),
+    mutationFn: (status: WorkOrder['status']) => workOrdersApi.updateStatus(workOrder.id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['work-order-detail', workOrder.id] });
       toast.success({ title: 'Status diperbarui' });
     },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui status'),
   });
 
   return (
@@ -172,13 +175,19 @@ export function WorkOrdersPage() {
   const [custPhone, setCustPhone] = useState('');
   const [woNotes, setWoNotes] = useState('');
 
-  const { data: workOrders, isLoading } = useQuery({
+  const { data: workOrders, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['work-orders', outletId, statusFilter, search],
     queryFn: () => workOrdersApi.list(outletId, { status: statusFilter || undefined, search: search || undefined }),
     enabled: !!outletId,
   });
 
-  const { data: selectedWO } = useQuery({
+  const {
+    data: selectedWO,
+    isLoading: isDetailLoading,
+    isError: isDetailError,
+    error: detailError,
+    refetch: refetchDetail,
+  } = useQuery({
     queryKey: ['work-order-detail', selectedId],
     queryFn: () => workOrdersApi.getById(selectedId!),
     enabled: !!selectedId,
@@ -200,7 +209,7 @@ export function WorkOrdersPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['work-orders'] });
-      toast.success({ title: 'Work order berhasil dibuat' });
+      toast.success({ title: 'Perintah kerja berhasil dibuat' });
       setShowForm(false);
       setTitle('');
       setItemDesc('');
@@ -212,13 +221,13 @@ export function WorkOrdersPage() {
       setCustPhone('');
       setWoNotes('');
     },
-    onError: (error) => handleMutationError(error, 'Gagal membuat work order'),
+    onError: (error) => handleMutationError(error, 'Gagal membuat perintah kerja'),
   });
 
   if (!outletId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Work Orders" />
+        <PageHeader title="Perintah Kerja" />
         <Card>
           <CardContent className="flex h-40 items-center justify-center text-muted-foreground">
             Pilih outlet terlebih dahulu di pengaturan
@@ -228,11 +237,20 @@ export function WorkOrdersPage() {
     );
   }
 
-  if (selectedId && selectedWO) {
+  if (selectedId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Work Orders" description="Detail work order" />
-        <WorkOrderDetail workOrder={selectedWO} onBack={() => setSelectedId(null)} />
+        <PageHeader title="Perintah Kerja" description="Detail perintah kerja" />
+        {isDetailLoading ? (
+          <Skeleton className="h-64" />
+        ) : isDetailError || !selectedWO ? (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedId(null)}>← Kembali</Button>
+            <ErrorState error={detailError} onRetry={() => refetchDetail()} />
+          </>
+        ) : (
+          <WorkOrderDetail workOrder={selectedWO} onBack={() => setSelectedId(null)} />
+        )}
       </div>
     );
   }
@@ -240,11 +258,11 @@ export function WorkOrdersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Work Orders"
+        title="Perintah Kerja"
         description="Kelola pekerjaan service dan bengkel"
       >
         <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="mr-1 h-4 w-4" /> Work Order Baru
+          <Plus className="mr-1 h-4 w-4" /> Perintah Kerja Baru
         </Button>
       </PageHeader>
 
@@ -255,6 +273,7 @@ export function WorkOrdersPage() {
           <Input placeholder="Cari..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <select
+          aria-label="Filter status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -270,52 +289,52 @@ export function WorkOrdersPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Work Order Baru</CardTitle>
+            <CardTitle className="text-base">Perintah Kerja Baru</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label>Judul Pekerjaan</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Service AC, Ganti LCD, dll" />
+              <Label htmlFor="wo-title">Judul Pekerjaan</Label>
+              <Input id="wo-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Service AC, Ganti LCD, dll" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Deskripsi Barang</Label>
-                <Input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder="Laptop Asus" />
+                <Label htmlFor="wo-item">Deskripsi Barang</Label>
+                <Input id="wo-item" value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder="Laptop Asus" />
               </div>
               <div>
-                <Label>Merk</Label>
-                <Input value={itemBrand} onChange={(e) => setItemBrand(e.target.value)} placeholder="Asus" />
+                <Label htmlFor="wo-brand">Merk</Label>
+                <Input id="wo-brand" value={itemBrand} onChange={(e) => setItemBrand(e.target.value)} placeholder="Asus" />
               </div>
               <div>
-                <Label>Model</Label>
-                <Input value={itemModel} onChange={(e) => setItemModel(e.target.value)} placeholder="ROG Zephyrus" />
+                <Label htmlFor="wo-model">Model</Label>
+                <Input id="wo-model" value={itemModel} onChange={(e) => setItemModel(e.target.value)} placeholder="ROG Zephyrus" />
               </div>
               <div>
-                <Label>Serial Number</Label>
-                <Input value={itemSerial} onChange={(e) => setItemSerial(e.target.value)} placeholder="SN123" />
+                <Label htmlFor="wo-serial">Serial Number</Label>
+                <Input id="wo-serial" value={itemSerial} onChange={(e) => setItemSerial(e.target.value)} placeholder="SN123" />
               </div>
               <div>
-                <Label>Estimasi Biaya</Label>
-                <Input type="number" value={estCost} onChange={(e) => setEstCost(e.target.value)} placeholder="500000" />
+                <Label htmlFor="wo-cost">Estimasi Biaya</Label>
+                <Input id="wo-cost" type="number" value={estCost} onChange={(e) => setEstCost(e.target.value)} placeholder="500000" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Nama Pelanggan</Label>
-                <Input value={custName} onChange={(e) => setCustName(e.target.value)} />
+                <Label htmlFor="wo-customer">Nama Pelanggan</Label>
+                <Input id="wo-customer" value={custName} onChange={(e) => setCustName(e.target.value)} />
               </div>
               <div>
-                <Label>No. Telepon</Label>
-                <Input value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
+                <Label htmlFor="wo-phone">No. Telepon</Label>
+                <Input id="wo-phone" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
               </div>
             </div>
             <div>
-              <Label>Catatan</Label>
-              <Input value={woNotes} onChange={(e) => setWoNotes(e.target.value)} />
+              <Label htmlFor="wo-notes">Catatan</Label>
+              <Input id="wo-notes" value={woNotes} onChange={(e) => setWoNotes(e.target.value)} />
             </div>
             <div className="flex gap-2">
               <Button onClick={() => createMutation.mutate()} disabled={!title || createMutation.isPending}>
-                <Plus className="mr-1 h-4 w-4" /> Buat Work Order
+                <Plus className="mr-1 h-4 w-4" /> Buat Perintah Kerja
               </Button>
               <Button variant="outline" onClick={() => setShowForm(false)}>Batal</Button>
             </div>
@@ -328,8 +347,10 @@ export function WorkOrdersPage() {
         <CardContent className="pt-6">
           {isLoading ? (
             <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => refetch()} />
           ) : (workOrders ?? []).length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-8">Tidak ada work order</p>
+            <p className="text-center text-sm text-muted-foreground py-8">Tidak ada perintah kerja</p>
           ) : (
             <div className="space-y-2">
               {(workOrders ?? []).map((wo) => (

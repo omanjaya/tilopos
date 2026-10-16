@@ -45,7 +45,7 @@ interface BulkProductRow {
 }
 
 function generateId() {
-  return `row-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  return `row-${crypto.randomUUID()}`;
 }
 
 function createEmptyRow(): BulkProductRow {
@@ -72,11 +72,10 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
   });
 
   const bulkCreateMutation = useMutation({
-    mutationFn: async (products: CreateProductRequest[]) => {
-      const results = await Promise.allSettled(
-        products.map((p) => productsApi.create(p)),
-      );
-      return results;
+    mutationFn: async (items: { rowId: string; product: CreateProductRequest }[]) => {
+      const settled = await Promise.allSettled(items.map((it) => productsApi.create(it.product)));
+      // Pair each result with the row it came from so partial failures keep the right rows
+      return settled.map((r, i) => ({ rowId: items[i]!.rowId, status: r.status }));
     },
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -87,7 +86,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
 
       if (successful > 0) {
         toast.success({
-          title: `✅ ${successful} produk berhasil ditambahkan!`,
+          title: `${successful} produk berhasil ditambahkan`,
           description: failed > 0 ? `${failed} produk gagal ditambahkan` : undefined,
         });
       }
@@ -103,12 +102,9 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
         ]);
         onOpenChange(false);
       } else {
-        // Keep only failed rows
-        const failedIndices = results
-          .map((r, i) => (r.status === 'rejected' ? i : -1))
-          .filter((i) => i !== -1);
-
-        setRows((prev) => failedIndices.map((i) => prev[i]).filter((row): row is BulkProductRow => row !== undefined));
+        // Keep only the rows whose create failed (matched by row id, not index)
+        const failedIds = new Set(results.filter((r) => r.status === 'rejected').map((r) => r.rowId));
+        setRows((prev) => prev.filter((row) => failedIds.has(row.id)));
 
         toast.error({
           title: 'Beberapa produk gagal',
@@ -159,17 +155,17 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
     }
 
     // Convert to CreateProductRequest
-    const products: CreateProductRequest[] = validRows.map((row) => {
-      const sku =
-        row.name
-          .trim()
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, '')
-          .substring(0, 10) +
-        '-' +
-        Date.now().toString(36).toUpperCase();
+    const batch = Date.now().toString(36).toUpperCase();
+    const products = validRows.map((row, index) => {
+      // Unique per row: name prefix + batch + row index + random suffix
+      const sku = [
+        row.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10) || 'PRD',
+        batch,
+        String(index + 1),
+        crypto.randomUUID().slice(0, 4).toUpperCase(),
+      ].join('-');
 
-      return {
+      const product: CreateProductRequest = {
         name: row.name.trim(),
         sku,
         basePrice: Number(row.price),
@@ -177,6 +173,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
         trackStock: true,
         categoryId: row.categoryId && row.categoryId !== '__none__' ? row.categoryId : undefined,
       };
+      return { rowId: row.id, product };
     });
 
     bulkCreateMutation.mutate(products);
@@ -190,7 +187,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileStack className="h-5 w-5 text-blue-500" />
-            Tambah Produk Bulk
+            Tambah Produk Massal
           </DialogTitle>
           <DialogDescription>
             Isi beberapa produk sekaligus. Nama dan harga wajib diisi. SKU akan digenerate otomatis.
@@ -258,6 +255,7 @@ export function ProductBulkAddModal({ open, onOpenChange }: ProductBulkAddModalP
                       onClick={() => removeRow(row.id)}
                       disabled={rows.length <= 1 || bulkCreateMutation.isPending}
                       className="h-8 w-8"
+                      aria-label="Hapus baris"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

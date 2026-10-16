@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi } from '@/api/endpoints/inventory.api';
+import { inventoryApi, type StockLevelRow } from '@/api/endpoints/inventory.api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,8 +35,16 @@ import {
   SlidersHorizontal,
   Loader2,
 } from 'lucide-react';
-import type { StockLevel } from '@/types/inventory.types';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
+
+type StockLevel = StockLevelRow;
+
+function stockLabel(item: StockLevel): string {
+  if (!item.variantId) return item.productName;
+  return `${item.productName} (${item.variantName ?? 'varian'})`;
+}
 
 /**
  * StockPage Mobile Version
@@ -62,6 +70,8 @@ export function StockPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId || user?.outletId || '';
+  // POST /inventory/stock/adjust: @Roles(MANAGER, OWNER, INVENTORY)
+  const canAdjust = hasRole(user?.role, 'STOCK');
 
   const [filter, setFilter] = useState<StockFilter>('all');
   const [search, setSearch] = useState('');
@@ -72,7 +82,7 @@ export function StockPage() {
   const [adjustReason, setAdjustReason] = useState('');
   const [adjustUnitCost, setAdjustUnitCost] = useState('');
 
-  const { data: stockData, isLoading } = useQuery({
+  const { data: stockData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stock-levels', outletId],
     queryFn: () => inventoryApi.getStockLevels(outletId),
     enabled: !!outletId,
@@ -142,11 +152,21 @@ export function StockPage() {
   }
 
   function handleAdjustSubmit() {
-    if (!adjustProduct || !adjustQuantity || !adjustReason) return;
+    if (!adjustProduct || adjustQuantity === '' || !adjustReason) return;
+    const qty = Number(adjustQuantity);
+    // 'set' may set stock to 0 (backend @Min(0)); add/remove need a positive amount
+    const invalid = !Number.isFinite(qty) || qty < 0 || (adjustType !== 'set' && qty === 0);
+    if (invalid) {
+      toast.error({
+        title: adjustType === 'set' ? 'Jumlah tidak boleh negatif' : 'Jumlah harus lebih besar dari 0',
+      });
+      return;
+    }
     adjustMutation.mutate({
       productId: adjustProduct.productId,
+      variantId: adjustProduct.variantId,
       outletId,
-      quantity: Number(adjustQuantity),
+      quantity: qty,
       reason: adjustReason,
       type: adjustType,
       ...(adjustType === 'add' && adjustUnitCost && Number(adjustUnitCost) > 0
@@ -293,6 +313,8 @@ export function StockPage() {
                 </Card>
               ))}
             </div>
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => refetch()} />
           ) : filteredData.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="rounded-full bg-muted/50 p-6 mb-4">
@@ -307,9 +329,9 @@ export function StockPage() {
             <div className="space-y-3">
               {filteredData.map((stock) => (
                 <StockCard
-                  key={stock.productId}
+                  key={stock.id}
                   stock={stock}
-                  onAdjust={() => openAdjustDialog(stock)}
+                  onAdjust={canAdjust ? () => openAdjustDialog(stock) : undefined}
                 />
               ))}
             </div>
@@ -321,12 +343,12 @@ export function StockPage() {
       </div>
 
       {/* Floating Action Button - Quick Adjust */}
-      {filteredData.length > 0 && (
+      {canAdjust && filteredData.length > 0 && (
         <Button
           size="lg"
           className="fixed bottom-20 right-4 z-30 h-14 w-14 rounded-full shadow-lg"
           onClick={() => openAdjustDialog()}
-          aria-label="Adjustment stok"
+          aria-label="Penyesuaian stok"
         >
           <SlidersHorizontal className="h-6 w-6" />
         </Button>
@@ -339,7 +361,7 @@ export function StockPage() {
       <Sheet open={adjustDialogOpen} onOpenChange={(open) => !open && closeAdjustDialog()}>
         <SheetContent side="bottom" className="h-[85vh]">
           <SheetHeader>
-            <SheetTitle>Adjustment Stok</SheetTitle>
+            <SheetTitle>Penyesuaian Stok</SheetTitle>
             <SheetDescription>
               Sesuaikan jumlah stok produk
             </SheetDescription>
@@ -351,7 +373,7 @@ export function StockPage() {
               <div className="p-3 bg-muted/50 rounded-lg">
                 <Label className="text-xs text-muted-foreground">Produk</Label>
                 <p className="font-semibold mt-1">
-                  {adjustProduct.productName}
+                  {stockLabel(adjustProduct)}
                 </p>
                 {adjustProduct.sku && (
                   <p className="text-sm text-muted-foreground">
@@ -368,7 +390,7 @@ export function StockPage() {
                 <Select
                   value=""
                   onValueChange={(val) => {
-                    const found = stockData?.find((s) => s.productId === val);
+                    const found = stockData?.find((s) => s.id === val);
                     if (found) setAdjustProduct(found);
                   }}
                 >
@@ -377,8 +399,8 @@ export function StockPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {stockData?.map((item) => (
-                      <SelectItem key={item.productId} value={item.productId}>
-                        {item.productName} {item.sku && `(${item.sku})`}
+                      <SelectItem key={item.id} value={item.id}>
+                        {stockLabel(item)} {item.sku && `(${item.sku})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -388,7 +410,7 @@ export function StockPage() {
 
             {/* Adjustment Type */}
             <div>
-              <Label>Tipe Adjustment</Label>
+              <Label>Tipe Penyesuaian</Label>
               <Select value={adjustType} onValueChange={(v) => setAdjustType(v as 'add' | 'remove' | 'set')}>
                 <SelectTrigger className="h-12 mt-2">
                   <SelectValue />
@@ -396,7 +418,7 @@ export function StockPage() {
                 <SelectContent>
                   <SelectItem value="add">Tambah Stok</SelectItem>
                   <SelectItem value="remove">Kurangi Stok</SelectItem>
-                  <SelectItem value="set">Set Stok</SelectItem>
+                  <SelectItem value="set">Atur Jumlah Stok</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -434,7 +456,7 @@ export function StockPage() {
 
             {/* Reason */}
             <div>
-              <Label>Alasan Adjustment</Label>
+              <Label>Alasan Penyesuaian</Label>
               <Textarea
                 value={adjustReason}
                 onChange={(e) => setAdjustReason(e.target.value)}
@@ -448,10 +470,10 @@ export function StockPage() {
               <Button
                 className="w-full h-12"
                 onClick={handleAdjustSubmit}
-                disabled={!adjustProduct || !adjustQuantity || !adjustReason || adjustMutation.isPending}
+                disabled={!adjustProduct || adjustQuantity === '' || !adjustReason || adjustMutation.isPending}
               >
                 {adjustMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Simpan Adjustment
+                Simpan Penyesuaian
               </Button>
               <Button
                 variant="outline"
@@ -505,7 +527,7 @@ function MetricCardMobile({ title, value, icon: Icon, color, bgColor }: MetricCa
  */
 interface StockCardProps {
   stock: StockLevel;
-  onAdjust: () => void;
+  onAdjust?: () => void;
 }
 
 function StockCard({ stock, onAdjust }: StockCardProps) {
@@ -531,7 +553,7 @@ function StockCard({ stock, onAdjust }: StockCardProps) {
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
-            <h3 className="font-semibold text-base mb-1">{stock.productName}</h3>
+            <h3 className="font-semibold text-base mb-1">{stockLabel(stock)}</h3>
             {stock.sku && (
               <p className="text-xs text-muted-foreground">SKU: {stock.sku}</p>
             )}
@@ -550,14 +572,16 @@ function StockCard({ stock, onAdjust }: StockCardProps) {
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          className="w-full h-10"
-          onClick={onAdjust}
-        >
-          <SlidersHorizontal className="mr-2 h-4 w-4" />
-          Adjustment Stok
-        </Button>
+        {onAdjust && (
+          <Button
+            variant="outline"
+            className="w-full h-10"
+            onClick={onAdjust}
+          >
+            <SlidersHorizontal className="mr-2 h-4 w-4" />
+            Sesuaikan Stok
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

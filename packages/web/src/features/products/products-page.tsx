@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { productsApi } from '@/api/endpoints/products.api';
+import { productsApi, type ProductStatusFilter } from '@/api/endpoints/products.api';
 import { categoriesApi } from '@/api/endpoints/categories.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
 import { CategoryManager } from './components/category-manager';
 import { ProductQuickAddModal } from './components/product-quick-add-modal';
 import { ProductBulkAddModal } from './components/product-bulk-add-modal';
@@ -36,7 +38,7 @@ import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { useOptimisticDelete } from '@/hooks/use-optimistic-delete';
 import { useRowHighlight } from '@/hooks/use-row-highlight';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
-import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2, LayoutTemplate, Printer } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Tags, Barcode, Zap, FileSpreadsheet, FileStack, Copy, Edit2, LayoutTemplate, Printer, RotateCcw } from 'lucide-react';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import type { Product } from '@/types/product.types';
@@ -48,6 +50,7 @@ export function ProductsPage() {
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('active');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -56,6 +59,11 @@ export function ProductsPage() {
   const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
+
+  // Mirrors backend @Roles on /inventory/products*: create/update/bulk-update/import =
+  // MANAGER/OWNER/INVENTORY; delete, bulk delete and category CRUD = MANAGER/OWNER.
+  const canWrite = hasRole(user?.role, 'STOCK');
+  const canDelete = hasRole(user?.role, 'MANAGEMENT');
 
   const { highlightedRowId, highlightRow } = useRowHighlight();
 
@@ -70,9 +78,11 @@ export function ProductsPage() {
   const filters = useMemo(() => ({
     outletId: outletId || undefined,
     categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
-  }), [outletId, categoryFilter]);
+    // Only catalogue writers may list inactive products (backend forces active for others)
+    status: canWrite ? statusFilter : undefined,
+  }), [outletId, categoryFilter, statusFilter, canWrite]);
 
-  const { data: productsData, isLoading, pagination, sort, setSearch } = usePaginatedList<Product>({
+  const { data: productsData, isLoading, error, refetch, pagination, sort, setSearch } = usePaginatedList<Product>({
     queryKey: ['products'],
     queryFn: (params) => productsApi.listPaginated({ ...params, ...filters }),
     filters,
@@ -93,14 +103,18 @@ export function ProductsPage() {
   const duplicateMutation = useMutation({
     mutationFn: async (product: Product) => {
       const duplicatedData = {
-        name: `${product.name} (Copy)`,
+        name: `${product.name} (Salinan)`,
         sku: `${product.sku}-COPY-${Date.now().toString(36).toUpperCase()}`,
         description: product.description ?? undefined,
         categoryId: product.categoryId ?? undefined,
-        basePrice: product.basePrice,
-        costPrice: product.costPrice,
+        basePrice: Number(product.basePrice) || 0,
+        costPrice: Number(product.costPrice) || 0,
         trackStock: product.trackStock,
         imageUrl: product.imageUrl ?? undefined,
+        // Copy active variants too (SKUs are unique, so leave them empty on the copy)
+        variants: (product.variants ?? [])
+          .filter((v) => v.isActive !== false)
+          .map((v) => ({ name: v.name, price: Number(v.price) || 0, costPrice: Number(v.costPrice) || 0 })),
       };
       return productsApi.create(duplicatedData);
     },
@@ -114,6 +128,16 @@ export function ProductsPage() {
       });
     },
     onError: (error) => handleMutationError(error, 'Gagal menduplikasi produk'),
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: (product: Product) => productsApi.update(product.id, { isActive: true }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      toast.success({ title: 'Produk diaktifkan kembali', description: `"${data.name}" kembali aktif` });
+    },
+    onError: (error) => handleMutationError(error, 'Gagal mengaktifkan produk'),
   });
 
   const isAllSelected = Boolean(productsData && productsData.length > 0 && selectedProducts.length === productsData.length);
@@ -143,14 +167,14 @@ export function ProductsPage() {
           checked={isAllSelected}
           indeterminate={isSomeSelected}
           onCheckedChange={toggleSelectAll}
-          aria-label="Select all products"
+          aria-label="Pilih semua produk"
         />
       ),
       cell: (row) => (
         <Checkbox
           checked={selectedProducts.some((p) => p.id === row.id)}
           onCheckedChange={() => toggleSelectProduct(row)}
-          aria-label={`Select ${row.name}`}
+          aria-label={`Pilih ${row.name}`}
         />
       ),
     },
@@ -196,7 +220,7 @@ export function ProductsPage() {
     {
       key: 'actions',
       header: '',
-      cell: (row) => (
+      cell: (row) => !canWrite ? null : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi produk">
@@ -210,12 +234,22 @@ export function ProductsPage() {
             <DropdownMenuItem onClick={() => duplicateMutation.mutate(row)}>
               <Copy className="mr-2 h-4 w-4" /> Duplikasi
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setDeleteTarget(row)}
-              className="text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
-            </DropdownMenuItem>
+            {!row.isActive && (
+              <DropdownMenuItem
+                onClick={() => reactivateMutation.mutate(row)}
+                disabled={reactivateMutation.isPending}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" /> Aktifkan Kembali
+              </DropdownMenuItem>
+            )}
+            {canDelete && row.isActive && (
+              <DropdownMenuItem
+                onClick={() => setDeleteTarget(row)}
+                className="text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Hapus
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -235,36 +269,47 @@ export function ProductsPage() {
             >
               <Printer className="mr-2 h-4 w-4" /> Cetak Barcode ({selectedProducts.filter((p) => p.sku).length})
             </Button>
-            <Button
-              variant="default"
-              onClick={() => setBulkEditOpen(true)}
-            >
-              <Edit2 className="mr-2 h-4 w-4" /> Bulk Edit ({selectedProducts.length})
+            {canWrite && (
+              <Button
+                variant="default"
+                onClick={() => setBulkEditOpen(true)}
+              >
+                <Edit2 className="mr-2 h-4 w-4" /> Ubah Massal ({selectedProducts.length})
+              </Button>
+            )}
+          </>
+        )}
+        {canDelete && (
+          <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
+            <Tags className="mr-2 h-4 w-4" /> Kategori
+          </Button>
+        )}
+        {canWrite && (
+          <>
+            <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
+              <LayoutTemplate className="mr-2 h-4 w-4" /> Templat
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app/import?type=products')}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Impor Excel
+            </Button>
+            <Button variant="outline" onClick={() => setBulkAddOpen(true)} aria-keyshortcuts="B">
+              <FileStack className="mr-2 h-4 w-4" /> Tambah Massal
+            </Button>
+            <Button variant="outline" onClick={() => setQuickAddOpen(true)} aria-keyshortcuts="Q">
+              <Zap className="mr-2 h-4 w-4" /> Tambah Cepat
+            </Button>
+            <Button onClick={() => navigate('/app/products/new')} aria-keyshortcuts="N">
+              <Plus className="mr-2 h-4 w-4" /> Tambah Produk
             </Button>
           </>
         )}
-        <Button variant="outline" onClick={() => setCategoryManagerOpen(true)}>
-          <Tags className="mr-2 h-4 w-4" /> Kategori
-        </Button>
-        <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
-          <LayoutTemplate className="mr-2 h-4 w-4" /> Template
-        </Button>
-        <Button variant="outline" onClick={() => navigate('/app/import?type=products')}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
-        </Button>
-        <Button variant="outline" onClick={() => setBulkAddOpen(true)} aria-keyshortcuts="B">
-          <FileStack className="mr-2 h-4 w-4" /> Bulk Add
-        </Button>
-        <Button variant="outline" onClick={() => setQuickAddOpen(true)} aria-keyshortcuts="Q">
-          <Zap className="mr-2 h-4 w-4" /> Quick Add
-        </Button>
-        <Button onClick={() => navigate('/app/products/new')} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Tambah Produk
-        </Button>
       </PageHeader>
 
       <InlineHelpCard page="products" className="mb-4" />
 
+      {error ? (
+        <ErrorState title="Gagal memuat produk" error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={productsData}
@@ -278,21 +323,22 @@ export function ProductsPage() {
         emptyTitle="Belum ada produk"
         emptyDescription="Mulai dengan menambahkan produk pertama Anda untuk mulai berjualan."
         emptyAction={
+          !canWrite ? undefined :
           <div className="flex flex-col gap-3 items-center">
             <Button onClick={() => setTemplatesOpen(true)}>
               <LayoutTemplate className="mr-2 h-4 w-4" /> Gunakan Template
             </Button>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(true)}>
-                <Zap className="mr-2 h-4 w-4" /> Quick Add
+                <Zap className="mr-2 h-4 w-4" /> Tambah Cepat
               </Button>
               <Button variant="outline" size="sm" onClick={() => setBulkAddOpen(true)}>
-                <FileStack className="mr-2 h-4 w-4" /> Bulk Add
+                <FileStack className="mr-2 h-4 w-4" /> Tambah Massal
               </Button>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => navigate('/app/import?type=products')}>
-                <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+                <FileSpreadsheet className="mr-2 h-4 w-4" /> Impor Excel
               </Button>
               <Button variant="outline" size="sm" onClick={() => navigate('/app/products/new')}>
                 <Plus className="mr-2 h-4 w-4" /> Form Lengkap
@@ -301,6 +347,7 @@ export function ProductsPage() {
           </div>
         }
         filters={
+          <div className="flex flex-wrap gap-2">
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Semua Kategori" />
@@ -314,8 +361,22 @@ export function ProductsPage() {
               ))}
             </SelectContent>
           </Select>
+          {canWrite && (
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as ProductStatusFilter)}>
+              <SelectTrigger className="w-[150px]" aria-label="Filter status produk">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Aktif</SelectItem>
+                <SelectItem value="inactive">Nonaktif</SelectItem>
+                <SelectItem value="all">Semua Status</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          </div>
         }
       />
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -327,7 +388,7 @@ export function ProductsPage() {
         isLoading={deleteMutation.isPending}
       />
 
-      <CategoryManager open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen} />
+      {canDelete && <CategoryManager open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen} />}
       <ProductQuickAddModal open={quickAddOpen} onOpenChange={setQuickAddOpen} />
       <ProductBulkAddModal open={bulkAddOpen} onOpenChange={setBulkAddOpen} />
       <BulkEditModal

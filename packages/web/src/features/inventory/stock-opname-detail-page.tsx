@@ -21,6 +21,9 @@ import {
   Minus,
 } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { ErrorState } from '@/components/shared/error-state';
+import { useAuthStore } from '@/stores/auth.store';
+import { hasRole } from '@/config/permissions';
 import type { StockOpnameItem, StockOpnameStatus } from '@/types/stock-opname.types';
 
 const STATUS_CONFIG: Record<StockOpnameStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'success' | 'warning' }> = {
@@ -34,12 +37,15 @@ export function StockOpnameDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const role = useAuthStore((s) => s.user?.role);
+  // Backend: complete/cancel = MANAGER/OWNER; saving counts also allows INVENTORY/SUPERVISOR
+  const canFinalize = hasRole(role, 'MANAGEMENT');
 
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [showComplete, setShowComplete] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
 
-  const { data: opname, isLoading } = useQuery({
+  const { data: opname, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stock-opname', id],
     queryFn: () => stockOpnameApi.getById(id!),
     enabled: !!id,
@@ -58,16 +64,19 @@ export function StockOpnameDetailPage() {
     }
   }, [opname?.items]);
 
+  /** Typed counts as API items; throws when a value is not a valid non-negative number. */
+  const buildCountItems = () => {
+    const items = Object.entries(counts)
+      .filter(([, val]) => val !== '')
+      .map(([itemId, val]) => ({ itemId, actualQuantity: Number(val) }));
+    if (items.some((i) => !Number.isFinite(i.actualQuantity) || i.actualQuantity < 0)) {
+      throw new Error('Stok aktual harus berupa angka ≥ 0');
+    }
+    return items;
+  };
+
   const updateMutation = useMutation({
-    mutationFn: () => {
-      const items = Object.entries(counts)
-        .filter(([, val]) => val !== '')
-        .map(([itemId, val]) => ({
-          itemId,
-          actualQuantity: Number(val),
-        }));
-      return stockOpnameApi.updateItems(id!, items);
-    },
+    mutationFn: () => stockOpnameApi.updateItems(id!, buildCountItems()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-opname', id] });
       toast.success({ title: 'Hitungan berhasil disimpan' });
@@ -76,7 +85,12 @@ export function StockOpnameDetailPage() {
   });
 
   const completeMutation = useMutation({
-    mutationFn: () => stockOpnameApi.complete(id!),
+    // Save the counts currently typed first: the backend only applies saved actualQuantity values
+    mutationFn: async () => {
+      const items = buildCountItems();
+      if (items.length > 0) await stockOpnameApi.updateItems(id!, items);
+      return stockOpnameApi.complete(id!);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-opname'] });
       toast.success({ title: 'Stock opname selesai, stok telah disesuaikan' });
@@ -104,7 +118,20 @@ export function StockOpnameDetailPage() {
     );
   }
 
-  if (!opname) return null;
+  if (isError || !opname) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" onClick={() => navigate('/app/inventory/stock-opname')}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+        </Button>
+        <ErrorState
+          title="Gagal memuat stock opname"
+          error={error}
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   const isEditable = opname.status === 'draft' || opname.status === 'in_progress';
   const statusConfig = STATUS_CONFIG[opname.status];
@@ -117,7 +144,7 @@ export function StockOpnameDetailPage() {
   const deficitItems = items.filter((i) => i.difference !== null && Number(i.difference) < 0).length;
 
   const getItemName = (item: StockOpnameItem) => {
-    const productName = item.product?.name || 'Unknown';
+    const productName = item.product?.name || 'Produk tidak dikenal';
     const variantName = item.variant?.name;
     return variantName ? `${productName} - ${variantName}` : productName;
   };
@@ -139,7 +166,12 @@ export function StockOpnameDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-1">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/app/inventory/stock-opname')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate('/app/inventory/stock-opname')}
+          aria-label="Kembali ke daftar stock opname"
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <PageHeader
@@ -218,6 +250,7 @@ export function StockOpnameDetailPage() {
                             setCounts((prev) => ({ ...prev, [item.id]: e.target.value }))
                           }
                           placeholder="..."
+                          aria-label={`Stok aktual ${getItemName(item)}`}
                         />
                       ) : (
                         <span className="text-sm">
@@ -256,18 +289,22 @@ export function StockOpnameDetailPage() {
       {/* Actions */}
       {isEditable && (
         <div className="flex items-center justify-end gap-3">
-          <Button variant="outline" onClick={() => setShowCancel(true)}>
-            <XCircle className="mr-2 h-4 w-4" />
-            Batalkan
-          </Button>
+          {canFinalize && (
+            <Button variant="outline" onClick={() => setShowCancel(true)}>
+              <XCircle className="mr-2 h-4 w-4" />
+              Batalkan
+            </Button>
+          )}
           <Button variant="outline" onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
             {updateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             Simpan Hitungan
           </Button>
-          <Button onClick={() => setShowComplete(true)}>
-            <CheckCircle className="mr-2 h-4 w-4" />
-            Selesaikan & Sesuaikan Stok
-          </Button>
+          {canFinalize && (
+            <Button onClick={() => setShowComplete(true)}>
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Selesaikan & Sesuaikan Stok
+            </Button>
+          )}
         </div>
       )}
 
@@ -277,7 +314,7 @@ export function StockOpnameDetailPage() {
         onOpenChange={(open) => !open && setShowComplete(false)}
         onConfirm={() => completeMutation.mutate()}
         title="Selesaikan Stock Opname?"
-        description="Stok sistem akan disesuaikan dengan jumlah aktual yang sudah dihitung. Pastikan semua item sudah dihitung dengan benar."
+        description="Hitungan yang sedang diisi akan disimpan, lalu stok sistem disesuaikan dengan jumlah aktual. Pastikan semua item sudah dihitung dengan benar."
         confirmLabel="Ya, Selesaikan"
         isLoading={completeMutation.isPending}
       />

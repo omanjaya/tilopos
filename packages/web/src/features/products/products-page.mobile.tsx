@@ -23,6 +23,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
+import { hasRole } from '@/config/permissions';
+import { CategoryManager } from './components/category-manager';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
@@ -63,13 +66,17 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  // Mirrors backend @Roles: create/update = MANAGER/OWNER/INVENTORY, delete + categories = MANAGER/OWNER
+  const canWrite = hasRole(user?.role, 'STOCK');
+  const canDelete = hasRole(user?.role, 'MANAGEMENT');
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: categoriesApi.list,
   });
 
-  const { data: productsData, isLoading } = useQuery({
+  const { data: productsData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['products', outletId, search, categoryFilter],
     queryFn: () =>
       productsApi.list({
@@ -104,14 +111,16 @@ export function ProductsPage() {
               {products.length} produk
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/app/products/categories')}
-            aria-label="Kelola kategori"
-          >
-            <Tags className="h-4 w-4" />
-          </Button>
+          {canDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCategoryManagerOpen(true)}
+              aria-label="Kelola kategori"
+            >
+              <Tags className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {/* Search Bar */}
@@ -202,6 +211,8 @@ export function ProductsPage() {
               </Card>
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState error={error} onRetry={() => void refetch()} />
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="rounded-full bg-muted/50 p-6 mb-4">
@@ -209,11 +220,15 @@ export function ProductsPage() {
             </div>
             <h3 className="font-semibold mb-1">Belum ada produk</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Tambahkan produk pertama Anda
+              {search || categoryFilter !== 'all'
+                ? 'Tidak ada produk yang cocok dengan filter'
+                : 'Tambahkan produk pertama Anda'}
             </p>
-            <Button onClick={() => navigate('/app/products/new')}>
-              <Plus className="mr-2 h-4 w-4" /> Tambah Produk
-            </Button>
+            {canWrite && (
+              <Button onClick={() => navigate('/app/products/new')}>
+                <Plus className="mr-2 h-4 w-4" /> Tambah Produk
+              </Button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -221,8 +236,8 @@ export function ProductsPage() {
               <ProductCard
                 key={product.id}
                 product={product}
-                onEdit={() => navigate(`/app/products/${product.id}/edit`)}
-                onDelete={() => setDeleteTarget(product)}
+                onEdit={canWrite ? () => navigate(`/app/products/${product.id}/edit`) : undefined}
+                onDelete={canDelete ? () => setDeleteTarget(product) : undefined}
               />
             ))}
           </div>
@@ -230,7 +245,7 @@ export function ProductsPage() {
       </div>
 
       {/* Floating Action Button */}
-      {products.length > 0 && (
+      {canWrite && products.length > 0 && (
         <Button
           size="lg"
           className="fixed bottom-20 right-4 z-30 h-14 w-14 rounded-full shadow-lg"
@@ -254,6 +269,10 @@ export function ProductsPage() {
         confirmLabel="Hapus"
         isLoading={deleteMutation.isPending}
       />
+
+      {canDelete && (
+        <CategoryManager open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen} />
+      )}
     </div>
   );
 }
@@ -264,8 +283,8 @@ export function ProductsPage() {
  */
 interface ProductCardProps {
   product: Product;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 function ProductCard({ product, onEdit, onDelete }: ProductCardProps) {
@@ -305,6 +324,7 @@ function ProductCard({ product, onEdit, onDelete }: ProductCardProps) {
           </div>
 
           {/* Actions Menu */}
+          {(onEdit || onDelete) && (
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
               <Button
@@ -320,6 +340,7 @@ function ProductCard({ product, onEdit, onDelete }: ProductCardProps) {
               <div className="py-4">
                 <h3 className="font-semibold mb-4">{product.name}</h3>
                 <div className="space-y-2">
+                  {onEdit && (
                   <Button
                     variant="outline"
                     className="w-full justify-start h-12"
@@ -331,6 +352,8 @@ function ProductCard({ product, onEdit, onDelete }: ProductCardProps) {
                     <Edit className="mr-3 h-5 w-5" />
                     Edit Produk
                   </Button>
+                  )}
+                  {onDelete && (
                   <Button
                     variant="outline"
                     className={cn(
@@ -345,10 +368,12 @@ function ProductCard({ product, onEdit, onDelete }: ProductCardProps) {
                     <Trash2 className="mr-3 h-5 w-5" />
                     Hapus Produk
                   </Button>
+                  )}
                 </div>
               </div>
             </SheetContent>
           </Sheet>
+          )}
         </div>
 
         {/* Status Badge */}

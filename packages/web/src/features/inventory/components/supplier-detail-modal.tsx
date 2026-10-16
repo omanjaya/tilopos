@@ -16,13 +16,21 @@ import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
 import {
   History,
   Wallet,
-  AlertTriangle,
   CheckCircle,
   Clock,
   DollarSign,
   Calendar,
 } from 'lucide-react';
 import type { Supplier } from '@/types/inventory.types';
+import { ErrorState } from '@/components/shared/error-state';
+
+const PO_STATUS_LABEL: Record<string, string> = {
+  draft: 'Draf',
+  ordered: 'Dipesan',
+  partial: 'Diterima Sebagian',
+  received: 'Diterima',
+  cancelled: 'Dibatalkan',
+};
 
 interface SupplierDetailModalProps {
   supplier: Supplier | null;
@@ -38,14 +46,26 @@ export function SupplierDetailModal({
   const [activeTab, setActiveTab] = useState<'history' | 'payment'>('history');
 
   // Purchase History
-  const { data: history, isLoading: historyLoading } = useQuery({
+  const {
+    data: history,
+    isLoading: historyLoading,
+    isError: historyError,
+    error: historyErrorObj,
+    refetch: refetchHistory,
+  } = useQuery({
     queryKey: ['supplier-history', supplier?.id],
     queryFn: () => supplierAnalyticsApi.getPurchaseHistory(supplier!.id, { dateRange: 'this_month' }),
     enabled: open && !!supplier && activeTab === 'history',
   });
 
   // Payment Status
-  const { data: payment, isLoading: paymentLoading } = useQuery({
+  const {
+    data: payment,
+    isLoading: paymentLoading,
+    isError: paymentError,
+    error: paymentErrorObj,
+    refetch: refetchPayment,
+  } = useQuery({
     queryKey: ['supplier-payment', supplier?.id],
     queryFn: () => supplierAnalyticsApi.getPaymentStatus(supplier!.id),
     enabled: open && !!supplier && activeTab === 'payment',
@@ -58,7 +78,7 @@ export function SupplierDetailModal({
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
-            📦 {supplier.name}
+            {supplier.name}
           </DialogTitle>
           <DialogDescription>
             {supplier.contactName && `Kontak: ${supplier.contactName}`}
@@ -70,11 +90,11 @@ export function SupplierDetailModal({
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="history" className="gap-2">
               <History className="h-4 w-4" />
-              Purchase History
+              Riwayat Pembelian
             </TabsTrigger>
             <TabsTrigger value="payment" className="gap-2">
               <Wallet className="h-4 w-4" />
-              Payment Status
+              Status Pesanan
             </TabsTrigger>
           </TabsList>
 
@@ -86,6 +106,8 @@ export function SupplierDetailModal({
                 <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
               </div>
+            ) : historyError ? (
+              <ErrorState error={historyErrorObj} onRetry={() => refetchHistory()} />
             ) : history ? (
               <>
                 {/* Summary Cards */}
@@ -101,7 +123,7 @@ export function SupplierDetailModal({
                         {formatCurrency(history.summary.totalPurchases)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatNumber(history.summary.totalOrders)} orders
+                        {formatNumber(history.summary.totalOrders)} pesanan
                       </p>
                     </CardContent>
                   </Card>
@@ -127,13 +149,13 @@ export function SupplierDetailModal({
                     <CardContent>
                       <div className="space-y-1">
                         <div className="flex items-center justify-between text-xs">
-                          <span>Completed:</span>
+                          <span>Selesai:</span>
                           <Badge variant="default" className="text-xs">
                             {history.summary.statusCounts.completed}
                           </Badge>
                         </div>
                         <div className="flex items-center justify-between text-xs">
-                          <span>Pending:</span>
+                          <span>Belum selesai:</span>
                           <Badge variant="outline" className="text-xs">
                             {history.summary.statusCounts.pending}
                           </Badge>
@@ -145,7 +167,7 @@ export function SupplierDetailModal({
 
                 {/* Orders List */}
                 <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Recent Orders</h3>
+                  <h3 className="font-semibold text-sm">Pesanan Terbaru</h3>
                   {history.orders.length === 0 ? (
                     <p className="text-center text-muted-foreground py-8">
                       Belum ada riwayat pembelian bulan ini
@@ -176,7 +198,7 @@ export function SupplierDetailModal({
                                 }
                                 className="mt-1"
                               >
-                                {order.status}
+                                {PO_STATUS_LABEL[order.status] ?? order.status}
                               </Badge>
                             </div>
                           </div>
@@ -198,7 +220,7 @@ export function SupplierDetailModal({
                             ))}
                             {order.items.length > 3 && (
                               <p className="text-xs text-muted-foreground">
-                                +{order.items.length - 3} items lainnya
+                                +{order.items.length - 3} item lainnya
                               </p>
                             )}
                           </div>
@@ -215,30 +237,35 @@ export function SupplierDetailModal({
             )}
           </TabsContent>
 
-          {/* Payment Status Tab */}
+          {/* Order status tab — the backend has no supplier payment ledger; it derives
+              "paid" from PO status = received, so this is shown as a PO status summary. */}
           <TabsContent value="payment" className="space-y-4 mt-4">
             {paymentLoading ? (
               <div className="space-y-3">
                 <Skeleton className="h-32" />
                 <Skeleton className="h-24" />
               </div>
+            ) : paymentError ? (
+              <ErrorState error={paymentErrorObj} onRetry={() => refetchPayment()} />
             ) : payment ? (
               <>
-                {/* Summary Cards */}
+                <p className="text-xs text-muted-foreground">
+                  Pencatatan pembayaran ke supplier belum tersedia. Ringkasan ini berdasarkan status penerimaan PO.
+                </p>
                 <div className="grid grid-cols-3 gap-4">
-                  <Card className={payment.summary.totalDebt > 0 ? 'border-destructive/20' : ''}>
+                  <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-destructive" />
-                        Total Hutang
+                        <Clock className="h-4 w-4 text-warning" />
+                        PO Belum Diterima
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold text-destructive">
-                        {formatCurrency(payment.summary.totalDebt)}
+                      <p className="text-2xl font-bold">
+                        {formatCurrency(payment.summary.openAmount)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {payment.summary.unpaidOrdersCount} orders belum lunas
+                        {payment.summary.openOrdersCount} pesanan
                       </p>
                     </CardContent>
                   </Card>
@@ -247,15 +274,15 @@ export function SupplierDetailModal({
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
                         <CheckCircle className="h-4 w-4 text-success" />
-                        Sudah Dibayar
+                        PO Diterima
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <p className="text-2xl font-bold text-success">
-                        {formatCurrency(payment.summary.totalPaid)}
+                        {formatCurrency(payment.summary.receivedAmount)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {payment.summary.paymentRate.toFixed(1)}% dari total
+                        {payment.summary.receivedRate.toFixed(1)}% dari total
                       </p>
                     </CardContent>
                   </Card>
@@ -271,77 +298,29 @@ export function SupplierDetailModal({
                       <p className="text-2xl font-bold text-info">
                         {formatCurrency(payment.summary.totalPurchases)}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">All time</p>
+                      <p className="text-xs text-muted-foreground mt-1">Sepanjang waktu</p>
                     </CardContent>
                   </Card>
                 </div>
 
-                {/* Overdue Orders Alert */}
-                {payment.overdueOrders.length > 0 && (
-                  <Card className="border-destructive/30 bg-destructive/5">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm text-destructive flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        ⚠️ {payment.overdueOrders.length} Order Terlambat
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      {payment.overdueOrders.slice(0, 3).map((order) => (
-                        <div
-                          key={order.id}
-                          className="flex items-center justify-between bg-white p-3 rounded-lg"
-                        >
-                          <div>
-                            <p className="font-semibold text-sm">{order.orderNumber}</p>
-                            <p className="text-xs text-destructive">
-                              {order.daysOverdue} hari terlambat
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-destructive">
-                              {formatCurrency(order.outstandingAmount)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">belum dibayar</p>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Unpaid Orders */}
                 <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Unpaid Orders</h3>
-                  {payment.unpaidOrders.length === 0 ? (
-                    <Card className="border-success/20 bg-success/5">
-                      <CardContent className="p-6 text-center">
-                        <CheckCircle className="h-12 w-12 text-success mx-auto mb-2" />
-                        <p className="font-semibold text-success">Semua Lunas! 🎉</p>
-                        <p className="text-sm text-success mt-1">
-                          Tidak ada hutang dengan supplier ini
-                        </p>
-                      </CardContent>
-                    </Card>
+                  <h3 className="font-semibold text-sm">Pesanan Belum Diterima</h3>
+                  {payment.openOrders.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">
+                      Semua pesanan ke supplier ini sudah diterima
+                    </p>
                   ) : (
-                    payment.unpaidOrders.map((order) => (
+                    payment.openOrders.map((order) => (
                       <Card key={order.id}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="font-semibold">{order.orderNumber}</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Order: {formatDate(order.orderDate)}
-                                {order.dueDate && ` • Jatuh tempo: ${formatDate(order.dueDate)}`}
+                                Tanggal pesan: {formatDate(order.orderDate)}
                               </p>
                             </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold text-destructive">
-                                {formatCurrency(order.outstandingAmount)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                dari {formatCurrency(order.totalAmount)}
-                              </p>
-                            </div>
+                            <p className="text-lg font-bold">{formatCurrency(order.totalAmount)}</p>
                           </div>
                         </CardContent>
                       </Card>
@@ -349,11 +328,7 @@ export function SupplierDetailModal({
                   )}
                 </div>
               </>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">
-                Tidak ada data pembayaran
-              </p>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       </DialogContent>

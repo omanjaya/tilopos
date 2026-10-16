@@ -51,8 +51,8 @@ export function ProductQuickAddModal({ open, onOpenChange }: ProductQuickAddModa
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
       toast.success({
-        title: '✅ Produk berhasil ditambahkan!',
-        description: `"${data.name}" - Rp ${data.basePrice.toLocaleString('id-ID')}`,
+        title: 'Produk berhasil ditambahkan',
+        description: `"${data.name}" - Rp ${Number(data.basePrice).toLocaleString('id-ID')}`,
       });
       // Reset form
       setName('');

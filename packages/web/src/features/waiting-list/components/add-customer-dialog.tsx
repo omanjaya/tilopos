@@ -19,6 +19,13 @@ import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, UserPlus } from 'lucide-react';
 import type { AddWaitingListRequest } from '@/types/waiting-list.types';
 
+interface FormState {
+  customerName: string;
+  phoneNumber: string;
+  partySize: number;
+  specialRequests: string;
+}
+
 interface AddCustomerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -27,7 +34,7 @@ interface AddCustomerDialogProps {
 
 export function AddCustomerDialog({ open, onOpenChange, onSuccess }: AddCustomerDialogProps) {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
-  const [formData, setFormData] = useState<AddWaitingListRequest>({
+  const [formData, setFormData] = useState<FormState>({
     customerName: '',
     phoneNumber: '',
     partySize: 2,
@@ -73,11 +80,17 @@ export function AddCustomerDialog({ open, onOpenChange, onSuccess }: AddCustomer
     }
 
     if (!selectedOutletId) {
-      toast.error({ title: 'Error', description: 'Outlet tidak dipilih' });
+      toast.error({ title: 'Validasi gagal', description: 'Pilih outlet terlebih dahulu' });
       return;
     }
 
-    createMutation.mutate(formData);
+    createMutation.mutate({
+      outletId: selectedOutletId,
+      customerName: formData.customerName.trim(),
+      customerPhone: formData.phoneNumber.trim(),
+      partySize: formData.partySize,
+      notes: formData.specialRequests.trim() || undefined,
+    });
   };
 
   const handleOpenChange = (newOpen: boolean) => {

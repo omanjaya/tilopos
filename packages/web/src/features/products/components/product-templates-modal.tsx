@@ -1,6 +1,15 @@
 import { useState, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { productsApi } from '@/api/endpoints/products.api';
+import { categoriesApi } from '@/api/endpoints/categories.api';
+import type { AxiosError } from 'axios';
+import { getErrorMessage as describeApiError } from '@/lib/api-error-handler';
+import type { ApiErrorResponse } from '@/types/api.types';
+
+function getErrorMessage(err: unknown): string {
+  const { title, description } = describeApiError(err as AxiosError<ApiErrorResponse>);
+  return description ?? title;
+}
 import {
   Dialog,
   DialogContent,
@@ -135,34 +144,68 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
   const importMutation = useMutation({
     mutationFn: async () => {
       const toImport = allProducts.filter((p) => selectedProducts.has(p.key));
+
+      // Resolve template category names to real categories (create missing ones).
+      const existing = await categoriesApi.list();
+      const categoryIds = new Map(existing.map((c) => [c.name.trim().toLowerCase(), c.id]));
+      const categoryErrors: string[] = [];
+      for (const name of new Set(toImport.map((p) => p.category))) {
+        const key = name.trim().toLowerCase();
+        if (categoryIds.has(key)) continue;
+        try {
+          const created = await categoriesApi.create({ name });
+          categoryIds.set(key, created.id);
+        } catch (err) {
+          categoryErrors.push(`${name}: ${getErrorMessage(err)}`);
+        }
+      }
+
+      const batch = Date.now().toString(36).toUpperCase();
       const results = await Promise.allSettled(
-        toImport.map((p) => {
+        toImport.map((p, i) => {
           const data: CreateProductRequest = {
             name: p.name,
-            sku: p.name.toUpperCase().replace(/\s+/g, '-').slice(0, 20),
+            // Unique per import so re-importing a template does not collide on SKU
+            sku: `${p.name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 14)}-${batch}${i}`,
             basePrice: priceOverrides[p.key] ?? p.basePrice,
             costPrice: 0,
             trackStock: true,
+            categoryId: categoryIds.get(p.category.trim().toLowerCase()),
           };
           return productsApi.create(data);
         }),
       );
-      return results;
+      const failures = results
+        .map((r, i) => (r.status === 'rejected' ? `${toImport[i]!.name}: ${getErrorMessage(r.reason)}` : null))
+        .filter((x): x is string => x !== null);
+      return { ok: results.length - failures.length, failures, categoryErrors };
     },
-    onSuccess: (results) => {
-      const ok = results.filter((r) => r.status === 'fulfilled').length;
-      const failed = results.filter((r) => r.status === 'rejected').length;
+    onSuccess: ({ ok, failures, categoryErrors }) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
       queryClient.invalidateQueries({ queryKey: ['categories'] });
-      toast.success({
-        title: `${ok} produk berhasil diimport`,
-        description: failed > 0 ? `${failed} produk gagal` : undefined,
-      });
+      if (ok === 0) {
+        toast.error({
+          title: 'Tidak ada produk yang berhasil diimpor',
+          description: failures.slice(0, 3).join('; ') || undefined,
+        });
+        return;
+      }
+      if (failures.length > 0 || categoryErrors.length > 0) {
+        toast.warning({
+          title: `${ok} produk diimpor, ${failures.length} gagal`,
+          description: [
+            ...failures.slice(0, 3),
+            ...(categoryErrors.length > 0 ? ['Sebagian kategori gagal dibuat; produk terkait tanpa kategori.'] : []),
+          ].join('; '),
+        });
+      } else {
+        toast.success({ title: `${ok} produk berhasil diimpor` });
+      }
       resetAndClose();
     },
-    onError: () => {
-      toast.error({ title: 'Gagal mengimport produk' });
+    onError: (error) => {
+      toast.error({ title: 'Gagal mengimpor produk', description: getErrorMessage(error) });
     },
   });
 
@@ -216,6 +259,7 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
               const count = (TEMPLATES[bt.key] ?? []).reduce((s, c) => s + c.products.length, 0);
               return (
                 <button
+                  type="button"
                   key={bt.key}
                   className="flex flex-col items-center gap-2 rounded-lg border p-5 text-center transition-colors hover:bg-accent hover:border-primary/30"
                   onClick={() => handleSelectType(bt.key)}
@@ -260,6 +304,7 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => toggleProduct(key)}
+                            aria-label={`Pilih ${product.name}`}
                           />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium">{product.name}</span>
@@ -268,6 +313,8 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
                           <Input
                             type="number"
                             className="w-28 text-right text-sm"
+                            aria-label={`Harga ${product.name}`}
+                            min={0}
                             value={priceOverrides[key] ?? product.basePrice}
                             onChange={(e) =>
                               setPriceOverrides({ ...priceOverrides, [key]: Number(e.target.value) })
@@ -291,7 +338,7 @@ export function ProductTemplatesModal({ open, onOpenChange }: ProductTemplatesMo
               disabled={selectedProducts.size === 0 || importMutation.isPending}
             >
               {importMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Import {selectedProducts.size} Produk
+              Impor {selectedProducts.size} Produk
             </Button>
           </DialogFooter>
         )}

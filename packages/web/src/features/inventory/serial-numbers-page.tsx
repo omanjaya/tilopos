@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { serialNumbersApi } from '@/api/endpoints/serial-numbers.api';
 import { productsApi } from '@/api/endpoints/products.api';
+import { isAxiosError } from 'axios';
 import { useUIStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { ErrorState } from '@/components/shared/error-state';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,7 +40,9 @@ function formatDate(date: string | null) {
 
 export function SerialNumbersPage() {
   const queryClient = useQueryClient();
-  const outletId = useUIStore((s) => s.selectedOutletId) ?? '';
+  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
+  const userOutletId = useAuthStore((s) => s.user?.outletId);
+  const outletId = selectedOutletId || userOutletId || '';
 
   const [activeTab, setActiveTab] = useState<'lookup' | 'warranty' | 'register'>('lookup');
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,7 +56,13 @@ export function SerialNumbersPage() {
   const [warrantyExpiry, setWarrantyExpiry] = useState('');
   const [regNotes, setRegNotes] = useState('');
 
-  const { data: warrantyExpiring, isLoading: warrantyLoading } = useQuery({
+  const {
+    data: warrantyExpiring,
+    isLoading: warrantyLoading,
+    isError: warrantyIsError,
+    error: warrantyError,
+    refetch: refetchWarranty,
+  } = useQuery({
     queryKey: ['serial-warranty-expiring'],
     queryFn: () => serialNumbersApi.getWarrantyExpiring(30),
     enabled: activeTab === 'warranty',
@@ -68,9 +80,13 @@ export function SerialNumbersPage() {
       setLookupResult(data);
       setLookupError('');
     },
-    onError: () => {
+    onError: (err) => {
       setLookupResult(null);
-      setLookupError('Serial number tidak ditemukan');
+      setLookupError(
+        isAxiosError(err) && err.response?.status === 404
+          ? 'Serial number tidak ditemukan'
+          : 'Gagal mencari serial number. Periksa koneksi lalu coba lagi.',
+      );
     },
   });
 
@@ -92,7 +108,7 @@ export function SerialNumbersPage() {
       setWarrantyExpiry('');
       setRegNotes('');
     },
-    onError: () => toast.error({ title: 'Gagal mendaftarkan serial number' }),
+    onError: (err) => handleMutationError(err, 'Gagal mendaftarkan serial number'),
   });
 
   const statusMutation = useMutation({
@@ -102,13 +118,14 @@ export function SerialNumbersPage() {
         case 'returned': return serialNumbersApi.markReturned(id, notes);
         case 'warranty': return serialNumbersApi.markWarranty(id, notes);
         case 'defective': return serialNumbersApi.markDefective(id, notes);
-        default: return Promise.reject('Unknown action');
+        default: return Promise.reject(new Error('Aksi tidak dikenal'));
       }
     },
     onSuccess: () => {
       toast.success({ title: 'Status diperbarui' });
       if (lookupResult) lookupMutation.mutate(lookupResult.serialNumber);
     },
+    onError: (err) => handleMutationError(err, 'Gagal memperbarui status serial number'),
   });
 
   return (
@@ -208,6 +225,8 @@ export function SerialNumbersPage() {
           <CardContent>
             {warrantyLoading ? (
               <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}</div>
+            ) : warrantyIsError ? (
+              <ErrorState error={warrantyError} onRetry={() => refetchWarranty()} />
             ) : (warrantyExpiring ?? []).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">Tidak ada garansi yang hampir habis</p>
             ) : (
@@ -219,7 +238,7 @@ export function SerialNumbersPage() {
                       <div>
                         <p className="text-sm font-medium font-mono">{sn.serialNumber}</p>
                         <p className="text-xs text-muted-foreground">
-                          {sn.product?.name ?? 'Unknown'} | Garansi s/d: {formatDate(sn.warrantyExpiry)}
+                          {sn.product?.name ?? 'Produk tidak dikenal'} | Garansi s/d: {formatDate(sn.warrantyExpiry)}
                         </p>
                         {sn.customer && <p className="text-xs text-muted-foreground">Pelanggan: {sn.customer.name}</p>}
                       </div>
@@ -242,8 +261,9 @@ export function SerialNumbersPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label>Produk</Label>
+              <Label htmlFor="serial-product">Produk</Label>
               <select
+                id="serial-product"
                 value={productId}
                 onChange={(e) => setProductId(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -278,6 +298,11 @@ export function SerialNumbersPage() {
             >
               <Plus className="mr-1 h-4 w-4" /> Daftarkan
             </Button>
+            {!outletId && (
+              <p className="text-xs text-muted-foreground">
+                Pilih outlet terlebih dahulu untuk mendaftarkan serial number.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
