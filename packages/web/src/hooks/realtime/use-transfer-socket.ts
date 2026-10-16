@@ -5,11 +5,11 @@
  * Listens to transfer status changes and notifies components.
  */
 
-import { useEffect, useCallback } from 'react';
-import { useSocket } from './use-socket';
+import { useEffect, useCallback, useState } from 'react';
+import { useSocket, useEffectiveOutletId } from './use-socket';
 import { useAuthStore } from '@/stores/auth.store';
 import { toast } from '@/lib/toast-utils';
-import type { TransferStatus } from '@/types/inventory.types';
+import type { StockTransferStatus as TransferStatus } from '@/api/endpoints/inventory.api';
 
 export interface TransferStatusChangedPayload {
   transferId: string;
@@ -27,7 +27,10 @@ export interface UseTransferSocketOptions {
   onStatusChange?: (payload: TransferStatusChangedPayload) => void;
   /** Show toast notifications for status changes */
   showNotifications?: boolean;
-  /** Auto-join outlet room */
+  /**
+   * @deprecated Transfer events are received through the business room (one delivery per
+   * change); kept for call-site compatibility.
+   */
   autoJoinOutlet?: boolean;
 }
 
@@ -37,131 +40,101 @@ export interface UseTransferSocketOptions {
  * @param options Configuration options
  * @returns Socket connection state and utility functions
  */
+// The shared socket may be in the business room and in outlet rooms at once, and the
+// gateway emits the same change to each of them: drop repeated deliveries.
+const recentDeliveries = new Map<string, number>();
+const DEDUPE_WINDOW_MS = 10_000;
+let nextHookId = 0;
+
+function isDuplicateDelivery(payload: TransferStatusChangedPayload, hookId: number): boolean {
+  const now = Date.now();
+  recentDeliveries.forEach((at, key) => {
+    if (now - at > DEDUPE_WINDOW_MS) recentDeliveries.delete(key);
+  });
+  const key = `${hookId}|${payload.transferId}|${payload.newStatus}|${payload.occurredOn}`;
+  if (recentDeliveries.has(key)) return true;
+  recentDeliveries.set(key, now);
+  return false;
+}
+
 export function useTransferSocket(options: UseTransferSocketOptions = {}) {
-  const {
-    onStatusChange,
-    showNotifications = true,
-    autoJoinOutlet = true,
-  } = options;
+  const { onStatusChange, showNotifications = true } = options;
 
   const { socket, isConnected, joinRoom, leaveRoom } = useSocket();
-  const user = useAuthStore((s) => s.user);
+  const outletId = useEffectiveOutletId();
+  const businessId = useAuthStore((s) => s.user?.businessId ?? null);
+  const [hookId] = useState(() => ++nextHookId);
 
-  // Handle transfer status change events
   const handleTransferStatusChanged = useCallback(
     (payload: TransferStatusChangedPayload) => {
-      // Call custom callback if provided
-      if (onStatusChange) {
-        onStatusChange(payload);
+      if (isDuplicateDelivery(payload, hookId)) return;
+      onStatusChange?.(payload);
+
+      if (!showNotifications) return;
+
+      const isSourceOutlet = outletId === payload.sourceOutletId;
+      const isDestinationOutlet = outletId === payload.destinationOutletId;
+      // Owners without a selected outlet see every transfer of the business
+      const isRelevant = !outletId || isSourceOutlet || isDestinationOutlet;
+      if (!isRelevant) return;
+
+      let title = '';
+      let description = '';
+
+      switch (payload.newStatus) {
+        case 'pending':
+          if (isDestinationOutlet || isSourceOutlet || !outletId) {
+            title = 'Permintaan Transfer Baru';
+            description = 'Transfer stok baru menunggu persetujuan';
+          }
+          break;
+        case 'approved':
+          title = 'Transfer Disetujui';
+          description = 'Transfer telah disetujui dan siap dikirim';
+          break;
+        case 'in_transit':
+          title = 'Transfer Dalam Pengiriman';
+          description = isDestinationOutlet
+            ? 'Barang sedang dalam pengiriman ke outlet Anda'
+            : 'Barang telah dikirim ke outlet tujuan';
+          break;
+        case 'received':
+          title = 'Transfer Diterima';
+          description = isDestinationOutlet
+            ? 'Barang telah masuk ke stok outlet'
+            : 'Barang telah diterima di outlet tujuan';
+          break;
+        case 'rejected':
+          title = 'Transfer Ditolak';
+          description = 'Permintaan transfer ditolak';
+          break;
+        case 'cancelled':
+          title = 'Transfer Dibatalkan';
+          description = 'Transfer telah dibatalkan';
+          break;
       }
 
-      // Show toast notification
-      if (showNotifications && user) {
-        const isSourceOutlet = user.outletId === payload.sourceOutletId;
-        const isDestinationOutlet = user.outletId === payload.destinationOutletId;
-
-        let title = '';
-        let description = '';
-
-        // Customize message based on status and outlet role
-        switch (payload.newStatus) {
-          case 'requested':
-            if (isDestinationOutlet) {
-              title = '📦 Transfer Baru Masuk';
-              description = 'Transfer stok baru memerlukan persetujuan';
-            }
-            break;
-
-          case 'approved':
-            if (isSourceOutlet) {
-              title = '✅ Transfer Disetujui';
-              description = 'Transfer telah disetujui dan siap dikirim';
-            }
-            break;
-
-          case 'shipped':
-          case 'in_transit':
-            if (isDestinationOutlet) {
-              title = '🚚 Transfer Dalam Perjalanan';
-              description = 'Barang sedang dalam pengiriman ke outlet Anda';
-            } else if (isSourceOutlet) {
-              title = '✓ Transfer Telah Dikirim';
-              description = 'Barang telah dikirim ke outlet tujuan';
-            }
-            break;
-
-          case 'received':
-            if (isSourceOutlet) {
-              title = '✓ Transfer Diterima';
-              description = 'Barang telah diterima di outlet tujuan';
-            } else if (isDestinationOutlet) {
-              title = '📦 Transfer Diterima';
-              description = 'Barang telah masuk ke stok outlet';
-            }
-            break;
-
-          case 'cancelled':
-            title = '❌ Transfer Dibatalkan';
-            description = 'Transfer telah dibatalkan';
-            break;
-        }
-
-        if (title) {
-          toast.info({
-            title,
-            description,
-          });
-        }
+      if (title) {
+        toast.info({ title, description });
       }
     },
-    [onStatusChange, showNotifications, user]
+    [onStatusChange, showNotifications, outletId, hookId],
   );
 
-  // Setup WebSocket event listeners
   useEffect(() => {
     const socketInstance = socket.current;
-    if (!socketInstance || !isConnected) return;
+    if (!socketInstance || !isConnected || !businessId) return;
 
-    // Join outlet room automatically if enabled
-    if (autoJoinOutlet && user?.outletId) {
-      joinRoom(`outlet:${user.outletId}`, {
-        outletId: user.outletId,
-        businessId: user.businessId ?? undefined,
-      });
-    }
-
-    // Also join business room for global updates
-    if (user?.businessId) {
-      joinRoom(`business:${user.businessId}`, {
-        businessId: user.businessId,
-      });
-    }
-
-    // Listen to transfer status change events
+    // The gateway emits every transfer change to the business room (and additionally to
+    // both outlet rooms). Joining only the business room gives exactly one delivery.
+    joinRoom('business', { businessId });
     socketInstance.on('transfer:status_changed', handleTransferStatusChanged);
-    socketInstance.on('inventory:transfer-status-changed', handleTransferStatusChanged);
 
     return () => {
       socketInstance.off('transfer:status_changed', handleTransferStatusChanged);
-      socketInstance.off('inventory:transfer-status-changed', handleTransferStatusChanged);
-
-      // Leave rooms on cleanup
-      if (autoJoinOutlet && user?.outletId) {
-        leaveRoom(`outlet:${user.outletId}`);
-      }
-      if (user?.businessId) {
-        leaveRoom(`business:${user.businessId}`);
-      }
+      leaveRoom('business');
     };
-  }, [
-    socket,
-    isConnected,
-    handleTransferStatusChanged,
-    autoJoinOutlet,
-    user,
-    joinRoom,
-    leaveRoom,
-  ]);
+  }, [socket, isConnected, businessId, handleTransferStatusChanged, joinRoom, leaveRoom]);
 
   return {
     isConnected,

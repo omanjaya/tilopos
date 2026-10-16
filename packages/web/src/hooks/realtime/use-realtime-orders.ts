@@ -5,8 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useAuthStore } from '@/stores/auth.store';
-import { useSocket } from './use-socket';
+import { useSocket, useEffectiveOutletId } from './use-socket';
 import type { OrderStatusEvent } from './types';
 
 export interface UseRealtimeOrdersOptions {
@@ -38,8 +37,8 @@ export function useRealtimeOrders(
   options?: UseRealtimeOrdersOptions
 ): UseRealtimeOrdersReturn {
   const { socket, isConnected, joinRoom, leaveRoom } = useSocket();
+  const outletId = useEffectiveOutletId();
   const [lastEvent, setLastEvent] = useState<OrderStatusEvent | null>(null);
-  const user = useAuthStore((s) => s.user);
   const callbackRef = useRef(options?.onStatusChanged);
   const boundSocketRef = useRef<typeof socket.current>(null);
 
@@ -49,7 +48,7 @@ export function useRealtimeOrders(
   }, [options?.onStatusChanged]);
 
   useEffect(() => {
-    if (!isConnected || !user?.outletId) return;
+    if (!isConnected || !outletId) return;
 
     // Capture current socket at setup time for consistent cleanup
     const currentSocket = socket.current;
@@ -58,7 +57,7 @@ export function useRealtimeOrders(
     // Track which socket instance we bound to
     boundSocketRef.current = currentSocket;
 
-    joinRoom('outlet', { outletId: user.outletId });
+    joinRoom('outlet', { outletId: outletId });
 
     const handler = (data: OrderStatusEvent) => {
       setLastEvent(data);
@@ -74,7 +73,7 @@ export function useRealtimeOrders(
       leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
-  }, [isConnected, user?.outletId, joinRoom, leaveRoom]);
+  }, [isConnected, outletId, joinRoom, leaveRoom]);
 
   return { lastEvent, isConnected };
 }

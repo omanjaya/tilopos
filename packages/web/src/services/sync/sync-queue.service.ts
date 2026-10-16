@@ -1,198 +1,140 @@
 /**
  * Sync Queue Service
  *
- * Manages the sync queue for offline operations.
- * Handles adding, retrieving, updating, and removing queue items.
+ * Persists offline operations (IndexedDB `syncQueue` store).
+ * `SyncQueueStore` is the storage contract used by the SyncEngine so the
+ * engine can be unit-tested with an in-memory implementation.
  */
 
-import { IDBPDatabase } from 'idb';
-import {
+import type { IDBPDatabase } from 'idb';
+import type {
   TiloPOSDB,
   SyncQueueItem,
-  EntityType,
-  SyncOperation,
   SyncQueueStatus,
+  SyncStatus,
 } from './types/sync.types';
 import { SYNC_STATUS } from './constants/sync.constants';
 
-export class SyncQueueService {
+export interface SyncQueueStore {
+  put(item: SyncQueueItem): Promise<void>;
+  get(id: string): Promise<SyncQueueItem | undefined>;
+  delete(id: string): Promise<void>;
+  listByStatus(status: SyncStatus): Promise<SyncQueueItem[]>;
+  listAll(): Promise<SyncQueueItem[]>;
+  clear(): Promise<void>;
+}
+
+export class IdbSyncQueueStore implements SyncQueueStore {
   constructor(private db: IDBPDatabase<TiloPOSDB>) {}
 
-  /**
-   * Add operation to sync queue
-   */
-  async addToQueue<T>(
-    entityType: EntityType,
-    entityId: string,
-    operation: SyncOperation,
-    data: T,
-    maxRetries: number
-  ): Promise<string> {
-    const id = `${entityType}-${entityId}-${Date.now()}`;
-    const item: SyncQueueItem = {
-      id,
-      entityType,
-      entityId,
-      operation,
-      data,
-      status: SYNC_STATUS.PENDING,
-      retryCount: 0,
-      maxRetries,
-      createdAt: Date.now(),
-    };
-
+  async put(item: SyncQueueItem): Promise<void> {
     await this.db.put('syncQueue', item);
-    return id;
   }
 
-  /**
-   * Get all pending queue items
-   */
-  async getPendingItems(): Promise<SyncQueueItem[]> {
-    const tx = this.db.transaction('syncQueue', 'readonly');
-    const index = tx.store.index('by-status');
-    return index.getAll(SYNC_STATUS.PENDING);
-  }
-
-  /**
-   * Get all failed queue items
-   */
-  async getFailedItems(): Promise<SyncQueueItem[]> {
-    const tx = this.db.transaction('syncQueue', 'readonly');
-    const index = tx.store.index('by-status');
-    return index.getAll(SYNC_STATUS.FAILED);
-  }
-
-  /**
-   * Get all conflict queue items
-   */
-  async getConflictItems(): Promise<SyncQueueItem[]> {
-    const tx = this.db.transaction('syncQueue', 'readonly');
-    const index = tx.store.index('by-status');
-    return index.getAll(SYNC_STATUS.CONFLICT);
-  }
-
-  /**
-   * Get queue item by ID
-   */
-  async getQueueItem(id: string): Promise<SyncQueueItem | undefined> {
+  get(id: string): Promise<SyncQueueItem | undefined> {
     return this.db.get('syncQueue', id);
   }
 
-  /**
-   * Update queue item status
-   */
-  async updateItemStatus(
-    id: string,
-    status: SyncQueueItem['status'],
-    error?: string
-  ): Promise<void> {
-    const item = await this.getQueueItem(id);
-    if (!item) return;
+  delete(id: string): Promise<void> {
+    return this.db.delete('syncQueue', id);
+  }
 
-    item.status = status;
-    if (status === SYNC_STATUS.COMPLETED) {
-      item.syncedAt = Date.now();
+  listByStatus(status: SyncStatus): Promise<SyncQueueItem[]> {
+    return this.db.getAllFromIndex('syncQueue', 'by-status', status);
+  }
+
+  listAll(): Promise<SyncQueueItem[]> {
+    return this.db.getAll('syncQueue');
+  }
+
+  clear(): Promise<void> {
+    return this.db.clear('syncQueue');
+  }
+}
+
+export class SyncQueueService {
+  constructor(private store: SyncQueueStore) {}
+
+  /**
+   * Add a queue item. `id` must be unique and stable (for transactions: the clientTransactionId).
+   */
+  async addToQueue(item: Omit<SyncQueueItem, 'status' | 'retryCount'>): Promise<string> {
+    const existing = await this.store.get(item.id);
+    if (existing) return existing.id; // already queued (double tap) — idempotent
+    await this.store.put({ ...item, status: SYNC_STATUS.PENDING, retryCount: 0 });
+    return item.id;
+  }
+
+  /** Pending items, oldest first */
+  async getPendingItems(): Promise<SyncQueueItem[]> {
+    const items = await this.store.listByStatus(SYNC_STATUS.PENDING);
+    return items.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  getItem(id: string): Promise<SyncQueueItem | undefined> {
+    return this.store.get(id);
+  }
+
+  async update(id: string, patch: Partial<SyncQueueItem>): Promise<SyncQueueItem | undefined> {
+    const item = await this.store.get(id);
+    if (!item) return undefined;
+    const next = { ...item, ...patch };
+    await this.store.put(next);
+    return next;
+  }
+
+  /** Items that need user attention (failed or conflict) */
+  async getProblemItems(): Promise<SyncQueueItem[]> {
+    const [failed, conflicts] = await Promise.all([
+      this.store.listByStatus(SYNC_STATUS.FAILED),
+      this.store.listByStatus(SYNC_STATUS.CONFLICT),
+    ]);
+    return [...failed, ...conflicts].sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  /**
+   * Items left in 'syncing' by a crashed/closed tab go back to 'pending'.
+   * Safe because the backend de-duplicates on clientTransactionId.
+   */
+  async resetStuckSyncing(): Promise<void> {
+    const stuck = await this.store.listByStatus(SYNC_STATUS.SYNCING);
+    for (const item of stuck) {
+      await this.store.put({ ...item, status: SYNC_STATUS.PENDING });
     }
-    if (error) {
-      item.error = error;
-    }
-
-    await this.db.put('syncQueue', item);
   }
 
-  /**
-   * Update queue item with conflict data
-   */
-  async markAsConflict(id: string, conflictData: unknown): Promise<void> {
-    const item = await this.getQueueItem(id);
-    if (!item) return;
-
-    item.status = SYNC_STATUS.CONFLICT;
-    item.conflictData = conflictData;
-
-    await this.db.put('syncQueue', item);
+  removeFromQueue(id: string): Promise<void> {
+    return this.store.delete(id);
   }
 
-  /**
-   * Increment retry count for queue item
-   */
-  async incrementRetryCount(id: string): Promise<number> {
-    const item = await this.getQueueItem(id);
-    if (!item) return 0;
-
-    item.retryCount++;
-    await this.db.put('syncQueue', item);
-
-    return item.retryCount;
-  }
-
-  /**
-   * Remove item from queue
-   */
-  async removeFromQueue(id: string): Promise<void> {
-    await this.db.delete('syncQueue', id);
-  }
-
-  /**
-   * Clear completed items from queue
-   */
   async clearCompleted(): Promise<void> {
-    const tx = this.db.transaction('syncQueue', 'readwrite');
-    const index = tx.store.index('by-status');
-    const completedItems = await index.getAll(SYNC_STATUS.COMPLETED);
-
-    for (const item of completedItems) {
-      await tx.store.delete(item.id);
+    const completed = await this.store.listByStatus(SYNC_STATUS.COMPLETED);
+    for (const item of completed) {
+      await this.store.delete(item.id);
     }
+  }
 
-    await tx.done;
+  clearQueue(): Promise<void> {
+    return this.store.clear();
   }
 
   /**
-   * Get queue status summary
+   * Status summary. `ownerUserId` limits the count to one user's items.
+   * Items in 'syncing' count as pending.
    */
-  async getQueueStatus(): Promise<SyncQueueStatus> {
-    const pending = await this.db.countFromIndex(
-      'syncQueue',
-      'by-status',
-      SYNC_STATUS.PENDING
-    );
-    const failed = await this.db.countFromIndex(
-      'syncQueue',
-      'by-status',
-      SYNC_STATUS.FAILED
-    );
-    const conflicts = await this.db.countFromIndex(
-      'syncQueue',
-      'by-status',
-      SYNC_STATUS.CONFLICT
-    );
-
-    return { pending, failed, conflicts };
+  async getQueueStatus(ownerUserId?: string): Promise<SyncQueueStatus> {
+    const all = await this.store.listAll();
+    const mine = ownerUserId ? all.filter((i) => !i.ownerUserId || i.ownerUserId === ownerUserId) : all;
+    return {
+      pending: mine.filter((i) => i.status === SYNC_STATUS.PENDING || i.status === SYNC_STATUS.SYNCING).length,
+      failed: mine.filter((i) => i.status === SYNC_STATUS.FAILED).length,
+      conflicts: mine.filter((i) => i.status === SYNC_STATUS.CONFLICT).length,
+    };
   }
 
-  /**
-   * Get all queue items for specific entity type
-   */
-  async getItemsByEntityType(entityType: EntityType): Promise<SyncQueueItem[]> {
-    const tx = this.db.transaction('syncQueue', 'readonly');
-    const index = tx.store.index('by-entity');
-    return index.getAll(entityType);
-  }
-
-  /**
-   * Clear all queue items
-   */
-  async clearQueue(): Promise<void> {
-    await this.db.clear('syncQueue');
-  }
-
-  /**
-   * Get queue item count
-   */
-  async getQueueCount(): Promise<number> {
-    const tx = this.db.transaction('syncQueue', 'readonly');
-    return tx.store.count();
+  /** Number of items (any user) not yet on the server */
+  async countUnsynced(): Promise<number> {
+    const all = await this.store.listAll();
+    return all.filter((i) => i.status !== SYNC_STATUS.COMPLETED).length;
   }
 }

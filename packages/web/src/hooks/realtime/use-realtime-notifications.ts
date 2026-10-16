@@ -5,8 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useAuthStore } from '@/stores/auth.store';
-import { useSocket } from './use-socket';
+import { useSocket, useEffectiveOutletId } from './use-socket';
 import type { NotificationEvent } from './types';
 
 export interface UseRealtimeNotificationsOptions {
@@ -39,8 +38,8 @@ export function useRealtimeNotifications(
   options?: UseRealtimeNotificationsOptions
 ): UseRealtimeNotificationsReturn {
   const { socket, isConnected, joinRoom, leaveRoom } = useSocket();
+  const outletId = useEffectiveOutletId();
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
-  const user = useAuthStore((s) => s.user);
   const callbackRef = useRef(options?.onNotification);
 
   useEffect(() => {
@@ -48,9 +47,9 @@ export function useRealtimeNotifications(
   }, [options?.onNotification]);
 
   useEffect(() => {
-    if (!isConnected || !user?.outletId) return;
+    if (!isConnected || !outletId) return;
 
-    joinRoom('outlet', { outletId: user.outletId });
+    joinRoom('outlet', { outletId: outletId });
 
     const handler = (data: NotificationEvent) => {
       setNotifications((prev) => [data, ...prev].slice(0, 50));
@@ -65,7 +64,7 @@ export function useRealtimeNotifications(
       leaveRoom('outlet');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
-  }, [isConnected, user?.outletId, joinRoom, leaveRoom]);
+  }, [isConnected, outletId, joinRoom, leaveRoom]);
 
   return { notifications, isConnected };
 }

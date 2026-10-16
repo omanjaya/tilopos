@@ -1,139 +1,136 @@
 /**
  * Sync Engine Service (Main Orchestrator)
  *
- * Coordinates sync operations between local IndexedDB and backend API.
- * Manages online/offline state and delegates to specialized services.
+ * Persists offline operations (offline POS sales) and pushes them to the
+ * backend when online. Guarantees:
+ * - one queue run at a time (concurrent callers share the in-flight run);
+ * - an item is marked 'syncing' before it is sent and each sale carries a
+ *   `clientTransactionId`, so a retry after a crash cannot create a duplicate;
+ * - items are only sent with the session of the user who created them;
+ * - nothing is deleted on logout / 401: items leave the queue only after the
+ *   server accepted them or the user explicitly discarded them.
  */
 
-import { openDB, IDBPDatabase } from 'idb';
-import {
+import { openDB, deleteDB } from 'idb';
+import type {
   TiloPOSDB,
   SyncEngineConfig,
   EntityType,
   SyncOperation,
   SyncEvent,
   SyncQueueStatus,
-  SyncMetadata,
   SyncQueueItem,
 } from './types/sync.types';
-import { DEFAULT_SYNC_CONFIG, SYNC_EVENTS, VALID_STORE_NAMES } from './constants/sync.constants';
-import { SyncQueueService } from './sync-queue.service';
-import { SyncExecutorService, ConflictError } from './sync-executor.service';
+import { DEFAULT_SYNC_CONFIG, SYNC_EVENTS, SYNC_STATUS } from './constants/sync.constants';
+import { IdbSyncQueueStore, SyncQueueService, type SyncQueueStore } from './sync-queue.service';
+import { LocalStorageSyncQueueStore, migrateLegacyLocalQueue } from './local-storage-queue.store';
+import { SyncExecutorService, apiClientTransport, type SyncTransport } from './sync-executor.service';
 import { ConflictResolverService } from './conflict-resolver.service';
 import { RetryManagerService } from './retry-manager.service';
+import { useAuthStore } from '@/stores/auth.store';
+
+export interface SyncEngineDeps {
+  transport?: SyncTransport;
+  /** Opens the queue storage; defaults to IndexedDB with a localStorage fallback */
+  openStore?: () => Promise<SyncQueueStore>;
+  /** Id of the logged-in user; items are only sent for that user */
+  getCurrentUserId?: () => string | null;
+  now?: () => number;
+}
+
+export interface SyncRunResult {
+  synced: number;
+  failed: number;
+  conflicts: number;
+  /** Items still pending (offline, auth, backoff, other users) */
+  remaining: number;
+}
 
 class SyncEngine {
-  private db: IDBPDatabase<TiloPOSDB> | null = null;
   private config: SyncEngineConfig;
-  private isOnline = navigator.onLine;
+  private deps: Required<Omit<SyncEngineDeps, 'openStore'>> & Pick<SyncEngineDeps, 'openStore'>;
+  private isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private listeners: Map<string, Set<(event: SyncEvent) => void>> = new Map();
+  private initPromise: Promise<void> | null = null;
+  private running: Promise<SyncRunResult> | null = null;
+  private closeStore: (() => void) | null = null;
 
-  // Specialized services
-  private queueService!: SyncQueueService;
-  private executorService!: SyncExecutorService;
-  private conflictResolver!: ConflictResolverService;
-  private retryManager!: RetryManagerService;
+  private queueService: SyncQueueService | null = null;
+  private executorService: SyncExecutorService;
+  private conflictResolver: ConflictResolverService;
+  private retryManager: RetryManagerService;
 
-  constructor(config?: Partial<SyncEngineConfig>) {
+  private readonly onOnline = () => this.handleOnline();
+  private readonly onOffline = () => this.handleOffline();
+
+  constructor(config?: Partial<SyncEngineConfig>, deps: SyncEngineDeps = {}) {
     this.config = { ...DEFAULT_SYNC_CONFIG, ...config };
-
-    // Listen for online/offline events
-    window.addEventListener('online', () => this.handleOnline());
-    window.addEventListener('offline', () => this.handleOffline());
-  }
-
-  /**
-   * Initialize the database and services
-   */
-  async initialize(): Promise<void> {
-    this.db = await this.initializeDatabase();
-
-    // Initialize specialized services
-    this.queueService = new SyncQueueService(this.db);
-    this.executorService = new SyncExecutorService(this.db, {
-      apiBaseUrl: this.config.apiBaseUrl,
-    });
-    this.conflictResolver = new ConflictResolverService(
-      this.executorService,
-      this.config.conflictStrategy
-    );
+    this.deps = {
+      transport: deps.transport ?? apiClientTransport,
+      openStore: deps.openStore,
+      getCurrentUserId: deps.getCurrentUserId ?? (() => useAuthStore.getState().user?.id ?? null),
+      now: deps.now ?? (() => Date.now()),
+    };
+    this.executorService = new SyncExecutorService(this.deps.transport);
+    this.conflictResolver = new ConflictResolverService(this.config.conflictStrategy);
     this.retryManager = new RetryManagerService(this.config.maxRetries);
+  }
 
-    // Start background sync
+  /**
+   * Initialize storage and background sync. Safe to call many times.
+   */
+  initialize(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.doInitialize().catch((error: unknown) => {
+        this.initPromise = null;
+        throw error;
+      });
+    }
+    return this.initPromise;
+  }
+
+  private async doInitialize(): Promise<void> {
+    const store = await (this.deps.openStore ? this.deps.openStore() : this.openDefaultStore());
+    this.queueService = new SyncQueueService(store);
+    await this.queueService.resetStuckSyncing();
+    await migrateLegacyLocalQueue(this.queueService, this.config.maxRetries);
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.onOnline);
+      window.addEventListener('offline', this.onOffline);
+    }
     this.startSyncTimer();
-
-    this.emit(SYNC_EVENTS.INITIALIZED, { timestamp: Date.now() });
+    this.emit(SYNC_EVENTS.INITIALIZED, { timestamp: this.deps.now() });
   }
 
-  /**
-   * Initialize IndexedDB
-   */
-  private async initializeDatabase(): Promise<IDBPDatabase<TiloPOSDB>> {
-    return openDB<TiloPOSDB>(this.config.dbName, this.config.dbVersion, {
-      upgrade(db) {
-        // Sync Queue
-        if (!db.objectStoreNames.contains('syncQueue')) {
-          const syncStore = db.createObjectStore('syncQueue', { keyPath: 'id' });
-          syncStore.createIndex('by-status', 'status');
-          syncStore.createIndex('by-timestamp', 'createdAt');
-          syncStore.createIndex('by-entity', 'entityType');
-        }
-
-        // Products
-        if (!db.objectStoreNames.contains('products')) {
-          const productsStore = db.createObjectStore('products', { keyPath: 'id' });
-          productsStore.createIndex('by-outlet', 'data.outletId');
-          productsStore.createIndex('by-category', 'data.categoryId');
-        }
-
-        // Categories
-        if (!db.objectStoreNames.contains('categories')) {
-          const categoriesStore = db.createObjectStore('categories', { keyPath: 'id' });
-          categoriesStore.createIndex('by-outlet', 'data.outletId');
-        }
-
-        // Transactions
-        if (!db.objectStoreNames.contains('transactions')) {
-          const transactionsStore = db.createObjectStore('transactions', { keyPath: 'id' });
-          transactionsStore.createIndex('by-outlet', 'data.outletId');
-          transactionsStore.createIndex('by-status', 'data.status');
-          transactionsStore.createIndex('by-date', 'data.createdAt');
-        }
-
-        // Customers
-        if (!db.objectStoreNames.contains('customers')) {
-          const customersStore = db.createObjectStore('customers', { keyPath: 'id' });
-          customersStore.createIndex('by-phone', 'data.phone');
-        }
-
-        // Settings
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'key' });
-        }
-
-        // Metadata
-        if (!db.objectStoreNames.contains('metadata')) {
-          db.createObjectStore('metadata', { keyPath: 'entityType' });
-        }
-      },
-    });
+  private async openDefaultStore(): Promise<SyncQueueStore> {
+    try {
+      const db = await openDB<TiloPOSDB>(this.config.dbName, this.config.dbVersion, {
+        upgrade(database) {
+          if (!database.objectStoreNames.contains('syncQueue')) {
+            const syncStore = database.createObjectStore('syncQueue', { keyPath: 'id' });
+            syncStore.createIndex('by-status', 'status');
+            syncStore.createIndex('by-timestamp', 'createdAt');
+            syncStore.createIndex('by-entity', 'entityType');
+          }
+        },
+      });
+      this.closeStore = () => db.close();
+      return new IdbSyncQueueStore(db);
+    } catch (error) {
+      console.warn('[sync] IndexedDB unavailable, using localStorage queue', error);
+      return new LocalStorageSyncQueueStore();
+    }
   }
 
-  /**
-   * Start background sync timer
-   */
   private startSyncTimer(): void {
     if (this.syncTimer) clearInterval(this.syncTimer);
-
     this.syncTimer = setInterval(() => {
-      if (this.isOnline) this.processQueue();
+      if (this.isOnline) void this.processQueue();
     }, this.config.syncInterval);
   }
 
-  /**
-   * Stop sync timer
-   */
   private stopSyncTimer(): void {
     if (this.syncTimer) {
       clearInterval(this.syncTimer);
@@ -141,268 +138,235 @@ class SyncEngine {
     }
   }
 
-  /**
-   * Handle online event
-   */
   private handleOnline(): void {
     this.isOnline = true;
-    this.emit(SYNC_EVENTS.ONLINE, { timestamp: Date.now() });
-    this.processQueue();
+    this.emit(SYNC_EVENTS.ONLINE, { timestamp: this.deps.now() });
+    void this.processQueue();
   }
 
-  /**
-   * Handle offline event
-   */
   private handleOffline(): void {
     this.isOnline = false;
-    this.emit(SYNC_EVENTS.OFFLINE, { timestamp: Date.now() });
+    this.emit(SYNC_EVENTS.OFFLINE, { timestamp: this.deps.now() });
+  }
+
+  private async requireQueue(): Promise<SyncQueueService> {
+    await this.initialize();
+    if (!this.queueService) throw new Error('Antrean offline belum siap');
+    return this.queueService;
   }
 
   /**
-   * Queue operation for sync
+   * Queue an operation. `entityId` is the stable idempotency key
+   * (for sales: the clientTransactionId); queuing the same id twice is a no-op.
    */
   async queueOperation<T>(
     entityType: EntityType,
     entityId: string,
     operation: SyncOperation,
-    data: T
+    data: T,
   ): Promise<string> {
-    const id = await this.queueService.addToQueue(
+    const queue = await this.requireQueue();
+    const ownerUserId = this.deps.getCurrentUserId();
+    if (!ownerUserId) throw new Error('Login diperlukan untuk menyimpan transaksi offline');
+    const id = await queue.addToQueue({
+      id: `${entityType}:${entityId}`,
       entityType,
       entityId,
       operation,
       data,
-      this.config.maxRetries
-    );
+      maxRetries: this.config.maxRetries,
+      createdAt: this.deps.now(),
+      ownerUserId,
+    });
 
     this.emit(SYNC_EVENTS.QUEUED, { id, entityType, operation });
-
-    if (this.isOnline) this.processQueue();
-
+    if (this.isOnline) void this.processQueue();
     return id;
   }
 
   /**
-   * Process sync queue
+   * Push pending items. Concurrent calls share the same run.
    */
-  async processQueue(): Promise<void> {
-    if (!this.isOnline || !this.queueService) return;
+  processQueue(): Promise<SyncRunResult> {
+    if (this.running) return this.running;
+    this.running = this.runQueue().finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
 
-    const pendingItems = await this.queueService.getPendingItems();
+  private async runQueue(): Promise<SyncRunResult> {
+    const result: SyncRunResult = { synced: 0, failed: 0, conflicts: 0, remaining: 0 };
+    if (!this.isOnline || !this.queueService) return result;
 
-    for (const item of pendingItems) {
-      try {
-        await this.retryManager.executeWithRetry(
-          async () => {
-            await this.executorService.executeSyncOperation(item);
-          },
-          item,
-          (_attempt, _delay) => {
-            // Retry logging handled by emit below
-          }
-        );
+    const queue = this.queueService;
+    const pending = await queue.getPendingItems();
 
-        await this.queueService.updateItemStatus(item.id, 'completed');
-      } catch (error) {
-        if (error instanceof ConflictError) {
-          await this.handleConflict(item, error.serverData);
-        } else {
-          await this.handleSyncError(item, error);
+    for (let index = 0; index < pending.length; index++) {
+      const item = pending[index]!;
+
+      const userId = this.deps.getCurrentUserId();
+      // Never send another user's sale with this session
+      if (!userId || !item.ownerUserId || item.ownerUserId !== userId) {
+        result.remaining++;
+        continue;
+      }
+
+      // Backoff after server errors
+      if (item.retryCount > 0 && item.lastAttemptAt) {
+        const readyAt = item.lastAttemptAt + this.retryManager.calculateRetryDelay(item.retryCount - 1);
+        if (readyAt > this.deps.now()) {
+          result.remaining++;
+          continue;
         }
       }
-    }
 
-    this.emit(SYNC_EVENTS.QUEUE_PROCESSED, {
-      processed: pendingItems.length,
-      timestamp: Date.now(),
-    });
-  }
+      await queue.update(item.id, { status: SYNC_STATUS.SYNCING, lastAttemptAt: this.deps.now() });
 
-  /**
-   * Handle sync conflict
-   */
-  private async handleConflict(item: SyncQueueItem, serverData: unknown): Promise<void> {
-    const resolution = await this.conflictResolver.resolveConflict(item, serverData);
-
-    if (resolution.resolved) {
-      await this.queueService.updateItemStatus(item.id, 'completed');
-    } else {
-      await this.queueService.markAsConflict(item.id, serverData);
-      this.emit(SYNC_EVENTS.CONFLICT, { item, serverData });
-    }
-  }
-
-  /**
-   * Handle sync error
-   */
-  private async handleSyncError(item: SyncQueueItem, error: unknown): Promise<void> {
-    const err = error instanceof Error ? error : new Error(String(error));
-
-    if (this.retryManager.isRetryableError(err)) {
-      const retryCount = await this.queueService.incrementRetryCount(item.id);
-
-      if (retryCount >= item.maxRetries) {
-        await this.queueService.updateItemStatus(item.id, 'failed', err.message);
+      try {
+        await this.executorService.executeSyncOperation(item);
+        await queue.removeFromQueue(item.id);
+        result.synced++;
+      } catch (error) {
+        const outcome = await this.handleError(queue, item, error);
+        if (outcome === 'stop') {
+          // Offline or session expired: leave this and the rest pending
+          result.remaining += pending.length - index;
+          break;
+        }
+        if (outcome === 'failed') result.failed++;
+        else if (outcome === 'conflict') result.conflicts++;
+        else if (outcome === 'pending') result.remaining++;
       }
-    } else {
-      await this.queueService.updateItemStatus(item.id, 'failed', err.message);
     }
 
-    this.emit(SYNC_EVENTS.SYNC_ERROR, { item, error: err });
+    await queue.clearCompleted();
+
+    this.emit(SYNC_EVENTS.QUEUE_PROCESSED, { ...result, timestamp: this.deps.now() });
+    return result;
   }
 
-  /**
-   * Pull changes from server
-   */
-  async pullChanges(entityType: EntityType, outletId?: string): Promise<void> {
-    if (!this.db || !this.isOnline) return;
+  private async handleError(
+    queue: SyncQueueService,
+    item: SyncQueueItem,
+    error: unknown,
+  ): Promise<'stop' | 'failed' | 'conflict' | 'pending' | 'resolved'> {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const kind = this.retryManager.classify(error);
+    const status = (error as { status?: number }).status;
 
-    const metadata = await this.db.get('metadata', entityType);
-    const since = metadata?.lastSyncAt || 0;
-
-    const items = await this.executorService.pullChangesFromServer(
-      entityType,
-      since,
-      outletId
-    );
-
-    // Update local cache
-    const validStores = VALID_STORE_NAMES;
-    if (validStores.includes(entityType as typeof validStores[number])) {
-      await this.executorService.batchUpdateLocalCache(
-        entityType as 'products' | 'categories' | 'transactions' | 'customers',
-        items
-      );
+    switch (kind) {
+      case 'network':
+      case 'auth':
+        await queue.update(item.id, { status: SYNC_STATUS.PENDING, error: err.message, lastStatus: status });
+        this.emit(SYNC_EVENTS.SYNC_ERROR, { item, error: err, kind });
+        return 'stop';
+      case 'conflict': {
+        const serverData = (error as { serverData?: unknown }).serverData;
+        const resolution = this.conflictResolver.resolveConflict(item, serverData);
+        if (resolution.resolved) {
+          await queue.removeFromQueue(item.id);
+          return 'resolved';
+        }
+        await queue.update(item.id, {
+          status: SYNC_STATUS.CONFLICT,
+          conflictData: serverData,
+          error: err.message,
+          lastStatus: 409,
+        });
+        this.emit(SYNC_EVENTS.CONFLICT, { item, serverData });
+        return 'conflict';
+      }
+      case 'retryable': {
+        const retryCount = item.retryCount + 1;
+        const exhausted = !this.retryManager.shouldRetry({ retryCount, maxRetries: item.maxRetries });
+        await queue.update(item.id, {
+          status: exhausted ? SYNC_STATUS.FAILED : SYNC_STATUS.PENDING,
+          retryCount,
+          error: err.message,
+          lastStatus: status,
+        });
+        this.emit(SYNC_EVENTS.SYNC_ERROR, { item, error: err, kind });
+        return exhausted ? 'failed' : 'pending';
+      }
+      default:
+        await queue.update(item.id, { status: SYNC_STATUS.FAILED, error: err.message, lastStatus: status });
+        this.emit(SYNC_EVENTS.SYNC_ERROR, { item, error: err, kind });
+        return 'failed';
     }
-
-    // Update metadata
-    await this.db.put('metadata', {
-      entityType,
-      lastSyncAt: Date.now(),
-      syncInProgress: false,
-    } as SyncMetadata);
-
-    this.emit(SYNC_EVENTS.PULLED, { entityType, count: items.length });
   }
 
-  /**
-   * Get queue status
-   */
+  /** Put a failed / conflict item back in the queue and sync now */
+  async retryItem(id: string): Promise<void> {
+    const queue = await this.requireQueue();
+    await queue.update(id, {
+      status: SYNC_STATUS.PENDING,
+      retryCount: 0,
+      error: undefined,
+      conflictData: undefined,
+      lastAttemptAt: undefined,
+    });
+    this.emit(SYNC_EVENTS.QUEUED, { id });
+    if (this.isOnline) await this.processQueue();
+  }
+
+  /** Permanently drop a queued item (explicit user decision) */
+  async discardItem(id: string): Promise<void> {
+    const queue = await this.requireQueue();
+    await queue.removeFromQueue(id);
+    this.emit(SYNC_EVENTS.QUEUE_PROCESSED, { discarded: id, timestamp: this.deps.now() });
+  }
+
+  /** Failed and conflict items of the current user, for the UI */
+  async getProblemItems(): Promise<SyncQueueItem[]> {
+    const queue = await this.requireQueue();
+    const userId = this.deps.getCurrentUserId();
+    const items = await queue.getProblemItems();
+    return items.filter((i) => !i.ownerUserId || i.ownerUserId === userId);
+  }
+
+  /** Queue status of the current user */
   async getQueueStatus(): Promise<SyncQueueStatus> {
     if (!this.queueService) return { pending: 0, failed: 0, conflicts: 0 };
-    return this.queueService.getQueueStatus();
+    return this.queueService.getQueueStatus(this.deps.getCurrentUserId() ?? undefined);
+  }
+
+  /** Items of any user that have not reached the server */
+  async countUnsynced(): Promise<number> {
+    const queue = await this.requireQueue();
+    return queue.countUnsynced();
   }
 
   /**
-   * Get cached data (offline-first)
+   * Delete the offline database, but only when nothing is left to sync.
+   * Returns false (and keeps everything) if unsynced items remain.
    */
-  async getCached<T>(
-    entityType: 'products' | 'categories' | 'transactions' | 'customers',
-    id: string
-  ): Promise<T | null> {
-    if (!this.db) return null;
-
-    const cached = await this.db.get(entityType, id);
-    if (!cached || cached.isDeleted) return null;
-
-    return cached.data as T;
+  async purgeIfEmpty(): Promise<boolean> {
+    const unsynced = await this.countUnsynced();
+    if (unsynced > 0) return false;
+    await this.deleteStorage();
+    return true;
   }
 
-  /**
-   * Get all cached entities
-   */
-  async getAllCached<T>(
-    entityType: 'products' | 'categories' | 'transactions' | 'customers',
-    filter?: { outletId?: string }
-  ): Promise<T[]> {
-    if (!this.db) return [];
+  /** Explicit discard of every queued item followed by deletion of the offline database */
+  async discardAll(): Promise<void> {
+    const queue = await this.requireQueue();
+    await queue.clearQueue();
+    await this.deleteStorage();
+  }
 
-    let items;
-
-    if (filter?.outletId) {
-      const allItems = await this.db.getAll(entityType);
-      items = allItems.filter(
-        (item) =>
-          !item.isDeleted &&
-          (item.data as { outletId?: string }).outletId === filter.outletId
-      );
-    } else {
-      items = await this.db.getAll(entityType);
+  private async deleteStorage(): Promise<void> {
+    this.teardown();
+    if (typeof indexedDB !== 'undefined') {
+      await deleteDB(this.config.dbName);
     }
-
-    return items.filter((item) => !item.isDeleted).map((item) => item.data as T);
+    LocalStorageSyncQueueStore.clearAll();
   }
 
-  /**
-   * Save entity locally with queue for sync
-   */
-  async saveLocal<T extends { id?: string }>(
-    entityType: 'products' | 'categories' | 'transactions' | 'customers',
-    data: T,
-    operation: 'create' | 'update' = 'update'
-  ): Promise<string> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    const id = data.id || `local-${Date.now()}`;
-    const cached = {
-      id,
-      data: { ...data, id },
-      syncedAt: 0,
-      localUpdatedAt: Date.now(),
-      isDirty: true,
-      isDeleted: false,
-      version: Date.now(),
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.db.put(entityType, cached as any);
-    await this.queueOperation(entityType, id, operation, data);
-
-    return id;
-  }
-
-  /**
-   * Delete entity locally with queue for sync
-   */
-  async deleteLocal(
-    entityType: 'products' | 'categories' | 'transactions' | 'customers',
-    id: string
-  ): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    const cached = await this.db.get(entityType, id);
-    if (cached) {
-      cached.isDeleted = true;
-      cached.localUpdatedAt = Date.now();
-      cached.isDirty = true;
-      await this.db.put(entityType, cached);
-      await this.queueOperation(entityType, id, 'delete', null);
-    }
-  }
-
-  /**
-   * Clear all cached data
-   */
-  async clearCache(): Promise<void> {
-    if (!this.db) return;
-
-    const stores = ['products', 'categories', 'transactions', 'customers'] as const;
-    for (const store of stores) {
-      await this.db.clear(store);
-    }
-    await this.db.clear('metadata');
-  }
-
-  /**
-   * Get online status
-   */
   get online(): boolean {
     return this.isOnline;
   }
 
-  /**
-   * Event listeners
-   */
   on(event: string, callback: (event: SyncEvent) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
@@ -420,14 +384,21 @@ class SyncEngine {
     this.listeners.get(SYNC_EVENTS.ALL)?.forEach((cb) => cb(syncEvent));
   }
 
-  /**
-   * Cleanup
-   */
-  destroy(): void {
+  private teardown(): void {
     this.stopSyncTimer();
-    window.removeEventListener('online', this.handleOnline);
-    window.removeEventListener('offline', this.handleOffline);
-    this.db?.close();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onOnline);
+      window.removeEventListener('offline', this.onOffline);
+    }
+    this.closeStore?.();
+    this.closeStore = null;
+    this.queueService = null;
+    this.initPromise = null;
+  }
+
+  destroy(): void {
+    this.teardown();
+    this.listeners.clear();
   }
 }
 

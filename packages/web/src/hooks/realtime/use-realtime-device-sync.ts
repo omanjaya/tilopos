@@ -71,7 +71,7 @@ export function useRealtimeDeviceSync(
 
     return () => {
       currentSocket?.off('device:sync-status', handler);
-      leaveRoom(`business:${user.businessId}`);
+      leaveRoom('business');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- socket ref intentionally omitted to prevent re-renders
   }, [isConnected, user?.businessId, joinRoom, leaveRoom]);

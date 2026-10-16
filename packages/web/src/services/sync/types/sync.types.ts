@@ -17,7 +17,12 @@ export type SyncOperation = 'create' | 'update' | 'delete';
 
 export type SyncStatus = 'pending' | 'syncing' | 'completed' | 'failed' | 'conflict';
 
-export type ConflictStrategy = 'server-wins' | 'client-wins' | 'manual';
+/**
+ * How a 409 from the server is handled.
+ * - 'server-wins': drop the local update/delete (never applied to creates, see ConflictResolverService)
+ * - 'manual': keep the item as 'conflict' until the user retries or discards it
+ */
+export type ConflictStrategy = 'server-wins' | 'manual';
 
 // Sync Queue Item
 export interface SyncQueueItem {
@@ -30,62 +35,14 @@ export interface SyncQueueItem {
   retryCount: number;
   maxRetries: number;
   createdAt: number;
+  /** User (auth user id) that created the item; only that user's session may sync it */
+  ownerUserId?: string;
+  lastAttemptAt?: number;
   syncedAt?: number;
   error?: string;
+  /** HTTP status of the last failed attempt, if any */
+  lastStatus?: number;
   conflictData?: unknown;
-}
-
-// Cached Entity
-export interface CachedEntity<T> {
-  id: string;
-  data: T;
-  syncedAt: number;
-  localUpdatedAt?: number;
-  isDirty: boolean;
-  isDeleted: boolean;
-  version: number;
-}
-
-// Sync Metadata
-export interface SyncMetadata {
-  entityType: EntityType;
-  lastSyncAt: number;
-  lastSyncCursor?: string;
-  syncInProgress: boolean;
-}
-
-// Entity Interfaces
-export interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  price: number;
-  categoryId?: string;
-  outletId: string;
-  updatedAt: string;
-}
-
-export interface Category {
-  id: string;
-  name: string;
-  outletId: string;
-  updatedAt: string;
-}
-
-export interface Transaction {
-  id: string;
-  transactionNumber: string;
-  outletId: string;
-  status: string;
-  total: number;
-  createdAt: string;
-}
-
-export interface Customer {
-  id: string;
-  name: string;
-  phone?: string;
-  email?: string;
 }
 
 // Database Schema
@@ -100,53 +57,6 @@ export interface TiloPOSDB extends DBSchema {
       'by-entity': string;
     };
   };
-
-  // Cached entities
-  products: {
-    key: string;
-    value: CachedEntity<Product>;
-    indexes: {
-      'by-outlet': string;
-      'by-category': string;
-    };
-  };
-
-  categories: {
-    key: string;
-    value: CachedEntity<Category>;
-    indexes: {
-      'by-outlet': string;
-    };
-  };
-
-  transactions: {
-    key: string;
-    value: CachedEntity<Transaction>;
-    indexes: {
-      'by-outlet': string;
-      'by-status': string;
-      'by-date': string;
-    };
-  };
-
-  customers: {
-    key: string;
-    value: CachedEntity<Customer>;
-    indexes: {
-      'by-phone': string;
-    };
-  };
-
-  // Settings & metadata
-  settings: {
-    key: string;
-    value: unknown;
-  };
-
-  metadata: {
-    key: string;
-    value: SyncMetadata;
-  };
 }
 
 // Sync Engine Configuration
@@ -156,7 +66,6 @@ export interface SyncEngineConfig {
   syncInterval: number; // ms
   maxRetries: number;
   conflictStrategy: ConflictStrategy;
-  apiBaseUrl: string;
 }
 
 // Sync Events
@@ -170,13 +79,6 @@ export interface SyncQueueStatus {
   pending: number;
   failed: number;
   conflicts: number;
-}
-
-// Retry Options
-export interface RetryOptions {
-  maxRetries: number;
-  backoffFactor: number;
-  maxBackoff: number;
 }
 
 // Conflict Resolution Result

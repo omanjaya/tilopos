@@ -1,221 +1,138 @@
 /**
  * Sync Executor Service
  *
- * Executes sync operations by sending them to the backend API.
- * Handles HTTP requests and response processing.
+ * Sends one queue item to the backend. HTTP goes through a `SyncTransport`
+ * whose default implementation uses `apiClient` (same base URL and Bearer
+ * token as the rest of the app) with the global error handler disabled, so a
+ * background sync never shows toasts or forces a logout.
  */
 
-import { IDBPDatabase } from 'idb';
-import {
-  TiloPOSDB,
-  SyncQueueItem,
-  CachedEntity,
-  EntityType,
-} from './types/sync.types';
-import { HTTP_STATUS, VALID_STORE_NAMES } from './constants/sync.constants';
+import type { SyncQueueItem } from './types/sync.types';
+import { HTTP_STATUS, SYNC_CREATE_ENDPOINTS } from './constants/sync.constants';
 
-export interface SyncExecutorConfig {
-  apiBaseUrl: string;
-  getAuthToken?: () => string | null;
-}
-
-export class SyncExecutorService {
-  constructor(
-    private db: IDBPDatabase<TiloPOSDB>,
-    private config: SyncExecutorConfig
-  ) {}
-
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    const token = this.config.getAuthToken?.();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    return headers;
-  }
-
-  /**
-   * Execute sync operation for a queue item
-   */
-  async executeSyncOperation(item: SyncQueueItem): Promise<void> {
-    const endpoint = `${this.config.apiBaseUrl}/${item.entityType}`;
-
-    const options: RequestInit = {
-      headers: this.getHeaders(),
-    };
-
-    switch (item.operation) {
-      case 'create':
-        options.method = 'POST';
-        options.body = JSON.stringify(item.data);
-        break;
-      case 'update':
-        options.method = 'PUT';
-        options.body = JSON.stringify(item.data);
-        break;
-      case 'delete':
-        options.method = 'DELETE';
-        break;
-    }
-
-    const url =
-      item.operation === 'create'
-        ? endpoint
-        : `${endpoint}/${item.entityId}`;
-
-    const response = await fetch(url, options);
-
-    if (!response.ok) {
-      // Check for conflict (409)
-      if (response.status === HTTP_STATUS.CONFLICT) {
-        const serverData = await response.json();
-        throw new ConflictError('Sync conflict detected', serverData);
-      }
-
-      throw new Error(`Sync failed: ${response.statusText}`);
-    }
-
-    // Update local cache with server response if available
-    if (response.status !== HTTP_STATUS.NO_CONTENT) {
-      try {
-        const serverData = await response.json();
-        await this.updateLocalCache(item.entityType, item.entityId, serverData);
-      } catch {
-        // Response might not have JSON body, ignore
-      }
-    }
-  }
-
-  /**
-   * Force push local version to server (for client-wins strategy)
-   */
-  async forcePushToServer(item: SyncQueueItem): Promise<void> {
-    const endpoint = `${this.config.apiBaseUrl}/${item.entityType}/${item.entityId}`;
-
-    const response = await fetch(endpoint, {
-      method: 'PUT',
-      headers: {
-        ...this.getHeaders(),
-        'X-Force-Update': 'true',
-      },
-      body: JSON.stringify(item.data),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Force push failed: ${response.statusText}`);
-    }
-  }
-
-  /**
-   * Pull changes from server
-   */
-  async pullChangesFromServer(
-    entityType: EntityType,
-    since: number,
-    outletId?: string
-  ): Promise<unknown[]> {
-    const params = new URLSearchParams();
-    params.set('since', new Date(since).toISOString());
-    if (outletId) {
-      params.set('outletId', outletId);
-    }
-
-    const response = await fetch(
-      `${this.config.apiBaseUrl}/${entityType}?${params}`,
-      {
-        headers: this.getHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to pull ${entityType}: ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  /**
-   * Update local cache with server data
-   */
-  async updateLocalCache(
-    entityType: EntityType,
-    entityId: string,
-    data: unknown
-  ): Promise<void> {
-    // Only update cache for valid entity stores
-    const validStores = VALID_STORE_NAMES;
-    if (!validStores.includes(entityType as typeof validStores[number])) {
-      return;
-    }
-
-    const cached: CachedEntity<unknown> = {
-      id: entityId,
-      data,
-      syncedAt: Date.now(),
-      isDirty: false,
-      isDeleted: false,
-      version: Date.now(),
-    };
-
-    // Put operation with type assertion for dynamic entity type
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.db.put(entityType as any, cached as any);
-  }
-
-  /**
-   * Batch update local cache with multiple items
-   */
-  async batchUpdateLocalCache(
-    entityType: 'products' | 'categories' | 'transactions' | 'customers',
-    items: unknown[]
-  ): Promise<void> {
-    const tx = this.db.transaction(entityType, 'readwrite');
-
-    for (const item of items) {
-      const itemWithId = item as { id: string };
-      const cached: CachedEntity<unknown> = {
-        id: itemWithId.id,
-        data: item,
-        syncedAt: Date.now(),
-        isDirty: false,
-        isDeleted: false,
-        version: Date.now(),
-      };
-      // Put operation with type assertion for dynamic entity type
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await tx.store.put(cached as any);
-    }
-
-    await tx.done;
-  }
-
-  /**
-   * Check server connectivity
-   */
-  async checkServerHealth(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.config.apiBaseUrl}/health`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
+export interface SyncTransportResponse {
+  status: number;
+  data: unknown;
 }
 
 /**
- * Custom error for sync conflicts
+ * Performs an HTTP request relative to the API base URL.
+ * Must resolve for every HTTP status and reject only on network failure.
  */
+export interface SyncTransport {
+  post(path: string, body: unknown, ownerUserId?: string): Promise<SyncTransportResponse>;
+}
+
+/** Error with the HTTP status of a failed sync attempt */
+export class SyncHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly data?: unknown,
+  ) {
+    super(message);
+    this.name = 'SyncHttpError';
+  }
+
+  /** Server errors, timeouts and rate limits are worth retrying automatically */
+  get retryable(): boolean {
+    return this.status >= 500 || this.status === 408 || this.status === 429;
+  }
+
+  /** Session problem: keep the item pending until the owner logs in again */
+  get isAuthError(): boolean {
+    return this.status === HTTP_STATUS.UNAUTHORIZED;
+  }
+}
+
+/** The request never reached the server (offline, DNS, CORS, timeout) */
+export class SyncNetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SyncNetworkError';
+  }
+}
+
+/** Custom error for sync conflicts (HTTP 409) */
 export class ConflictError extends Error {
   constructor(
     message: string,
-    public serverData: unknown
+    public serverData: unknown,
   ) {
     super(message);
     this.name = 'ConflictError';
   }
 }
+
+function extractMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === 'object' && 'message' in data) {
+    const msg = (data as { message: unknown }).message;
+    if (Array.isArray(msg)) return msg.join(', ');
+    if (typeof msg === 'string') return msg;
+  }
+  return fallback;
+}
+
+export class SyncExecutorService {
+  constructor(private transport: SyncTransport) {}
+
+  /**
+   * Execute sync operation for a queue item.
+   * Resolves with the server response body on 2xx; throws SyncHttpError,
+   * ConflictError or SyncNetworkError otherwise.
+   */
+  async executeSyncOperation(item: SyncQueueItem): Promise<unknown> {
+    const endpoint = SYNC_CREATE_ENDPOINTS[item.entityType];
+    if (item.operation !== 'create' || !endpoint) {
+      // Only offline creates are queued; anything else is a programming error.
+      throw new SyncHttpError(
+        HTTP_STATUS.BAD_REQUEST,
+        `Operasi sinkronisasi tidak didukung: ${item.operation} ${item.entityType}`,
+      );
+    }
+
+    let response: SyncTransportResponse;
+    try {
+      response = await this.transport.post(endpoint, item.data, item.ownerUserId);
+    } catch (error) {
+      throw new SyncNetworkError(error instanceof Error ? error.message : String(error));
+    }
+
+    if (response.status >= 200 && response.status < 300) {
+      return response.data;
+    }
+
+    if (response.status === HTTP_STATUS.CONFLICT) {
+      throw new ConflictError(extractMessage(response.data, 'Konflik data saat sinkronisasi'), response.data);
+    }
+
+    throw new SyncHttpError(
+      response.status,
+      extractMessage(response.data, `Sinkronisasi gagal (HTTP ${response.status})`),
+      response.data,
+    );
+  }
+}
+
+/**
+ * Default transport: apiClient with the global interceptor toasts / 401 logout skipped.
+ * Imported lazily to avoid a module cycle (apiClient -> auth.store -> sync).
+ */
+export const apiClientTransport: SyncTransport = {
+  async post(path, body, ownerUserId) {
+    const { apiClient } = await import('@/api/client');
+    try {
+      const res = await apiClient.post(path, body, {
+        skipGlobalErrorHandler: true,
+        ownerUserId,
+      });
+      return { status: res.status, data: res.data };
+    } catch (error) {
+      const { default: axios } = await import('axios');
+      if (axios.isAxiosError(error) && error.response) {
+        return { status: error.response.status, data: error.response.data };
+      }
+      throw error;
+    }
+  },
+};

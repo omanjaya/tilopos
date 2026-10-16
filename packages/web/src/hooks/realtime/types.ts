@@ -88,12 +88,12 @@ export type QueueEvent =
 // Transaction Events
 // -------------------------------------------------------------------
 
+/** Payload of 'transaction:created' (notifications.gateway.ts) */
 export interface TransactionCreatedEvent {
   transactionId: string;
-  transactionNumber: string;
   outletId: string;
-  totalAmount: number;
-  employeeName: string;
+  amount: number;
+  customerId: string | null;
   occurredOn: string;
 }
 

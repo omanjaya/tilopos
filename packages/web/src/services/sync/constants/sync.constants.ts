@@ -2,7 +2,7 @@
  * Sync Engine Constants
  */
 
-import { SyncEngineConfig } from '../types/sync.types';
+import type { EntityType, SyncEngineConfig } from '../types/sync.types';
 
 // Default Configuration
 export const DEFAULT_SYNC_CONFIG: SyncEngineConfig = {
@@ -10,8 +10,22 @@ export const DEFAULT_SYNC_CONFIG: SyncEngineConfig = {
   dbVersion: 1,
   syncInterval: 30000, // 30 seconds
   maxRetries: 3,
-  conflictStrategy: 'server-wins',
-  apiBaseUrl: '/api',
+  // Offline sales are creates; a 409 must never silently discard them.
+  conflictStrategy: 'manual',
+};
+
+/**
+ * Name of the IndexedDB database used for the offline queue.
+ * Deleted only after a successful full sync or an explicit discard (never on logout / 401).
+ */
+export const OFFLINE_DB_NAME = DEFAULT_SYNC_CONFIG.dbName;
+
+/**
+ * Backend endpoints (relative to apiClient baseURL, e.g. /api/v1) that accept queued creates.
+ * Only entity types listed here can be synced.
+ */
+export const SYNC_CREATE_ENDPOINTS: Partial<Record<EntityType, string>> = {
+  transactions: '/pos/transactions',
 };
 
 // Retry Configuration
@@ -49,17 +63,8 @@ export const SYNC_EVENTS = {
   QUEUE_PROCESSED: 'queueProcessed',
   SYNC_ERROR: 'syncError',
   CONFLICT: 'conflict',
-  PULLED: 'pulled',
   ALL: '*',
 };
-
-// Valid Store Names for Cache Operations
-export const VALID_STORE_NAMES = [
-  'products',
-  'categories',
-  'transactions',
-  'customers',
-] as const;
 
 // HTTP Status Codes
 export const HTTP_STATUS = {
@@ -72,9 +77,4 @@ export const HTTP_STATUS = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   INTERNAL_SERVER_ERROR: 500,
-};
-
-// Conflict Strategy Headers
-export const CONFLICT_HEADERS = {
-  FORCE_UPDATE: 'X-Force-Update',
 };

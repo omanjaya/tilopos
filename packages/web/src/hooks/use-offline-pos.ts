@@ -1,257 +1,175 @@
 /**
  * useOfflinePOS
  *
- * Provides offline-first POS transaction handling:
- * - Detects online/offline network state
- * - Queues POS transactions to IndexedDB (falls back to localStorage)
- * - Auto-syncs queued transactions when the device comes back online
- * - Exposes an offline indicator with the number of pending transactions
+ * Offline-first POS transaction handling on top of the sync engine:
+ * - detects online/offline state
+ * - queues sales (IndexedDB, localStorage fallback inside the engine) with a
+ *   `clientTransactionId` so the backend can de-duplicate replays
+ * - syncs automatically when connectivity returns (engine-level lock, no double send)
+ * - exposes failed / conflicting sales with retry and discard actions
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { syncEngine } from '@/services/sync';
-import { useAuthStore } from '@/stores/auth.store';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { useState, useEffect, useCallback } from 'react';
+import {
+  syncEngine,
+  toOfflineTransactionPayload,
+  type OfflineTransactionInput,
+  type OfflineTransactionPayload,
+  type SyncQueueItem,
+} from '@/services/sync';
 
 export type OfflineSyncStatus = 'idle' | 'syncing' | 'error';
 
-export interface OfflinePOSTransaction {
+export interface OfflineProblemItem {
   id: string;
-  outletId: string;
-  employeeId: string;
-  shiftId: string;
-  orderType: string;
-  items: OfflineTransactionItem[];
-  payments: OfflinePayment[];
-  customerId?: string;
-  tableId?: string;
-  notes?: string;
-  createdAt: number;
-}
-
-interface OfflineTransactionItem {
-  productId: string;
-  variantId?: string;
-  quantity: number;
-  modifierIds: string[];
-  notes?: string;
-}
-
-interface OfflinePayment {
-  method: string;
-  amount: number;
-  referenceNumber?: string;
+  clientTransactionId: string;
+  occurredAt: string;
+  total: number;
+  status: 'failed' | 'conflict';
+  error?: string;
 }
 
 interface UseOfflinePOSReturn {
   /** Whether the browser is currently offline */
   isOffline: boolean;
-  /** Number of transactions waiting to be synced */
+  /** Sales waiting to be sent (pending) */
   pendingCount: number;
+  /** Sales the server rejected; need retry or discard */
+  failedItems: OfflineProblemItem[];
   /** Current sync status */
   syncStatus: OfflineSyncStatus;
   /** Manually trigger a sync of queued transactions */
   manualSync: () => Promise<void>;
-  /** Queue a transaction locally (used when offline) */
-  queueTransaction: (tx: Omit<OfflinePOSTransaction, 'id' | 'createdAt'>) => Promise<string>;
+  /**
+   * Queue a sale locally. Resolves with the stored payload (incl. clientTransactionId)
+   * only after it was persisted; rejects if it could not be saved.
+   */
+  queueTransaction: (tx: OfflineTransactionInput) => Promise<OfflineTransactionPayload>;
+  retryItem: (id: string) => Promise<void>;
+  discardItem: (id: string) => Promise<void>;
 }
 
-// ---------------------------------------------------------------------------
-// LocalStorage fallback helpers
-// ---------------------------------------------------------------------------
-
-const LS_KEY = 'tilopos-offline-queue';
-
-function getLSQueue(): OfflinePOSTransaction[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as OfflinePOSTransaction[]) : [];
-  } catch {
-    return [];
-  }
+function toProblemItem(item: SyncQueueItem): OfflineProblemItem {
+  const data = item.data as Partial<OfflineTransactionPayload>;
+  const total = (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  return {
+    id: item.id,
+    clientTransactionId: item.entityId,
+    occurredAt: data.occurredAt ?? new Date(item.createdAt).toISOString(),
+    total,
+    status: item.status === 'conflict' ? 'conflict' : 'failed',
+    error: item.error,
+  };
 }
-
-function setLSQueue(queue: OfflinePOSTransaction[]): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(queue));
-  } catch {
-    // Storage full -- ignore
-  }
-}
-
-function appendToLSQueue(tx: OfflinePOSTransaction): void {
-  const queue = getLSQueue();
-  queue.push(tx);
-  setLSQueue(queue);
-}
-
-function removeFromLSQueue(id: string): void {
-  const queue = getLSQueue().filter((t) => t.id !== id);
-  setLSQueue(queue);
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 
 export function useOfflinePOS(): UseOfflinePOSReturn {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
+  const [failedItems, setFailedItems] = useState<OfflineProblemItem[]>([]);
   const [syncStatus, setSyncStatus] = useState<OfflineSyncStatus>('idle');
-  const isSyncingRef = useRef(false);
-  const dbReadyRef = useRef(false);
 
-  // ---- Network listeners ----
+  const refresh = useCallback(async () => {
+    try {
+      const status = await syncEngine.getQueueStatus();
+      setPendingCount(status.pending);
+      const problems = await syncEngine.getProblemItems();
+      setFailedItems(problems.map(toProblemItem));
+      setSyncStatus((prev) => (prev === 'syncing' ? prev : problems.length > 0 ? 'error' : 'idle'));
+    } catch (error) {
+      console.warn('[offline-pos] cannot read offline queue', error);
+      setSyncStatus('error');
+    }
+  }, []);
+
+  // Network listeners
   useEffect(() => {
     const goOffline = () => setIsOffline(true);
-    const goOnline = () => {
-      setIsOffline(false);
-      // Auto-sync when connectivity returns
-      void syncPending();
-    };
+    const goOnline = () => setIsOffline(false); // the engine itself syncs on 'online'
 
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
-
     return () => {
       window.removeEventListener('online', goOnline);
       window.removeEventListener('offline', goOffline);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncPending is stable via ref
   }, []);
 
-  // ---- Initialize sync engine & count pending items ----
+  // Initialize engine (idempotent) and subscribe to its events
   useEffect(() => {
-    const init = async () => {
-      try {
-        await syncEngine.initialize();
-        dbReadyRef.current = true;
-      } catch {
-        // IndexedDB unavailable; fall back to localStorage
-        dbReadyRef.current = false;
-      }
-      await refreshPendingCount();
-    };
+    let cancelled = false;
+    syncEngine
+      .initialize()
+      .then(() => {
+        if (!cancelled) void refresh();
+      })
+      .catch((error: unknown) => {
+        console.error('[offline-pos] offline queue unavailable', error);
+        if (!cancelled) setSyncStatus('error');
+      });
 
-    void init();
-
-    // Subscribe to sync engine events
-    const handleQueued = () => void refreshPendingCount();
-    const handleProcessed = () => void refreshPendingCount();
-    const handleError = () => {
-      setSyncStatus('error');
-      void refreshPendingCount();
-    };
-
-    syncEngine.on('queued', handleQueued);
-    syncEngine.on('queueProcessed', handleProcessed);
-    syncEngine.on('syncError', handleError);
+    const onChange = () => void refresh();
+    syncEngine.on('queued', onChange);
+    syncEngine.on('queueProcessed', onChange);
+    syncEngine.on('syncError', onChange);
+    syncEngine.on('conflict', onChange);
 
     return () => {
-      syncEngine.off('queued', handleQueued);
-      syncEngine.off('queueProcessed', handleProcessed);
-      syncEngine.off('syncError', handleError);
+      cancelled = true;
+      syncEngine.off('queued', onChange);
+      syncEngine.off('queueProcessed', onChange);
+      syncEngine.off('syncError', onChange);
+      syncEngine.off('conflict', onChange);
     };
-    // refreshPendingCount is intentionally omitted - it's defined later and not needed in setup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
 
-  // ---- Refresh pending count ----
-  const refreshPendingCount = useCallback(async () => {
-    if (dbReadyRef.current) {
-      try {
-        const status = await syncEngine.getQueueStatus();
-        setPendingCount(status.pending + status.failed);
-      } catch {
-        // Fall through to localStorage count
-        setPendingCount(getLSQueue().length);
-      }
-    } else {
-      setPendingCount(getLSQueue().length);
-    }
-  }, []);
-
-  // ---- Queue a transaction ----
   const queueTransaction = useCallback(
-    async (tx: Omit<OfflinePOSTransaction, 'id' | 'createdAt'>): Promise<string> => {
-      const id = `offline-tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const fullTx: OfflinePOSTransaction = {
-        ...tx,
-        id,
-        createdAt: Date.now(),
-      };
-
-      if (dbReadyRef.current) {
-        try {
-          await syncEngine.queueOperation('transactions', id, 'create', fullTx);
-        } catch {
-          // Fallback
-          appendToLSQueue(fullTx);
-        }
-      } else {
-        appendToLSQueue(fullTx);
-      }
-
-      await refreshPendingCount();
-      return id;
+    async (tx: OfflineTransactionInput): Promise<OfflineTransactionPayload> => {
+      const payload = toOfflineTransactionPayload(tx);
+      await syncEngine.queueOperation('transactions', payload.clientTransactionId, 'create', payload);
+      await refresh();
+      return payload;
     },
-    [refreshPendingCount],
+    [refresh],
   );
 
-  // ---- Sync pending transactions ----
-  const syncPending = useCallback(async () => {
-    if (isSyncingRef.current || !navigator.onLine) return;
-
-    isSyncingRef.current = true;
+  const manualSync = useCallback(async () => {
+    if (!navigator.onLine) return;
     setSyncStatus('syncing');
-
     try {
-      // Sync via sync engine (IndexedDB)
-      if (dbReadyRef.current) {
-        await syncEngine.processQueue();
-      }
-
-      // Also sync any localStorage fallback items
-      const lsQueue = getLSQueue();
-      for (const tx of lsQueue) {
-        try {
-          const response = await fetch('/api/v1/transactions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${useAuthStore.getState().token ?? ''}`,
-            },
-            body: JSON.stringify(tx),
-          });
-          if (response.ok) {
-            removeFromLSQueue(tx.id);
-          }
-        } catch {
-          // Will retry on next sync
-        }
-      }
-
+      await syncEngine.processQueue();
       setSyncStatus('idle');
-    } catch {
+    } catch (error) {
+      console.error('[offline-pos] sync failed', error);
       setSyncStatus('error');
     } finally {
-      isSyncingRef.current = false;
-      await refreshPendingCount();
+      await refresh();
     }
-  }, [refreshPendingCount]);
+  }, [refresh]);
 
-  const manualSync = useCallback(async () => {
-    await syncPending();
-  }, [syncPending]);
+  const retryItem = useCallback(
+    async (id: string) => {
+      await syncEngine.retryItem(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const discardItem = useCallback(
+    async (id: string) => {
+      await syncEngine.discardItem(id);
+      await refresh();
+    },
+    [refresh],
+  );
 
   return {
     isOffline,
     pendingCount,
+    failedItems,
     syncStatus,
     manualSync,
     queueTransaction,
+    retryItem,
+    discardItem,
   };
 }

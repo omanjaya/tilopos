@@ -14,7 +14,10 @@ interface SyncState {
 
 interface UseSyncReturn extends SyncState {
   triggerSync: () => Promise<void>;
-  resolveConflict: (id: string, strategy: 'server-wins' | 'client-wins') => Promise<void>;
+  /** Put a failed / conflicting item back in the queue and sync it now */
+  retryItem: (id: string) => Promise<void>;
+  /** Permanently drop a queued item (explicit user decision) */
+  discardItem: (id: string) => Promise<void>;
 }
 
 const PERIODIC_SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -57,8 +60,8 @@ export function useSync(): UseSyncReturn {
           syncStatus,
         };
       });
-    } catch {
-      // DB may not be ready yet
+    } catch (error) {
+      console.warn('[sync] cannot read queue status', error);
     }
   }, []);
 
@@ -74,20 +77,23 @@ export function useSync(): UseSyncReturn {
         ...prev,
         lastSyncTime: Date.now(),
       }));
+    } catch (error) {
+      console.error('[sync] sync run failed', error);
     } finally {
       isSyncingRef.current = false;
       await refreshQueueStatus();
     }
   }, [refreshQueueStatus]);
 
-  const resolveConflict = useCallback(async (id: string, strategy: 'server-wins' | 'client-wins') => {
-    // Access the sync queue item and resolve based on strategy
-    // The sync engine handles conflict resolution internally
-    // We re-trigger sync after resolution
-    void id;
-    void strategy;
-    await triggerSync();
-  }, [triggerSync]);
+  const retryItem = useCallback(async (id: string) => {
+    await syncEngine.retryItem(id);
+    await refreshQueueStatus();
+  }, [refreshQueueStatus]);
+
+  const discardItem = useCallback(async (id: string) => {
+    await syncEngine.discardItem(id);
+    await refreshQueueStatus();
+  }, [refreshQueueStatus]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -135,7 +141,6 @@ export function useSync(): UseSyncReturn {
     syncEngine.on('queueProcessed', handleSyncComplete);
     syncEngine.on('syncError', handleEvent);
     syncEngine.on('conflict', handleEvent);
-    syncEngine.on('pulled', handleSyncComplete);
     syncEngine.on('offline', handleEvent);
 
     return () => {
@@ -143,7 +148,6 @@ export function useSync(): UseSyncReturn {
       syncEngine.off('queueProcessed', handleSyncComplete);
       syncEngine.off('syncError', handleEvent);
       syncEngine.off('conflict', handleEvent);
-      syncEngine.off('pulled', handleSyncComplete);
       syncEngine.off('offline', handleEvent);
     };
   }, [refreshQueueStatus]);
@@ -163,14 +167,21 @@ export function useSync(): UseSyncReturn {
     };
   }, [triggerSync]);
 
-  // Initial status check
+  // Initialize the engine (idempotent) so queued offline sales also sync outside the POS screen
   useEffect(() => {
-    void refreshQueueStatus();
+    syncEngine
+      .initialize()
+      .then(() => refreshQueueStatus())
+      .catch((error: unknown) => {
+        console.error('[sync] offline queue unavailable', error);
+        setState(prev => ({ ...prev, syncStatus: 'error' }));
+      });
   }, [refreshQueueStatus]);
 
   return {
     ...state,
     triggerSync,
-    resolveConflict,
+    retryItem,
+    discardItem,
   };
 }

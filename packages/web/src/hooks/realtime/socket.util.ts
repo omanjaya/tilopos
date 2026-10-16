@@ -1,3 +1,4 @@
+import { recoverSocketSession } from './socket-session';
 /**
  * WebSocket Connection Utility
  *
@@ -25,6 +26,71 @@ const SOCKET_NAMESPACE = '/notifications';
 let sharedSocket: Socket | null = null;
 let refCount = 0;
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Room membership is shared by every hook on the same socket, so it is ref-counted:
+// the socket only leaves a room when the last consumer releases it.
+const roomRefs = new Map<string, { room: ResolvedRoom; count: number }>();
+
+function emitJoin(socket: Socket, room: ResolvedRoom): void {
+  socket.emit('joinRoom', { room: room.type, outletId: room.outletId, businessId: room.businessId });
+}
+
+export interface ResolvedRoom {
+  /** Room type sent to the backend joinRoom handler ('outlet', 'business', 'kds', ...) */
+  type: string;
+  outletId?: string;
+  businessId?: string;
+  /** Actual server-side room name (mirrors notifications.gateway.ts handleJoinRoom) */
+  name: string;
+}
+
+/**
+ * Resolve a room request ('outlet', 'outlet:<id>', 'business', 'kds:<id>', ...) to the
+ * server-side room name the gateway uses.
+ */
+export function resolveRoom(
+  room: string,
+  opts: { outletId?: string | null; businessId?: string | null } = {},
+): ResolvedRoom {
+  const [rawType, rawId] = room.includes(':') ? room.split(':', 2) : [room, undefined];
+  const type = rawType ?? room;
+  const businessId = (type === 'business' ? rawId : undefined) ?? opts.businessId ?? undefined;
+  const outletId = (type === 'outlet' || type === 'kds' ? rawId : undefined) ?? opts.outletId ?? undefined;
+  switch (type) {
+    case 'outlet':
+      return { type, outletId, businessId, name: `outlet:${outletId}` };
+    case 'kds':
+      return { type, outletId, businessId, name: `kds:${outletId}` };
+    case 'business':
+      return { type, businessId, name: `business:${businessId}` };
+    default:
+      return { type, outletId, businessId, name: `${type}:${businessId}` };
+  }
+}
+
+/** Join a room (ref-counted). Returns the resolved server-side room name. */
+export function acquireRoom(socket: Socket, room: ResolvedRoom): string {
+  const entry = roomRefs.get(room.name);
+  if (entry) {
+    entry.count++;
+  } else {
+    roomRefs.set(room.name, { room, count: 1 });
+    emitJoin(socket, room);
+  }
+  return room.name;
+}
+
+/** Release a room joined with acquireRoom; leaves it when nobody uses it anymore. */
+export function releaseRoom(socket: Socket | null, name: string): void {
+  const entry = roomRefs.get(name);
+  if (!entry) return;
+  if (entry.count <= 1) {
+    roomRefs.delete(name);
+    socket?.emit('leaveRoom', { room: name });
+  } else {
+    entry.count--;
+  }
+}
 
 /**
  * Get the shared Socket.io instance.
@@ -55,6 +121,14 @@ export function getSharedSocket(): Socket | null {
         cb({ token: useAuthStore.getState().token });
       },
     });
+    // Server-side room membership is lost on reconnect: re-join every room still in use
+    const socket = sharedSocket;
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io server disconnect') recoverSocketSession(socket, () => sharedSocket === socket);
+    });
+    socket.on('connect', () => {
+      roomRefs.forEach(({ room }) => emitJoin(socket, room));
+    });
   }
 
   refCount++;
@@ -74,6 +148,7 @@ export function releaseSharedSocket(): void {
       if (refCount <= 0 && sharedSocket) {
         sharedSocket.disconnect();
         sharedSocket = null;
+        roomRefs.clear();
       }
       disconnectTimer = null;
     }, 100);
@@ -95,14 +170,5 @@ export function destroySharedSocket(): void {
     sharedSocket = null;
   }
   refCount = 0;
-}
-
-/**
- * Get current connection state (for debugging).
- */
-export function getSocketState(): { connected: boolean; refCount: number } {
-  return {
-    connected: sharedSocket?.connected ?? false,
-    refCount,
-  };
+  roomRefs.clear();
 }
