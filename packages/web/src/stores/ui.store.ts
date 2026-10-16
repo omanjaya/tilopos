@@ -20,6 +20,8 @@ interface UIState {
   setTaxRate: (rate: number) => void;
   setServiceChargeRate: (rate: number) => void;
   setTaxInclusive: (inclusive: boolean) => void;
+  /** Reset tenant-specific settings (tax, service charge, brand, outlet) — called on logout */
+  resetBusinessSettings: () => void;
 }
 
 const savedTheme = (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
@@ -95,5 +97,17 @@ export const useUIStore = create<UIState>((set) => ({
   setTaxInclusive: (inclusive) => {
     localStorage.setItem('taxInclusive', String(inclusive));
     set({ taxInclusive: inclusive });
+  },
+  resetBusinessSettings: () => {
+    for (const key of ['taxRate', 'serviceChargeRate', 'taxInclusive', 'brandColor', 'selectedOutletId']) {
+      localStorage.removeItem(key);
+    }
+    set({
+      taxRate: 0.11,
+      serviceChargeRate: 0,
+      taxInclusive: false,
+      brandColor: null,
+      selectedOutletId: null,
+    });
   },
 }));

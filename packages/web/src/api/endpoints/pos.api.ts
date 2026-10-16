@@ -2,33 +2,103 @@ import { apiClient } from '../client';
 import type {
     CreateTransactionRequest,
     CreateTransactionResponse,
-    Transaction,
-    HeldBill,
+    PreviewTransactionRequest,
+    PreviewTransactionResponse,
     ReceiptData,
-    CashDrawerEntry,
     POSProduct,
     POSCategory,
+    POSModifierGroup,
+    PaymentMethod,
 } from '@/types/pos.types';
 import type { Product, Category } from '@/types/product.types';
+import type { PaymentMethodType, ReceiptTemplate } from '@/types/settings.types';
+import { toReceiptTemplate } from './settings.api';
 
-interface HoldBillRequest {
-    outletId: string;
-    tableId?: string;
-    customerName?: string;
-    items: {
-        productId: string;
-        variantId?: string;
-        quantity: number;
-        modifierIds?: string[];
-        notes?: string;
-    }[];
-    notes?: string;
+/** GET /settings/pos/payment-methods — active methods, readable by every POS role. */
+export interface POSPaymentMethodConfig {
+    id: string;
+    name: string;
+    type: PaymentMethodType;
+    processingFee: number;
+    /** payments[].method value; 'card' = debit/credit card; null = not recordable by the POS. */
+    method: PaymentMethod | null;
 }
+
+/** Raw shift record as returned by GET /employees/shifts/current (ShiftRecord). */
+export interface ShiftRecord {
+    id: string;
+    outletId: string;
+    employeeId: string;
+    startedAt: string;
+    openingCash: number;
+    cashIn: number | null;
+    cashOut: number | null;
+    status: string;
+}
+
+/** Response of POST /employees/shifts/:id/end (EndShiftOutput). */
+export interface EndShiftResult {
+    shiftId: string;
+    expectedCash: number;
+    actualCash: number;
+    difference: number;
+    endedAt: string;
+}
+
+/** GET /employees/shifts/:shiftId/summary — live totals for the close-shift dialog. */
+export interface ShiftLiveSummary {
+    shiftId: string;
+    status: string;
+    openingCash: number;
+    transactionCount: number;
+    totalSales: number;
+    cashSales: number;
+    cashRefunds: number;
+    cashIn: number;
+    cashOut: number;
+    expectedCash: number;
+    paymentBreakdown: { method: string; amount: number; count: number }[];
+    paymentTotal: number;
+}
+
+/** Modifier group as attached to each row of GET /inventory/outlets/:id/products. */
+interface ProductModifierGroupRow {
+    id: string;
+    name: string;
+    selectionType: 'single' | 'multiple';
+    isRequired: boolean;
+    minSelection: number;
+    maxSelection: number | null;
+    modifiers: { id: string; name: string; price: number }[];
+}
+
+type CatalogRow = Product & { barcode?: string | null; modifierGroups?: ProductModifierGroupRow[] };
+
+/**
+ * Maps a backend modifier group to the POS shape. maxSelect 0 = unlimited. The explicit
+ * maxSelection wins; without it a single-select group allows one choice.
+ */
+export function toPOSModifierGroup(g: ProductModifierGroupRow): POSModifierGroup {
+    const maxSelect = g.maxSelection ?? (g.selectionType === 'single' ? 1 : 0);
+    return {
+        id: g.id,
+        name: g.name,
+        required: g.isRequired || g.minSelection > 0,
+        minSelect: g.minSelection,
+        maxSelect,
+        modifiers: g.modifiers.map((m) => ({ id: m.id, name: m.name, price: Number(m.price) })),
+    };
+}
+
+/** POS catalog item; barcode is carried so a scanner (text + Enter) can add the item. */
+export type POSCatalogProduct = POSProduct & { barcode?: string };
 
 export const posApi = {
     // Products for POS display
-    getProducts: async (outletId: string): Promise<POSProduct[]> => {
-        const { data } = await apiClient.get<Product[]>(`/inventory/outlets/${outletId}/products`);
+    getProducts: async (outletId: string): Promise<POSCatalogProduct[]> => {
+        const { data } = await apiClient.get<CatalogRow[]>(
+            `/inventory/outlets/${outletId}/products`,
+        );
         // Transform to POSProduct format - only return active products
         return data
             .filter((product) => product.isActive)
@@ -36,6 +106,7 @@ export const posApi = {
                 id: product.id,
                 name: product.name,
                 sku: product.sku,
+                barcode: product.barcode ?? undefined,
                 basePrice: Number(product.basePrice),
                 imageUrl: product.imageUrl ?? undefined,
                 categoryId: product.categoryId ?? undefined,
@@ -45,7 +116,10 @@ export const posApi = {
                     name: v.name,
                     price: Number(v.price),
                 })),
-                modifierGroups: [], // Will be fetched separately if needed
+                // Only groups that still have selectable modifiers are offered
+                modifierGroups: (product.modifierGroups ?? [])
+                    .filter((g) => g.modifiers.length > 0)
+                    .map(toPOSModifierGroup),
                 trackStock: product.trackStock,
             }));
     },
@@ -62,14 +136,27 @@ export const posApi = {
         }));
     },
 
+    getPaymentMethods: async (): Promise<POSPaymentMethodConfig[]> => {
+        const { data } = await apiClient.get<unknown>('/settings/pos/payment-methods');
+        if (!Array.isArray(data)) throw new Error('Respons metode pembayaran tidak valid');
+        return data as POSPaymentMethodConfig[];
+    },
+
+    /** GET /settings/pos/receipt — receipt template of the POS outlet (read-only). */
+    getReceiptTemplate: async (outletId: string): Promise<ReceiptTemplate> => {
+        const { data } = await apiClient.get<unknown>('/settings/pos/receipt', { params: { outletId } });
+        return toReceiptTemplate(data);
+    },
+
     // Transaction operations
     createTransaction: async (request: CreateTransactionRequest): Promise<CreateTransactionResponse> => {
         const { data } = await apiClient.post<CreateTransactionResponse>('/pos/transactions', request);
         return data;
     },
 
-    getTransaction: async (id: string): Promise<Transaction> => {
-        const { data } = await apiClient.get<Transaction>(`/pos/transactions/${id}`);
+    /** POST /pos/transactions/preview — server-side totals of a cart (no side effects). */
+    previewTransaction: async (request: PreviewTransactionRequest): Promise<PreviewTransactionResponse> => {
+        const { data } = await apiClient.post<PreviewTransactionResponse>('/pos/transactions/preview', request);
         return data;
     },
 
@@ -78,58 +165,40 @@ export const posApi = {
         return data;
     },
 
-    // Hold/Resume Bill
-    holdBill: async (request: HoldBillRequest): Promise<HeldBill> => {
-        const { data } = await apiClient.post<HeldBill>('/pos/hold', request);
+    // Shift (POS-side view of the cashier's own open shift)
+    getCurrentShiftRecord: async (): Promise<ShiftRecord | null> => {
+        const { data } = await apiClient.get<ShiftRecord | { shift: null }>('/employees/shifts/current');
+        if (!data || !('id' in data)) return null;
+        return {
+            ...data,
+            openingCash: Number(data.openingCash ?? 0),
+            cashIn: data.cashIn == null ? null : Number(data.cashIn),
+            cashOut: data.cashOut == null ? null : Number(data.cashOut),
+        };
+    },
+
+    getShiftSummary: async (shiftId: string): Promise<ShiftLiveSummary> => {
+        const { data } = await apiClient.get<ShiftLiveSummary>(`/employees/shifts/${shiftId}/summary`);
         return data;
     },
 
-    getHeldBills: async (outletId: string): Promise<HeldBill[]> => {
-        const { data } = await apiClient.get<HeldBill[]>('/pos/held-bills', {
-            params: { outletId },
-        });
+    endShift: async (shiftId: string, body: { closingCash: number; notes?: string }): Promise<EndShiftResult> => {
+        const { data } = await apiClient.post<EndShiftResult>(`/employees/shifts/${shiftId}/end`, body);
         return data;
     },
 
-    resumeBill: async (billId: string): Promise<HeldBill> => {
-        const { data } = await apiClient.post<HeldBill>(`/pos/resume/${billId}`);
-        return data;
+    // Cash Drawer (POST /pos/cash-in|cash-out on an open shift)
+    cashIn: async (shiftId: string, entry: { amount: number; notes?: string }): Promise<void> => {
+        await apiClient.post('/pos/cash-in', { shiftId, amount: entry.amount, notes: entry.notes });
     },
 
-    // Cash Drawer
-    cashIn: async (shiftId: string, entry: CashDrawerEntry): Promise<void> => {
-        await apiClient.post('/pos/cash-in', {
-            shiftId,
-            amount: entry.amount,
-            notes: entry.notes,
-        });
-    },
-
-    cashOut: async (shiftId: string, entry: CashDrawerEntry): Promise<void> => {
+    /** CashOutDto.reason is required (max 255). */
+    cashOut: async (shiftId: string, entry: { amount: number; reason: string; notes?: string }): Promise<void> => {
         await apiClient.post('/pos/cash-out', {
             shiftId,
             amount: entry.amount,
             reason: entry.reason,
             notes: entry.notes,
-        });
-    },
-
-    // Void & Refund
-    voidTransaction: async (transactionId: string, reason: string): Promise<void> => {
-        await apiClient.post('/pos/void', { transactionId, reason });
-    },
-
-    processRefund: async (
-        transactionId: string,
-        items: { transactionItemId: string; quantity: number; reason: string }[],
-        refundMethod: string,
-        notes?: string,
-    ): Promise<void> => {
-        await apiClient.post('/pos/refunds', {
-            transactionId,
-            items,
-            refundMethod,
-            notes,
         });
     },
 };

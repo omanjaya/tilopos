@@ -70,7 +70,7 @@ export function useGlobalShortcuts({ enabled = true }: UseGlobalShortcutsOptions
       key: 'p',
       modifiers: { meta: modKey === '⌘', ctrl: modKey === 'Ctrl' },
       preventDefault: true, // Prevent Ctrl+P (print)
-      handler: () => navigate('/app/pos'),
+      handler: () => navigate('/pos'),
     },
     // Products navigation
     {
@@ -82,7 +82,7 @@ export function useGlobalShortcuts({ enabled = true }: UseGlobalShortcutsOptions
     {
       key: 'i',
       modifiers: { meta: modKey === '⌘', ctrl: modKey === 'Ctrl' },
-      handler: () => navigate('/app/inventory'),
+      handler: () => navigate('/app/inventory/stock'),
     },
     // Reports navigation
     {

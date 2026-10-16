@@ -3,35 +3,24 @@ import type {
   Settlement,
   SettlementListParams,
   SettleRequest,
-  DisputeRequest,
 } from '@/types/settlement.types';
 
 export const settlementsApi = {
+  /**
+   * GET /settlements — one row per outlet/date/payment method, plain array bounded
+   * by page/limit (default 20, max 100). dateFrom/dateTo are YYYY-MM-DD.
+   */
   list: (params?: SettlementListParams) =>
-    apiClient.get('/settlements', { params }).then((r) => {
-      const raw = r.data;
-      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
-      // Add null-safe defaults for fields the frontend expects
-      return arr.map((s) => ({
-        ...s,
-        totalSales: Number(s.totalSales ?? s.grossAmount ?? 0),
-        cashAmount: Number(s.cashAmount ?? 0),
-        nonCashAmount: Number(s.nonCashAmount ?? 0),
-        settledAmount: Number(s.settledAmount ?? s.netAmount ?? 0),
-        paymentBreakdown: Array.isArray(s.paymentBreakdown) ? s.paymentBreakdown : [],
-        outletName: (s.outletName ?? '') as string,
-        notes: (s.notes ?? null) as string | null,
-        settledAt: (s.settledAt ?? null) as string | null,
-        date: (s.date ?? s.settlementDate ?? s.createdAt ?? '') as string,
-      })) as Settlement[];
-    }),
+    apiClient
+      .get<Settlement[]>('/settlements', { params: { limit: 100, ...params } })
+      .then((r) => {
+        if (!Array.isArray(r.data)) {
+          throw new Error('Format respons penyelesaian tidak valid');
+        }
+        return r.data;
+      }),
 
-  get: (id: string) =>
-    apiClient.get<Settlement>(`/settlements/${id}`).then((r) => r.data),
-
+  /** POST variant persists `notes`. A non-pending settlement answers 409. */
   settle: (id: string, data?: SettleRequest) =>
-    apiClient.put<Settlement>(`/settlements/${id}/settle`, data).then((r) => r.data),
-
-  dispute: (id: string, data: DisputeRequest) =>
-    apiClient.put<Settlement>(`/settlements/${id}/dispute`, data).then((r) => r.data),
+    apiClient.post<Settlement>(`/settlements/${id}/settle`, data ?? {}).then((r) => r.data),
 };

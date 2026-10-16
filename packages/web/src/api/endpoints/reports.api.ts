@@ -2,7 +2,6 @@ import { apiClient } from '../client';
 import type {
   SalesReport,
   FinancialReport,
-  CustomerReport,
   DateRange,
   ProductReport,
   PaymentMethodReport,
@@ -18,7 +17,22 @@ import type {
   DiscountBreakdownReport,
   EmployeeSalesReport,
 } from '@/types/report.types';
-import { toast } from '@/lib/toast-utils';
+
+/**
+ * Reject responses that are not a JSON object so contract drift surfaces as a
+ * query error (ErrorState) instead of a report full of zeros.
+ */
+function asRecord(data: unknown, endpoint: string): Record<string, unknown> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error(`Format respons ${endpoint} tidak valid`);
+  }
+  return data as Record<string, unknown>;
+}
+
+/** Number or null (cost/profit metrics are null for roles without cost access). */
+function numOrNull(v: unknown): number | null {
+  return v === null || v === undefined ? null : Number(v);
+}
 
 interface ReportParams {
   outletId: string;
@@ -30,7 +44,7 @@ interface ReportParams {
 export const reportsApi = {
   sales: (params: ReportParams) =>
     apiClient.get('/reports/sales', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/sales');
       return {
         totalSales: Number(d.totalSales ?? 0),
         totalTransactions: Number(d.totalTransactions ?? 0),
@@ -40,9 +54,10 @@ export const reportsApi = {
       } as SalesReport;
     }),
 
+  /** GET /reports/financial — owner/manager only. totalRevenue = net sales excl. tax, net of refunds. */
   financial: (params: ReportParams) =>
     apiClient.get('/reports/financial', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/financial');
       return {
         totalRevenue: Number(d.totalRevenue ?? 0),
         totalCost: Number(d.totalCost ?? 0),
@@ -51,58 +66,62 @@ export const reportsApi = {
       } as FinancialReport;
     }),
 
-  customers: (params: ReportParams) =>
-    apiClient.get('/reports/customers', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
-      return {
-        totalCustomers: Number(d.totalCustomers ?? 0),
-        newCustomers: Number(d.newCustomers ?? 0),
-        returningCustomers: Number(d.returningCustomers ?? 0),
-        topCustomers: Array.isArray(d.topCustomers) ? d.topCustomers : [],
-      } as CustomerReport;
-    }),
-
   products: (params: ReportParams) =>
     apiClient.get('/reports/products', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/products');
       return {
         topProducts: Array.isArray(d.topProducts) ? d.topProducts : [],
         totalProducts: Number(d.totalProducts ?? 0),
         totalQuantitySold: Number(d.totalQuantitySold ?? 0),
       } as ProductReport;
-    }).catch(() => {
-      toast.error({ title: 'Failed to load product report' });
-      return {
-        topProducts: [],
-        totalProducts: 0,
-        totalQuantitySold: 0,
-      } as ProductReport;
     }),
 
   paymentMethods: (params: ReportParams) =>
     apiClient.get('/reports/payment-methods', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/payment-methods');
       return {
         methods: Array.isArray(d.methods) ? d.methods : [],
         totalAmount: Number(d.totalAmount ?? 0),
         totalTransactions: Number(d.totalTransactions ?? 0),
       } as PaymentMethodReport;
-    }).catch(() => {
-      toast.error({ title: 'Failed to load payment methods report' });
-      return {
-        methods: [],
-        totalAmount: 0,
-        totalTransactions: 0,
-      } as PaymentMethodReport;
     }),
 
-  // Inventory Report (Retail)
-  inventory: (params: ReportParams) =>
-    apiClient.get<InventoryReport>('/reports/inventory', { params }).then((r) => r.data),
+  // Inventory Report (Retail) — current stock snapshot, date range is ignored by the backend
+  inventory: (params: Pick<ReportParams, 'outletId'>) =>
+    apiClient.get('/reports/inventory', { params: { outletId: params.outletId } }).then((r) => {
+      const d = asRecord(r.data, '/reports/inventory');
+      return {
+        totalItems: Number(d.totalItems ?? 0),
+        lowStockItems: Number(d.lowStockItems ?? 0),
+        outOfStockItems: Number(d.outOfStockItems ?? 0),
+        totalValue: numOrNull(d.totalValue),
+        items: Array.isArray(d.items) ? d.items : [],
+      } as InventoryReport;
+    }),
 
   // Kitchen Report (F&B)
   kitchen: (params: ReportParams) =>
-    apiClient.get<KitchenReport>('/reports/kitchen', { params }).then((r) => r.data),
+    apiClient.get('/reports/kitchen', { params }).then((r) => {
+      const d = asRecord(r.data, '/reports/kitchen');
+      const summary = asRecord(d.summary, '/reports/kitchen');
+      return {
+        period: (d.period ?? { start: '', end: '' }) as KitchenReport['period'],
+        summary: {
+          totalOrders: Number(summary.totalOrders ?? 0),
+          completedOrders: Number(summary.completedOrders ?? 0),
+          avgPrepTimeMinutes: Number(summary.avgPrepTimeMinutes ?? 0),
+          fastestPrepMinutes: Number(summary.fastestPrepMinutes ?? 0),
+          slowestPrepMinutes: Number(summary.slowestPrepMinutes ?? 0),
+          ordersPerHour: Number(summary.ordersPerHour ?? 0),
+          slaTargetMinutes: Number(summary.slaTargetMinutes ?? 0),
+          slaAdherenceRate: Number(summary.slaAdherenceRate ?? 0),
+        },
+        peakHours: Array.isArray(d.peakHours) ? d.peakHours : [],
+        itemsPreparedByProduct: Array.isArray(d.itemsPreparedByProduct) ? d.itemsPreparedByProduct : [],
+        stations: Array.isArray(d.stations) ? d.stations : [],
+        orderStatusBreakdown: Array.isArray(d.orderStatusBreakdown) ? d.orderStatusBreakdown : [],
+      } as KitchenReport;
+    }),
 
   // Table Report (F&B)
   table: (params: ReportParams) =>
@@ -119,14 +138,14 @@ export const reportsApi = {
   // Dashboard (Moka-style)
   dashboardSummary: (params: { outletId: string; startDate: string; endDate: string }) =>
     apiClient.get('/reports/dashboard/summary', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/dashboard/summary');
       return {
         grossSales: Number(d.grossSales ?? 0),
         netSales: Number(d.netSales ?? 0),
-        grossProfit: Number(d.grossProfit ?? 0),
+        grossProfit: numOrNull(d.grossProfit),
         transactions: Number(d.transactions ?? 0),
         averageSalePerTransaction: Number(d.averageSalePerTransaction ?? 0),
-        grossMargin: Number(d.grossMargin ?? 0),
+        grossMargin: numOrNull(d.grossMargin),
         salesByDayOfWeek: Array.isArray(d.salesByDayOfWeek) ? d.salesByDayOfWeek : [],
         salesByHour: Array.isArray(d.salesByHour) ? d.salesByHour : [],
       } as DashboardSummary;
@@ -134,7 +153,7 @@ export const reportsApi = {
 
   dashboardItems: (params: { outletId: string; startDate: string; endDate: string }) =>
     apiClient.get('/reports/dashboard/items', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/dashboard/items');
       return {
         topItems: Array.isArray(d.topItems) ? d.topItems : [],
         categoryByVolume: Array.isArray(d.categoryByVolume) ? d.categoryByVolume : [],
@@ -145,7 +164,7 @@ export const reportsApi = {
 
   outletComparison: (params: { startDate: string; endDate: string }) =>
     apiClient.get('/reports/dashboard/outlet-comparison', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/dashboard/outlet-comparison');
       return {
         outlets: Array.isArray(d.outlets) ? d.outlets : [],
         totals: d.totals ?? { grossSales: 0, netSales: 0, transactions: 0 },
@@ -155,7 +174,7 @@ export const reportsApi = {
   // Sales Report Detail
   salesSummary: (params: { outletId: string; startDate: string; endDate: string }) =>
     apiClient.get('/reports/sales/summary', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/sales/summary');
       return {
         grossSales: Number(d.grossSales ?? 0),
         discountAmount: Number(d.discountAmount ?? 0),
@@ -173,7 +192,7 @@ export const reportsApi = {
 
   discountBreakdown: (params: { outletId: string; startDate: string; endDate: string }) =>
     apiClient.get('/reports/sales/discount-breakdown', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/sales/discount-breakdown');
       return {
         totalDiscount: Number(d.totalDiscount ?? 0),
         transactionLevelDiscount: Number(d.transactionLevelDiscount ?? 0),
@@ -186,7 +205,7 @@ export const reportsApi = {
 
   employeeSales: (params: { outletId: string; startDate: string; endDate: string }) =>
     apiClient.get('/reports/employees', { params }).then((r) => {
-      const d = r.data as unknown as Record<string, unknown>;
+      const d = asRecord(r.data, '/reports/employees');
       return {
         period: d.period ?? { start: '', end: '' },
         employees: Array.isArray(d.employees) ? d.employees : [],

@@ -17,6 +17,15 @@ export interface Promotion {
   createdAt: string;
 }
 
+/** Promotion scope (ids must belong to the business). */
+export interface PromotionApplicableTo {
+  outlets?: string[];
+  productIds?: string[];
+  categoryIds?: string[];
+  customerSegments?: string[];
+}
+
+/** validFrom / validUntil are full ISO timestamps (business day start/end, Asia/Jakarta). */
 export interface CreatePromotionRequest {
   name: string;
   description?: string;
@@ -27,6 +36,21 @@ export interface CreatePromotionRequest {
   validFrom: string;
   validUntil: string;
   usageLimit?: number;
+  applicableTo?: PromotionApplicableTo;
+}
+
+/** PUT /promotions/:id — only editable fields; `null` clears an optional field. */
+export interface UpdatePromotionRequest {
+  name?: string;
+  description?: string | null;
+  discountType?: DiscountType;
+  discountValue?: number;
+  minPurchase?: number | null;
+  maxDiscount?: number | null;
+  validFrom?: string;
+  validUntil?: string;
+  usageLimit?: number | null;
+  applicableTo?: PromotionApplicableTo;
 }
 
 export interface Voucher {
@@ -48,13 +72,17 @@ export interface LoyaltyProgram {
   businessId: string;
 }
 
+/** Shape of GET /settings/loyalty/tiers rows (Decimals converted by the backend). */
 export interface LoyaltyTier {
   id: string;
   name: string;
   minPoints: number;
-  multiplier: number;
-  benefits: string | null;
+  minSpent: number;
+  pointMultiplier: number;
+  /** JSON column: list of benefit strings or a legacy object like { discount: 10 }. */
+  benefits: string[] | Record<string, unknown> | string | null;
   sortOrder: number;
+  isActive: boolean;
 }
 
 // Voucher Generation
@@ -65,6 +93,7 @@ export interface GenerateVoucherRequest {
   discountValue: number;
   validFrom: string;
   validTo: string;
+  /** Stored on the shared parent promotion; each voucher code is single-use. */
   usageLimit: number;
 }
 
@@ -80,40 +109,4 @@ export interface GeneratedVoucher {
   usageCount: number;
   isActive: boolean;
   createdAt: string;
-}
-
-// Loyalty Analytics
-export interface LoyaltyAnalytics {
-  totalMembers: number;
-  activeMembers: number;
-  totalPointsIssued: number;
-  totalPointsRedeemed: number;
-  redemptionRate: number;
-  topCustomers: LoyaltyTopCustomer[];
-  tierDistribution: LoyaltyTierDistribution[];
-  recentActivity: LoyaltyActivityItem[];
-}
-
-export interface LoyaltyTopCustomer {
-  id: string;
-  name: string;
-  phone: string | null;
-  totalPoints: number;
-  currentPoints: number;
-  tierName: string | null;
-}
-
-export interface LoyaltyTierDistribution {
-  tierName: string;
-  memberCount: number;
-  color: string;
-}
-
-export interface LoyaltyActivityItem {
-  id: string;
-  customerName: string;
-  type: 'earn' | 'redeem';
-  points: number;
-  description: string;
-  occurredAt: string;
 }

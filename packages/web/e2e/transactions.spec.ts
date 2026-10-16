@@ -247,9 +247,9 @@ test.describe('Transactions & Shifts Workflow', () => {
 
       await expect(page.getByRole('columnheader', { name: 'Tanggal' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Outlet' })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: 'Total Penjualan' })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: 'Tunai', exact: true })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: 'Non-Tunai' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Metode' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Bruto' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Neto' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible();
     });
 

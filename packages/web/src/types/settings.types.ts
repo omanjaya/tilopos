@@ -61,55 +61,54 @@ export interface NotificationSetting {
 export interface NotificationLog {
   id: string;
   type: string;
+  /** Backend NotificationLog.title (preferred over a type-derived label). */
+  title?: string;
   message: string;
   isRead: boolean;
   createdAt: string;
 }
 
 // Tax Settings
+/** GET /settings/tax (business-level, settings.dto.ts TaxConfigResponse). */
 export interface TaxConfig {
-  id: string;
+  taxEnabled: boolean;
   taxRate: number;
-  serviceChargeRate: number;
+  taxName: string;
   isTaxInclusive: boolean;
-  taxExemptionRules: TaxExemptionRule[];
-  businessId: string;
+  serviceChargeEnabled: boolean;
+  serviceChargeRate: number;
 }
 
-export interface TaxExemptionRule {
-  id: string;
-  name: string;
-  description: string | null;
-  isActive: boolean;
-}
-
+/** PUT /settings/tax (UpdateTaxConfigDto). */
 export interface UpdateTaxConfigRequest {
+  taxEnabled?: boolean;
   taxRate?: number;
-  serviceChargeRate?: number;
+  taxName?: string;
   isTaxInclusive?: boolean;
-  taxExemptionRules?: Omit<TaxExemptionRule, 'id'>[];
+  serviceChargeEnabled?: boolean;
+  serviceChargeRate?: number;
 }
 
 // Receipt Template
+/** GET /settings/receipt (OutletReceiptTemplate). */
 export interface ReceiptTemplate {
-  id: string;
   showLogo: boolean;
   showAddress: boolean;
+  showPhone: boolean;
   showTaxBreakdown: boolean;
-  showBarcode: boolean;
-  showQrCode: boolean;
+  showPaymentMethod: boolean;
   headerText: string;
   footerText: string;
   paperSize: '58mm' | '80mm';
-  businessId: string;
 }
 
+/** PUT /settings/receipt (UpdateReceiptTemplateDto). */
 export interface UpdateReceiptTemplateRequest {
   showLogo?: boolean;
   showAddress?: boolean;
+  showPhone?: boolean;
   showTaxBreakdown?: boolean;
-  showBarcode?: boolean;
-  showQrCode?: boolean;
+  showPaymentMethod?: boolean;
   headerText?: string;
   footerText?: string;
   paperSize?: '58mm' | '80mm';
@@ -117,10 +116,8 @@ export interface UpdateReceiptTemplateRequest {
 
 // Operating Hours
 export interface OperatingHours {
-  id: string;
+  outletId: string;
   schedule: DaySchedule[];
-  specialHours: SpecialHour[];
-  businessId: string;
 }
 
 export interface DaySchedule {
@@ -131,18 +128,8 @@ export interface DaySchedule {
   closeTime: string;
 }
 
-export interface SpecialHour {
-  id: string;
-  name: string;
-  date: string;
-  isOpen: boolean;
-  openTime: string | null;
-  closeTime: string | null;
-}
-
 export interface UpdateOperatingHoursRequest {
-  schedule?: Omit<DaySchedule, 'dayLabel'>[];
-  specialHours?: Omit<SpecialHour, 'id'>[];
+  schedule: Omit<DaySchedule, 'dayLabel'>[];
 }
 
 // Modifier Groups
@@ -151,7 +138,8 @@ export interface ModifierGroup {
   name: string;
   isRequired: boolean;
   minSelections: number;
-  maxSelections: number;
+  /** null = no upper bound */
+  maxSelections: number | null;
   modifiers: Modifier[];
   businessId: string;
   createdAt: string;
@@ -165,15 +153,31 @@ export interface Modifier {
   sortOrder: number;
 }
 
+/** Modifier line sent to the backend (ModifierInputDto: name + price; id only on update). */
+export interface ModifierInput {
+  id?: string;
+  name: string;
+  price: number;
+}
+
 export interface CreateModifierGroupRequest {
   name: string;
   isRequired: boolean;
   minSelections: number;
-  maxSelections: number;
-  modifiers: Omit<Modifier, 'id'>[];
+  maxSelections?: number | null;
+  modifiers: ModifierInput[];
 }
 
-export type UpdateModifierGroupRequest = Partial<CreateModifierGroupRequest>;
+export interface UpdateModifierGroupRequest {
+  name?: string;
+  isActive?: boolean;
+  isRequired?: boolean;
+  minSelections?: number;
+  /** null clears the upper bound */
+  maxSelections?: number | null;
+  /** Full list when present (missing modifiers are deactivated). */
+  modifiers?: ModifierInput[];
+}
 
 // Payment Methods
 export type PaymentMethodType = 'cash' | 'card' | 'ewallet' | 'qris' | 'bank_transfer';

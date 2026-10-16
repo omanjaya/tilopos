@@ -1,3 +1,4 @@
+/** Admin view of an online store (GET /online-store/stores, mapped from Prisma OnlineStore). */
 export interface OnlineStore {
   id: string;
   businessId: string;
@@ -9,14 +10,27 @@ export interface OnlineStore {
   updatedAt: string;
 }
 
+/** POST /online-store/stores — businessId comes from the JWT, never the body. */
 export interface CreateOnlineStoreRequest {
-  businessId: string;
   name: string;
   slug: string;
   description?: string;
 }
 
-// Storefront types
+// ---------------------------------------------------------------------------
+// Public storefront — UI shape. onlineStoreApi.getStorefront maps the backend
+// StorefrontData ({ store: { storeName, logoUrl, bannerUrl, socialLinks },
+// products: [{ basePrice, inStock }] }) to these types.
+// The storefront has no modifiers and no tax: the server prices orders from
+// product/variant prices only (online-store.service.ts createStorefrontOrder).
+// ---------------------------------------------------------------------------
+
+export interface StorefrontSocialLinks {
+  instagram?: string;
+  facebook?: string;
+  whatsapp?: string;
+}
+
 export interface Storefront {
   id: string;
   name: string;
@@ -24,10 +38,9 @@ export interface Storefront {
   description: string | null;
   logo: string | null;
   banner: string | null;
-  facebookUrl: string | null;
-  instagramUrl: string | null;
-  whatsappNumber: string | null;
-  currency: string;
+  socialLinks: StorefrontSocialLinks;
+  isDeliveryEnabled: boolean;
+  isPickupEnabled: boolean;
   categories: StorefrontCategory[];
   products: StorefrontProduct[];
 }
@@ -35,7 +48,14 @@ export interface Storefront {
 export interface StorefrontCategory {
   id: string;
   name: string;
-  slug: string;
+  imageUrl: string | null;
+  productCount: number;
+}
+
+export interface StorefrontProductVariant {
+  id: string;
+  name: string;
+  price: number;
 }
 
 export interface StorefrontProduct {
@@ -44,59 +64,30 @@ export interface StorefrontProduct {
   description: string | null;
   imageUrl: string | null;
   price: number;
-  compareAtPrice: number | null;
   isAvailable: boolean;
-  categoryId: string;
+  categoryId: string | null;
+  categoryName: string | null;
   variants: StorefrontProductVariant[];
-  modifierGroups: StorefrontModifierGroup[];
 }
 
-export interface StorefrontProductVariant {
-  id: string;
-  name: string;
-  price: number;
-  sku: string | null;
-  isAvailable: boolean;
-  stock: number | null;
-}
-
-export interface StorefrontModifierGroup {
-  id: string;
-  name: string;
-  minSelections: number;
-  maxSelections: number;
-  modifiers: StorefrontModifier[];
-}
-
-export interface StorefrontModifier {
-  id: string;
-  name: string;
-  price: number;
-  isAvailable: boolean;
-}
-
-export interface StorefrontCartItem {
-  productId: string;
-  variantId?: string;
-  quantity: number;
-  modifiers: { modifierId: string }[];
-  notes?: string;
-}
-
+/** Backend StorefrontOrderInput (interfaces/storefront.interface.ts). */
 export interface CreateStorefrontOrderRequest {
   customerName: string;
-  customerEmail?: string;
   customerPhone: string;
+  customerEmail?: string;
   shippingAddress?: string;
-  items: StorefrontCartItem[];
+  shippingMethod?: 'delivery' | 'pickup';
   notes?: string;
+  items: { productId: string; variantId?: string; quantity: number }[];
 }
 
-export interface StorefrontOrder {
-  id: string;
+/** Backend StorefrontOrderResult. */
+export interface StorefrontOrderResult {
+  orderId: string;
   orderNumber: string;
-  customerName: string;
-  total: number;
+  subtotal: number;
+  shippingCost: number;
+  grandTotal: number;
   status: string;
   createdAt: string;
 }

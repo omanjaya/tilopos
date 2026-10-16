@@ -12,7 +12,8 @@ export interface SerialNumber {
   warrantyExpiry: string | null;
   customerId: string | null;
   transactionId: string | null;
-  costPrice: number | null;
+  /** Prisma Decimal (string) or null when hidden from the caller's role. */
+  costPrice: number | string | null;
   notes: string | null;
   createdAt: string;
   product?: { name: string; sku: string | null } | null;
@@ -20,17 +21,14 @@ export interface SerialNumber {
 }
 
 export const serialNumbersApi = {
-  listByProduct: (productId: string, outletId: string, status?: string) =>
-    apiClient.get<{ serialNumbers: SerialNumber[] }>(`/serial-numbers/product/${productId}/${outletId}`, { params: status ? { status } : {} }).then((r) => r.data.serialNumbers),
-
-  listByCustomer: (customerId: string) =>
-    apiClient.get<{ serialNumbers: SerialNumber[] }>(`/serial-numbers/customer/${customerId}`).then((r) => r.data.serialNumbers),
-
   getWarrantyExpiring: (days?: number) =>
-    apiClient.get<{ serialNumbers: SerialNumber[] }>('/serial-numbers/warranty-expiring', { params: days ? { days } : {} }).then((r) => r.data.serialNumbers),
+    apiClient
+      .get<{ serials: SerialNumber[]; days: number }>('/serial-numbers/warranty-expiring', { params: days ? { days } : {} })
+      .then((r) => r.data.serials),
 
   lookup: (serialNumber: string) =>
-    apiClient.get<{ serialNumber: SerialNumber }>(`/serial-numbers/lookup/${encodeURIComponent(serialNumber)}`).then((r) => r.data.serialNumber),
+    // Backend returns the serial record itself (404 when not found)
+    apiClient.get<SerialNumber>(`/serial-numbers/lookup/${encodeURIComponent(serialNumber)}`).then((r) => r.data),
 
   register: (data: {
     productId: string;
@@ -40,26 +38,17 @@ export const serialNumbersApi = {
     warrantyExpiry?: string;
     costPrice?: number;
     notes?: string;
-  }) => apiClient.post<{ serialNumber: SerialNumber }>('/serial-numbers', data).then((r) => r.data.serialNumber),
-
-  bulkRegister: (items: { productId: string; outletId: string; serialNumber: string; costPrice?: number }[]) =>
-    apiClient.post<{ count: number }>('/serial-numbers/bulk', { items }).then((r) => r.data.count),
-
-  update: (id: string, data: Partial<SerialNumber>) =>
-    apiClient.put<{ serialNumber: SerialNumber }>(`/serial-numbers/${id}`, data).then((r) => r.data.serialNumber),
+  }) => apiClient.post<{ serial: SerialNumber }>('/serial-numbers', data).then((r) => r.data.serial),
 
   markSold: (id: string, data?: { customerId?: string; transactionId?: string }) =>
-    apiClient.put<{ serialNumber: SerialNumber }>(`/serial-numbers/${id}/sold`, data ?? {}).then((r) => r.data.serialNumber),
+    apiClient.put<{ serial: SerialNumber }>(`/serial-numbers/${id}/sold`, data ?? {}).then((r) => r.data.serial),
 
   markReturned: (id: string, notes?: string) =>
-    apiClient.put<{ serialNumber: SerialNumber }>(`/serial-numbers/${id}/returned`, { notes }).then((r) => r.data.serialNumber),
+    apiClient.put<{ serial: SerialNumber }>(`/serial-numbers/${id}/returned`, { notes }).then((r) => r.data.serial),
 
   markWarranty: (id: string, notes?: string) =>
-    apiClient.put<{ serialNumber: SerialNumber }>(`/serial-numbers/${id}/warranty`, { notes }).then((r) => r.data.serialNumber),
+    apiClient.put<{ serial: SerialNumber }>(`/serial-numbers/${id}/warranty`, { notes }).then((r) => r.data.serial),
 
   markDefective: (id: string, notes?: string) =>
-    apiClient.put<{ serialNumber: SerialNumber }>(`/serial-numbers/${id}/defective`, { notes }).then((r) => r.data.serialNumber),
-
-  delete: (id: string) =>
-    apiClient.delete(`/serial-numbers/${id}`),
+    apiClient.put<{ serial: SerialNumber }>(`/serial-numbers/${id}/defective`, { notes }).then((r) => r.data.serial),
 };

@@ -6,7 +6,8 @@ export interface Product {
   categoryId: string | null;
   category: Category | null;
   basePrice: number;
-  costPrice: number;
+  /** null when the backend has no cost recorded (decimalToNumber). */
+  costPrice: number | null;
   trackStock: boolean;
   imageUrl: string | null;
   isActive: boolean;
@@ -22,7 +23,8 @@ export interface ProductVariant {
   sku: string;
   barcode: string | null;
   price: number;
-  costPrice: number;
+  /** null when the backend has no cost recorded. */
+  costPrice: number | null;
   isActive: boolean;
 }
 
@@ -49,8 +51,11 @@ export interface CreateProductRequest {
   variants?: CreateVariantRequest[];
 }
 
-export interface UpdateProductRequest extends Partial<CreateProductRequest> {
+export interface UpdateProductRequest extends Partial<Omit<CreateProductRequest, 'imageUrl' | 'categoryId'>> {
   isActive?: boolean;
+  /** null clears the value */
+  imageUrl?: string | null;
+  categoryId?: string | null;
 }
 
 export interface CreateVariantRequest {

@@ -1,3 +1,4 @@
+import type { EmployeeRole } from './auth.types';
 export interface RegisterRequest {
   ownerName: string;
   email: string;
@@ -18,7 +19,7 @@ export interface RegisterResponse {
   accessToken: string;
   employeeId: string;
   employeeName: string;
-  role: string;
+  role: EmployeeRole;
   businessId: string;
   outletId: string;
   businessType: string;

@@ -2,13 +2,13 @@
 // Brand color utilities — generate full palette from a single hex color
 // ============================================================================
 
-export interface HSL {
+interface HSL {
   h: number;
   s: number;
   l: number;
 }
 
-export interface BrandPreset {
+interface BrandPreset {
   id: string;
   label: string;
   hex: string;
@@ -32,7 +32,7 @@ export const DEFAULT_BRAND_COLOR = '#475569'; // slate
 
 // ── Conversions ─────────────────────────────────────────────────────────────
 
-export function hexToRGB(hex: string): { r: number; g: number; b: number } {
+function hexToRGB(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '');
   const r = parseInt(clean.substring(0, 2), 16);
   const g = parseInt(clean.substring(2, 4), 16);
@@ -40,7 +40,7 @@ export function hexToRGB(hex: string): { r: number; g: number; b: number } {
   return { r, g, b };
 }
 
-export function hexToHSL(hex: string): HSL {
+function hexToHSL(hex: string): HSL {
   const { r: r255, g: g255, b: b255 } = hexToRGB(hex);
   const r = r255 / 255;
   const g = g255 / 255;
@@ -77,9 +77,6 @@ export function hexToHSL(hex: string): HSL {
   };
 }
 
-export function hslToString(hsl: HSL): string {
-  return `${hsl.h} ${hsl.s}% ${hsl.l}%`;
-}
 
 // ── Palette generation ──────────────────────────────────────────────────────
 
@@ -87,7 +84,7 @@ export function hslToString(hsl: HSL): string {
  * Generate a full shade palette from a single hex color.
  * Returns HSL strings for shades 50 through 950.
  */
-export function generatePalette(hex: string): Record<string, string> {
+function generatePalette(hex: string): Record<string, string> {
   const { h, s } = hexToHSL(hex);
 
   // Lightness values for each shade (inspired by Tailwind's scale)
@@ -121,7 +118,7 @@ export function generatePalette(hex: string): Record<string, string> {
  * Generate CSS custom property overrides for the brand color.
  * These override the defaults in globals.css.
  */
-export function generateBrandCSSVariables(
+function generateBrandCSSVariables(
   hex: string,
   isDark: boolean,
 ): Record<string, string> {

@@ -1,5 +1,4 @@
 import { apiClient } from '../client';
-import { useUIStore } from '@/stores/ui.store';
 import type {
   Business,
   UpdateBusinessRequest,
@@ -38,16 +37,52 @@ const DAY_DEFAULTS = [
   { dayOfWeek: 6, day: 'saturday', dayLabel: 'Sabtu' },
 ];
 
+/** Known alert thresholds accepted by the backend (NotificationThresholdDto). */
+export interface NotificationThreshold {
+  quantity?: number;
+  amount?: number;
+  minutesBefore?: number;
+}
+
+/** Throw instead of rendering a contract/shape error as an empty list (F2). */
+function expectArray<T>(raw: unknown, endpoint: string): T[] {
+  if (!Array.isArray(raw)) {
+    throw new Error(`Respons tidak valid dari ${endpoint}`);
+  }
+  return raw as T[];
+}
+
+const getOutlets = () => apiClient.get<Outlet[]>('/settings/outlets').then((r) => r.data);
+
+/** Maps the backend OutletReceiptTemplate (GET/PUT /settings/receipt, GET /settings/pos/receipt). */
+/** A group allowing at most one modifier is single-select; anything else is multiple. */
+function selectionTypeFor(maxSelections: number | null | undefined): 'single' | 'multiple' {
+  return maxSelections === 1 ? 'single' : 'multiple';
+}
+
+export function toReceiptTemplate(data: unknown): ReceiptTemplate {
+  const d = (data ?? {}) as Record<string, unknown>;
+  return {
+    showLogo: Boolean(d.showLogo),
+    showAddress: Boolean(d.showAddress),
+    showPhone: Boolean(d.showPhone),
+    showTaxBreakdown: Boolean(d.showTaxDetails),
+    showPaymentMethod: Boolean(d.showPaymentMethod),
+    headerText: typeof d.header === 'string' ? d.header : '',
+    footerText: typeof d.footer === 'string' ? d.footer : '',
+    paperSize: d.paperWidth === '58mm' ? '58mm' : '80mm',
+  };
+}
+
 export const settingsApi = {
   getBusiness: () =>
     apiClient.get<Business>('/settings/business').then((r) => r.data),
   updateBusiness: (data: UpdateBusinessRequest) =>
     apiClient.put<Business>('/settings/business', data).then((r) => r.data),
 
-  getOutlets: () =>
-    apiClient.get<Outlet[]>('/settings/outlets').then((r) => r.data),
-  listOutlets: () =>
-    apiClient.get<Outlet[]>('/settings/outlets').then((r) => r.data),
+  getOutlets,
+  /** Alias of getOutlets (kept for existing callers). */
+  listOutlets: getOutlets,
   createOutlet: (data: CreateOutletRequest) =>
     apiClient.post<Outlet>('/settings/outlets', data).then((r) => r.data),
   updateOutlet: (id: string, data: Partial<CreateOutletRequest>) =>
@@ -57,8 +92,6 @@ export const settingsApi = {
 
   listDevices: () =>
     apiClient.get<Device[]>('/devices').then((r) => r.data),
-  registerDevice: (data: { deviceName: string; deviceType: string; outletId?: string }) =>
-    apiClient.post<Device>('/devices', data).then((r) => r.data),
   syncDevice: (id: string) =>
     apiClient.put(`/devices/${id}/sync`).then((r) => r.data),
   removeDevice: (id: string) =>
@@ -66,8 +99,7 @@ export const settingsApi = {
 
   listNotificationSettings: () =>
     apiClient.get('/notifications/settings').then((r) => {
-      const raw = r.data;
-      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
+      const arr = expectArray<Record<string, unknown>>(r.data, '/notifications/settings');
       // Backend uses notificationType, frontend expects type
       return arr.map((s) => ({
         id: (s.id as string) ?? '',
@@ -76,87 +108,99 @@ export const settingsApi = {
         isEnabled: Boolean(s.isEnabled),
       })) as NotificationSetting[];
     }),
-  createNotificationSetting: (data: Partial<NotificationSetting>) =>
-    apiClient.post<NotificationSetting>('/notifications/settings', data).then((r) => r.data),
-  updateNotificationSetting: (id: string, data: Partial<NotificationSetting>) =>
-    apiClient.put<NotificationSetting>(`/notifications/settings/${id}`, data).then((r) => r.data),
-  getNotificationLogs: (_recipientId: string) =>
-    apiClient.get('/notifications/logs').then((r) => {
-      const raw = r.data;
-      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
+  /** POST /notifications/settings (owner/manager; backend field is notificationType). */
+  createNotificationSetting: (data: { type: string; channel: string; isEnabled: boolean }) =>
+    apiClient
+      .post('/notifications/settings', {
+        notificationType: data.type,
+        channel: data.channel,
+        isEnabled: data.isEnabled,
+      })
+      .then((r) => r.data),
+  /** PUT /notifications/settings/:id — only isEnabled/threshold are accepted (owner/manager). */
+  updateNotificationSetting: (id: string, data: { isEnabled?: boolean; threshold?: NotificationThreshold }) =>
+    apiClient
+      .put<NotificationSetting>(`/notifications/settings/${id}`, {
+        isEnabled: data.isEnabled,
+        threshold: data.threshold,
+      })
+      .then((r) => r.data),
+  /** The caller's own logs, newest first: GET /notifications/logs?page&limit(<=100, default 50). */
+  getNotificationLogs: (params: { page?: number; limit?: number } = {}) =>
+    apiClient.get('/notifications/logs', { params }).then((r) => {
+      const arr = expectArray<Record<string, unknown>>(r.data, '/notifications/logs');
       // Backend returns notificationType/body/status/sentAt; frontend expects type/message/isRead/createdAt
       return arr.map((log) => ({
         id: (log.id as string) ?? '',
         type: ((log.type ?? log.notificationType ?? 'system_alert') as string),
+        title: (log.title as string) ?? '',
         message: ((log.message ?? log.body ?? log.title ?? '') as string),
-        isRead: log.isRead === true || log.status === 'read',
+        isRead: log.isRead === true || log.status === 'read' || !!log.readAt,
         createdAt: ((log.createdAt ?? log.sentAt ?? '') as string),
       })) as NotificationLog[];
     }),
   markNotificationRead: (id: string) =>
     apiClient.put(`/notifications/logs/${id}/read`).then((r) => r.data),
+  /** PUT /notifications/logs/read-all — marks all of the caller's logs read. */
+  markAllNotificationsRead: () =>
+    apiClient.put<{ count: number }>('/notifications/logs/read-all').then((r) => r.data),
 
-  // Tax Config
+  // Tax Config (business-level; keys from settings.dto.ts TaxConfigResponse)
   getTaxConfig: () =>
     apiClient.get('/settings/tax').then((r) => {
       const d = r.data as Record<string, unknown>;
       return {
-        id: (d.id as string) ?? '',
-        taxRate: (d.taxRate as number) ?? 11,
-        serviceChargeRate: (d.serviceChargeRate as number) ?? 0,
-        isTaxInclusive: Boolean(d.isTaxInclusive ?? d.taxInclusive ?? true),
-        taxExemptionRules: (d.taxExemptionRules as TaxConfig['taxExemptionRules']) ?? [],
-        businessId: (d.businessId as string) ?? '',
-      } as TaxConfig;
+        taxEnabled: Boolean(d.taxEnabled),
+        taxRate: Number(d.taxRate),
+        taxName: String(d.taxName ?? 'PPN'),
+        isTaxInclusive: Boolean(d.taxInclusive),
+        serviceChargeEnabled: Boolean(d.serviceChargeEnabled),
+        serviceChargeRate: Number(d.serviceChargeRate),
+      } satisfies TaxConfig;
     }),
   updateTaxConfig: (data: UpdateTaxConfigRequest) =>
     apiClient.put<TaxConfig>('/settings/tax', {
+      taxEnabled: data.taxEnabled,
       taxRate: data.taxRate,
-      serviceChargeRate: data.serviceChargeRate,
+      taxName: data.taxName,
       taxInclusive: data.isTaxInclusive,
-      taxExemptionRules: data.taxExemptionRules,
+      serviceChargeEnabled: data.serviceChargeEnabled,
+      serviceChargeRate: data.serviceChargeRate,
     }).then((r) => r.data),
 
-  // Receipt Template
-  getReceiptTemplate: () =>
-    apiClient.get('/settings/receipt').then((r) => {
-      const d = r.data as Record<string, unknown>;
-      return {
-        showLogo: Boolean(d.showLogo ?? true),
-        showAddress: Boolean(d.showAddress ?? true),
-        showTaxBreakdown: Boolean(d.showTaxDetails ?? true),
-        showBarcode: false,
-        showQrCode: Boolean(d.showQRCode ?? false),
-        headerText: (d.header as string) ?? '',
-        footerText: (d.footer as string) ?? '',
-        paperSize: ((d.paperWidth as string) ?? '80mm') as '58mm' | '80mm',
-      } as ReceiptTemplate;
-    }),
-  updateReceiptTemplate: (data: UpdateReceiptTemplateRequest) =>
-    apiClient.put<ReceiptTemplate>('/settings/receipt', {
-      header: data.headerText,
-      footer: data.footerText,
-      showLogo: data.showLogo,
-      showAddress: data.showAddress,
-      showTaxDetails: data.showTaxBreakdown,
-      showPaymentMethod: true,
-      paperWidth: data.paperSize,
-    }).then((r) => r.data),
+  // Receipt Template (outlet-level). `outletId` selects the outlet being edited (validated
+  // server-side: 403/404 for outlets the user cannot access); without it the user's outlet is used.
+  getReceiptTemplate: (outletId: string | null) =>
+    apiClient
+      .get('/settings/receipt', { params: outletId ? { outletId } : undefined })
+      .then((r) => toReceiptTemplate(r.data)),
+  updateReceiptTemplate: (outletId: string | null, data: UpdateReceiptTemplateRequest) =>
+    apiClient
+      .put<unknown>(
+        '/settings/receipt',
+        {
+          header: data.headerText,
+          footer: data.footerText,
+          showLogo: data.showLogo,
+          showAddress: data.showAddress,
+          showPhone: data.showPhone,
+          showTaxDetails: data.showTaxBreakdown,
+          showPaymentMethod: data.showPaymentMethod,
+          paperWidth: data.paperSize,
+        },
+        { params: outletId ? { outletId } : undefined },
+      )
+      .then((r) => toReceiptTemplate(r.data)),
 
-  // Operating Hours
-  getOperatingHours: () => {
-    const outletId = useUIStore.getState().selectedOutletId;
-    if (!outletId) {
-      return Promise.resolve({
-        id: '',
-        schedule: DAY_DEFAULTS.map((d) => ({ ...d, isOpen: false, openTime: '', closeTime: '' })),
-        specialHours: [],
-        businessId: '',
-      } as OperatingHours);
-    }
-    return apiClient.get(`/settings/hours/${outletId}`).then((r) => {
-      const raw = r.data;
-      const entries = (Array.isArray(raw) ? raw : []) as Array<{ dayOfWeek: number; openTime: string; closeTime: string; isClosed?: boolean }>;
+  // Operating Hours (per outlet; caller passes the selected outlet explicitly)
+  getOperatingHours: (outletId: string) =>
+    apiClient.get(`/settings/hours/${outletId}`).then((r) => {
+      const entries = expectArray<{
+        dayOfWeek: number;
+        openTime: string;
+        closeTime: string;
+        isClosed?: boolean;
+      }>(r.data, '/settings/hours');
       const schedule = DAY_DEFAULTS.map((def) => {
         const entry = entries.find((e) => e.dayOfWeek === def.dayOfWeek);
         return {
@@ -167,62 +211,75 @@ export const settingsApi = {
           closeTime: entry?.closeTime ?? '',
         };
       });
-      return { id: outletId, schedule, specialHours: [], businessId: '' } as OperatingHours;
+      return { outletId, schedule } satisfies OperatingHours;
+    }),
+  updateOperatingHours: (outletId: string, data: UpdateOperatingHoursRequest) => {
+    const hours = DAY_DEFAULTS.map((def) => {
+      const s = data.schedule.find((d) => d.day === def.day);
+      const isOpen = s?.isOpen ?? false;
+      // OperatingHoursEntryDto requires HH:mm on every entry, even closed days
+      return {
+        dayOfWeek: def.dayOfWeek,
+        openTime: isOpen && s?.openTime ? s.openTime : '00:00',
+        closeTime: isOpen && s?.closeTime ? s.closeTime : '00:00',
+        isClosed: !isOpen,
+      };
     });
-  },
-  updateOperatingHours: (data: UpdateOperatingHoursRequest) => {
-    const outletId = useUIStore.getState().selectedOutletId;
-    if (!outletId) return Promise.reject(new Error('No outlet selected'));
-    const hours = (data.schedule ?? []).map((s, i) => ({
-      dayOfWeek: DAY_DEFAULTS.findIndex((d) => d.day === s.day) ?? i,
-      openTime: s.openTime,
-      closeTime: s.closeTime,
-      isClosed: !s.isOpen,
-    }));
     return apiClient.put(`/settings/hours/${outletId}`, { hours }).then((r) => r.data);
   },
 
-  // Modifier Groups
+  // Modifier Groups (only active groups/modifiers are returned; Decimals come as strings)
   listModifierGroups: () =>
     apiClient.get('/settings/modifier-groups').then((r) => {
-      const raw = r.data;
-      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
-      // Backend uses minSelection/maxSelection (singular), frontend expects minSelections/maxSelections (plural)
+      const arr = expectArray<Record<string, unknown>>(r.data, '/settings/modifier-groups');
+      // Backend uses minSelection/maxSelection (singular, max null = unlimited)
       return arr.map((g) => ({
-        ...g,
-        minSelections: (g.minSelections ?? g.minSelection ?? 0) as number,
-        maxSelections: (g.maxSelections ?? g.maxSelection ?? 1) as number,
-        modifiers: Array.isArray(g.modifiers) ? g.modifiers : [],
+        id: g.id as string,
+        name: g.name as string,
+        isRequired: Boolean(g.isRequired),
+        minSelections: Number(g.minSelection ?? 0),
+        maxSelections: g.maxSelection === null || g.maxSelection === undefined ? null : Number(g.maxSelection),
+        businessId: g.businessId as string,
+        createdAt: g.createdAt as string,
+        modifiers: (Array.isArray(g.modifiers) ? g.modifiers : []).map((m: Record<string, unknown>) => ({
+          id: m.id as string,
+          name: m.name as string,
+          price: Number(m.price ?? 0),
+          isActive: m.isActive !== false,
+          sortOrder: Number(m.sortOrder ?? 0),
+        })),
       })) as ModifierGroup[];
     }),
-  getModifierGroup: (id: string) =>
-    apiClient.get<ModifierGroup>(`/settings/modifier-groups/${id}`).then((r) => r.data),
+  /** POST /settings/modifier-groups — modifiers accept only { name, price }. */
   createModifierGroup: (data: CreateModifierGroupRequest) =>
     apiClient.post<ModifierGroup>('/settings/modifier-groups', {
       name: data.name,
       isRequired: data.isRequired,
+      selectionType: selectionTypeFor(data.maxSelections),
       minSelection: data.minSelections,
-      maxSelection: data.maxSelections,
-      modifiers: data.modifiers,
+      maxSelection: data.maxSelections ?? undefined,
+      modifiers: data.modifiers.map((m) => ({ name: m.name, price: m.price })),
     }).then((r) => r.data),
-  updateModifierGroup: (id: string, data: UpdateModifierGroupRequest & { isActive?: boolean }) =>
+  /**
+   * PUT /settings/modifier-groups/:id. When `modifiers` is sent it is the full
+   * list: items with id are updated, without id created, missing ones deactivated.
+   */
+  updateModifierGroup: (id: string, data: UpdateModifierGroupRequest) =>
     apiClient.put<ModifierGroup>(`/settings/modifier-groups/${id}`, {
       name: data.name,
+      isActive: data.isActive,
       isRequired: data.isRequired,
+      ...(data.maxSelections !== undefined && { selectionType: selectionTypeFor(data.maxSelections) }),
       minSelection: data.minSelections,
       maxSelection: data.maxSelections,
-      modifiers: data.modifiers,
-      isActive: data.isActive,
+      modifiers: data.modifiers?.map((m) => ({ id: m.id, name: m.name, price: m.price })),
     }).then((r) => r.data),
   deleteModifierGroup: (id: string) =>
     apiClient.delete(`/settings/modifier-groups/${id}`).then((r) => r.data),
 
   // Payment Methods
   listPaymentMethods: () =>
-    apiClient.get<PaymentMethod[]>('/settings/payment-methods/list').then((r) => {
-      const raw = r.data;
-      return (Array.isArray(raw) ? raw : []) as PaymentMethod[];
-    }),
+    apiClient.get<PaymentMethod[]>('/settings/payment-methods/list').then((r) => expectArray<PaymentMethod>(r.data, '/settings/payment-methods/list')),
   createPaymentMethod: (data: CreatePaymentMethodRequest) =>
     apiClient.post<PaymentMethod>('/settings/payment-methods/create', data).then((r) => r.data),
   updatePaymentMethod: (id: string, data: UpdatePaymentMethodRequest) =>
@@ -232,10 +289,7 @@ export const settingsApi = {
 
   // Printer Configs
   listPrinters: () =>
-    apiClient.get<PrinterConfig[]>('/settings/printers').then((r) => {
-      const raw = r.data;
-      return (Array.isArray(raw) ? raw : []) as PrinterConfig[];
-    }),
+    apiClient.get<PrinterConfig[]>('/settings/printers').then((r) => expectArray<PrinterConfig>(r.data, '/settings/printers')),
   createPrinter: (data: CreatePrinterConfigRequest) =>
     apiClient.post<PrinterConfig>('/settings/printers', data).then((r) => r.data),
   updatePrinter: (id: string, data: UpdatePrinterConfigRequest) =>
@@ -245,10 +299,7 @@ export const settingsApi = {
 
   // Report Schedules
   listReportSchedules: () =>
-    apiClient.get<ReportSchedule[]>('/settings/report-schedules').then((r) => {
-      const raw = r.data;
-      return (Array.isArray(raw) ? raw : []) as ReportSchedule[];
-    }),
+    apiClient.get<ReportSchedule[]>('/settings/report-schedules').then((r) => expectArray<ReportSchedule>(r.data, '/settings/report-schedules')),
   createReportSchedule: (data: CreateReportScheduleRequest) =>
     apiClient.post<ReportSchedule>('/settings/report-schedules', data).then((r) => r.data),
   updateReportSchedule: (id: string, data: UpdateReportScheduleRequest) =>

@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
-import { RoleGuard } from '@/features/auth/role-guard';
+import { HomeRoute } from './home-route';
 import { FeatureGuard } from '@/components/shared/feature-guard';
 import { SettingsLayout } from '@/components/layout/settings-layout';
 import { DeviceRoute } from '@/components/shared/device-route';
@@ -34,6 +34,9 @@ import {
   SubscriptionPage,
 } from './lazy-imports';
 
+// Role access for every route below comes from ROUTE_ROLES (config/permissions.ts),
+// enforced once by <RoleGuard> around the AppLayout <Outlet/>.
+
 /** Shorthand: wrap element with FeatureGuard for a specific path
  * @internal - helper for route definitions, not a standalone component */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -42,15 +45,15 @@ function FG({ path, children }: { path: string; children: React.ReactNode }) {
 }
 
 export const appRoutes: RouteObject[] = [
-  // Dashboard
+  // Dashboard (roles without report access are sent to their own home, e.g. cashier -> /pos)
   {
     index: true,
-    element: <LazyRoute><DeviceRoute desktop={DashboardPage} mobile={DashboardPageMobile} /></LazyRoute>,
+    element: <HomeRoute><LazyRoute><DeviceRoute desktop={DashboardPage} mobile={DashboardPageMobile} /></LazyRoute></HomeRoute>,
   },
   // Owner Dashboard
   {
     path: 'dashboard/owner',
-    element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><OwnerDashboardPage /></RoleGuard></LazyRoute>,
+    element: <LazyRoute><OwnerDashboardPage /></LazyRoute>,
   },
 
   // Products (always visible)
@@ -63,9 +66,9 @@ export const appRoutes: RouteObject[] = [
   { path: 'ingredients', element: <LazyRoute><FG path="/app/ingredients"><IngredientsPage /></FG></LazyRoute> },
 
   // Employees
-  { path: 'employees', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><EmployeesPage /></RoleGuard></LazyRoute> },
-  { path: 'employees/new', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><EmployeeFormPage /></RoleGuard></LazyRoute> },
-  { path: 'employees/:id/edit', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><EmployeeFormPage /></RoleGuard></LazyRoute> },
+  { path: 'employees', element: <LazyRoute><EmployeesPage /></LazyRoute> },
+  { path: 'employees/new', element: <LazyRoute><EmployeeFormPage /></LazyRoute> },
+  { path: 'employees/:id/edit', element: <LazyRoute><EmployeeFormPage /></LazyRoute> },
 
   // Customers
   { path: 'customers', element: <LazyRoute><DeviceRoute desktop={CustomersPage} mobile={CustomersPageMobile} /></LazyRoute> },
@@ -99,7 +102,7 @@ export const appRoutes: RouteObject[] = [
   { path: 'inventory/unit-conversion', element: <LazyRoute><FG path="/app/inventory/unit-conversion"><UnitConversionPage /></FG></LazyRoute> },
   { path: 'inventory/batch-tracking', element: <LazyRoute><FG path="/app/inventory/batch-tracking"><BatchTrackingPage /></FG></LazyRoute> },
   { path: 'inventory/serial-numbers', element: <LazyRoute><FG path="/app/inventory/serial-numbers"><SerialNumbersPage /></FG></LazyRoute> },
-  { path: 'inventory/product-assignment', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><ProductAssignmentPage /></RoleGuard></LazyRoute> },
+  { path: 'inventory/product-assignment', element: <LazyRoute><ProductAssignmentPage /></LazyRoute> },
   { path: 'inventory/stock-opname', element: <LazyRoute><FG path="/app/inventory/stock-opname"><DeviceRoute desktop={StockOpnamePage} mobile={StockOpnamePageMobile} /></FG></LazyRoute> },
   { path: 'inventory/stock-opname/:id', element: <LazyRoute><FG path="/app/inventory/stock-opname"><DeviceRoute desktop={StockOpnameDetailPage} mobile={StockOpnameDetailPageMobile} /></FG></LazyRoute> },
 
@@ -130,10 +133,10 @@ export const appRoutes: RouteObject[] = [
   { path: 'item-tracking', element: <LazyRoute><FG path="/app/item-tracking"><ItemTrackingPage /></FG></LazyRoute> },
 
   // Audit
-  { path: 'audit', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><FG path="/app/audit"><AuditPage /></FG></RoleGuard></LazyRoute> },
+  { path: 'audit', element: <LazyRoute><FG path="/app/audit"><AuditPage /></FG></LazyRoute> },
 
   // Subscription
-  { path: 'subscription', element: <LazyRoute><RoleGuard allowedRoles={['owner', 'super_admin']}><SubscriptionPage /></RoleGuard></LazyRoute> },
+  { path: 'subscription', element: <LazyRoute><SubscriptionPage /></LazyRoute> },
 
   // Profile & Help (always visible)
   { path: 'profile', element: <LazyRoute><MyProfilePage /></LazyRoute> },
@@ -143,7 +146,7 @@ export const appRoutes: RouteObject[] = [
   // Settings (nested layout)
   {
     path: 'settings',
-    element: <RoleGuard allowedRoles={['owner', 'super_admin', 'manager']}><SettingsLayout /></RoleGuard>,
+    element: <SettingsLayout />,
     children: [
       { index: true, element: <Navigate to="/app/settings/business" replace /> },
       ...settingsRoutes,

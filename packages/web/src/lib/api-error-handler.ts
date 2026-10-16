@@ -25,13 +25,24 @@ export function markErrorHandled(error: unknown): void {
 }
 
 /**
+ * ValidationPipe 400s send `message` as string[]; join them so the toast is readable.
+ */
+function normalizeServerMessage(message: unknown): string | undefined {
+  if (Array.isArray(message)) {
+    const parts = message.filter((m): m is string => typeof m === 'string' && m.length > 0);
+    return parts.length ? parts.join(', ') : undefined;
+  }
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
+/**
  * Get a user-friendly Indonesian error message based on HTTP status code.
  */
 export function getErrorMessage(error: AxiosError<ApiErrorResponse>): {
   title: string;
   description?: string;
 } {
-  const serverMessage = error.response?.data?.message;
+  const serverMessage = normalizeServerMessage(error.response?.data?.message);
   const status = error.response?.status;
 
   // Network / no response
@@ -65,6 +76,13 @@ export function getErrorMessage(error: AxiosError<ApiErrorResponse>): {
         description: serverMessage || 'Data yang Anda cari tidak ditemukan atau sudah dihapus.',
       };
     case 409:
+      if (error.response.data?.code === 'DUPLICATE_TABLE') {
+        // Create or rename of a table to a name already used in the outlet
+        return {
+          title: 'Nama meja sudah dipakai',
+          description: 'Gunakan nama lain untuk meja di outlet ini.',
+        };
+      }
       return {
         title: 'Data konflik',
         description: serverMessage || 'Data sudah ada atau sedang diproses oleh pengguna lain.',
@@ -75,6 +93,13 @@ export function getErrorMessage(error: AxiosError<ApiErrorResponse>): {
         description: serverMessage || 'Periksa kembali data yang Anda masukkan.',
       };
     case 429:
+      if (error.response.data?.code === 'ACCOUNT_LOCKED') {
+        // Login/MFA/change-pin lockout after repeated failures (login-attempt.service.ts)
+        return {
+          title: 'Akun terkunci sementara',
+          description: serverMessage || 'Terlalu banyak percobaan gagal. Silakan coba lagi nanti.',
+        };
+      }
       return {
         title: 'Terlalu banyak permintaan',
         description: 'Silakan tunggu beberapa saat sebelum mencoba lagi.',

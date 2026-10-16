@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PaginatedResponse, PaginationParams } from '@/types/api.types';
 
@@ -17,11 +17,15 @@ export interface SortState {
   onSort: (key: string) => void;
 }
 
-interface UsePaginatedListOptions<T, TFilters = Record<string, unknown>> {
+interface UsePaginatedListOptions<
+  T,
+  TFilters = Record<string, unknown>,
+  TResponse extends PaginatedResponse<T> = PaginatedResponse<T>,
+> {
   /** Query key prefix (e.g., ['products']) */
   queryKey: unknown[];
   /** Fetch function that accepts pagination params */
-  queryFn: (params: PaginationParams & TFilters) => Promise<PaginatedResponse<T>>;
+  queryFn: (params: PaginationParams & TFilters) => Promise<TResponse>;
   /** Additional filters to pass to queryFn */
   filters?: TFilters;
   /** Items per page (default: 10) */
@@ -30,9 +34,11 @@ interface UsePaginatedListOptions<T, TFilters = Record<string, unknown>> {
   enabled?: boolean;
 }
 
-interface UsePaginatedListResult<T> {
+interface UsePaginatedListResult<T, TResponse extends PaginatedResponse<T> = PaginatedResponse<T>> {
   /** The current page data */
   data: T[];
+  /** Full response of the current page (e.g. server-side summaries) */
+  response: TResponse | undefined;
   /** Loading state */
   isLoading: boolean;
   /** Error object */
@@ -49,13 +55,17 @@ interface UsePaginatedListResult<T> {
   setSearch: (query: string) => void;
 }
 
-export function usePaginatedList<T, TFilters = Record<string, unknown>>({
+export function usePaginatedList<
+  T,
+  TFilters = Record<string, unknown>,
+  TResponse extends PaginatedResponse<T> = PaginatedResponse<T>,
+>({
   queryKey,
   queryFn,
   filters,
   defaultLimit = 10,
   enabled = true,
-}: UsePaginatedListOptions<T, TFilters>): UsePaginatedListResult<T> {
+}: UsePaginatedListOptions<T, TFilters, TResponse>): UsePaginatedListResult<T, TResponse> {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(defaultLimit);
   const [search, setSearchState] = useState('');
@@ -102,34 +112,31 @@ export function usePaginatedList<T, TFilters = Record<string, unknown>>({
   }, []);
 
   const onSort = useCallback((key: string) => {
-    setSortBy((prevSortBy) => {
-      if (prevSortBy === key) {
-        // Toggle order, or clear sort on third click
-        setSortOrder((prevOrder) => {
-          if (prevOrder === 'asc') return 'desc';
-          // Reset sort
-          setSortBy(undefined);
-          return 'asc';
-        });
-        return key;
-      }
-      // New column: start ascending
+    // asc -> desc -> no sort (pure computation, no nested state setters)
+    if (sortBy !== key) {
+      setSortBy(key);
       setSortOrder('asc');
-      return key;
-    });
+    } else if (sortOrder === 'asc') {
+      setSortOrder('desc');
+    } else {
+      setSortBy(undefined);
+      setSortOrder('asc');
+    }
     setPage(1);
-  }, []);
+  }, [sortBy, sortOrder]);
 
-  // Prefetch next page
+  // Prefetch next page (side effect, so not during render)
   const totalPages = response?.totalPages ?? 0;
-  if (page < totalPages) {
+  useEffect(() => {
+    if (page >= totalPages) return;
     const nextParams = { ...params, page: page + 1 };
     const nextQueryKey = [...queryKey, { page: page + 1, limit, search, sortBy, sortOrder, ...filters }];
-    queryClient.prefetchQuery({
+    void queryClient.prefetchQuery({
       queryKey: nextQueryKey,
       queryFn: () => queryFn(nextParams),
     });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- params/queryKey/filters are rebuilt each render; the listed values determine the next page
+  }, [page, totalPages, limit, search, sortBy, sortOrder, queryClient]);
 
   const pagination: PaginationState = {
     page,
@@ -148,6 +155,7 @@ export function usePaginatedList<T, TFilters = Record<string, unknown>>({
 
   return {
     data: response?.data ?? [],
+    response,
     isLoading,
     error,
     refetch,

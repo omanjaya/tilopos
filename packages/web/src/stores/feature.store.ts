@@ -90,11 +90,11 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
   isPathVisible: (path) => {
     const { enabledFeatures, restrictedFeatures, isLoaded, businessType, outletType } = get();
 
-    // If features haven't loaded yet, show everything
-    if (!isLoaded) return true;
-
     // Check if this path is controlled by any feature
     const requiredFeatures = PATH_FEATURE_MAP[path];
+
+    // Until features are loaded (or if loading failed) feature-gated paths are denied
+    if (!isLoaded) return !requiredFeatures || requiredFeatures.length === 0;
 
     // If no feature controls this path, it's always visible
     if (!requiredFeatures || requiredFeatures.length === 0) return true;

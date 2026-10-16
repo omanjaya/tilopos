@@ -1,4 +1,5 @@
-export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
+export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled';
 export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 
 export interface Order {
@@ -6,12 +7,16 @@ export interface Order {
   orderNumber: string;
   outletId: string;
   tableId: string | null;
-  tableName: string | null;
+  /** Only in GET /orders list rows (not in GET /orders/:id). */
+  tableName?: string | null;
+  customerId: string | null;
   status: OrderStatus;
   orderType: OrderType;
+  /** 0 normal, 5 urgent, 10 vip */
+  priority: number;
   items: OrderItem[];
-  employeeName: string;
-  customerName: string | null;
+  /** Only in GET /orders list rows (not in GET /orders/:id). */
+  customerName?: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -22,7 +27,7 @@ export interface OrderItem {
   productName: string;
   quantity: number;
   notes: string | null;
-  status: OrderStatus;
+  status: OrderItemStatus;
 }
 
 export interface Shift {

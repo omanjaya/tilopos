@@ -11,6 +11,7 @@ import {
   endOfMonth,
   startOfYear,
   endOfYear,
+  format,
 } from 'date-fns';
 import type { DateRange } from '@/types/report.types';
 
@@ -84,8 +85,9 @@ export function getPreviousPeriod(
   }
 }
 
+/** Local calendar date as YYYY-MM-DD (never toISOString: that is UTC and shifts WIB dates back a day). */
 function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0] || '';
+  return format(date, 'yyyy-MM-dd');
 }
 
 /**
@@ -144,57 +146,4 @@ export function formatPercentageChange(change: number | null | undefined): strin
 
   const sign = change > 0 ? '+' : '';
   return `${sign}${change.toFixed(1)}%`;
-}
-
-/**
- * Check if a date is valid
- *
- * @param date - Date to check
- * @returns True if valid date
- *
- * @example
- * ```tsx
- * if (!isValidDate(userInput)) {
- *   errors.date = 'Tanggal tidak valid';
- * }
- * ```
- */
-export function isValidDate(date: string | Date | null | undefined): boolean {
-  if (!date) return false;
-
-  try {
-    const dateObj = new Date(date);
-    return !isNaN(dateObj.getTime());
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if date is in the future
- *
- * @param date - Date to check
- * @returns True if date is in the future
- *
- * @example
- * ```tsx
- * if (isFutureDate(selectedDate)) {
- *   errors.date = 'Tanggal tidak boleh di masa depan';
- * }
- * ```
- */
-export function isFutureDate(date: string | Date): boolean {
-  if (!isValidDate(date)) return false;
-  return new Date(date) > new Date();
-}
-
-/**
- * Check if date is in the past
- *
- * @param date - Date to check
- * @returns True if date is in the past
- */
-export function isPastDate(date: string | Date): boolean {
-  if (!isValidDate(date)) return false;
-  return new Date(date) < new Date();
 }

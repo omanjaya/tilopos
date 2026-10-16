@@ -1,11 +1,16 @@
 export type SettlementStatus = 'pending' | 'settled' | 'disputed';
 
+/** Row of GET /settlements (SettlementsService.toView): one outlet/date/payment method. */
 export interface Settlement {
   id: string;
   date: string;
   outletId: string;
   outletName: string;
+  paymentMethod: string;
+  /** Gross amount. */
   totalSales: number;
+  feeAmount: number;
+  netAmount: number;
   cashAmount: number;
   nonCashAmount: number;
   settledAmount: number;
@@ -25,8 +30,10 @@ export interface PaymentBreakdownItem {
 }
 
 export interface SettlementListParams {
-  search?: string;
-  status?: SettlementStatus;
+  status?: SettlementStatus | 'all';
+  page?: number;
+  /** 1..100 (the API wrapper asks for 100). */
+  limit?: number;
   outletId?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -34,8 +41,4 @@ export interface SettlementListParams {
 
 export interface SettleRequest {
   notes?: string;
-}
-
-export interface DisputeRequest {
-  reason: string;
 }

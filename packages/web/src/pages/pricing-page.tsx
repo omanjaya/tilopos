@@ -70,18 +70,17 @@ export function PricingPage() {
               <span className="text-xl font-bold" style={{ color: 'var(--brand-heading)' }}>TiloPOS</span>
             </Link>
             <div className="flex items-center gap-3">
-              <Link to="/">
-                <Button variant="ghost" size="sm" style={{ color: 'var(--brand-text)' }}>
+              <Button asChild variant="ghost" size="sm" style={{ color: 'var(--brand-text)' }}>
+                <Link to="/">
                   <ArrowLeft className="mr-1 h-4 w-4" /> Beranda
-                </Button>
-              </Link>
-              <Link to="/login">
-                <Button variant="ghost" size="sm" style={{ color: 'var(--brand-text)' }}>
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm" style={{ color: 'var(--brand-text)' }}>
+                <Link to="/login">
                   Masuk
-                </Button>
-              </Link>
-              <Link to="/register">
-                <Button
+                </Link>
+              </Button>
+              <Button asChild
                   size="sm"
                   className="text-white font-medium px-5"
                   style={{
@@ -89,9 +88,10 @@ export function PricingPage() {
                     borderRadius: 'var(--brand-button-radius)',
                   }}
                 >
+                <Link to="/register">
                   Daftar Gratis
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
@@ -112,6 +112,8 @@ export function PricingPage() {
         {/* Billing Toggle */}
         <div className="inline-flex items-center gap-1 rounded-full p-1 border border-gray-200" style={{ backgroundColor: 'var(--brand-surface)' }}>
           <button
+            type="button"
+            aria-pressed={billing === 'monthly'}
             onClick={() => setBilling('monthly')}
             className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
               billing === 'monthly' ? 'text-white shadow-sm' : ''
@@ -123,6 +125,8 @@ export function PricingPage() {
             Bulanan
           </button>
           <button
+            type="button"
+            aria-pressed={billing === 'yearly'}
             onClick={() => setBilling('yearly')}
             className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
               billing === 'yearly' ? 'text-white shadow-sm' : ''
@@ -155,9 +159,8 @@ export function PricingPage() {
               <span className="text-4xl font-bold" style={{ color: 'var(--brand-heading)' }}>Rp 0</span>
               <span className="text-sm" style={{ color: 'var(--brand-muted)' }}>/selamanya</span>
             </div>
-            <Link to="/register" className="mb-8">
-              <Button
-                className="w-full h-12 font-semibold"
+            <Button asChild
+                className="mb-8 w-full h-12 font-semibold"
                 variant="outline"
                 style={{
                   borderColor: 'var(--brand-primary)',
@@ -165,9 +168,10 @@ export function PricingPage() {
                   borderRadius: 'var(--brand-button-radius)',
                 }}
               >
+              <Link to="/register">
                 Mulai Gratis
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             <ul className="space-y-3 flex-1">
               {features.filter(f => f.free).map((f, i) => (
                 <li key={i} className="flex items-center gap-3 text-sm">
@@ -215,18 +219,18 @@ export function PricingPage() {
               </p>
             )}
             {billing === 'monthly' && <div className="mb-5" />}
-            <Link to="/register" className="mb-8">
-              <Button
-                className="w-full h-12 font-semibold text-white"
+            <Button asChild
+                className="mb-8 w-full h-12 font-semibold text-white"
                 style={{
                   background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))`,
                   borderRadius: 'var(--brand-button-radius)',
                 }}
               >
+              <Link to="/register">
                 Coba Gratis 14 Hari
                 <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             <p className="text-xs text-center mb-6" style={{ color: 'var(--brand-muted)' }}>
               Tanpa kartu kredit. Batal kapan saja.
             </p>
@@ -295,8 +299,7 @@ export function PricingPage() {
           <p className="text-lg opacity-90 mb-6">
             Daftar gratis dan upgrade kapan saja.
           </p>
-          <Link to="/register">
-            <Button
+          <Button asChild
               size="lg"
               className="h-12 px-8 font-semibold text-lg"
               style={{
@@ -305,10 +308,11 @@ export function PricingPage() {
                 borderRadius: 'var(--brand-button-radius)',
               }}
             >
+            <Link to="/register">
               Daftar Gratis
               <ArrowRight className="ml-2 w-5 h-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </section>
 
@@ -325,7 +329,7 @@ export function PricingPage() {
             <span className="font-semibold text-sm" style={{ color: 'var(--brand-heading)' }}>TiloPOS</span>
           </div>
           <p className="text-xs" style={{ color: 'var(--brand-muted)' }}>
-            &copy; {new Date().getFullYear()} TiloPOS. All rights reserved.
+            &copy; {new Date().getFullYear()} TiloPOS. Hak cipta dilindungi.
           </p>
         </div>
       </footer>

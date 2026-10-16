@@ -3,6 +3,8 @@ export interface ApiErrorResponse {
   message: string;
   error?: string;
   code?: string;
+  /** Extra machine-readable context, e.g. { retryAfterSeconds } for ACCOUNT_LOCKED. */
+  details?: Record<string, unknown>;
 }
 
 export interface PaginatedResponse<T> {

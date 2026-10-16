@@ -1,38 +1,52 @@
 import { apiClient } from '../client';
-import type { SelfOrderSession, SelfOrderMenuItem, CreateSelfOrderSessionRequest } from '@/types/self-order.types';
+import type {
+  SelfOrderSession,
+  SelfOrderMenuItem,
+  SelfOrderSessionTotal,
+} from '@/types/self-order.types';
+
+/** POST /self-order/sessions/:code/items (AddSelfOrderItemDto); prices are resolved server-side. */
+export interface SelfOrderAddItemRequest {
+  productId: string;
+  variantId?: string;
+  /** 1..99 */
+  quantity: number;
+  /** Modifier ids (max 20, unique). */
+  modifierIds?: string[];
+  notes?: string;
+}
+
+export interface SelfOrderSubmitResponse {
+  success: boolean;
+  orderId: string;
+  orderNumber: string;
+}
 
 export const selfOrderApi = {
-  createSession: (data: CreateSelfOrderSessionRequest) =>
-    apiClient.post<SelfOrderSession>('/self-order/sessions', data).then((r) => r.data),
-
   getSession: (sessionCode: string) =>
-    apiClient.get<SelfOrderSession & { outletName?: string; tableNumber?: string }>(`/self-order/sessions/${sessionCode}`).then((r) => r.data),
+    apiClient.get<SelfOrderSession>(`/self-order/sessions/${sessionCode}`).then((r) => r.data),
 
+  /** Backend returns a flat array of menu items. */
   getMenu: (outletId: string) =>
     apiClient
       .get<SelfOrderMenuItem[]>('/self-order/menu', { params: { outletId } })
       .then((r) => {
-        const raw = r.data;
-        // Backend returns flat array of menu items
-        if (Array.isArray(raw)) return raw;
-        // If wrapped in categories structure, flatten
-        const data = raw as Record<string, unknown>;
-        if (Array.isArray(data.categories)) {
-          const items: SelfOrderMenuItem[] = [];
-          for (const cat of data.categories as Array<Record<string, unknown>>) {
-            const products = (cat.products ?? []) as SelfOrderMenuItem[];
-            for (const p of products) {
-              items.push({ ...p, categoryName: (p.categoryName ?? cat.name ?? '') as string });
-            }
-          }
-          return items;
+        if (!Array.isArray(r.data)) {
+          throw new Error('Format menu dari server tidak dikenali');
         }
-        return [];
+        return r.data;
       }),
 
-  addItem: (sessionCode: string, data: { productId: string; variantId?: string; quantity: number; notes?: string }) =>
+  addItem: (sessionCode: string, data: SelfOrderAddItemRequest) =>
     apiClient.post(`/self-order/sessions/${sessionCode}/items`, data).then((r) => r.data),
 
+  getSessionTotal: (sessionCode: string) =>
+    apiClient
+      .get<SelfOrderSessionTotal>(`/self-order/sessions/${sessionCode}/total`)
+      .then((r) => r.data),
+
   submitSession: (sessionCode: string) =>
-    apiClient.post(`/self-order/sessions/${sessionCode}/submit`).then((r) => r.data),
+    apiClient
+      .post<SelfOrderSubmitResponse>(`/self-order/sessions/${sessionCode}/submit`)
+      .then((r) => r.data),
 };

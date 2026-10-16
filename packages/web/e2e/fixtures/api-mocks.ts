@@ -776,12 +776,14 @@ export async function setupApiMocks(page: Page): Promise<void> {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
+        // Backend CreateTransactionOutput
         body: JSON.stringify({
-          id: 'txn-1',
-          transactionNumber: 'TXN-2026-0001',
-          status: 'completed',
-          total: 35000,
-          createdAt: new Date().toISOString(),
+          transactionId: 'txn-1',
+          receiptNumber: 'TXN-2026-0001',
+          grandTotal: 35000,
+          roundingAmount: 0,
+          change: 0,
+          loyaltyPointsEarned: 0,
         }),
       });
     } else {
@@ -791,10 +793,46 @@ export async function setupApiMocks(page: Page): Promise<void> {
 
   // KDS Orders
   await page.route('**/api/v1/kds/orders*', async (route) => {
+    // Backend GET /kds/orders shape: flat station items + summary
+    const priorityNumber = { normal: 0, urgent: 5, vip: 10 } as Record<string, number>;
+    const items = mockKDSOrders.flatMap((order) =>
+      order.items.map((item) => ({
+        id: item.id,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        productId: null,
+        productName: item.productName,
+        quantity: item.quantity,
+        station: null,
+        status: item.status,
+        notes: item.notes,
+        startedAt: null,
+        completedAt: null,
+        createdAt: order.createdAt,
+        tableId: null,
+        tableName: order.tableName,
+        orderType: order.orderType,
+        priority: priorityNumber[order.priority ?? 'normal'] ?? 0,
+        customerId: null,
+        orderNotes: null,
+        modifiers: item.modifiers,
+      })),
+    );
+    const count = (status: string) => items.filter((i) => i.status === status).length;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(mockKDSOrders),
+      body: JSON.stringify({
+        items,
+        summary: {
+          total: items.length,
+          pending: count('pending'),
+          preparing: count('preparing'),
+          ready: count('ready'),
+          served: count('served'),
+          completed: count('served'),
+        },
+      }),
     });
   });
 
@@ -827,13 +865,21 @@ export async function setupApiMocks(page: Page): Promise<void> {
 
   // Customers
   await page.route('**/api/v1/customers*', async (route) => {
+    const customers = [
+      { id: 'cust-1', name: 'Budi Santoso', email: 'budi@test.com', phone: '081234567890', totalSpent: 0, loyaltyPoints: 0, visitCount: 0 },
+      { id: 'cust-2', name: 'Sari Putri', email: 'sari@test.com', phone: '081298765432', totalSpent: 0, loyaltyPoints: 0, visitCount: 0 },
+    ];
+    // GET /customers returns { data, meta } when page/limit are sent, else a plain array
+    const url = new URL(route.request().url());
+    const paged = url.searchParams.has('page') || url.searchParams.has('limit');
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 'cust-1', name: 'Budi Santoso', email: 'budi@test.com', phone: '081234567890' },
-        { id: 'cust-2', name: 'Sari Putri', email: 'sari@test.com', phone: '081298765432' },
-      ]),
+      body: JSON.stringify(
+        paged
+          ? { data: customers, meta: { page: 1, limit: 20, total: customers.length, totalPages: 1 } }
+          : customers,
+      ),
     });
   });
 
@@ -889,9 +935,10 @@ export async function setupApiMocks(page: Page): Promise<void> {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // Backend shape: StockLevel rows with product/variant relations (GET /inventory/stock/:outletId)
       body: JSON.stringify([
-        { id: 'stock-1', productId: 'prod-1', productName: 'Nasi Goreng Spesial', quantity: 50, minStock: 10 },
-        { id: 'stock-2', productId: 'prod-3', productName: 'Mie Ayam Bakso', quantity: 25, minStock: 5 },
+        { id: 'stock-1', outletId: 'outlet-1', productId: 'prod-1', variantId: null, quantity: 50, lowStockAlert: 10, product: { id: 'prod-1', name: 'Nasi Goreng Spesial', sku: 'NGS-001' }, variant: null },
+        { id: 'stock-2', outletId: 'outlet-1', productId: 'prod-3', variantId: null, quantity: 25, lowStockAlert: 5, product: { id: 'prod-3', name: 'Mie Ayam Bakso', sku: 'MAB-001' }, variant: null },
       ]),
     });
   });
@@ -905,10 +952,24 @@ export async function setupApiMocks(page: Page): Promise<void> {
   });
 
   await page.route('**/api/v1/inventory/products*', async (route) => {
+    // Backend returns a plain array without page/limit and a paginated object with them.
+    const url = new URL(route.request().url());
+    const paged = url.searchParams.has('page') || url.searchParams.has('limit');
+    const limit = Number(url.searchParams.get('limit') ?? mockProducts.length) || 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(mockProducts),
+      body: JSON.stringify(
+        paged
+          ? {
+              data: mockProducts,
+              total: mockProducts.length,
+              page: Number(url.searchParams.get('page') ?? 1),
+              limit,
+              totalPages: Math.max(1, Math.ceil(mockProducts.length / limit)),
+            }
+          : mockProducts,
+      ),
     });
   });
 

@@ -5,9 +5,11 @@ export interface PurchaseHistorySummary {
   totalPurchases: number;
   totalOrders: number;
   avgOrderValue: number;
+  /** pending = draft, approved = ordered, partial, completed = received, cancelled. */
   statusCounts: {
     pending: number;
     approved: number;
+    partial: number;
     completed: number;
     cancelled: number;
   };
@@ -16,7 +18,7 @@ export interface PurchaseHistorySummary {
 export interface PurchaseOrder {
   id: string;
   orderNumber: string;
-  orderDate: Date;
+  orderDate: string;
   status: string;
   totalAmount: number;
   outletName: string;
@@ -35,31 +37,34 @@ export interface PurchaseHistory {
   orders: PurchaseOrder[];
 }
 
+/**
+ * GET /suppliers/:id/payment-status — there is no supplier-payment ledger, so this
+ * only summarises PO receipt status (paymentTracking = 'NOT_AVAILABLE').
+ */
 export interface PaymentStatusSummary {
-  totalDebt: number;
-  totalPaid: number;
   totalPurchases: number;
-  paymentRate: number;
-  unpaidOrdersCount: number;
-  overdueOrdersCount: number;
+  /** Sum of POs still open (draft/ordered/partial). */
+  openAmount: number;
+  /** Sum of received POs. */
+  receivedAmount: number;
+  /** receivedAmount / totalPurchases in percent. */
+  receivedRate: number;
+  openOrdersCount: number;
 }
 
-export interface UnpaidOrder {
+export interface OpenPurchaseOrder {
   id: string;
   orderNumber: string;
+  status: string;
   totalAmount: number;
-  paidAmount: number;
-  outstandingAmount: number;
-  orderDate: Date;
-  dueDate: Date | null;
-  daysOverdue?: number;
+  orderDate: string;
 }
 
 export interface PaymentStatus {
   supplierName: string;
+  paymentTracking: 'NOT_AVAILABLE';
   summary: PaymentStatusSummary;
-  unpaidOrders: UnpaidOrder[];
-  overdueOrders: UnpaidOrder[];
+  openOrders: OpenPurchaseOrder[];
 }
 
 export interface SupplierPrice {
@@ -69,7 +74,7 @@ export interface SupplierPrice {
   minPrice: number;
   maxPrice: number;
   orderCount: number;
-  lastOrderDate: Date;
+  lastOrderDate: string;
 }
 
 export interface ProductComparison {
@@ -77,7 +82,8 @@ export interface ProductComparison {
   productName: string;
   suppliers: SupplierPrice[];
   cheapestSupplier: string;
-  mostExpensiveSupplier: number;
+  /** Average unit price of the most expensive supplier. */
+  mostExpensivePrice: number;
   priceDifference: number;
   savingsPercentage: number;
 }
@@ -115,7 +121,8 @@ interface HistoryParams {
 
 export const supplierAnalyticsApi = {
   /**
-   * Get purchase history for a supplier
+   * Purchase history for a supplier (owner/manager/inventory). startDate/endDate are
+   * YYYY-MM-DD business days (Asia/Jakarta).
    */
   getPurchaseHistory: (supplierId: string, params: HistoryParams = {}) =>
     apiClient
@@ -123,7 +130,7 @@ export const supplierAnalyticsApi = {
       .then((r) => r.data),
 
   /**
-   * Get payment status for a supplier (hutang/piutang)
+   * PO receipt status for a supplier (no payment ledger). owner/manager/inventory.
    */
   getPaymentStatus: (supplierId: string) =>
     apiClient

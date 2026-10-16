@@ -11,45 +11,21 @@ export interface UnitConversion {
   isDefault: boolean;
 }
 
-export interface ConvertedQuantity {
-  fromQuantity: number;
-  fromUnit: string;
-  fromUnitLabel: string;
-  toQuantity: number;
-  toUnit: string;
-  toUnitLabel: string;
-}
-
-export interface StockInUnits {
-  baseQuantity: number;
-  conversions: {
-    unit: string;
-    unitLabel: string;
-    wholeUnits: number;
-    remainder: number;
-    remainderUnit: string;
-    remainderUnitLabel: string;
-    totalInBaseUnit: number;
-  }[];
+/** conversionFactor is a Prisma Decimal serialized as a string — convert once here. */
+function mapConversion(c: UnitConversion): UnitConversion {
+  return { ...c, conversionFactor: Number(c.conversionFactor) };
 }
 
 export const unitConversionApi = {
   listByProduct: (productId: string) =>
-    apiClient.get<{ conversions: UnitConversion[] }>(`/unit-conversions/product/${productId}`).then((r) => r.data.conversions),
+    apiClient
+      .get<{ conversions: UnitConversion[] }>(`/unit-conversions/product/${productId}`)
+      .then((r) => r.data.conversions.map(mapConversion)),
 
   create: (data: Omit<UnitConversion, 'id'>) =>
-    apiClient.post<{ conversion: UnitConversion }>('/unit-conversions', data).then((r) => r.data.conversion),
-
-  update: (id: string, data: Partial<UnitConversion>) =>
-    apiClient.put<{ conversion: UnitConversion }>(`/unit-conversions/${id}`, data).then((r) => r.data.conversion),
+    apiClient
+      .post<{ conversion: UnitConversion }>('/unit-conversions', data)
+      .then((r) => mapConversion(r.data.conversion)),
 
   delete: (id: string) => apiClient.delete(`/unit-conversions/${id}`),
-
-  convert: (productId: string, quantity: number, from: string, to: string) =>
-    apiClient
-      .get<ConvertedQuantity>(`/unit-conversions/convert/${productId}?quantity=${quantity}&from=${from}&to=${to}`)
-      .then((r) => r.data),
-
-  getStockInAllUnits: (productId: string, outletId: string) =>
-    apiClient.get<StockInUnits>(`/unit-conversions/stock/${productId}/${outletId}`).then((r) => r.data),
 };

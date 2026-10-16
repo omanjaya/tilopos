@@ -10,85 +10,54 @@ export interface ShortcutItem {
 export const globalShortcuts: ShortcutItem[] = [
   {
     keys: ['⌘', 'K'],
-    description: 'Open command palette',
+    description: 'Buka command palette',
     icon: Command,
   },
   {
     keys: ['⌘', '/'],
-    description: 'Show all shortcuts',
+    description: 'Tampilkan semua pintasan',
     icon: HelpCircle,
   },
   {
     keys: ['⌘', 'B'],
-    description: 'Toggle sidebar',
+    description: 'Tampilkan/sembunyikan sidebar',
     icon: PanelLeftClose,
   },
   {
     keys: ['⌘', 'D'],
-    description: 'Go to Dashboard',
+    description: 'Buka Dashboard',
     icon: Home,
   },
   {
     keys: ['⌘', 'P'],
-    description: 'Go to POS',
+    description: 'Buka POS',
     icon: ShoppingCart,
   },
   {
     keys: ['⌘', 'E'],
-    description: 'Go to Products',
+    description: 'Buka Produk',
     icon: Package,
   },
   {
     keys: ['⌘', 'I'],
-    description: 'Go to Inventory',
+    description: 'Buka Inventori',
     icon: Wrench,
   },
   {
     keys: ['⌘', 'R'],
-    description: 'Go to Reports',
+    description: 'Buka Laporan',
     icon: FileText,
   },
   {
     keys: ['⌘', ','],
-    description: 'Open Settings',
+    description: 'Buka Pengaturan',
     icon: Settings,
   },
 ];
-
-export const posShortcuts: ShortcutItem[] = [
-  { keys: ['F1'], description: 'Focus search products' },
-  { keys: ['F2'], description: 'Toggle grid/list view' },
-  { keys: ['F3'], description: 'Show categories' },
-  { keys: ['F4'], description: 'View cart' },
-  { keys: ['F5'], description: 'Hold bill' },
-  { keys: ['F6'], description: 'Resume bill' },
-  { keys: ['F7'], description: 'Apply discount' },
-  { keys: ['F8'], description: 'Add note' },
-  { keys: ['F9'], description: 'Quick cash payment' },
-  { keys: ['F10'], description: 'Quick QRIS payment' },
-  { keys: ['F12'], description: 'Process payment' },
-  { keys: ['Esc'], description: 'Close modal / Clear cart' },
-  { keys: ['⌘', '←'], description: 'Navigate order tabs' },
-];
-
-export const shortcutsByCategory = {
-  global: globalShortcuts,
-  pos: posShortcuts,
-};
-
-// Helper to format keys for display
-export function formatKeys(keys: string[]): string {
-  return keys.join(' + ');
-}
 
 // Get platform-specific key name (⌘ for Mac, Ctrl for Windows/Linux)
 export function getModKey(): '⌘' | 'Ctrl' {
   return typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
     ? '⌘'
     : 'Ctrl';
-}
-
-// Get shortcuts for current page
-export function getShortcutsForPage(page: 'global' | 'pos'): ShortcutItem[] {
-  return shortcutsByCategory[page] || [];
 }

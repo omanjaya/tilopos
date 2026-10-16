@@ -62,77 +62,81 @@ export interface PaymentMethodBreakdown {
   percentage: number;
 }
 
+/** GET /reports/inventory (inventory-reports.controller.ts) — point-in-time stock of one outlet. */
 export interface InventoryReport {
-  totalProducts: number;
-  totalStockValue: number;
-  lowStockCount: number;
-  outOfStockCount: number;
-  stockMovements: number;
-  items: InventoryItem[];
-  topMovingProducts: TopMovingProduct[];
-  slowMovingProducts: SlowMovingProduct[];
+  totalItems: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  /** null for roles without cost access (supervisor). */
+  totalValue: number | null;
+  items: InventoryReportItem[];
 }
 
-export interface InventoryItem {
+export interface InventoryReportItem {
   id: string;
+  productId: string | null;
   productName: string;
-  sku: string;
+  variantName: string | null;
+  sku: string | null;
   currentStock: number;
-  minStock: number;
-  unitPrice: number;
-  status: 'normal' | 'low' | 'out_of_stock';
+  lowStockAlert: number;
+  unit: string;
+  /** null for roles without cost access (supervisor). */
+  costPrice: number | null;
+  stockValue: number | null;
 }
 
-export interface TopMovingProduct {
-  name: string;
-  movements: number;
-  trend: 'up' | 'down' | 'stable';
-}
-
-export interface SlowMovingProduct {
-  name: string;
-  movements: number;
-  daysSinceLastSale: number;
-}
-
-// Kitchen Report Types (F&B)
+// Kitchen Report Types (F&B) — GET /reports/kitchen (kitchen-reports.controller.ts)
 export interface KitchenReport {
+  period: { start: string; end: string };
+  summary: KitchenReportSummary;
+  peakHours: KitchenPeakHour[];
+  itemsPreparedByProduct: KitchenPreparedItem[];
+  stations: KitchenStationStat[];
+  orderStatusBreakdown: { status: string; count: number }[];
+}
+
+export interface KitchenReportSummary {
   totalOrders: number;
   completedOrders: number;
-  cancelledOrders: number;
-  avgPrepTime: number;
-  targetPrepTime: number;
-  onTimeRate: number;
-  peakHours: PeakHour[];
-  popularItems: PopularKitchenItem[];
-  slowItems: SlowKitchenItem[];
+  avgPrepTimeMinutes: number;
+  fastestPrepMinutes: number;
+  slowestPrepMinutes: number;
+  ordersPerHour: number;
+  slaTargetMinutes: number;
+  slaAdherenceRate: number;
 }
 
-export interface PeakHour {
-  hour: string;
-  orders: number;
+export interface KitchenPeakHour {
+  hour: number;
+  orderCount: number;
 }
 
-export interface PopularKitchenItem {
-  name: string;
-  orders: number;
-  avgTime: number;
+export interface KitchenPreparedItem {
+  productId: string;
+  productName: string;
+  totalPrepared: number;
 }
 
-export interface SlowKitchenItem {
-  name: string;
-  avgTime: number;
-  orders: number;
+export interface KitchenStationStat {
+  station: string;
+  itemCount: number;
+  totalQuantity: number;
+  avgPrepMinutes: number;
 }
 
 // Table Report Types (F&B)
 export interface TableReport {
   totalTables: number;
+  /** Estimated from dining time and assumedOperatingHoursPerDay. */
   avgOccupancy: number;
+  occupancyEstimated: boolean;
+  assumedOperatingHoursPerDay: number;
   avgDiningTime: number;
   turnoverRate: number;
-  totalGuests: number;
-  avgGuestsPerTable: number;
+  /** Guest counts are not recorded: always null for now. */
+  totalGuests: number | null;
+  avgGuestsPerTable: number | null;
   tablePerformance: TablePerformance[];
   peakDiningHours: PeakDiningHour[];
 }
@@ -155,7 +159,8 @@ export interface StaffReport {
   totalServices: number;
   totalRevenue: number;
   avgServiceTime: number;
-  avgRating: number;
+  /** No rating data is recorded: always null for now. */
+  avgRating: number | null;
   staffPerformance: StaffPerformance[];
   serviceBreakdown: ServiceBreakdown[];
 }
@@ -165,8 +170,9 @@ export interface StaffPerformance {
   name: string;
   services: number;
   revenue: number;
-  rating: number;
-  commission: number;
+  /** null: no rating data / no commission configuration. */
+  rating: number | null;
+  commission: number | null;
 }
 
 export interface ServiceBreakdown {
@@ -185,6 +191,7 @@ export interface AppointmentReport {
   avgBookingValue: number;
   conversionRate: number;
   bookingsByDay: BookingByDay[];
+  /** Always [] — booking source is not tracked. */
   bookingsBySource: BookingBySource[];
   popularServices: PopularService[];
 }
@@ -222,10 +229,11 @@ export interface HourlySales {
 export interface DashboardSummary {
   grossSales: number;
   netSales: number;
-  grossProfit: number;
+  /** null for roles without cost access (supervisor). */
+  grossProfit: number | null;
   transactions: number;
   averageSalePerTransaction: number;
-  grossMargin: number;
+  grossMargin: number | null;
   salesByDayOfWeek: DayOfWeekSales[];
   salesByHour: HourlySales[];
 }
@@ -272,8 +280,9 @@ export interface OutletComparisonItem {
   netSales: number;
   transactions: number;
   averageSale: number;
-  grossProfit: number;
-  grossMargin: number;
+  /** null for roles without cost access (supervisor). */
+  grossProfit: number | null;
+  grossMargin: number | null;
   topItems: OutletTopItem[];
 }
 
@@ -303,7 +312,8 @@ export interface DiscountBreakdownReport {
   itemLevelDiscount: number;
   transactionsWithDiscount: number;
   transactionsWithoutDiscount: number;
-  promotionBreakdown: { promotionId: string; name: string; usedCount: number; totalDiscount: number }[];
+  /** totalDiscount is null: the per-promotion discount amount is not recorded. */
+  promotionBreakdown: { promotionId: string; name: string; usedCount: number; totalDiscount: number | null }[];
 }
 
 export interface EmployeeSalesReport {

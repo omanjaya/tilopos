@@ -1,5 +1,5 @@
-// Theme configuration for landing page and branding
-// Users can customize these in business settings
+// Theme configuration for the public landing and pricing pages.
+// The visitor picks a theme in the landing navigation; it is remembered in localStorage.
 
 export interface BrandTheme {
     // Primary brand color
@@ -150,14 +150,20 @@ export function getSavedTheme(): BrandTheme {
         if (saved) {
             return JSON.parse(saved);
         }
-    } catch {
-        // Ignore parse errors
+    } catch (error) {
+        // intentionally ignored: a corrupt saved theme falls back to the default
+        console.warn('Ignoring invalid saved brand theme', error);
     }
     return defaultTheme;
 }
 
 // Save theme to local storage
 export function saveTheme(theme: BrandTheme) {
-    localStorage.setItem('brand-theme', JSON.stringify(theme));
+    try {
+        localStorage.setItem('brand-theme', JSON.stringify(theme));
+    } catch (error) {
+        // intentionally ignored: theme still applies for this visit
+        console.warn('Cannot persist brand theme', error);
+    }
     applyTheme(theme);
 }

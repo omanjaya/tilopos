@@ -4,25 +4,69 @@ import type {
   Customer,
   CreateCustomerRequest,
   UpdateCustomerRequest,
-  CustomerSegment,
-  CreateSegmentRequest,
+  CustomerSegmentsResponse,
+  SegmentCode,
+  SegmentCustomer,
 } from '@/types/customer.types';
 
-export const customersApi = {
-  list: (params?: { search?: string }) =>
-    apiClient.get<Customer[]>('/customers', { params }).then((r) => r.data),
+/** Row of GET /customers (Decimals/counters normalised to numbers). */
+function normalize(c: Customer): Customer {
+  return {
+    ...c,
+    totalSpent: Number(c.totalSpent ?? 0),
+    loyaltyPoints: Number(c.loyaltyPoints ?? 0),
+    visitCount: Number(c.visitCount ?? 0),
+  };
+}
 
-  listPaginated: (params?: PaginationParams) =>
-    apiClient.get<PaginatedResponse<Customer>>('/customers', { params }).then((r) => {
-      const d = r.data;
-      if (Array.isArray(d)) {
-        return { data: d, total: d.length, page: 1, limit: d.length, totalPages: 1 } as PaginatedResponse<Customer>;
-      }
-      return d;
-    }),
+/** GET /customers with page/limit → { data, meta } (server-side search, ordered by name). */
+interface CustomerPage {
+  data: Customer[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+export const customersApi = {
+  /**
+   * GET /customers without page/limit → plain array (active customers, max 1000,
+   * ordered by name). Used by the POS customer pickers.
+   */
+  list: async (params?: { search?: string }): Promise<Customer[]> => {
+    const search = params?.search?.trim();
+    const r = await apiClient.get<Customer[]>('/customers', { params: search ? { search } : {} });
+    if (!Array.isArray(r.data)) {
+      throw new Error('Format respons daftar pelanggan tidak valid');
+    }
+    return r.data.map(normalize);
+  },
+
+  /**
+   * GET /customers?page&limit(<=100)&search → { data, meta }. The server always
+   * orders by name; sortBy/sortOrder are not supported and are not sent.
+   */
+  listPaginated: async (params?: PaginationParams): Promise<PaginatedResponse<Customer>> => {
+    const search = params?.search?.trim();
+    const r = await apiClient.get<CustomerPage>('/customers', {
+      params: {
+        page: params?.page ?? 1,
+        limit: Math.min(params?.limit ?? 20, 100),
+        ...(search ? { search } : {}),
+      },
+    });
+    if (!r.data || !Array.isArray(r.data.data) || !r.data.meta) {
+      throw new Error('Format respons daftar pelanggan tidak valid');
+    }
+    const { meta } = r.data;
+    return {
+      data: r.data.data.map(normalize),
+      total: meta.total,
+      page: meta.page,
+      limit: meta.limit,
+      totalPages: Math.max(1, meta.totalPages),
+    };
+  },
 
   get: (id: string) =>
-    apiClient.get<Customer>(`/customers/${id}`).then((r) => r.data),
+    apiClient.get<Customer>(`/customers/${id}`).then((r) => normalize(r.data)),
 
   create: (data: CreateCustomerRequest) =>
     apiClient.post<Customer>('/customers', data).then((r) => r.data),
@@ -30,28 +74,17 @@ export const customersApi = {
   update: (id: string, data: UpdateCustomerRequest) =>
     apiClient.put<Customer>(`/customers/${id}`, data).then((r) => r.data),
 
-  // Segments
+  /** Soft delete: DELETE /customers/:id marks the customer inactive. */
+  deactivate: (id: string) =>
+    apiClient.delete<{ message: string }>(`/customers/${id}`).then((r) => r.data),
+
+  // Segments are built-in and computed by the backend (no custom segment CRUD).
   listSegments: () =>
-    apiClient.get('/customers/segments').then((r) => {
-      const raw = r.data as Record<string, unknown>;
-      // API returns { totalCustomers, segments: [...] } wrapper
-      const segments = (Array.isArray(raw) ? raw : Array.isArray(raw.segments) ? raw.segments : []) as Array<Record<string, unknown>>;
-      return segments.map((s) => ({
-        id: (s.id as string) ?? (s.segment as string) ?? '',
-        name: (s.name as string) ?? (s.label as string) ?? '',
-        type: (s.type as string) ?? (s.segment as string) ?? 'custom',
-        description: (s.description as string) ?? null,
-        criteria: (s.criteria as CustomerSegment['criteria']) ?? null,
-        customerCount: (s.customerCount as number) ?? (s.count as number) ?? 0,
-        createdAt: (s.createdAt as string) ?? new Date().toISOString(),
-      })) as CustomerSegment[];
-    }),
-  getSegment: (id: string) =>
-    apiClient.get<CustomerSegment>(`/customers/segments/${id}`).then((r) => r.data),
-  getSegmentCustomers: (id: string) =>
-    apiClient.get<Customer[]>(`/customers/segments/${id}/customers`).then((r) => r.data),
-  createSegment: (data: CreateSegmentRequest) =>
-    apiClient.post<CustomerSegment>('/customers/segments', data).then((r) => r.data),
-  deleteSegment: (id: string) =>
-    apiClient.delete(`/customers/segments/${id}`).then((r) => r.data),
+    apiClient.get<CustomerSegmentsResponse>('/customers/segments').then((r) => r.data),
+
+  /** GET /customers/segments/:segment?page&limit(<=500, default 100) → array. */
+  getSegmentCustomers: (segment: SegmentCode, params?: { page?: number; limit?: number }) =>
+    apiClient
+      .get<SegmentCustomer[]>(`/customers/segments/${segment}`, { params })
+      .then((r) => r.data),
 };

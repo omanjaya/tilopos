@@ -1,8 +1,13 @@
 import { apiClient } from '../client';
 
-interface UploadResponse {
+/** POST /uploads/image response (owner, manager, supervisor, inventory). */
+export interface UploadResponse {
+  id: string;
+  /** Same as `medium`. */
   url: string;
-  filename: string;
+  original: string;
+  thumbnail: string;
+  medium: string;
 }
 
 export const uploadsApi = {

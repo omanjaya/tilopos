@@ -1,12 +1,17 @@
 import { apiClient } from '../client';
 
+/** Allowed values of the invoice status filter (backend INVOICE_STATUSES). */
+export type InvoiceStatusFilter = 'all' | 'completed' | 'voided' | 'refunded' | 'partially_refunded';
+
 export interface InvoiceListParams {
   outletId: string;
+  /** YYYY-MM-DD (WIB business day) */
   startDate: string;
   endDate: string;
   search?: string;
-  status?: string;
+  status?: InvoiceStatusFilter;
   page?: number;
+  /** max 100 */
   limit?: number;
 }
 
@@ -59,8 +64,11 @@ export interface DailySummary {
 }
 
 export interface TransactionsSummaryResponse {
+  /** One page of transactions (newest first). */
   transactions: TransactionSummaryItem[];
+  /** Covers the whole range (WIB days), not only the current page. */
   dailySummary: DailySummary[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
 export interface ItemSummaryItem {
@@ -86,7 +94,7 @@ export const invoicesApi = {
   list: (params: InvoiceListParams) =>
     apiClient.get<InvoiceListResponse>('/reports/invoices', { params }).then((r) => r.data),
 
-  transactions: (params: Omit<InvoiceListParams, 'status' | 'page' | 'limit'>) =>
+  transactions: (params: Omit<InvoiceListParams, 'status'>) =>
     apiClient.get<TransactionsSummaryResponse>('/reports/invoices/transactions', { params }).then((r) => r.data),
 
   itemsSummary: (params: Omit<InvoiceListParams, 'status' | 'page' | 'limit'>) =>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { applyTheme, getSavedTheme, themes, type BrandTheme } from '@/config/theme.config';
+import { applyTheme, getSavedTheme, saveTheme, themes, type BrandTheme } from '@/config/theme.config';
 import {
     Navigation,
     HeroSection,
@@ -19,8 +19,7 @@ export function LandingPage() {
         const theme = themes[themeName];
         if (!theme) return;
         setCurrentTheme(theme);
-        applyTheme(theme);
-        localStorage.setItem('brand-theme', JSON.stringify(theme));
+        saveTheme(theme);
     };
 
     return (

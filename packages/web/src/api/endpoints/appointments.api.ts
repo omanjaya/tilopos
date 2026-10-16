@@ -1,5 +1,10 @@
 import { apiClient } from '../client';
 
+/**
+ * Shapes mirror packages/backend/src/modules/appointments (service returns bare
+ * Prisma rows — no `{ appointment }` / `{ appointments }` wrapper).
+ * Decimal columns serialize as strings.
+ */
 export interface Appointment {
   id: string;
   businessId: string;
@@ -7,7 +12,7 @@ export interface Appointment {
   customerId: string | null;
   employeeId: string | null;
   serviceName: string;
-  servicePrice: number;
+  servicePrice: number | string;
   startTime: string;
   endTime: string;
   durationMinutes: number;
@@ -22,44 +27,32 @@ export interface Appointment {
   employee?: { name: string } | null;
 }
 
+export interface CreateAppointmentRequest {
+  outletId: string;
+  customerId?: string;
+  employeeId?: string;
+  serviceName: string;
+  servicePrice: number;
+  startTime: string;
+  durationMinutes: number;
+  notes?: string;
+  customerName?: string;
+  customerPhone?: string;
+}
+
 export const appointmentsApi = {
+  /** `date` is the local business date as YYYY-MM-DD. */
   listByDate: (outletId: string, date: string) =>
-    apiClient.get<{ appointments: Appointment[] }>(`/appointments/outlet/${outletId}`, { params: { date } }).then((r) => r.data.appointments),
+    apiClient
+      .get<Appointment[]>(`/appointments/outlet/${outletId}`, { params: { date } })
+      .then((r) => r.data),
 
-  listByEmployee: (employeeId: string, startDate: string, endDate: string) =>
-    apiClient.get<{ appointments: Appointment[] }>(`/appointments/employee/${employeeId}`, { params: { startDate, endDate } }).then((r) => r.data.appointments),
+  create: (data: CreateAppointmentRequest) =>
+    apiClient.post<Appointment>('/appointments', data).then((r) => r.data),
 
-  listByCustomer: (customerId: string) =>
-    apiClient.get<{ appointments: Appointment[] }>(`/appointments/customer/${customerId}`).then((r) => r.data.appointments),
-
-  getUpcoming: (outletId: string) =>
-    apiClient.get<{ appointments: Appointment[] }>(`/appointments/upcoming/${outletId}`).then((r) => r.data.appointments),
-
-  checkAvailability: (params: { outletId: string; employeeId: string; startTime: string; durationMinutes: number }) =>
-    apiClient.get<{ available: boolean; conflicts: Appointment[] }>('/appointments/availability', { params }).then((r) => r.data),
-
-  getById: (id: string) =>
-    apiClient.get<{ appointment: Appointment }>(`/appointments/${id}`).then((r) => r.data.appointment),
-
-  create: (data: {
-    outletId: string;
-    customerId?: string;
-    employeeId?: string;
-    serviceName: string;
-    servicePrice: number;
-    startTime: string;
-    durationMinutes: number;
-    notes?: string;
-    customerName?: string;
-    customerPhone?: string;
-  }) => apiClient.post<{ appointment: Appointment }>('/appointments', data).then((r) => r.data.appointment),
-
-  update: (id: string, data: Partial<Appointment>) =>
-    apiClient.put<{ appointment: Appointment }>(`/appointments/${id}`, data).then((r) => r.data.appointment),
-
-  updateStatus: (id: string, status: string) =>
-    apiClient.put<{ appointment: Appointment }>(`/appointments/${id}/status`, { status }).then((r) => r.data.appointment),
+  updateStatus: (id: string, status: Appointment['status']) =>
+    apiClient.put<Appointment>(`/appointments/${id}/status`, { status }).then((r) => r.data),
 
   cancel: (id: string, reason?: string) =>
-    apiClient.put<{ appointment: Appointment }>(`/appointments/${id}/cancel`, { reason }).then((r) => r.data.appointment),
+    apiClient.put<Appointment>(`/appointments/${id}/cancel`, { reason }).then((r) => r.data),
 };

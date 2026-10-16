@@ -24,44 +24,35 @@ export interface ServiceItem {
   customer?: { name: string; phone: string | null } | null;
 }
 
+export type ServiceItemStatus = ServiceItem['status'];
+
+/** servicePrice is a Prisma Decimal serialized as a string — convert once here. */
+function mapItem(d: ServiceItem): ServiceItem {
+  return { ...d, servicePrice: Number(d.servicePrice ?? 0) };
+}
+
+function mapList(data: unknown, endpoint: string): ServiceItem[] {
+  if (!Array.isArray(data)) throw new Error(`Respons tidak valid dari ${endpoint}`);
+  return (data as ServiceItem[]).map(mapItem);
+}
+
 export const itemTrackingApi = {
-  listByOutlet: (outletId: string, filters?: { status?: string; search?: string }) =>
-    apiClient.get<ServiceItem[]>(`/item-tracking/outlet/${outletId}`, { params: filters }).then((r) => {
-      const d = r.data;
-      if (Array.isArray(d)) return d;
-      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
-      return [];
-    }),
+  /** GET /item-tracking/outlet/:id — plain array (status must be a ServiceItemStatus). */
+  listByOutlet: (outletId: string, filters?: { status?: ServiceItemStatus; search?: string }) =>
+    apiClient
+      .get<unknown>(`/item-tracking/outlet/${outletId}`, { params: filters })
+      .then((r) => mapList(r.data, '/item-tracking/outlet')),
 
   getActive: (outletId: string) =>
-    apiClient.get<ServiceItem[]>(`/item-tracking/active/${outletId}`).then((r) => {
-      const d = r.data;
-      if (Array.isArray(d)) return d;
-      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
-      return [];
-    }),
+    apiClient
+      .get<unknown>(`/item-tracking/active/${outletId}`)
+      .then((r) => mapList(r.data, '/item-tracking/active')),
 
-  listByCustomer: (customerId: string) =>
-    apiClient.get<ServiceItem[]>(`/item-tracking/customer/${customerId}`).then((r) => {
-      const d = r.data;
-      if (Array.isArray(d)) return d;
-      if (d && typeof d === 'object' && 'serviceItems' in d) return (d as { serviceItems: ServiceItem[] }).serviceItems;
-      return [];
-    }),
-
+  /** 404 when the ticket does not exist in this business. */
   findByTicket: (ticketNumber: string) =>
-    apiClient.get<ServiceItem>(`/item-tracking/ticket/${encodeURIComponent(ticketNumber)}`).then((r) => {
-      const d = r.data;
-      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
-      return d as ServiceItem;
-    }),
-
-  getById: (id: string) =>
-    apiClient.get<ServiceItem>(`/item-tracking/${id}`).then((r) => {
-      const d = r.data;
-      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
-      return d as ServiceItem;
-    }),
+    apiClient
+      .get<ServiceItem>(`/item-tracking/ticket/${encodeURIComponent(ticketNumber)}`)
+      .then((r) => mapItem(r.data)),
 
   receive: (data: {
     outletId: string;
@@ -75,26 +66,8 @@ export const itemTrackingApi = {
     customerName?: string;
     customerPhone?: string;
     notes?: string;
-  }) => apiClient.post<ServiceItem>('/item-tracking', data).then((r) => {
-    const d = r.data;
-    if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
-    return d as ServiceItem;
-  }),
+  }) => apiClient.post<ServiceItem>('/item-tracking', data).then((r) => mapItem(r.data)),
 
-  update: (id: string, data: Partial<ServiceItem>) =>
-    apiClient.put<ServiceItem>(`/item-tracking/${id}`, data).then((r) => {
-      const d = r.data;
-      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
-      return d as ServiceItem;
-    }),
-
-  updateStatus: (id: string, status: string) =>
-    apiClient.put<ServiceItem>(`/item-tracking/${id}/status`, { status }).then((r) => {
-      const d = r.data;
-      if (d && typeof d === 'object' && 'serviceItem' in d) return (d as { serviceItem: ServiceItem }).serviceItem;
-      return d as ServiceItem;
-    }),
-
-  delete: (id: string) =>
-    apiClient.delete(`/item-tracking/${id}`),
+  updateStatus: (id: string, status: ServiceItemStatus) =>
+    apiClient.put<ServiceItem>(`/item-tracking/${id}/status`, { status }).then((r) => mapItem(r.data)),
 };

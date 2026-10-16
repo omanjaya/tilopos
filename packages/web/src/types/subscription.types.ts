@@ -35,14 +35,16 @@ export interface UpgradeResult {
   invoiceId: string;
   invoiceNumber: string;
   amount: number;
-  paymentUrl: string | null;
+  /** Always set on success (the API answers 502 when the gateway fails). */
+  paymentUrl: string;
   provider: string;
   expiresAt: string;
 }
 
 export interface CreateUpgradeRequest {
   billingCycle: 'monthly' | 'yearly';
-  provider?: 'midtrans' | 'xendit';
+  /** Defaults to xendit; 'midtrans' currently answers 501 (no hosted checkout). */
+  provider?: 'xendit' | 'midtrans';
 }
 
 export interface CancelSubscriptionRequest {

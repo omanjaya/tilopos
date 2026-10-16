@@ -1,13 +1,16 @@
 import { apiClient } from '../client';
 
+export type WorkOrderPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type WorkOrderItemType = 'labor' | 'parts' | 'other';
+
 export interface WorkOrderItem {
   id: string;
   workOrderId: string;
   description: string;
-  type: string;
+  type: WorkOrderItemType;
   quantity: number;
-  unitPrice: number;
-  subtotal: number;
+  unitPrice: number | string;
+  subtotal: number | string;
 }
 
 export interface WorkOrder {
@@ -26,8 +29,8 @@ export interface WorkOrder {
   diagnosis: string | null;
   status: 'pending' | 'in_progress' | 'waiting_parts' | 'completed' | 'delivered' | 'cancelled';
   priority: string;
-  estimatedCost: number | null;
-  finalCost: number | null;
+  estimatedCost: number | string | null;
+  finalCost: number | string | null;
   estimatedDate: string | null;
   completedAt: string | null;
   deliveredAt: string | null;
@@ -40,45 +43,37 @@ export interface WorkOrder {
   items?: WorkOrderItem[];
 }
 
+export interface CreateWorkOrderRequest {
+  outletId: string;
+  customerId?: string;
+  employeeId?: string;
+  title: string;
+  description?: string;
+  itemDescription?: string;
+  itemBrand?: string;
+  itemModel?: string;
+  itemSerial?: string;
+  diagnosis?: string;
+  priority?: WorkOrderPriority;
+  estimatedCost?: number;
+  estimatedDate?: string;
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
+  items?: { description: string; type: WorkOrderItemType; quantity: number; unitPrice: number }[];
+}
+
+/** Backend work-orders service returns bare Prisma rows (no `{ workOrder }` wrapper). */
 export const workOrdersApi = {
-  list: (outletId: string, filters?: { status?: string; search?: string }) =>
-    apiClient.get<{ workOrders: WorkOrder[] }>(`/work-orders/outlet/${outletId}`, { params: filters }).then((r) => r.data.workOrders),
+  /** GET /work-orders/outlet/:id?status&search&page&limit(<=200, default 100) → array. */
+  list: (outletId: string, filters?: { status?: string; search?: string; page?: number; limit?: number }) =>
+    apiClient.get<WorkOrder[]>(`/work-orders/outlet/${outletId}`, { params: filters }).then((r) => r.data),
 
-  getById: (id: string) =>
-    apiClient.get<{ workOrder: WorkOrder }>(`/work-orders/${id}`).then((r) => r.data.workOrder),
+  getById: (id: string) => apiClient.get<WorkOrder>(`/work-orders/${id}`).then((r) => r.data),
 
-  create: (data: {
-    outletId: string;
-    customerId?: string;
-    employeeId?: string;
-    title: string;
-    description?: string;
-    itemDescription?: string;
-    itemBrand?: string;
-    itemModel?: string;
-    itemSerial?: string;
-    diagnosis?: string;
-    priority?: string;
-    estimatedCost?: number;
-    estimatedDate?: string;
-    customerName?: string;
-    customerPhone?: string;
-    notes?: string;
-    items?: { description: string; type: string; quantity: number; unitPrice: number }[];
-  }) => apiClient.post<{ workOrder: WorkOrder }>('/work-orders', data).then((r) => r.data.workOrder),
+  create: (data: CreateWorkOrderRequest) =>
+    apiClient.post<WorkOrder>('/work-orders', data).then((r) => r.data),
 
-  update: (id: string, data: Partial<WorkOrder>) =>
-    apiClient.put<{ workOrder: WorkOrder }>(`/work-orders/${id}`, data).then((r) => r.data.workOrder),
-
-  updateStatus: (id: string, status: string) =>
-    apiClient.put<{ workOrder: WorkOrder }>(`/work-orders/${id}/status`, { status }).then((r) => r.data.workOrder),
-
-  addItem: (workOrderId: string, data: { description: string; type: string; quantity: number; unitPrice: number }) =>
-    apiClient.post<{ item: WorkOrderItem }>(`/work-orders/${workOrderId}/items`, data).then((r) => r.data.item),
-
-  removeItem: (itemId: string) =>
-    apiClient.delete(`/work-orders/items/${itemId}`),
-
-  getTotal: (id: string) =>
-    apiClient.get<{ total: number }>(`/work-orders/${id}/total`).then((r) => r.data.total),
+  updateStatus: (id: string, status: WorkOrder['status']) =>
+    apiClient.put<WorkOrder>(`/work-orders/${id}/status`, { status }).then((r) => r.data),
 };

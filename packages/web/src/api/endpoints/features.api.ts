@@ -94,6 +94,7 @@ export const featuresApi = {
       )
       .then((r) => r.data),
 
+  /** PUT /business/type — owner only (destructive: deactivates the outlet's products/tables). */
   changeBusinessType: (businessType: string, outletId?: string) =>
     apiClient.put<ChangeTypeResponse>('/business/type', { businessType, outletId }).then((r) => r.data),
 
@@ -124,6 +125,12 @@ export const featuresApi = {
       .get<{ outletType: BusinessTypeInfo | null }>(`/outlet/${outletId}/type`)
       .then((r) => r.data),
 
+  /** PUT /outlet/:id/type (owner/manager) — no template/data reset, unlike PUT /business/type. */
   changeOutletType: (outletId: string, outletType: string) =>
-    apiClient.put<ChangeTypeResponse>(`/outlet/${outletId}/type`, { outletType }).then((r) => r.data),
+    apiClient
+      .put<Pick<ChangeTypeResponse, 'success' | 'previousType' | 'newType' | 'featuresEnabled'>>(
+        `/outlet/${outletId}/type`,
+        { outletType },
+      )
+      .then((r) => r.data),
 };

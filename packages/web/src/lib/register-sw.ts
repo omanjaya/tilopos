@@ -44,15 +44,3 @@ export function registerServiceWorker(callbacks?: SWCallbacks): void {
       });
   });
 }
-
-export function unregisterServiceWorker(): void {
-  if (!('serviceWorker' in navigator)) return;
-
-  navigator.serviceWorker.ready
-    .then((registration) => {
-      void registration.unregister();
-    })
-    .catch(() => {
-      // Silent fail
-    });
-}

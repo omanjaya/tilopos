@@ -10,7 +10,7 @@ import type { Variants, Transition } from 'framer-motion';
 /**
  * Default smooth transition configuration
  */
-export const smoothTransition: Transition = {
+const smoothTransition: Transition = {
   type: 'spring',
   stiffness: 300,
   damping: 30,
@@ -19,7 +19,7 @@ export const smoothTransition: Transition = {
 /**
  * Fast transition for micro-interactions
  */
-export const fastTransition: Transition = {
+const fastTransition: Transition = {
   type: 'spring',
   stiffness: 500,
   damping: 40,
@@ -28,7 +28,7 @@ export const fastTransition: Transition = {
 /**
  * Slow transition for page changes
  */
-export const slowTransition: Transition = {
+const slowTransition: Transition = {
   type: 'spring',
   stiffness: 200,
   damping: 25,
@@ -190,23 +190,6 @@ export const buttonPressVariants: Variants = {
   },
   tap: {
     scale: 0.95,
-  },
-};
-
-/**
- * Shimmer/skeleton loading variants
- */
-export const shimmerVariants: Variants = {
-  initial: {
-    backgroundPosition: '-200% 0',
-  },
-  animate: {
-    backgroundPosition: '200% 0',
-    transition: {
-      repeat: Infinity,
-      duration: 2,
-      ease: 'linear',
-    },
   },
 };
 

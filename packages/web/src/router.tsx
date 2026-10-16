@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AuthGuard } from '@/features/auth/auth-guard';
+import { RoleGuard } from '@/features/auth/role-guard';
 import { FeatureGuard } from '@/components/shared/feature-guard';
 import { AppLayout } from '@/components/layout/app-layout';
 import { RouteErrorPage } from './routes/route-error';
@@ -14,24 +15,30 @@ import { PricingPage } from '@/pages/pricing-page';
 import { CustomerSelfOrderPage } from '@/features/self-order/customer-self-order-page';
 
 export const router = createBrowserRouter([
-  { path: '/', element: <LandingPage /> },
-  { path: '/pricing', element: <PricingPage /> },
-  { path: '/login', element: <LoginPage /> },
-  { path: '/register', element: <LazyRoute><RegisterPage /></LazyRoute> },
-  { path: '/auth/verify-email', element: <LazyRoute><VerifyEmailPage /></LazyRoute> },
-  { path: '/order/:sessionCode', element: <CustomerSelfOrderPage /> },
-  { path: '/store/:slug', element: <LazyRoute><StorefrontPage /></LazyRoute> },
+  // Public pages (pathless parent gives them an error boundary)
+  {
+    errorElement: <RouteErrorPage />,
+    children: [
+      { path: '/', element: <LandingPage /> },
+      { path: '/pricing', element: <PricingPage /> },
+      { path: '/login', element: <LoginPage /> },
+      { path: '/register', element: <LazyRoute><RegisterPage /></LazyRoute> },
+      { path: '/auth/verify-email', element: <LazyRoute><VerifyEmailPage /></LazyRoute> },
+      { path: '/order/:sessionCode', element: <CustomerSelfOrderPage /> },
+      { path: '/store/:slug', element: <LazyRoute><StorefrontPage /></LazyRoute> },
+    ],
+  },
 
-  // POS & KDS (fullscreen, no sidebar)
+  // POS & KDS (fullscreen, no sidebar); roles from ROUTE_ROLES.pos / ROUTE_ROLES.kds
   {
     path: '/pos',
     errorElement: <RouteErrorPage />,
-    element: <AuthGuard><LazyRoute><POSPage /></LazyRoute></AuthGuard>,
+    element: <AuthGuard><RoleGuard><LazyRoute><POSPage /></LazyRoute></RoleGuard></AuthGuard>,
   },
   {
     path: '/kds',
     errorElement: <RouteErrorPage />,
-    element: <AuthGuard><FeatureGuard path="/kds"><LazyRoute><KDSPage /></LazyRoute></FeatureGuard></AuthGuard>,
+    element: <AuthGuard><RoleGuard><FeatureGuard path="/kds"><LazyRoute><KDSPage /></LazyRoute></FeatureGuard></RoleGuard></AuthGuard>,
   },
 
   // Backoffice (with sidebar layout)
@@ -43,5 +50,5 @@ export const router = createBrowserRouter([
   },
 
   // Catch-all
-  { path: '*', element: <Navigate to="/app" replace /> },
+  { path: '*', errorElement: <RouteErrorPage />, element: <Navigate to="/app" replace /> },
 ]);

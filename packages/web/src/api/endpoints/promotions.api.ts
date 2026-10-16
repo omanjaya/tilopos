@@ -2,58 +2,84 @@ import { apiClient } from '../client';
 import type {
   Promotion,
   CreatePromotionRequest,
+  UpdatePromotionRequest,
   LoyaltyProgram,
   LoyaltyTier,
   GenerateVoucherRequest,
   GeneratedVoucher,
-  LoyaltyAnalytics,
-  LoyaltyTopCustomer,
-  LoyaltyTierDistribution,
-  LoyaltyActivityItem,
 } from '@/types/promotion.types';
 
+const BUSINESS_TZ = 'Asia/Jakarta';
+
+/** 'YYYY-MM-DD' (business date) -> ISO timestamp of 00:00 WIB that day. */
+export function businessDayStartIso(date: string): string {
+  return new Date(`${date}T00:00:00.000+07:00`).toISOString();
+}
+
+/** 'YYYY-MM-DD' (business date) -> ISO timestamp of 23:59:59.999 WIB that day. */
+export function businessDayEndIso(date: string): string {
+  return new Date(`${date}T23:59:59.999+07:00`).toISOString();
+}
+
+/** ISO timestamp -> 'YYYY-MM-DD' in the business timezone (for date inputs). */
+export function toBusinessDateInput(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+}
+
+function toNullableNumber(v: unknown): number | null {
+  return v !== null && v !== undefined ? Number(v) : null;
+}
+
+/** Prisma Decimals arrive as strings; normalize numeric fields. */
+function normalizePromotion(p: Record<string, unknown>): Promotion {
+  return {
+    ...p,
+    discountValue: Number(p.discountValue ?? 0),
+    minPurchase: toNullableNumber(p.minPurchase),
+    maxDiscount: toNullableNumber(p.maxDiscount),
+    usageCount: Number(p.usageCount ?? p.usedCount ?? 0),
+    usageLimit: toNullableNumber(p.usageLimit),
+  } as Promotion;
+}
+
 export const promotionsApi = {
-  list: (params?: { search?: string }) =>
-    apiClient.get('/promotions', { params }).then((r) => {
-      const raw = r.data;
-      const arr = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
-      // Backend may return Decimal objects; normalize numeric fields
-      return arr.map((p) => ({
-        ...p,
-        discountValue: Number(p.discountValue ?? 0),
-        minPurchase: p.minPurchase !== null && p.minPurchase !== undefined ? Number(p.minPurchase) : null,
-        maxDiscount: p.maxDiscount !== null && p.maxDiscount !== undefined ? Number(p.maxDiscount) : null,
-        usageCount: Number(p.usageCount ?? p.usedCount ?? 0),
-        usageLimit: p.usageLimit !== null && p.usageLimit !== undefined ? Number(p.usageLimit) : null,
-      })) as Promotion[];
+  /** GET /promotions takes no query params and returns active promotions only. */
+  list: () =>
+    apiClient.get<Array<Record<string, unknown>>>('/promotions').then((r) => {
+      if (!Array.isArray(r.data)) {
+        throw new Error('Format respons daftar promosi tidak valid');
+      }
+      return r.data.map(normalizePromotion);
     }),
 
   get: (id: string) =>
-    apiClient.get<Promotion>(`/promotions/${id}`).then((r) => r.data),
+    apiClient
+      .get<Record<string, unknown>>(`/promotions/${id}`)
+      .then((r) => normalizePromotion(r.data)),
 
   create: (data: CreatePromotionRequest) =>
     apiClient.post<Promotion>('/promotions', data).then((r) => r.data),
 
-  update: (id: string, data: Partial<CreatePromotionRequest>) =>
+  update: (id: string, data: UpdatePromotionRequest) =>
     apiClient.put<Promotion>(`/promotions/${id}`, data).then((r) => r.data),
 
+  /** Soft delete: DELETE /promotions/:id deactivates the promotion. */
   delete: (id: string) =>
     apiClient.delete(`/promotions/${id}`).then((r) => r.data),
 
-  validateVoucher: (code: string) =>
-    apiClient.post('/promotions/vouchers/validate', { code }).then((r) => r.data),
-
+  /** GET /settings/loyalty returns { program: LoyaltyProgram | null, tiers }. */
   getLoyaltyProgram: () =>
-    apiClient.get<{ program: LoyaltyProgram } | LoyaltyProgram>('/settings/loyalty').then((r) => {
-      const data = r.data as Record<string, unknown>;
-      // API returns { program: {...}, tiers: [...] } wrapper
-      const prog = (data.program ?? data) as Record<string, unknown>;
-      return {
-        ...prog,
-        amountPerPoint: Number(prog.amountPerPoint) || 0,
-        redemptionRate: Number(prog.redemptionRate) || 0,
-      } as LoyaltyProgram;
-    }),
+    apiClient
+      .get<{ program: LoyaltyProgram | null; tiers: LoyaltyTier[] }>('/settings/loyalty')
+      .then((r): LoyaltyProgram | null => {
+        const prog = r.data?.program;
+        if (!prog) return null;
+        return {
+          ...prog,
+          amountPerPoint: Number(prog.amountPerPoint) || 0,
+          redemptionRate: Number(prog.redemptionRate) || 0,
+        };
+      }),
 
   createLoyaltyProgram: (data: {
     name: string;
@@ -62,6 +88,15 @@ export const promotionsApi = {
     pointExpiryDays?: number;
   }) =>
     apiClient.post<LoyaltyProgram>('/settings/loyalty', data).then((r) => r.data),
+
+  updateLoyaltyProgram: (data: {
+    name?: string;
+    amountPerPoint?: number;
+    redemptionRate?: number;
+    pointExpiryDays?: number;
+    isActive?: boolean;
+  }) =>
+    apiClient.put<LoyaltyProgram>('/settings/loyalty', data).then((r) => r.data),
 
   getLoyaltyTiers: () =>
     apiClient.get<LoyaltyTier[]>('/settings/loyalty/tiers').then((r) => r.data),
@@ -73,20 +108,4 @@ export const promotionsApi = {
     apiClient.get<GeneratedVoucher[]>('/promotions/vouchers', { params }).then((r) => r.data),
   exportVouchersCsv: () =>
     apiClient.get<Blob>('/promotions/vouchers/export', { responseType: 'blob' }).then((r) => r.data),
-
-  // Loyalty Analytics
-  getLoyaltyAnalytics: () =>
-    apiClient.get('/loyalty/analytics').then((r) => {
-      const d = r.data as Record<string, unknown>;
-      return {
-        totalMembers: Number(d.totalMembers ?? 0),
-        activeMembers: Number(d.activeMembers ?? 0),
-        totalPointsIssued: Number(d.totalPointsIssued ?? 0),
-        totalPointsRedeemed: Number(d.totalPointsRedeemed ?? 0),
-        redemptionRate: Number(d.redemptionRate ?? 0),
-        topCustomers: Array.isArray(d.topCustomers) ? (d.topCustomers as LoyaltyTopCustomer[]) : [],
-        tierDistribution: Array.isArray(d.tierDistribution) ? (d.tierDistribution as LoyaltyTierDistribution[]) : [],
-        recentActivity: Array.isArray(d.recentActivity) ? (d.recentActivity as LoyaltyActivityItem[]) : [],
-      } as LoyaltyAnalytics;
-    }),
 };

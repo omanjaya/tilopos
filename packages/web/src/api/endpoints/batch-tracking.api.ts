@@ -15,21 +15,16 @@ export interface BatchLot {
   product?: { name: string; sku: string | null };
 }
 
-export interface BatchSummary {
-  totalQuantity: number;
-  activeBatches: number;
-  expiredBatches: number;
-  expiringWithin7Days: number;
-  batches: BatchLot[];
+/** quantity / costPrice are Prisma Decimals serialized as strings — convert once here. */
+function mapBatch(b: BatchLot): BatchLot {
+  return {
+    ...b,
+    quantity: Number(b.quantity ?? 0),
+    costPrice: b.costPrice == null ? null : Number(b.costPrice),
+  };
 }
 
 export const batchTrackingApi = {
-  listByProduct: (productId: string, outletId: string) =>
-    apiClient.get<{ batches: BatchLot[] }>(`/batch-tracking/product/${productId}/outlet/${outletId}`).then((r) => r.data.batches),
-
-  listActive: (productId: string, outletId: string) =>
-    apiClient.get<{ batches: BatchLot[] }>(`/batch-tracking/active/${productId}/${outletId}`).then((r) => r.data.batches),
-
   create: (data: {
     productId: string;
     outletId: string;
@@ -39,19 +34,20 @@ export const batchTrackingApi = {
     manufacturedAt?: string;
     expiresAt?: string;
     notes?: string;
-  }) => apiClient.post<{ batch: BatchLot }>('/batch-tracking', data).then((r) => r.data.batch),
+  }) => apiClient.post<{ batch: BatchLot }>('/batch-tracking', data).then((r) => mapBatch(r.data.batch)),
 
-  update: (id: string, data: Partial<BatchLot>) =>
-    apiClient.put<{ batch: BatchLot }>(`/batch-tracking/${id}`, data).then((r) => r.data.batch),
-
+  /** DELETE /batch-tracking/:id — owner/manager only, 204. */
   delete: (id: string) => apiClient.delete(`/batch-tracking/${id}`),
 
-  getSummary: (productId: string, outletId: string) =>
-    apiClient.get<BatchSummary>(`/batch-tracking/summary/${productId}/${outletId}`).then((r) => r.data),
-
   getExpiring: (outletId: string, days?: number) =>
-    apiClient.get<{ batches: BatchLot[]; daysAhead: number }>(`/batch-tracking/expiring/${outletId}${days ? `?days=${days}` : ''}`).then((r) => r.data),
+    apiClient
+      .get<{ batches: BatchLot[]; daysAhead: number }>(`/batch-tracking/expiring/${outletId}`, {
+        params: days ? { days } : {},
+      })
+      .then((r) => ({ ...r.data, batches: r.data.batches.map(mapBatch) })),
 
   getExpired: (outletId: string) =>
-    apiClient.get<{ batches: BatchLot[] }>(`/batch-tracking/expired/${outletId}`).then((r) => r.data.batches),
+    apiClient
+      .get<{ batches: BatchLot[] }>(`/batch-tracking/expired/${outletId}`)
+      .then((r) => r.data.batches.map(mapBatch)),
 };

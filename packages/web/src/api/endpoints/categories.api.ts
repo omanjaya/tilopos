@@ -5,15 +5,18 @@ export const categoriesApi = {
   list: () =>
     apiClient.get<Category[]>('/inventory/categories').then((r) => r.data),
 
-  get: (id: string) =>
-    apiClient.get<Category>(`/inventory/categories/${id}`).then((r) => r.data),
+  /**
+   * Manager view: also returns inactive categories so they can be re-activated.
+   * Honoured for owner/manager only; other roles silently get active categories.
+   */
+  listAll: () =>
+    apiClient
+      .get<Category[]>('/inventory/categories', { params: { includeInactive: true } })
+      .then((r) => r.data),
 
   create: (data: CreateCategoryRequest) =>
     apiClient.post<Category>('/inventory/categories', data).then((r) => r.data),
 
   update: (id: string, data: UpdateCategoryRequest) =>
     apiClient.put<Category>(`/inventory/categories/${id}`, data).then((r) => r.data),
-
-  delete: (id: string) =>
-    apiClient.delete(`/inventory/categories/${id}`).then((r) => r.data),
 };
