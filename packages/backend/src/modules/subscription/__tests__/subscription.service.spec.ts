@@ -1,21 +1,48 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { SubscriptionService } from '../subscription.service';
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+  NotImplementedException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import { SubscriptionService, addBillingCycle } from '../subscription.service';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { XenditGateway } from '../../../infrastructure/services/payment/xendit/xendit-gateway';
 import { MidtransGateway } from '../../../infrastructure/services/payment/midtrans-gateway';
+import { DocumentNumberService } from '@shared/numbering';
 import { BillingCycle } from '../dto/create-subscription.dto';
 import { SUBSCRIPTION_PLANS } from '../../../config/subscription-plans.config';
+import type { SubscriptionWebhookDto } from '../dto/subscription-webhook.dto';
 
 describe('SubscriptionService', () => {
   let service: SubscriptionService;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockXendit: jest.Mocked<XenditGateway>;
   let mockMidtrans: jest.Mocked<MidtransGateway>;
+  let mockNumbers: { next: jest.Mock };
+  let configValues: Record<string, string | undefined>;
 
   const BUSINESS_ID = 'biz-001';
+  const INVOICE_ID = '11111111-2222-4333-8444-555555555555';
   const now = new Date('2026-02-19T10:00:00.000Z');
+  const MONTHLY = SUBSCRIPTION_PLANS.premium.monthlyPrice;
 
   const daysFromNow = (days: number): Date => new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+  const pendingInvoice = (overrides: Record<string, unknown> = {}) => ({
+    id: INVOICE_ID,
+    businessId: BUSINESS_ID,
+    invoiceNumber: 'INV-000001',
+    amount: new Prisma.Decimal(MONTHLY),
+    status: 'pending',
+    subscriptionId: null,
+    paymentRef: 'xnd-inv-1',
+    metadata: { billingCycle: 'monthly' },
+    ...overrides,
+  });
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -25,14 +52,14 @@ describe('SubscriptionService', () => {
       business: {
         findUnique: jest.fn(),
         update: jest.fn(),
-        updateMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       subscription: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
-        updateMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       invoice: {
         findUnique: jest.fn(),
@@ -40,6 +67,7 @@ describe('SubscriptionService', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         count: jest.fn(),
       },
       $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(mockPrisma)),
@@ -47,6 +75,7 @@ describe('SubscriptionService', () => {
 
     mockXendit = {
       processPayment: jest.fn(),
+      checkStatus: jest.fn().mockResolvedValue('completed'),
     } as unknown as jest.Mocked<XenditGateway>;
 
     mockMidtrans = {
@@ -54,7 +83,17 @@ describe('SubscriptionService', () => {
       handleWebhook: jest.fn(),
     } as unknown as jest.Mocked<MidtransGateway>;
 
-    service = new SubscriptionService(mockPrisma, mockXendit, mockMidtrans);
+    mockNumbers = { next: jest.fn().mockResolvedValue('INV-000001') };
+    configValues = { XENDIT_API_KEY: 'xnd_test' };
+    const config = { get: jest.fn((k: string) => configValues[k]) } as unknown as ConfigService;
+
+    service = new SubscriptionService(
+      mockPrisma,
+      mockXendit,
+      mockMidtrans,
+      mockNumbers as unknown as DocumentNumberService,
+      config,
+    );
   });
 
   afterEach(() => {
@@ -170,358 +209,256 @@ describe('SubscriptionService', () => {
 
   // ─── createUpgrade ──────────────────────────────────────────────────
 
-  describe('createUpgrade', () => {
-    const mockBusiness = {
-      id: BUSINESS_ID,
-      name: 'Toko ABC',
-      email: 'toko@example.com',
-      subscriptionPlan: 'free',
-    };
+  // ─── createUpgrade ──────────────────────────────────────────────────
 
+  describe('createUpgrade', () => {
     beforeEach(() => {
-      (mockPrisma.business.findUnique as jest.Mock).mockResolvedValue(mockBusiness);
-      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue(null);
-      (mockPrisma.invoice.count as jest.Mock).mockResolvedValue(0);
+      (mockPrisma.business.findUnique as jest.Mock).mockResolvedValue({
+        id: BUSINESS_ID,
+        name: 'Toko',
+        email: 'owner@toko.id',
+      });
+      (mockPrisma.invoice.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: INVOICE_ID, ...data }),
+      );
+      (mockXendit.processPayment as jest.Mock).mockResolvedValue({
+        success: true,
+        transactionRef: 'xnd-inv-1',
+        paymentData: { invoiceUrl: 'https://checkout.xendit.co/web/abc' },
+      });
     });
 
-    it('should throw NotFoundException when business not found', async () => {
+    it('throws NotFoundException when business not found', async () => {
       (mockPrisma.business.findUnique as jest.Mock).mockResolvedValue(null);
-
       await expect(service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY)).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('should throw BadRequestException when already has active premium', async () => {
-      (mockPrisma.business.findUnique as jest.Mock).mockResolvedValue({
-        ...mockBusiness,
-        subscriptionPlan: 'premium',
-      });
+    it('allows a trial business to pay (Bayar Sekarang) and returns the payment URL', async () => {
       (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue({
-        id: 'sub-1',
-        status: 'active',
-        endDate: daysFromNow(15),
+        status: 'trial',
+        endDate: daysFromNow(10),
+      });
+
+      const result = await service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY);
+
+      expect(result.paymentUrl).toBe('https://checkout.xendit.co/web/abc');
+      expect(result.amount).toBe(MONTHLY);
+      expect(result.invoiceNumber).toBe('INV-000001');
+    });
+
+    it('numbers invoices with DocumentNumberService inside the transaction', async () => {
+      await service.createUpgrade(BUSINESS_ID, BillingCycle.YEARLY);
+
+      expect(mockNumbers.next).toHaveBeenCalledWith(mockPrisma, BUSINESS_ID, 'INV', {
+        daily: false,
+      });
+      expect(mockPrisma.invoice.count).not.toHaveBeenCalled();
+      expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amount: SUBSCRIPTION_PLANS.premium.yearlyPrice }),
+        }),
+      );
+    });
+
+    it('uses the invoice id as gateway reference (numbers are only unique per tenant)', async () => {
+      await service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY);
+      expect(mockXendit.processPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ referenceNumber: INVOICE_ID }),
+      );
+    });
+
+    it('marks the invoice failed and throws when the gateway returns success:false', async () => {
+      (mockXendit.processPayment as jest.Mock).mockResolvedValue({
+        success: false,
+        transactionRef: '',
+        message: 'boom',
       });
 
       await expect(service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY)).rejects.toThrow(
-        BadRequestException,
+        BadGatewayException,
       );
+      expect(mockPrisma.invoice.updateMany).toHaveBeenCalledWith({
+        where: { id: INVOICE_ID, businessId: BUSINESS_ID, status: 'pending' },
+        data: { status: 'failed' },
+      });
     });
 
-    it('should create monthly invoice with Xendit payment', async () => {
-      const mockInvoice = {
-        id: 'inv-1',
-        invoiceNumber: expect.any(String),
-        amount: SUBSCRIPTION_PLANS.premium.monthlyPrice,
-        status: 'pending',
-      };
-      (mockPrisma.invoice.create as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue(mockInvoice);
+    it('fails honestly when the gateway returns no trusted payment URL', async () => {
       (mockXendit.processPayment as jest.Mock).mockResolvedValue({
         success: true,
-        transactionRef: 'xendit-ref-123',
-        paymentData: { invoiceUrl: 'https://checkout.xendit.co/inv-123' },
+        transactionRef: 'x',
+        paymentData: { invoiceUrl: 'https://evil.example.com/pay' },
       });
-
-      const result = await service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY, 'xendit');
-
-      expect(result.amount).toBe(SUBSCRIPTION_PLANS.premium.monthlyPrice);
-      expect(result.paymentUrl).toBe('https://checkout.xendit.co/inv-123');
-      expect(result.provider).toBe('xendit');
-      expect(mockXendit.processPayment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'invoice',
-          amount: SUBSCRIPTION_PLANS.premium.monthlyPrice,
-          description: 'TiloPOS Premium - Bulanan',
-        }),
+      await expect(service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY)).rejects.toThrow(
+        BadGatewayException,
       );
     });
 
-    it('should create yearly invoice with correct price', async () => {
-      const mockInvoice = {
-        id: 'inv-2',
-        invoiceNumber: 'INV-BIZ-001-0001',
-        amount: SUBSCRIPTION_PLANS.premium.yearlyPrice,
-        status: 'pending',
-      };
-      (mockPrisma.invoice.create as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockXendit.processPayment as jest.Mock).mockResolvedValue({
-        success: true,
-        transactionRef: 'xendit-ref-456',
-        paymentData: { invoiceUrl: 'https://checkout.xendit.co/inv-456' },
-      });
-
-      const result = await service.createUpgrade(BUSINESS_ID, BillingCycle.YEARLY, 'xendit');
-
-      expect(result.amount).toBe(SUBSCRIPTION_PLANS.premium.yearlyPrice);
-      expect(mockXendit.processPayment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          amount: SUBSCRIPTION_PLANS.premium.yearlyPrice,
-          description: 'TiloPOS Premium - Tahunan',
-        }),
-      );
-    });
-
-    it('should create invoice with Midtrans provider', async () => {
-      const mockInvoice = {
-        id: 'inv-3',
-        invoiceNumber: 'INV-BIZ-001-0001',
-        amount: SUBSCRIPTION_PLANS.premium.monthlyPrice,
-        status: 'pending',
-      };
-      (mockPrisma.invoice.create as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockMidtrans.processPayment as jest.Mock).mockResolvedValue({
-        success: true,
-        transactionRef: 'midtrans-ref-789',
-        redirectUrl: 'https://app.midtrans.com/snap/v1/pay-789',
-      });
-
-      const result = await service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY, 'midtrans');
-
-      expect(result.provider).toBe('midtrans');
-      expect(mockMidtrans.processPayment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'bank_transfer',
-          amount: SUBSCRIPTION_PLANS.premium.monthlyPrice,
-        }),
-      );
-    });
-
-    it('should generate sequential invoice numbers', async () => {
-      (mockPrisma.invoice.count as jest.Mock).mockResolvedValue(5);
-      const mockInvoice = {
-        id: 'inv-4',
-        invoiceNumber: expect.any(String),
-        amount: SUBSCRIPTION_PLANS.premium.monthlyPrice,
-        status: 'pending',
-      };
-      (mockPrisma.invoice.create as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockXendit.processPayment as jest.Mock).mockResolvedValue({ success: false });
-
-      await service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY);
-
-      expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            invoiceNumber: expect.stringContaining('-0006'),
-          }),
-        }),
-      );
+    it('rejects Midtrans (no hosted checkout implemented) before creating an invoice', async () => {
+      await expect(
+        service.createUpgrade(BUSINESS_ID, BillingCycle.MONTHLY, 'midtrans'),
+      ).rejects.toThrow(NotImplementedException);
+      expect(mockPrisma.invoice.create).not.toHaveBeenCalled();
     });
   });
 
   // ─── handlePaymentCallback ──────────────────────────────────────────
 
   describe('handlePaymentCallback', () => {
-    const mockInvoice = {
-      id: 'inv-1',
-      businessId: BUSINESS_ID,
-      invoiceNumber: 'INV-BIZ-0001-0001',
-      amount: 149000,
-      status: 'pending',
-      metadata: { billingCycle: 'monthly', plan: 'premium' },
-    };
-
-    it('should process Xendit PAID callback and activate subscription', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-      // Mock activateSubscription internals (findUnique is called inside $transaction)
-      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({
-        id: 'sub-new',
-        businessId: BUSINESS_ID,
-      });
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'PAID',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Payment processed successfully');
-      // Verify subscription was created
-      expect(mockPrisma.subscription.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            businessId: BUSINESS_ID,
-            plan: 'premium',
-            status: 'active',
-            billingCycle: 'monthly',
-          }),
-        }),
-      );
-      // Verify business was upgraded
-      expect(mockPrisma.business.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: BUSINESS_ID },
-          data: expect.objectContaining({
-            subscriptionPlan: 'premium',
-          }),
-        }),
-      );
+    const xenditPaid = (
+      overrides: Partial<SubscriptionWebhookDto> = {},
+    ): SubscriptionWebhookDto => ({
+      external_id: `INV_${INVOICE_ID}`,
+      status: 'PAID',
+      paid_amount: MONTHLY,
+      currency: 'IDR',
+      ...overrides,
     });
 
-    it('should process Xendit SETTLED callback as completed', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+    beforeEach(() => {
+      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(pendingInvoice());
+      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-new' });
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'SETTLED',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Payment processed successfully');
     });
 
-    it('should handle Xendit EXPIRED callback as failed', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
+    it('activates Premium on a verified Xendit PAID callback (prefix stripped)', async () => {
+      const result = await service.handlePaymentCallback('xendit', xenditPaid());
 
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'EXPIRED',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Payment failed');
-      expect(mockPrisma.invoice.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { status: 'failed' },
+      expect(result).toEqual({ success: true, message: 'Payment processed successfully' });
+      expect(mockPrisma.invoice.findUnique).toHaveBeenCalledWith({ where: { id: INVOICE_ID } });
+      expect(mockXendit.checkStatus).toHaveBeenCalledWith('xnd-inv-1');
+      expect(mockPrisma.subscription.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          status: 'active',
+          endDate: addBillingCycle(now, 'monthly'),
         }),
+      });
+    });
+
+    it('does not activate when the paid amount differs from the invoice', async () => {
+      const result = await service.handlePaymentCallback(
+        'xendit',
+        xenditPaid({ paid_amount: 1000 }),
+      );
+
+      expect(result).toEqual({ success: false, message: 'Amount mismatch' });
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    });
+
+    it('does not activate when the currency is not IDR', async () => {
+      const result = await service.handlePaymentCallback('xendit', xenditPaid({ currency: 'USD' }));
+      expect(result.message).toBe('Amount mismatch');
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    });
+
+    it('answers non-2xx when Xendit API does not confirm the payment', async () => {
+      (mockXendit.checkStatus as jest.Mock).mockResolvedValue('pending');
+      await expect(service.handlePaymentCallback('xendit', xenditPaid())).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    });
+
+    it('rethrows unexpected errors so the gateway retries (no 200 on DB failure)', async () => {
+      (mockPrisma.invoice.findUnique as jest.Mock).mockRejectedValue(new Error('db down'));
+      await expect(service.handlePaymentCallback('xendit', xenditPaid())).rejects.toThrow(
+        'db down',
       );
     });
 
-    it('should process Midtrans completed callback', async () => {
+    it('is idempotent: a duplicate callback that loses the claim creates nothing', async () => {
+      (mockPrisma.invoice.updateMany as jest.Mock).mockResolvedValueOnce({ count: 0 });
+      await service.handlePaymentCallback('xendit', xenditPaid());
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    });
+
+    it('returns already processed for paid invoices', async () => {
+      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(
+        pendingInvoice({ status: 'paid' }),
+      );
+      const result = await service.handlePaymentCallback('xendit', xenditPaid());
+      expect(result).toEqual({ success: true, message: 'Already processed' });
+    });
+
+    it('returns a 200 no-op when the invoice is unknown', async () => {
+      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(null);
+      const result = await service.handlePaymentCallback('xendit', xenditPaid());
+      expect(result).toEqual({ success: false, message: 'Invoice not found' });
+    });
+
+    it('rejects a missing reference with 400', async () => {
+      await expect(
+        service.handlePaymentCallback('xendit', xenditPaid({ external_id: undefined })),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('marks the invoice failed on EXPIRED', async () => {
+      const result = await service.handlePaymentCallback(
+        'xendit',
+        xenditPaid({ status: 'EXPIRED' }),
+      );
+      expect(result.message).toBe('Payment failed');
+      expect(mockPrisma.invoice.updateMany).toHaveBeenCalledWith({
+        where: { id: INVOICE_ID, businessId: BUSINESS_ID, status: 'pending' },
+        data: { status: 'failed' },
+      });
+    });
+
+    it('rejects a Midtrans callback with an invalid signature (401)', async () => {
+      (mockMidtrans.handleWebhook as jest.Mock).mockResolvedValue({ success: false });
+      await expect(
+        service.handlePaymentCallback('midtrans', { order_id: INVOICE_ID, gross_amount: '1' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('activates on a verified Midtrans settlement with the matching gross_amount', async () => {
       (mockMidtrans.handleWebhook as jest.Mock).mockResolvedValue({
         success: true,
         transactionStatus: 'completed',
       });
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-new' });
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
       const result = await service.handlePaymentCallback('midtrans', {
-        order_id: 'INV-BIZ-0001-0001',
-        transaction_status: 'settlement',
+        order_id: INVOICE_ID,
+        gross_amount: `${MONTHLY}.00`,
       });
-
       expect(result.success).toBe(true);
-      expect(result.message).toBe('Payment processed successfully');
+      expect(mockXendit.checkStatus).not.toHaveBeenCalled();
+      expect(mockPrisma.subscription.create).toHaveBeenCalled();
     });
 
-    it('should reject Midtrans callback with invalid signature', async () => {
-      (mockMidtrans.handleWebhook as jest.Mock).mockResolvedValue({
-        success: false,
-      });
+    it('appends the paid period to remaining trial time', async () => {
+      const trialEnd = daysFromNow(5);
+      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue({ endDate: trialEnd });
 
-      const result = await service.handlePaymentCallback('midtrans', {
-        order_id: 'INV-BIZ-0001-0001',
-      });
+      await service.handlePaymentCallback('xendit', xenditPaid());
 
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Invalid webhook signature');
+      expect(mockPrisma.subscription.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ endDate: addBillingCycle(trialEnd, 'monthly') }),
+      });
     });
 
-    it('should return already processed for paid invoices', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue({
-        ...mockInvoice,
-        status: 'paid',
-      });
+    it('extends from the end of a cancelled-but-running period and closes stale rows', async () => {
+      const cancelledEnd = daysFromNow(12);
+      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue({ endDate: cancelledEnd });
+      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(
+        pendingInvoice({
+          metadata: { billingCycle: 'yearly' },
+          amount: new Prisma.Decimal(SUBSCRIPTION_PLANS.premium.yearlyPrice),
+        }),
+      );
 
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'PAID',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Already processed');
-    });
-
-    it('should return error for missing invoice reference', async () => {
-      const result = await service.handlePaymentCallback('xendit', {});
-
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Missing invoice reference');
-    });
-
-    it('should return error when invoice not found', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(null);
-
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-NOT-FOUND',
-        status: 'PAID',
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Invoice not found');
-    });
-
-    it('should return pending for pending status', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-
-      const result = await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'PENDING',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Pending');
-    });
-
-    it('should set yearly endDate for yearly billing cycle', async () => {
-      const yearlyInvoice = {
-        ...mockInvoice,
-        metadata: { billingCycle: 'yearly', plan: 'premium' },
-      };
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(yearlyInvoice);
-      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(yearlyInvoice);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-new' });
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
-      await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'PAID',
-      });
-
-      // Verify subscription end date is 1 year from now
-      const createCall = (mockPrisma.subscription.create as jest.Mock).mock.calls[0][0];
-      const endDate: Date = createCall.data.endDate;
-      expect(endDate.getFullYear()).toBe(now.getFullYear() + 1);
-    });
-
-    it('should expire existing active subscriptions when activating new one', async () => {
-      (mockPrisma.invoice.findFirst as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.invoice.findUnique as jest.Mock).mockResolvedValue(mockInvoice);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-new' });
-      (mockPrisma.invoice.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
-      await service.handlePaymentCallback('xendit', {
-        external_id: 'INV-BIZ-0001-0001',
-        status: 'PAID',
-      });
+      await service.handlePaymentCallback(
+        'xendit',
+        xenditPaid({ paid_amount: SUBSCRIPTION_PLANS.premium.yearlyPrice }),
+      );
 
       expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
-        where: {
-          businessId: BUSINESS_ID,
-          status: { in: ['active', 'trial'] },
-        },
+        where: { businessId: BUSINESS_ID, status: { in: ['active', 'trial', 'cancelled'] } },
         data: { status: 'expired' },
+      });
+      expect(mockPrisma.subscription.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ endDate: addBillingCycle(cancelledEnd, 'yearly') }),
       });
     });
   });
@@ -542,13 +479,13 @@ describe('SubscriptionService', () => {
         status: 'active',
         endDate,
       });
-      (mockPrisma.subscription.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const result = await service.cancelSubscription(BUSINESS_ID, 'Terlalu mahal');
 
       expect(result.message).toContain('Langganan dibatalkan');
-      expect(mockPrisma.subscription.update).toHaveBeenCalledWith({
-        where: { id: 'sub-1' },
+      expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sub-1', businessId: BUSINESS_ID, status: 'active' },
         data: {
           status: 'cancelled',
           cancelledAt: expect.any(Date),
@@ -563,7 +500,7 @@ describe('SubscriptionService', () => {
         status: 'trial',
         endDate: trialEnd,
       });
-      (mockPrisma.subscription.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const result = await service.cancelSubscription(BUSINESS_ID);
 
@@ -642,109 +579,87 @@ describe('SubscriptionService', () => {
   // ─── startTrial ─────────────────────────────────────────────────────
 
   describe('startTrial', () => {
-    it('should create a trial subscription for new business', async () => {
+    it('creates a trial and upgrades the business in one transaction', async () => {
       (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue(null);
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-trial' });
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
 
       await service.startTrial(BUSINESS_ID);
 
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       expect(mockPrisma.subscription.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          businessId: BUSINESS_ID,
-          plan: 'premium',
-          status: 'trial',
-          billingCycle: 'monthly',
-        }),
+        data: expect.objectContaining({ status: 'trial', businessId: BUSINESS_ID }),
       });
-
-      // Verify trial duration is 14 days
-      const createCall = (mockPrisma.subscription.create as jest.Mock).mock.calls[0][0];
-      const trialEnd: Date = createCall.data.trialEndsAt;
-      const diffDays = Math.round((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      expect(diffDays).toBe(SUBSCRIPTION_PLANS.premium.trialDays);
-    });
-
-    it('should upgrade business plan to premium during trial', async () => {
-      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue(null);
-      (mockPrisma.subscription.create as jest.Mock).mockResolvedValue({ id: 'sub-trial' });
-      (mockPrisma.business.update as jest.Mock).mockResolvedValue({});
-
-      await service.startTrial(BUSINESS_ID);
-
       expect(mockPrisma.business.update).toHaveBeenCalledWith({
         where: { id: BUSINESS_ID },
-        data: expect.objectContaining({
-          subscriptionPlan: 'premium',
-        }),
+        data: expect.objectContaining({ subscriptionPlan: 'premium' }),
       });
     });
 
-    it('should skip trial if business already had a subscription', async () => {
-      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue({
-        id: 'sub-old',
-        status: 'expired',
-      });
+    it('uses the caller transaction when given and does not open a new one', async () => {
+      const tx = {
+        subscription: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+        business: { update: jest.fn() },
+      };
 
+      await service.startTrial(BUSINESS_ID, tx as unknown as Prisma.TransactionClient);
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.subscription.create).toHaveBeenCalled();
+      expect(tx.business.update).toHaveBeenCalled();
+    });
+
+    it('skips the trial if the business already had a subscription', async () => {
+      (mockPrisma.subscription.findFirst as jest.Mock).mockResolvedValue({ id: 'old' });
       await service.startTrial(BUSINESS_ID);
-
       expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
-      expect(mockPrisma.business.update).not.toHaveBeenCalled();
     });
   });
 
   // ─── checkAndExpireSubscriptions ────────────────────────────────────
 
   describe('checkAndExpireSubscriptions', () => {
-    it('should expire overdue subscriptions and downgrade businesses', async () => {
-      const expired = [
-        { id: 'sub-1', businessId: 'biz-1' },
-        { id: 'sub-2', businessId: 'biz-2' },
-        { id: 'sub-3', businessId: 'biz-1' }, // Same business, different sub
-      ];
-      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue(expired);
-      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 3 });
-      (mockPrisma.business.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
+    it('expires overdue rows with the conditions re-checked in the write', async () => {
+      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue([
+        { id: 'sub-1', businessId: 'biz-a' },
+        { id: 'sub-2', businessId: 'biz-b' },
+      ]);
+      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
 
-      const result = await service.checkAndExpireSubscriptions();
+      const count = await service.checkAndExpireSubscriptions();
 
-      expect(result).toBe(3);
+      expect(count).toBe(2);
       expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['sub-1', 'sub-2', 'sub-3'] } },
-        data: { status: 'expired' },
-      });
-      // Should deduplicate business IDs
-      expect(mockPrisma.business.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['biz-1', 'biz-2'] } },
-        data: {
-          subscriptionPlan: 'free',
-          subscriptionExpiresAt: null,
-        },
-      });
-    });
-
-    it('should return 0 when no subscriptions are expired', async () => {
-      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue([]);
-
-      const result = await service.checkAndExpireSubscriptions();
-
-      expect(result).toBe(0);
-      expect(mockPrisma.subscription.updateMany).not.toHaveBeenCalled();
-      expect(mockPrisma.business.updateMany).not.toHaveBeenCalled();
-    });
-
-    it('should query for active, trial, and cancelled subscriptions past endDate', async () => {
-      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue([]);
-
-      await service.checkAndExpireSubscriptions();
-
-      expect(mockPrisma.subscription.findMany).toHaveBeenCalledWith({
         where: {
+          id: { in: ['sub-1', 'sub-2'] },
           status: { in: ['active', 'trial', 'cancelled'] },
           endDate: { lte: now },
         },
-        select: { id: true, businessId: true },
+        data: { status: 'expired' },
       });
+    });
+
+    it('only downgrades businesses with no other live subscription (stale cancelled row)', async () => {
+      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue([
+        { id: 'old-cancelled', businessId: 'biz-a' },
+      ]);
+      (mockPrisma.subscription.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await service.checkAndExpireSubscriptions();
+
+      expect(mockPrisma.business.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: { in: ['biz-a'] },
+          subscriptions: {
+            none: { status: { in: ['active', 'trial', 'cancelled'] }, endDate: { gt: now } },
+          },
+        },
+        data: { subscriptionPlan: 'free', subscriptionExpiresAt: null },
+      });
+    });
+
+    it('returns 0 and writes nothing when nothing expired', async () => {
+      (mockPrisma.subscription.findMany as jest.Mock).mockResolvedValue([]);
+      expect(await service.checkAndExpireSubscriptions()).toBe(0);
+      expect(mockPrisma.business.updateMany).not.toHaveBeenCalled();
     });
   });
 });

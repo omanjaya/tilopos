@@ -1,18 +1,21 @@
-import { Controller, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Put, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import {
   IsBoolean,
   IsString,
   IsNotEmpty,
   IsOptional,
   IsArray,
+  IsUUID,
+  ArrayMaxSize,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { JwtAuthGuard } from '@infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '@infrastructure/auth/roles.guard';
 import { Roles } from '@infrastructure/auth/roles.decorator';
 import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '@shared/constants/roles';
+import { TenantAccessService } from '@shared/tenant/tenant-access.service';
 import { FeatureService, type BusinessFeatureDto } from '../services/feature.service';
 import { BusinessTypeService, type BusinessTypeInfo } from '../services/business-type.service';
 import { type BusinessTypePreset } from '@config/business-types.config';
@@ -26,6 +29,7 @@ class ToggleFeatureDto {
 
 class BulkFeatureItemDto {
   @IsString()
+  @MaxLength(64)
   key!: string;
 
   @IsBoolean()
@@ -34,6 +38,7 @@ class BulkFeatureItemDto {
 
 class BulkUpdateFeaturesDto {
   @IsArray()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => BulkFeatureItemDto)
   features!: BulkFeatureItemDto[];
@@ -42,9 +47,10 @@ class BulkUpdateFeaturesDto {
 class ChangeBusinessTypeDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(30)
   businessType!: string;
 
-  @IsString()
+  @IsUUID()
   @IsOptional()
   outletId?: string;
 }
@@ -111,12 +117,12 @@ interface FeatureRegistryResponse {
 }
 
 @Controller('business')
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 export class FeatureController {
   constructor(
     private readonly featureService: FeatureService,
     private readonly businessTypeService: BusinessTypeService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
   // ============================================================================
@@ -217,15 +223,21 @@ export class FeatureController {
 
   /**
    * PUT /business/type
-   * Change business type, soft-delete old data, and apply new template
+   * Change business type, soft-delete old data, and apply new template.
+   * Owner only: destructive (deactivates the outlet's products and tables).
+   * The target outlet is verified to belong to the caller's business.
    */
   @Put('type')
+  @Roles(EmployeeRole.OWNER)
   @HttpCode(HttpStatus.OK)
   async changeBusinessType(
-    @CurrentUser() user: { businessId: string; outletId: string | null },
+    @CurrentUser() user: AuthUser,
     @Body() dto: ChangeBusinessTypeDto,
   ): Promise<ChangeTypeResponse> {
     const outletId = dto.outletId ?? user.outletId ?? undefined;
+    if (outletId) {
+      await this.tenant.assertOutlet(user, outletId);
+    }
     return this.businessTypeService.changeBusinessType(user.businessId, dto.businessType, outletId);
   }
 

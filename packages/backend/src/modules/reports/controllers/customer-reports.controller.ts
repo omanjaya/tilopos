@@ -1,17 +1,15 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class CustomerReportsController {
@@ -19,12 +17,8 @@ export class CustomerReportsController {
 
   @Get('customers')
   @ApiOperation({ summary: 'Customer analytics report' })
-  async customerReport(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async customerReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
     const totalCustomers = await this.prisma.customer.count({
@@ -51,10 +45,24 @@ export class CustomerReportsController {
       },
     });
 
+    // Returning = customers with more than one completed sale in the period (F0959)
+    const repeatBuyers = await this.prisma.transaction.groupBy({
+      by: ['customerId'],
+      where: {
+        outlet: { businessId: user.businessId },
+        customerId: { not: null },
+        transactionType: 'sale',
+        status: 'completed',
+        createdAt: { gte: start, lte: end },
+      },
+      having: { customerId: { _count: { gt: 1 } } },
+      _count: { customerId: true },
+    });
+
     return {
       totalCustomers,
       newCustomers,
-      returningCustomers: totalCustomers - newCustomers,
+      returningCustomers: repeatBuyers.length,
       topCustomers: topCustomers.map((c) => ({
         id: c.id,
         name: c.name,

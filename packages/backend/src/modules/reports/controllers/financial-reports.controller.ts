@@ -1,63 +1,41 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { money } from '@shared/utils/money';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
+import { computeProfit } from '../utils/profit.util';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
+// Cost/profit data: manager and above only (R12, F0968)
+@Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 @Controller('reports')
 export class FinancialReportsController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
 
   @Get('financial')
   @ApiOperation({ summary: 'Financial report (revenue, cost, profit, margin)' })
-  async financialReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-
+  async financialReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Check cache
     const cacheKey = `report:financial:${outletId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
@@ -70,41 +48,34 @@ export class FinancialReportsController {
       createdAt: { gte: start, lte: end },
     };
 
-    const sales = await this.prisma.transaction.aggregate({
-      where: { ...whereClause, transactionType: 'sale' },
-      _sum: { grandTotal: true },
-    });
+    const [sales, refunds, totalCost] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: { ...whereClause, transactionType: 'sale' },
+        _sum: { subtotal: true, discountAmount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...whereClause, transactionType: 'refund' },
+        _sum: { subtotal: true },
+      }),
+      // COGS aggregated in SQL (R13)
+      this.queries.cogs({ outletIds: [outletId], start, end }),
+    ]);
 
-    const refunds = await this.prisma.transaction.aggregate({
-      where: { ...whereClause, transactionType: 'refund' },
-      _sum: { grandTotal: true },
+    // Revenue = net sales excl. tax, net of refunds; profit = revenue - COGS
+    const profit = computeProfit({
+      grossSales: sales._sum.subtotal,
+      discounts: sales._sum.discountAmount,
+      refunds: money(refunds._sum.subtotal).abs(),
+      cogs: totalCost,
     });
-
-    // Estimate cost from transaction items via product cost price
-    const items = await this.prisma.transactionItem.findMany({
-      where: {
-        transaction: { ...whereClause, transactionType: 'sale' },
-      },
-      select: { quantity: true, product: { select: { costPrice: true } } },
-    });
-
-    const totalRevenue =
-      (sales._sum.grandTotal?.toNumber() || 0) - Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
-    const totalCost = items.reduce(
-      (sum, item) => sum + (item.product?.costPrice?.toNumber() || 0) * item.quantity.toNumber(),
-      0,
-    );
-    const grossProfit = totalRevenue - totalCost;
-    const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
     const result = {
-      totalRevenue,
-      totalCost,
-      grossProfit,
-      grossMargin,
+      totalRevenue: profit.netRevenue,
+      totalCost: profit.expenses,
+      grossProfit: profit.netProfit,
+      grossMargin: profit.profitMargin,
     };
 
-    // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
 
     return result;

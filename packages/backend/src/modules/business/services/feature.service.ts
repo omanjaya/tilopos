@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import {
   FEATURE_REGISTRY,
@@ -71,8 +72,11 @@ export class FeatureService {
   /**
    * Get only enabled feature keys for a business
    */
-  async getEnabledFeatureKeys(businessId: string): Promise<string[]> {
-    const features = await this.prisma.businessFeature.findMany({
+  async getEnabledFeatureKeys(
+    businessId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<string[]> {
+    const features = await (tx ?? this.prisma).businessFeature.findMany({
       where: { businessId, isEnabled: true },
       select: { featureKey: true },
     });
@@ -159,26 +163,25 @@ export class FeatureService {
       },
     });
 
-    // If disabling, also disable dependent features
+    // If disabling, also disable dependent features (one query for all dependents)
     const affectedFeatures: string[] = [];
     if (!enable) {
-      const dependentFeatures = FEATURE_REGISTRY.filter((f) =>
+      const dependentKeys = FEATURE_REGISTRY.filter((f) =>
         f.dependencies?.includes(featureKey),
-      );
+      ).map((f) => f.key);
 
-      for (const dep of dependentFeatures) {
-        const isEnabled = await this.isFeatureEnabled(businessId, dep.key);
-        if (isEnabled) {
-          await this.prisma.businessFeature.update({
-            where: {
-              businessId_featureKey: { businessId, featureKey: dep.key },
-            },
-            data: {
-              isEnabled: false,
-              disabledAt: now,
-            },
+      if (dependentKeys.length > 0) {
+        const enabledDependents = await this.prisma.businessFeature.findMany({
+          where: { businessId, featureKey: { in: dependentKeys }, isEnabled: true },
+          select: { featureKey: true },
+        });
+        if (enabledDependents.length > 0) {
+          const keys = enabledDependents.map((f) => f.featureKey);
+          await this.prisma.businessFeature.updateMany({
+            where: { businessId, featureKey: { in: keys } },
+            data: { isEnabled: false, disabledAt: now },
           });
-          affectedFeatures.push(dep.key);
+          affectedFeatures.push(...keys);
         }
       }
     }
@@ -220,7 +223,11 @@ export class FeatureService {
   /**
    * Initialize features for a business based on business type
    */
-  async initializeFeaturesForBusinessType(businessId: string, businessType: string): Promise<void> {
+  async initializeFeaturesForBusinessType(
+    businessId: string,
+    businessType: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     if (!isValidBusinessType(businessType)) {
       this.logger.warn(`Invalid business type: ${businessType}`);
       return;
@@ -229,43 +236,41 @@ export class FeatureService {
     const preset = getBusinessTypePreset(businessType);
     if (!preset) return;
 
-    const now = new Date();
+    const run = async (client: Prisma.TransactionClient): Promise<number> => {
+      const now = new Date();
 
-    // Delete existing features
-    await this.prisma.businessFeature.deleteMany({
-      where: { businessId },
-    });
+      // Replace features atomically: a crash between delete and create must
+      // never leave the business with no features (FeatureGuard would block everything).
+      await client.businessFeature.deleteMany({ where: { businessId } });
 
-    // Create features based on preset
-    const featuresToCreate = preset.defaultFeatures.map((featureKey) => ({
-      businessId,
-      featureKey,
-      isEnabled: true,
-      enabledAt: now,
-    }));
+      const featuresToCreate = preset.defaultFeatures.map((featureKey) => ({
+        businessId,
+        featureKey,
+        isEnabled: true,
+        enabledAt: now,
+      }));
+      const optionalToCreate = preset.optionalFeatures.map((featureKey) => ({
+        businessId,
+        featureKey,
+        isEnabled: false,
+      }));
 
-    // Also create optional features as disabled
-    const optionalToCreate = preset.optionalFeatures.map((featureKey) => ({
-      businessId,
-      featureKey,
-      isEnabled: false,
-    }));
+      await client.businessFeature.createMany({
+        data: [...featuresToCreate, ...optionalToCreate],
+        skipDuplicates: true,
+      });
 
-    await this.prisma.businessFeature.createMany({
-      data: [...featuresToCreate, ...optionalToCreate],
-    });
+      await client.business.update({
+        where: { id: businessId },
+        data: { businessType, businessTypeSetAt: now },
+      });
+      return featuresToCreate.length;
+    };
 
-    // Update business type
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        businessType,
-        businessTypeSetAt: now,
-      },
-    });
+    const count = tx ? await run(tx) : await this.prisma.$transaction((client) => run(client));
 
     this.logger.log(
-      `Initialized ${featuresToCreate.length} features for business ${businessId} (type: ${businessType})`,
+      `Initialized ${count} features for business ${businessId} (type: ${businessType})`,
     );
   }
 

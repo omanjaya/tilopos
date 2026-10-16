@@ -1,9 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { DistributedLockService } from '@shared/locks/distributed-lock.service';
+import { addBusinessDays, BUSINESS_TZ, startOfBusinessDay } from '@shared/utils/business-time';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SubscriptionService } from './subscription.service';
 import { NotificationType, NotificationChannel } from '@prisma/client';
+
+/** Days before endDate on which an expiry reminder is sent (once per day offset). */
+export const REMINDER_DAYS_BEFORE = [3, 1] as const;
+
+/**
+ * [start, end) of the business day that is `daysAhead` days after `now` (WIB).
+ * A subscription gets a reminder only on the days where its endDate falls in
+ * that window, so each offset fires exactly once — no daily duplicates.
+ */
+export function reminderWindow(now: Date, daysAhead: number): { gte: Date; lt: Date } {
+  const start = startOfBusinessDay(addBusinessDays(now, daysAhead));
+  return { gte: start, lt: addBusinessDays(start, 1) };
+}
 
 @Injectable()
 export class SubscriptionScheduler {
@@ -13,61 +28,65 @@ export class SubscriptionScheduler {
     private readonly prisma: PrismaService,
     private readonly subscriptionService: SubscriptionService,
     private readonly notificationsService: NotificationsService,
+    private readonly locks: DistributedLockService,
   ) {}
 
   /**
-   * Run daily at midnight — expire subscriptions past their end date
+   * Run daily at 00:00 WIB — expire subscriptions past their end date
    */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: BUSINESS_TZ })
   async expireSubscriptions() {
-    this.logger.log('Running subscription expiration check...');
-    try {
-      const expired = await this.subscriptionService.checkAndExpireSubscriptions();
-      if (expired > 0) {
-        this.logger.log(`Expired ${expired} subscriptions`);
+    await this.locks.runExclusive('cron:subscription:expire', 600, async () => {
+      this.logger.log('Running subscription expiration check...');
+      try {
+        const expired = await this.subscriptionService.checkAndExpireSubscriptions();
+        if (expired > 0) {
+          this.logger.log(`Expired ${expired} subscriptions`);
+        }
+      } catch (error) {
+        this.logger.error('Failed to expire subscriptions', error);
       }
-    } catch (error) {
-      this.logger.error('Failed to expire subscriptions', error);
-    }
+    });
   }
 
   /**
-   * Run daily at 9 AM — send reminders for subscriptions expiring in 3 days
+   * Run daily at 09:00 WIB — remind owners 3 days and 1 day before Premium ends.
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: BUSINESS_TZ })
   async sendExpiryReminders() {
-    this.logger.log('Running subscription expiry reminder check...');
-    try {
-      const now = new Date();
-      const threeDaysFromNow = new Date(now);
-      threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+    await this.locks.runExclusive('cron:subscription:reminders', 1800, async () => {
+      this.logger.log('Running subscription expiry reminder check...');
+      try {
+        await this.sendReminders(new Date());
+      } catch (error) {
+        this.logger.error('Failed to send expiry reminders', error);
+      }
+    });
+  }
 
-      // Find subscriptions expiring within 3 days
+  async sendReminders(now: Date): Promise<number> {
+    let sent = 0;
+    for (const daysLeft of REMINDER_DAYS_BEFORE) {
       const expiring = await this.prisma.subscription.findMany({
         where: {
           status: { in: ['active', 'trial'] },
-          endDate: {
-            gt: now,
-            lte: threeDaysFromNow,
-          },
+          endDate: reminderWindow(now, daysLeft),
         },
-        include: {
-          business: {
-            select: { id: true, name: true },
-          },
-        },
+        select: { id: true, businessId: true, status: true },
       });
+      if (expiring.length === 0) continue;
 
       // Batch-load all owners in a single query to avoid N+1
-      const businessIds = expiring.map((sub) => sub.businessId);
+      const businessIds = [...new Set(expiring.map((sub) => sub.businessId))];
       const owners = await this.prisma.employee.findMany({
-        where: { businessId: { in: businessIds }, role: 'owner' },
+        where: { businessId: { in: businessIds }, role: 'owner', isActive: true },
         select: { id: true, outletId: true, businessId: true },
       });
       const ownerByBusinessId = new Map(owners.map((owner) => [owner.businessId, owner]));
 
       for (const sub of expiring) {
-        const daysLeft = Math.ceil((sub.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const owner = ownerByBusinessId.get(sub.businessId);
+        if (!owner) continue;
 
         const isTrial = sub.status === 'trial';
         const title = isTrial
@@ -77,51 +96,58 @@ export class SubscriptionScheduler {
           ? 'Upgrade sekarang untuk tetap menikmati semua fitur Premium.'
           : 'Perpanjang langganan untuk tetap menikmati semua fitur Premium.';
 
-        const owner = ownerByBusinessId.get(sub.businessId);
-
-        if (owner) {
-          await this.notificationsService.send(sub.businessId, owner.outletId ?? '', {
-            type: NotificationType.subscription_trial_expiring,
-            channel: NotificationChannel.push,
-            recipientId: owner.id,
-            recipientType: 'employee',
-            title,
-            body,
-            data: { daysLeft, subscriptionId: sub.id },
-          });
+        try {
+          // E-mail: push has no device-token registry and always reports NOT_CONFIGURED.
+          const result = await this.notificationsService.send(
+            sub.businessId,
+            owner.outletId ?? '',
+            {
+              type: NotificationType.subscription_trial_expiring,
+              channel: NotificationChannel.email,
+              recipientId: owner.id,
+              recipientType: 'employee',
+              title,
+              body,
+              data: { daysLeft, subscriptionId: sub.id },
+            },
+          );
+          if (result.success) sent++;
+        } catch (error) {
+          this.logger.warn(
+            `Expiry reminder for subscription ${sub.id} failed: ${(error as Error).message}`,
+          );
         }
       }
-
-      if (expiring.length > 0) {
-        this.logger.log(`Sent ${expiring.length} expiry reminders`);
-      }
-    } catch (error) {
-      this.logger.error('Failed to send expiry reminders', error);
     }
+
+    if (sent > 0) {
+      this.logger.log(`Sent ${sent} expiry reminders`);
+    }
+    return sent;
   }
 
   /**
-   * Run daily at 10 AM — expire pending invoices past due date
+   * Run daily at 10:00 WIB — expire pending invoices past due date
    */
-  @Cron('0 10 * * *')
+  @Cron('0 10 * * *', { timeZone: BUSINESS_TZ })
   async expirePendingInvoices() {
-    this.logger.log('Running pending invoice expiration check...');
-    try {
-      const now = new Date();
+    await this.locks.runExclusive('cron:subscription:expire-invoices', 600, async () => {
+      this.logger.log('Running pending invoice expiration check...');
+      try {
+        const result = await this.prisma.invoice.updateMany({
+          where: {
+            status: 'pending',
+            dueDate: { lt: new Date() },
+          },
+          data: { status: 'expired' },
+        });
 
-      const result = await this.prisma.invoice.updateMany({
-        where: {
-          status: 'pending',
-          dueDate: { lt: now },
-        },
-        data: { status: 'expired' },
-      });
-
-      if (result.count > 0) {
-        this.logger.log(`Expired ${result.count} pending invoices`);
+        if (result.count > 0) {
+          this.logger.log(`Expired ${result.count} pending invoices`);
+        }
+      } catch (error) {
+        this.logger.error('Failed to expire pending invoices', error);
       }
-    } catch (error) {
-      this.logger.error('Failed to expire pending invoices', error);
-    }
+    });
   }
 }

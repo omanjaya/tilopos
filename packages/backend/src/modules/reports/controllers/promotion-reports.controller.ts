@@ -1,32 +1,35 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+
+/** Promotions listed per report (R13). */
+const MAX_PROMOTIONS = 200;
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class PromotionReportsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
+  ) {}
 
   @Get('promotions')
   @ApiOperation({
     summary: 'Promotion effectiveness report (revenue, discount, usage, basket size)',
   })
-  async promotionReport(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async promotionReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
     const promotions = await this.prisma.promotion.findMany({
@@ -35,123 +38,64 @@ export class PromotionReportsController {
         validFrom: { lte: end },
         validUntil: { gte: start },
       },
-      include: {
-        vouchers: {
-          where: {
-            usedAt: { gte: start, lte: end },
-          },
-          select: {
-            id: true,
-            code: true,
-            initialValue: true,
-            remainingValue: true,
-            usedAt: true,
-          },
-        },
-      },
-    });
-
-    // Get all completed transactions in the period for basket size analysis
-    const allTransactions = await this.prisma.transaction.findMany({
-      where: {
-        outlet: { businessId: user.businessId },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
       select: {
         id: true,
-        grandTotal: true,
-        discountAmount: true,
-        items: {
-          select: { quantity: true },
-        },
+        name: true,
+        discountType: true,
+        discountValue: true,
+        validFrom: true,
+        validUntil: true,
+        usageLimit: true,
+        usedCount: true,
+        isActive: true,
       },
+      orderBy: { usedCount: 'desc' },
+      take: MAX_PROMOTIONS,
     });
 
-    // Separate transactions with and without discounts for basket analysis
-    const withDiscount = allTransactions.filter((tx) => tx.discountAmount.toNumber() > 0);
-    const withoutDiscount = allTransactions.filter((tx) => tx.discountAmount.toNumber() === 0);
+    // Voucher redemptions in the period, counted per promotion in SQL
+    const promotionIds = promotions.map((p) => p.id);
+    const redemptions =
+      promotionIds.length > 0
+        ? await this.prisma.voucher.groupBy({
+            by: ['promotionId'],
+            where: {
+              businessId: user.businessId,
+              promotionId: { in: promotionIds },
+              usedAt: { gte: start, lte: end },
+            },
+            _count: { _all: true },
+          })
+        : [];
+    const redemptionMap = new Map(redemptions.map((r) => [r.promotionId, r._count._all]));
 
-    const avgBasketWithPromo =
-      withDiscount.length > 0
-        ? Math.round(
-            (withDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
-              withDiscount.length) *
-              100,
-          ) / 100
-        : 0;
+    // Basket analysis aggregated in SQL (F0986)
+    const outletIds = await this.tenant.resolveOutletIds(user);
+    const basket = await this.queries.basketByDiscount({ outletIds, start, end });
 
-    const avgBasketWithoutPromo =
-      withoutDiscount.length > 0
-        ? Math.round(
-            (withoutDiscount.reduce((s, tx) => s + tx.grandTotal.toNumber(), 0) /
-              withoutDiscount.length) *
-              100,
-          ) / 100
-        : 0;
-
-    const avgItemsWithPromo =
-      withDiscount.length > 0
-        ? Math.round(
-            (withDiscount.reduce(
-              (s, tx) => s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
-              0,
-            ) /
-              withDiscount.length) *
-              10,
-          ) / 10
-        : 0;
-
-    const avgItemsWithoutPromo =
-      withoutDiscount.length > 0
-        ? Math.round(
-            (withoutDiscount.reduce(
-              (s, tx) => s + tx.items.reduce((is, i) => is + i.quantity.toNumber(), 0),
-              0,
-            ) /
-              withoutDiscount.length) *
-              10,
-          ) / 10
-        : 0;
-
-    const report = promotions.map((promo) => {
-      const vouchersUsed = promo.vouchers.filter((v) => v.usedAt !== null);
-      const totalDiscountGiven = vouchersUsed.reduce((sum, v) => {
-        const initial = v.initialValue?.toNumber() || 0;
-        const remaining = v.remainingValue?.toNumber() || 0;
-        return sum + (initial - remaining);
-      }, 0);
-
-      // Estimate revenue attributed to this promotion
-      const revenueByPromo = vouchersUsed.reduce((sum, v) => {
-        return sum + (v.initialValue?.toNumber() || 0);
-      }, 0);
-
-      return {
-        promotionId: promo.id,
-        name: promo.name,
-        discountType: promo.discountType,
-        discountValue: promo.discountValue.toNumber(),
-        validFrom: promo.validFrom,
-        validUntil: promo.validUntil,
-        usageLimit: promo.usageLimit,
-        usedCount: promo.usedCount,
-        vouchersRedeemed: vouchersUsed.length,
-        totalDiscountGiven,
-        revenueAttributed: revenueByPromo,
-        isActive: promo.isActive,
-        utilizationRate: promo.usageLimit
-          ? Math.round((promo.usedCount / promo.usageLimit) * 100 * 10) / 10
-          : null,
-      };
-    });
+    const report = promotions.map((promo) => ({
+      promotionId: promo.id,
+      name: promo.name,
+      discountType: promo.discountType,
+      discountValue: promo.discountValue.toNumber(),
+      validFrom: promo.validFrom,
+      validUntil: promo.validUntil,
+      usageLimit: promo.usageLimit,
+      usedCount: promo.usedCount,
+      vouchersRedeemed: redemptionMap.get(promo.id) ?? 0,
+      // Transactions do not record which promotion produced a discount, so the
+      // discount given / revenue per promotion is unknown: null, not a fake 0 (F0985)
+      totalDiscountGiven: null as number | null,
+      revenueAttributed: null as number | null,
+      isActive: promo.isActive,
+      utilizationRate: promo.usageLimit
+        ? Math.round((promo.usedCount / promo.usageLimit) * 100 * 10) / 10
+        : null,
+    }));
 
     report.sort((a, b) => b.usedCount - a.usedCount);
 
-    const topPerforming = [...report]
-      .sort((a, b) => b.revenueAttributed - a.revenueAttributed)
-      .slice(0, 5);
+    const topPerforming = report.slice(0, 5);
 
     return {
       period: { start, end },
@@ -159,16 +103,16 @@ export class PromotionReportsController {
       summary: {
         totalPromotions: report.length,
         totalRedemptions: report.reduce((s, p) => s + p.usedCount, 0),
-        totalDiscountGiven: report.reduce((s, p) => s + p.totalDiscountGiven, 0),
-        totalRevenueAttributed: report.reduce((s, p) => s + p.revenueAttributed, 0),
+        totalDiscountGiven: null,
+        totalRevenueAttributed: null,
       },
       basketSizeAnalysis: {
-        avgBasketWithPromo,
-        avgBasketWithoutPromo,
-        avgItemsWithPromo,
-        avgItemsWithoutPromo,
-        transactionsWithPromo: withDiscount.length,
-        transactionsWithoutPromo: withoutDiscount.length,
+        avgBasketWithPromo: Math.round(basket.withDiscount.avgTotal * 100) / 100,
+        avgBasketWithoutPromo: Math.round(basket.withoutDiscount.avgTotal * 100) / 100,
+        avgItemsWithPromo: Math.round(basket.withDiscount.avgItems * 10) / 10,
+        avgItemsWithoutPromo: Math.round(basket.withoutDiscount.avgItems * 10) / 10,
+        transactionsWithPromo: basket.withDiscount.count,
+        transactionsWithoutPromo: basket.withoutDiscount.count,
       },
       topPerformingPromotions: topPerforming.map((p) => ({
         promotionId: p.promotionId,

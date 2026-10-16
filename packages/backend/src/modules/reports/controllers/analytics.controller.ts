@@ -1,147 +1,108 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
 import { AnalyticsService } from '../../../infrastructure/services/analytics.service';
+import {
+  AnalyticsProductsQueryDto,
+  ReportQueryDto,
+} from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { canViewCostData } from '../utils/report-access';
 
 @ApiTags('Analytics')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports/analytics')
 export class AnalyticsController {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
     private readonly analyticsService: AnalyticsService,
   ) {}
 
-  private async validateOutlet(outletId: string, businessId: string) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
-
   @Get('sales')
   @ApiOperation({ summary: 'Sales metrics with growth comparison' })
-  async salesMetrics(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async salesMetrics(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
     return this.analyticsService.getSalesMetrics(outletId, { start, end });
   }
 
   @Get('products')
   @ApiOperation({ summary: 'Product analytics — top/low performers, categories, product mix' })
-  async productAnalytics(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('limit') limit?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async productAnalytics(@CurrentUser() user: AuthUser, @Query() query: AnalyticsProductsQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
-    const parsedLimit = limit ? parseInt(limit, 10) : 10;
-    return this.analyticsService.getProductAnalytics(outletId, { start, end }, parsedLimit);
+    return this.analyticsService.getProductAnalytics(
+      outletId,
+      { start, end },
+      query.limit ?? 10,
+      canViewCostData(user.role),
+    );
   }
 
   @Get('time')
   @ApiOperation({ summary: 'Time-based analytics — hourly, daily, weekly, monthly' })
-  async timeAnalytics(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async timeAnalytics(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
     return this.analyticsService.getTimeAnalytics(outletId, { start, end });
   }
 
   @Get('customers')
   @ApiOperation({ summary: 'Customer analytics — CLV, churn risk, loyalty tiers' })
-  async customerAnalytics(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async customerAnalytics(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
     return this.analyticsService.getCustomerAnalytics(outletId, { start, end });
   }
 
   @Get('inventory')
   @ApiOperation({ summary: 'Inventory analytics — stock value, turnover, reorder suggestions' })
-  async inventoryAnalytics(@CurrentUser() user: AuthUser, @Query('outletId') outletId: string) {
-    await this.validateOutlet(outletId, user.businessId);
+  async inventoryAnalytics(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     return this.analyticsService.getInventoryAnalytics(outletId);
   }
 
   @Get('employees')
   @ApiOperation({ summary: 'Employee analytics — top performers, sales breakdown, shifts' })
-  async employeeAnalytics(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async employeeAnalytics(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
-    return this.analyticsService.getEmployeeAnalytics(outletId, { start, end });
+    return this.analyticsService.getEmployeeAnalytics(
+      outletId,
+      { start, end },
+      canViewCostData(user.role),
+    );
   }
 
   @Get('predictions')
   @ApiOperation({ summary: 'Predictive insights — demand forecast, revenue projection, anomalies' })
-  async predictiveInsights(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async predictiveInsights(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
     return this.analyticsService.getPredictiveInsights(outletId, { start, end });
   }
 
   @Get('comprehensive')
   @ApiOperation({ summary: 'Comprehensive report — all analytics in one call' })
-  async comprehensiveReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    await this.validateOutlet(outletId, user.businessId);
+  async comprehensiveReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const { start, end } = getDateRange(undefined, startDate, endDate);
-    return this.analyticsService.generateReport(outletId, { start, end });
+    return this.analyticsService.generateReport(
+      outletId,
+      { start, end },
+      canViewCostData(user.role),
+    );
   }
 }

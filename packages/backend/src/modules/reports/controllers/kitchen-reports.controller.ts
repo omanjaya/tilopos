@@ -1,55 +1,35 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
+import { KitchenReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { businessHour } from '@shared/utils/business-time';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class KitchenReportsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
   @Get('kitchen')
   @ApiOperation({
     summary: 'Kitchen performance report (avg prep time, orders/hour, peak hours, SLA)',
   })
-  async kitchenReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('slaTargetMinutes') slaTargetMinutes?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async kitchenReport(@CurrentUser() user: AuthUser, @Query() query: KitchenReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
-    const slaTarget = slaTargetMinutes ? parseInt(slaTargetMinutes, 10) : 15;
+    const slaTarget = query.slaTargetMinutes ?? 15;
 
     // All orders in range (both completed and not)
     const allOrders = await this.prisma.order.findMany({
@@ -109,7 +89,7 @@ export class KitchenReportsController {
     // Peak hours analysis (group by hour of day)
     const hourCounts: Record<number, number> = {};
     for (const order of allOrders) {
-      const hour = order.createdAt.getHours();
+      const hour = businessHour(order.createdAt); // WIB (R14)
       hourCounts[hour] = (hourCounts[hour] || 0) + 1;
     }
 
@@ -191,8 +171,15 @@ export class KitchenReportsController {
         totalOrders: allOrders.length,
         completedOrders: completedOrders.length,
         avgPrepTimeMinutes: Math.round(avgPrepTime * 10) / 10,
-        fastestPrepMinutes: prepTimes.length > 0 ? Math.round(Math.min(...prepTimes) * 10) / 10 : 0,
-        slowestPrepMinutes: prepTimes.length > 0 ? Math.round(Math.max(...prepTimes) * 10) / 10 : 0,
+        // reduce instead of Math.min(...spread): no RangeError on large arrays
+        fastestPrepMinutes:
+          prepTimes.length > 0
+            ? Math.round(prepTimes.reduce((a, b) => Math.min(a, b), Infinity) * 10) / 10
+            : 0,
+        slowestPrepMinutes:
+          prepTimes.length > 0
+            ? Math.round(prepTimes.reduce((a, b) => Math.max(a, b), -Infinity) * 10) / 10
+            : 0,
         ordersPerHour,
         slaTargetMinutes: slaTarget,
         slaAdherenceRate,

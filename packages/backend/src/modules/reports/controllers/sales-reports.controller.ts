@@ -1,63 +1,45 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  Res,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { parseBusinessDate } from '@shared/utils/business-time';
+import { toPrismaPage } from '@shared/dtos/pagination-query.dto';
 import { GenerateSalesReportUseCase } from '../../../application/use-cases/reports/generate-sales-report.use-case';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import {
+  DailySalesQueryDto,
+  ReportExportQueryDto,
+  ReportQueryDto,
+} from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class SalesReportsController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
     private readonly generateSalesReport: GenerateSalesReportUseCase,
   ) {}
 
   @Get('sales')
   @ApiOperation({ summary: 'Sales report with aggregations and daily breakdown' })
-  async salesReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async salesReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
@@ -90,27 +72,10 @@ export class SalesReportsController {
       where: { ...whereClause, customerId: { not: null } },
     });
 
-    // Group sales by date for chart
-    const transactions = await this.prisma.transaction.findMany({
-      where: whereClause,
-      select: { createdAt: true, grandTotal: true },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const salesByDateMap = new Map<string, { sales: number; transactions: number }>();
-    for (const tx of transactions) {
-      const date = tx.createdAt.toISOString().split('T')[0];
-      const existing = salesByDateMap.get(date) || { sales: 0, transactions: 0 };
-      existing.sales += tx.grandTotal?.toNumber() || 0;
-      existing.transactions += 1;
-      salesByDateMap.set(date, existing);
-    }
-
-    const salesByDate = Array.from(salesByDateMap.entries()).map(([date, data]) => ({
-      date,
-      sales: data.sales,
-      transactions: data.transactions,
-    }));
+    // Daily buckets in WIB, aggregated in SQL
+    const salesByDate = (
+      await this.queries.salesByDay({ outletIds: [outletId], start, end }, 'grand_total')
+    ).map((row) => ({ date: row.bucket, sales: row.amount, transactions: row.count }));
 
     const result = {
       totalSales,
@@ -130,26 +95,9 @@ export class SalesReportsController {
   @ApiOperation({
     summary: 'Detailed sales summary with breakdown (gross, net, tax, service charge)',
   })
-  async salesSummary(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async salesSummary(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(undefined, startDate, endDate);
 
@@ -222,26 +170,9 @@ export class SalesReportsController {
 
   @Get('sales/discount-breakdown')
   @ApiOperation({ summary: 'Discount breakdown with promotion detail' })
-  async discountBreakdown(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async discountBreakdown(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(undefined, startDate, endDate);
 
@@ -275,44 +206,41 @@ export class SalesReportsController {
       where: { ...saleWhere, discountAmount: { gt: 0 } },
     });
 
-    // Promotion breakdown via vouchers
-    const vouchers = await this.prisma.voucher.findMany({
+    // Promotion breakdown: only voucher redemptions are recorded per promotion.
+    // Transactions do not store which promotion produced a discount, so the
+    // per-promotion discount amount is unknown (null) rather than a fake 0 (F0944).
+    const voucherUse = await this.prisma.voucher.groupBy({
+      by: ['promotionId'],
       where: {
-        business: { id: user.businessId },
+        businessId: user.businessId,
         usedAt: { gte: start, lte: end },
         promotionId: { not: null },
       },
-      select: { promotionId: true, initialValue: true },
+      _count: { _all: true },
     });
 
-    const promoMap = new Map<string, { usedCount: number; totalDiscount: number }>();
-    for (const v of vouchers) {
-      if (!v.promotionId) continue;
-      const existing = promoMap.get(v.promotionId) || { usedCount: 0, totalDiscount: 0 };
-      existing.usedCount += 1;
-      existing.totalDiscount += v.initialValue?.toNumber() || 0;
-      promoMap.set(v.promotionId, existing);
-    }
-
-    const promotionIds = Array.from(promoMap.keys());
+    const promotionIds = voucherUse
+      .map((v) => v.promotionId)
+      .filter((id): id is string => id !== null);
     const promotions =
       promotionIds.length > 0
         ? await this.prisma.promotion.findMany({
-            where: { id: { in: promotionIds } },
+            where: { id: { in: promotionIds }, businessId: user.businessId },
             select: { id: true, name: true },
           })
         : [];
 
     const promotionNameMap = new Map(promotions.map((p) => [p.id, p.name]));
 
-    const promotionBreakdown = Array.from(promoMap.entries()).map(([promotionId, data]) => ({
-      promotionId,
-      name: promotionNameMap.get(promotionId) || 'Unknown Promotion',
-      usedCount: data.usedCount,
-      totalDiscount: data.totalDiscount,
-    }));
-
-    promotionBreakdown.sort((a, b) => b.totalDiscount - a.totalDiscount);
+    const promotionBreakdown = voucherUse
+      .filter((v) => v.promotionId)
+      .map((v) => ({
+        promotionId: v.promotionId as string,
+        name: promotionNameMap.get(v.promotionId as string) || 'Unknown Promotion',
+        usedCount: v._count._all,
+        totalDiscount: null as number | null,
+      }))
+      .sort((a, b) => b.usedCount - a.usedCount);
 
     return {
       totalDiscount,
@@ -326,48 +254,53 @@ export class SalesReportsController {
 
   @Get('sales/daily')
   @ApiOperation({ summary: 'Daily sales detail with payments' })
-  async dailySales(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('date') date: string,
-  ) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
+  async dailySales(@CurrentUser() user: AuthUser, @Query() query: DailySalesQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    // WIB business day (R14); completed sales only
+    const { start, end } = parseBusinessDate(query.date);
+    const { skip, take } = toPrismaPage({ page: query.page, limit: query.limit ?? 100 });
+    return this.prisma.transaction.findMany({
+      where: {
+        outletId,
+        transactionType: 'sale',
+        status: 'completed',
+        createdAt: { gte: start, lte: end },
+      },
+      select: {
+        id: true,
+        receiptNumber: true,
+        createdAt: true,
+        orderType: true,
+        subtotal: true,
+        discountAmount: true,
+        taxAmount: true,
+        serviceCharge: true,
+        grandTotal: true,
+        status: true,
+        payments: { select: { paymentMethod: true, amount: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+      skip,
+      take,
     });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setDate(end.getDate() + 1);
-    const transactions = await this.prisma.transaction.findMany({
-      where: { outletId, transactionType: 'sale', createdAt: { gte: start, lt: end } },
-      include: { payments: true },
-    });
-    return transactions;
   }
 
   @Get('sales/export')
   @ApiOperation({ summary: 'Export sales report as PDF or Excel' })
   async exportSalesReport(
     @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-    @Query('format') format: 'pdf' | 'excel',
+    @Query() query: ReportExportQueryDto,
     @Res() res: Response,
   ) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
-    const result = await this.generateSalesReport.execute({ outletId, startDate, endDate, format });
+    const result = await this.generateSalesReport.execute({
+      businessId: user.businessId,
+      outletId,
+      startDate: query.startDate,
+      endDate: query.endDate,
+      format: query.format,
+    });
     res.set({
       'Content-Type': result.contentType,
       'Content-Disposition': `attachment; filename="${result.filename}"`,

@@ -25,6 +25,7 @@ import { DashboardReportsController } from './controllers/dashboard-reports.cont
 import { InvoiceReportsController } from './controllers/invoice-reports.controller';
 import { AnalyticsController } from './controllers/analytics.controller';
 import { AnalyticsService } from '../../infrastructure/services/analytics.service';
+import { AnalyticsQueriesService } from '../../infrastructure/services/analytics-queries.service';
 
 @Module({
   imports: [ExportModule],
@@ -54,6 +55,7 @@ import { AnalyticsService } from '../../infrastructure/services/analytics.servic
     GenerateInventoryReportUseCase,
     ReportsService,
     AnalyticsService,
+    AnalyticsQueriesService,
   ],
   exports: [ReportsService],
 })

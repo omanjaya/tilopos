@@ -1,5 +1,15 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { TenantAccessService } from '@shared/tenant';
+import { businessHour } from '@shared/utils/business-time';
+import { businessDateString, getDateRange } from './utils/date-range.util';
+
+/** Hard cap on transactions a single custom report may scan (R13). */
+export const MAX_CUSTOM_REPORT_TRANSACTIONS = 20_000;
+/** Max saved templates per business. */
+export const MAX_REPORT_TEMPLATES = 100;
 
 // ============================================================================
 // Interfaces
@@ -64,7 +74,10 @@ export interface ReportTemplateDto {
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
   // ========================================================================
   // CUSTOM REPORT BUILDER
@@ -73,10 +86,8 @@ export class ReportsService {
   /**
    * Generates custom report based on user-defined configuration.
    */
-  async buildCustomReport(
-    businessId: string,
-    config: CustomReportConfig,
-  ): Promise<CustomReportResult> {
+  async buildCustomReport(user: AuthUser, config: CustomReportConfig): Promise<CustomReportResult> {
+    const businessId = user.businessId;
     if (!config.metrics || config.metrics.length === 0) {
       throw new BadRequestException('At least one metric is required');
     }
@@ -85,15 +96,15 @@ export class ReportsService {
       throw new BadRequestException('At least one dimension is required');
     }
 
-    const startDate = new Date(config.startDate);
-    const endDate = new Date(config.endDate);
+    // WIB business days, inclusive end day, max range enforced (R13/R14)
+    const { start: startDate, end: endDate } = getDateRange(
+      undefined,
+      config.startDate,
+      config.endDate,
+    );
 
-    // Get outlet IDs for this business
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    // Outlet scope: a requested outlet must belong to the caller's business (R3)
+    const outletIds = await this.tenant.resolveOutletIds(user, config.filters?.outletId);
 
     if (outletIds.length === 0) {
       return {
@@ -104,16 +115,45 @@ export class ReportsService {
       };
     }
 
-    // Build where clause
-    const transactionWhere: Record<string, unknown> = {
-      outletId: config.filters?.outletId ? config.filters.outletId : { in: outletIds },
+    // Filters are pushed into SQL instead of filtering in memory
+    const transactionWhere: Prisma.TransactionWhereInput = {
+      outletId: { in: outletIds },
       createdAt: { gte: startDate, lte: endDate },
       transactionType: 'sale',
       status: 'completed',
+      ...(config.filters?.employeeId ? { employeeId: config.filters.employeeId } : {}),
+      ...(config.filters?.orderType
+        ? { orderType: config.filters.orderType as Prisma.TransactionWhereInput['orderType'] }
+        : {}),
+      ...(config.filters?.paymentMethod
+        ? {
+            payments: {
+              some: {
+                paymentMethod: config.filters
+                  .paymentMethod as Prisma.PaymentWhereInput['paymentMethod'],
+              },
+            },
+          }
+        : {}),
+      ...(config.filters?.categoryId || config.filters?.productId
+        ? {
+            items: {
+              some: {
+                ...(config.filters.productId ? { productId: config.filters.productId } : {}),
+                ...(config.filters.categoryId
+                  ? { product: { categoryId: config.filters.categoryId } }
+                  : {}),
+              },
+            },
+          }
+        : {}),
     };
 
-    if (config.filters?.employeeId) {
-      transactionWhere['employeeId'] = config.filters.employeeId;
+    const matching = await this.prisma.transaction.count({ where: transactionWhere });
+    if (matching > MAX_CUSTOM_REPORT_TRANSACTIONS) {
+      throw new BadRequestException(
+        `Report covers ${matching} transactions (max ${MAX_CUSTOM_REPORT_TRANSACTIONS}); narrow the date range or filters`,
+      );
     }
 
     // Fetch transactions with items and payments
@@ -132,39 +172,15 @@ export class ReportsService {
             },
           },
         },
-        payments: true,
+        payments: { select: { paymentMethod: true } },
         employee: { select: { id: true, name: true } },
         outlet: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'asc' },
+      take: MAX_CUSTOM_REPORT_TRANSACTIONS,
     });
 
-    // Apply additional filters
-    let filteredTransactions = transactions;
-
-    if (config.filters?.categoryId) {
-      filteredTransactions = filteredTransactions.filter((tx) =>
-        tx.items.some((item) => item.product?.categoryId === config.filters?.categoryId),
-      );
-    }
-
-    if (config.filters?.productId) {
-      filteredTransactions = filteredTransactions.filter((tx) =>
-        tx.items.some((item) => item.productId === config.filters?.productId),
-      );
-    }
-
-    if (config.filters?.paymentMethod) {
-      filteredTransactions = filteredTransactions.filter((tx) =>
-        tx.payments.some((p) => p.paymentMethod === config.filters?.paymentMethod),
-      );
-    }
-
-    if (config.filters?.orderType) {
-      filteredTransactions = filteredTransactions.filter(
-        (tx) => tx.orderType === config.filters?.orderType,
-      );
-    }
+    const filteredTransactions = transactions;
 
     // Group data by dimensions
     const groupedData = new Map<string, Record<string, unknown>>();
@@ -258,13 +274,17 @@ export class ReportsService {
 
     // Handle refunds separately if requested
     if (config.metrics.includes('refunds')) {
-      const refundWhere = {
-        ...transactionWhere,
-        transactionType: 'refund' as const,
+      const refundWhere: Prisma.TransactionWhereInput = {
+        outletId: { in: outletIds },
+        createdAt: { gte: startDate, lte: endDate },
+        transactionType: 'refund',
+        status: 'completed',
+        ...(config.filters?.employeeId ? { employeeId: config.filters.employeeId } : {}),
       };
 
       const refundTransactions = await this.prisma.transaction.findMany({
         where: refundWhere,
+        take: MAX_CUSTOM_REPORT_TRANSACTIONS,
         include: {
           employee: { select: { id: true, name: true } },
           outlet: { select: { id: true, name: true } },
@@ -377,6 +397,10 @@ export class ReportsService {
     name: string,
     config: CustomReportConfig,
   ): Promise<ReportTemplateDto> {
+    const existing = await this.prisma.reportTemplate.count({ where: { businessId } });
+    if (existing >= MAX_REPORT_TEMPLATES) {
+      throw new BadRequestException(`Maximum of ${MAX_REPORT_TEMPLATES} report templates reached`);
+    }
     const template = await this.prisma.reportTemplate.create({
       data: {
         businessId,
@@ -403,6 +427,7 @@ export class ReportsService {
     const templates = await this.prisma.reportTemplate.findMany({
       where: { businessId },
       orderBy: { createdAt: 'desc' },
+      take: MAX_REPORT_TEMPLATES,
     });
 
     return templates.map((t) => ({
@@ -450,10 +475,10 @@ export class ReportsService {
     for (const dim of dimensions) {
       switch (dim) {
         case 'date':
-          parts.push(tx.createdAt.toISOString().split('T')[0]);
+          parts.push(businessDateString(tx.createdAt));
           break;
         case 'hour':
-          parts.push(String(tx.createdAt.getHours()));
+          parts.push(String(businessHour(tx.createdAt)));
           break;
         case 'employee':
           parts.push(tx.employee?.id ?? 'unassigned');
@@ -526,10 +551,10 @@ export class ReportsService {
     for (const dim of dimensions) {
       switch (dim) {
         case 'date':
-          row['date'] = tx.createdAt.toISOString().split('T')[0];
+          row['date'] = businessDateString(tx.createdAt);
           break;
         case 'hour':
-          row['hour'] = tx.createdAt.getHours();
+          row['hour'] = businessHour(tx.createdAt);
           break;
         case 'employee':
           row['employeeId'] = tx.employee?.id ?? null;

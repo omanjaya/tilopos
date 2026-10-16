@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import {
   FEATURE_REGISTRY,
@@ -138,23 +139,25 @@ export class OutletFeatureService {
       },
     });
 
-    // If disabling, also disable dependent features
+    // If disabling, also disable dependent features (one query for all dependents)
     const affectedFeatures: string[] = [];
     if (!enable) {
-      const dependentFeatures = FEATURE_REGISTRY.filter((f) =>
+      const dependentKeys = FEATURE_REGISTRY.filter((f) =>
         f.dependencies?.includes(featureKey),
-      );
+      ).map((f) => f.key);
 
-      for (const dep of dependentFeatures) {
-        const existing = await this.prisma.outletFeature.findUnique({
-          where: { outletId_featureKey: { outletId, featureKey: dep.key } },
+      if (dependentKeys.length > 0) {
+        const enabledDependents = await this.prisma.outletFeature.findMany({
+          where: { outletId, featureKey: { in: dependentKeys }, isEnabled: true },
+          select: { featureKey: true },
         });
-        if (existing?.isEnabled) {
-          await this.prisma.outletFeature.update({
-            where: { outletId_featureKey: { outletId, featureKey: dep.key } },
+        if (enabledDependents.length > 0) {
+          const keys = enabledDependents.map((f) => f.featureKey);
+          await this.prisma.outletFeature.updateMany({
+            where: { outletId, featureKey: { in: keys } },
             data: { isEnabled: false, disabledAt: now },
           });
-          affectedFeatures.push(dep.key);
+          affectedFeatures.push(...keys);
         }
       }
     }
@@ -174,7 +177,11 @@ export class OutletFeatureService {
   /**
    * Initialize features for an outlet based on its type preset
    */
-  async initializeFeaturesForOutletType(outletId: string, outletType: string): Promise<void> {
+  async initializeFeaturesForOutletType(
+    outletId: string,
+    outletType: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     if (!isValidBusinessType(outletType)) {
       this.logger.warn(`Invalid outlet type: ${outletType}`);
       return;
@@ -183,38 +190,38 @@ export class OutletFeatureService {
     const preset = getBusinessTypePreset(outletType);
     if (!preset) return;
 
-    const now = new Date();
+    const run = async (client: Prisma.TransactionClient): Promise<number> => {
+      const now = new Date();
 
-    // Delete existing outlet features
-    await this.prisma.outletFeature.deleteMany({ where: { outletId } });
+      await client.outletFeature.deleteMany({ where: { outletId } });
 
-    // Create features based on preset
-    const featuresToCreate = preset.defaultFeatures.map((featureKey) => ({
-      outletId,
-      featureKey,
-      isEnabled: true,
-      enabledAt: now,
-    }));
+      const featuresToCreate = preset.defaultFeatures.map((featureKey) => ({
+        outletId,
+        featureKey,
+        isEnabled: true,
+        enabledAt: now,
+      }));
+      const optionalToCreate = preset.optionalFeatures.map((featureKey) => ({
+        outletId,
+        featureKey,
+        isEnabled: false,
+      }));
 
-    const optionalToCreate = preset.optionalFeatures.map((featureKey) => ({
-      outletId,
-      featureKey,
-      isEnabled: false,
-    }));
+      await client.outletFeature.createMany({
+        data: [...featuresToCreate, ...optionalToCreate],
+        skipDuplicates: true,
+      });
 
-    await this.prisma.outletFeature.createMany({
-      data: [...featuresToCreate, ...optionalToCreate],
-    });
+      await client.outlet.update({
+        where: { id: outletId },
+        data: { outletType, outletTypeSetAt: now },
+      });
+      return featuresToCreate.length;
+    };
 
-    // Update outlet type
-    await this.prisma.outlet.update({
-      where: { id: outletId },
-      data: { outletType, outletTypeSetAt: now },
-    });
+    const count = tx ? await run(tx) : await this.prisma.$transaction((client) => run(client));
 
-    this.logger.log(
-      `Initialized ${featuresToCreate.length} features for outlet ${outletId} (type: ${outletType})`,
-    );
+    this.logger.log(`Initialized ${count} features for outlet ${outletId} (type: ${outletType})`);
   }
 
   // ---- Private fallback methods ----

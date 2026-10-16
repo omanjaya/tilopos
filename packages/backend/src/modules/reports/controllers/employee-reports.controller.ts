@@ -1,40 +1,33 @@
-import { Controller, Get, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class EmployeeReportsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
+  ) {}
 
   @Get('employees')
   @ApiOperation({
     summary: 'Employee performance report (sales, voids, refunds, avg items per transaction)',
   })
-  async employeeReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async employeeReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { dateRange, startDate, endDate } = query;
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
@@ -57,7 +50,7 @@ export class EmployeeReportsController {
       .filter((id): id is string => id !== null);
 
     const employees = await this.prisma.employee.findMany({
-      where: { id: { in: employeeIds } },
+      where: { id: { in: employeeIds }, businessId: user.businessId },
       select: { id: true, name: true, role: true },
     });
 
@@ -83,6 +76,7 @@ export class EmployeeReportsController {
       where: {
         outletId,
         transactionType: 'refund',
+        status: 'completed',
         createdAt: { gte: start, lte: end },
         employeeId: { not: null },
       },
@@ -91,33 +85,18 @@ export class EmployeeReportsController {
 
     const refundMap = new Map(refundCounts.map((r) => [r.employeeId, r._count]));
 
-    // Average items per transaction per employee
-    const transactionsWithItems = await this.prisma.transaction.findMany({
-      where: {
-        outletId,
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-        employeeId: { in: employeeIds },
-      },
-      select: {
-        employeeId: true,
-        items: { select: { quantity: true } },
-      },
+    // Average items per transaction per employee, aggregated in SQL (F0971)
+    const itemsByEmployee = await this.queries.itemsPerEmployee({
+      outletIds: [outletId],
+      start,
+      end,
     });
-
-    const employeeItemCounts = new Map<string, { totalItems: number; transactionCount: number }>();
-    for (const tx of transactionsWithItems) {
-      if (!tx.employeeId) continue;
-      const existing = employeeItemCounts.get(tx.employeeId) || {
-        totalItems: 0,
-        transactionCount: 0,
-      };
-      const txItemCount = tx.items.reduce((sum, item) => sum + item.quantity.toNumber(), 0);
-      existing.totalItems += txItemCount;
-      existing.transactionCount += 1;
-      employeeItemCounts.set(tx.employeeId, existing);
-    }
+    const employeeItemCounts = new Map(
+      [...itemsByEmployee.entries()].map(([id, v]) => [
+        id,
+        { totalItems: v.quantity, transactionCount: v.transactions },
+      ]),
+    );
 
     const report = employeeSales.map((es) => {
       const employee = es.employeeId ? employeeMap.get(es.employeeId) : null;

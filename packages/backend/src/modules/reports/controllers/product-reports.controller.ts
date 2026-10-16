@@ -1,147 +1,67 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
+
+/** Products listed in the report (R13). */
+const MAX_TOP_PRODUCTS = 200;
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class ProductReportsController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
 
   @Get('products')
   @ApiOperation({ summary: 'Product sales report (top products by revenue and quantity)' })
-  async productReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-
+  async productReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Check cache
     const cacheKey = `report:products:${outletId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Get all completed sale transactions with items
-    const transactions = await this.prisma.transaction.findMany({
-      where: {
-        outletId,
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                category: { select: { name: true } },
-              },
-            },
-          },
-        },
-      },
-    });
+    const scope = { outletIds: [outletId], start, end };
+    // Grouped per product in SQL; revenue = item subtotal (after item discount),
+    // deleted products keep their snapshotted name (F0977/F0978)
+    const [rows, totals] = await Promise.all([
+      this.queries.itemSales(scope, { limit: MAX_TOP_PRODUCTS }),
+      this.queries.itemTotals(scope),
+    ]);
 
-    // Aggregate product sales
-    const productStats = new Map<
-      string,
-      {
-        productId: string;
-        name: string;
-        category: string | null;
-        quantitySold: number;
-        revenue: number;
-      }
-    >();
-
-    let totalQuantitySold = 0;
-
-    for (const tx of transactions) {
-      for (const item of tx.items) {
-        if (!item.product || !item.productId) continue;
-
-        const key = item.productId;
-        const existing = productStats.get(key);
-        const quantity = item.quantity.toNumber();
-        const itemRevenue = item.unitPrice.toNumber() * quantity;
-
-        totalQuantitySold += quantity;
-
-        if (existing) {
-          existing.quantitySold += quantity;
-          existing.revenue += itemRevenue;
-        } else {
-          productStats.set(key, {
-            productId: item.productId,
-            name: item.product.name,
-            category: item.product.category?.name || null,
-            quantitySold: quantity,
-            revenue: itemRevenue,
-          });
-        }
-      }
-    }
-
-    // Convert to array and sort by revenue
-    const topProducts = Array.from(productStats.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .map((p) => ({
-        ...p,
-        revenue: Math.round(p.revenue * 100) / 100,
-      }));
+    const topProducts = rows.map((r) => ({
+      productId: r.productId ?? '',
+      name: r.productName,
+      category: r.categoryName,
+      quantitySold: r.quantity,
+      revenue: Math.round(r.revenue * 100) / 100,
+    }));
 
     const result = {
       topProducts,
-      totalProducts: productStats.size,
-      totalQuantitySold,
+      totalProducts: totals.products,
+      totalQuantitySold: totals.quantity,
     };
 
-    // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
 
     return result;

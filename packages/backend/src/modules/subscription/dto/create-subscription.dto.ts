@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export enum BillingCycle {
   MONTHLY = 'monthly',
@@ -10,12 +10,13 @@ export class CreateUpgradeDto {
   billingCycle!: BillingCycle;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['midtrans', 'xendit'])
   provider?: 'midtrans' | 'xendit';
 }
 
 export class CancelSubscriptionDto {
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   reason?: string;
 }

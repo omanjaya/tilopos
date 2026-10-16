@@ -1,27 +1,29 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
-import { ReportsService, type CustomReportConfig } from '../reports.service';
+import {
+  CustomReportConfigDto,
+  SaveReportTemplateDto,
+} from '../../../application/dtos/report-query.dto';
+import { ReportsService } from '../reports.service';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class CustomReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Post('custom')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({
     summary: 'Build a custom report with user-defined metrics, dimensions, and filters',
   })
-  async buildCustomReport(@CurrentUser() user: AuthUser, @Body() config: CustomReportConfig) {
-    return this.reportsService.buildCustomReport(user.businessId, config);
+  async buildCustomReport(@CurrentUser() user: AuthUser, @Body() config: CustomReportConfigDto) {
+    return this.reportsService.buildCustomReport(user, config);
   }
 
   @Get('custom/metrics')
@@ -33,13 +35,11 @@ export class CustomReportsController {
   }
 
   @Post('custom/templates')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Save a report configuration as a reusable template',
   })
-  async saveReportTemplate(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: { name: string; config: CustomReportConfig },
-  ) {
+  async saveReportTemplate(@CurrentUser() user: AuthUser, @Body() dto: SaveReportTemplateDto) {
     return this.reportsService.saveReportTemplate(user.businessId, dto.name, dto.config);
   }
 

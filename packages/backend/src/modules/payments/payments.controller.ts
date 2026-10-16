@@ -1,21 +1,59 @@
 import {
+  BadRequestException,
   Controller,
-  Post,
-  Body,
-  Headers,
+  createParamDecorator,
+  ExecutionContext,
+  HttpCode,
   Logger,
-  RawBodyRequest,
-  Req,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
-import { Request } from 'express';
+import { plainToInstance, type ClassConstructor } from 'class-transformer';
+import { validate } from 'class-validator';
 import { HandleMidtransWebhookUseCase } from '../../application/use-cases/payments/handle-midtrans-webhook.use-case';
 import { HandleXenditWebhookUseCase } from '../../application/use-cases/payments/handle-xendit-webhook.use-case';
+import type { XenditWebhookRoute } from '../../application/use-cases/payments/xendit-webhook.mapper';
 import { MidtransWebhookDto } from '../../application/dtos/midtrans-webhook.dto';
 import { XenditWebhookDto } from '../../application/dtos/xendit-webhook.dto';
 import { WebhookGuard } from '../../shared/guards/webhook.guard';
+import { Public } from '@shared/decorators/public.decorator';
 
+/**
+ * Validates a gateway callback body against `dto` with whitelist ON but
+ * forbidNonWhitelisted OFF: fields we use are validated, undocumented extras
+ * that gateways add are stripped instead of rejecting the callback with 400.
+ * (A custom param decorator is not run through the global ValidationPipe,
+ * whose forbidNonWhitelisted would reject real Xendit/Midtrans payloads.)
+ */
+export const WebhookPayload = createParamDecorator(
+  async (dto: ClassConstructor<object>, ctx: ExecutionContext) => {
+    const body: unknown = ctx.switchToHttp().getRequest<{ body: unknown }>().body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Webhook body must be a JSON object');
+    }
+    const instance = plainToInstance(dto, body);
+    const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: false });
+    if (errors.length > 0) {
+      throw new BadRequestException(
+        errors.flatMap((e) => Object.values(e.constraints ?? {})).join('; ') ||
+          'Invalid webhook body',
+      );
+    }
+    return instance;
+  },
+);
+
+/**
+ * Payment gateway callbacks. Authenticated by WebhookGuard (Midtrans SHA-512
+ * signature / Xendit callback token, constant time, fail closed).
+ *
+ * Response semantics: 2xx = processed or intentionally ignored (duplicates,
+ * pending, amount mismatch — which is flagged on the payment and in the audit
+ * log for manual follow-up, since retrying would not change it). Unknown
+ * payment references (404) and processing errors (5xx) are non-2xx so the
+ * gateway retries and the failure is visible.
+ */
 @ApiTags('Payments')
 @Controller('payments')
 export class PaymentsWebhookController {
@@ -26,14 +64,12 @@ export class PaymentsWebhookController {
     private readonly handleXenditWebhook: HandleXenditWebhookUseCase,
   ) {}
 
-  // ===========================================================================
-  // Midtrans Webhook
-  // ===========================================================================
-
+  @Public()
   @Post('webhook/midtrans')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Handle Midtrans webhook notification' })
-  async midtransWebhook(@Body() dto: MidtransWebhookDto) {
+  async midtransWebhook(@WebhookPayload(MidtransWebhookDto) dto: MidtransWebhookDto) {
     this.logger.log(`Midtrans webhook received: order=${dto.order_id}, status=${dto.status_code}`);
 
     const result = await this.handleMidtransWebhook.execute({
@@ -41,221 +77,87 @@ export class PaymentsWebhookController {
       statusCode: dto.status_code,
       grossAmount: dto.gross_amount,
       signatureKey: dto.signature_key,
-      transactionId: dto.transaction_id,
-      transactionStatus: dto.transaction_status || 'pending',
+      transactionId: dto.transaction_id ?? '',
+      transactionStatus: dto.transaction_status,
       fraudStatus: dto.fraud_status,
     });
 
-    // Always return 200 to Midtrans to acknowledge receipt
-    return {
-      success: result.success,
-      message: 'Webhook processed',
-    };
+    return { success: result.success, code: result.code, message: 'Webhook processed' };
   }
 
-  // ===========================================================================
-  // Xendit Webhook
-  // ===========================================================================
-
+  @Public()
   @Post('webhook/xendit')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Handle Xendit webhook notification' })
   @ApiHeader({ name: 'x-callback-token', description: 'Xendit callback verification token' })
-  async xenditWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') _callbackToken: string,
-    @Req() _req: RawBodyRequest<Request>,
-  ) {
-    this.logger.log(`Xendit webhook received: event=${dto.event}, id=${dto.id || dto.external_id}`);
-
-    // Note: Webhook authentication is handled by WebhookGuard
-    // Extract relevant data from webhook payload
-    const webhookData = this.extractXenditWebhookData(dto);
-
-    const result = await this.handleXenditWebhook.execute({
-      event: dto.event,
-      externalId: webhookData.externalId,
-      status: webhookData.status,
-      amount: webhookData.amount,
-      paymentMethod: webhookData.paymentMethod,
-      paymentChannel: webhookData.paymentChannel,
-      paidAt: webhookData.paidAt,
-      rawPayload: dto as unknown as Record<string, unknown>,
-    });
-
-    // Always return 200 to Xendit to acknowledge receipt
-    return {
-      success: result.success,
-      message: result.message || 'Webhook processed',
-    };
+  async xenditWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('generic', dto);
   }
 
-  // ===========================================================================
-  // Xendit Alternative Webhook Endpoints
-  // ===========================================================================
-
+  @Public()
   @Post('xendit/callback')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
   @ApiOperation({ summary: 'Alternative Xendit callback endpoint' })
-  async xenditCallback(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  async xenditCallback(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('generic', dto);
   }
 
+  @Public()
   @Post('xendit/invoice')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
-  @ApiOperation({ summary: 'Xendit invoice webhook endpoint' })
-  async xenditInvoiceWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    // Add invoice event if not present
-    if (!dto.event) {
-      dto.event = dto.status === 'PAID' ? 'invoice.paid' : 'invoice.expired';
-    }
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  @ApiOperation({ summary: 'Xendit invoice callback (flat payload, no event field)' })
+  async xenditInvoiceWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('invoice', dto);
   }
 
+  @Public()
   @Post('xendit/qris')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
-  @ApiOperation({ summary: 'Xendit QRIS webhook endpoint' })
-  async xenditQrisWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    // Add QRIS event if not present
-    if (!dto.event) {
-      dto.event = dto.status === 'PAID' ? 'qr_code.paid' : 'qr_code.expired';
-    }
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  @ApiOperation({ summary: 'Xendit QR code payment callback' })
+  async xenditQrisWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('qris', dto);
   }
 
+  @Public()
   @Post('xendit/va')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
-  @ApiOperation({ summary: 'Xendit Virtual Account webhook endpoint' })
-  async xenditVAWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    // Add VA event if not present
-    if (!dto.event) {
-      dto.event = dto.status === 'PAID' ? 'fixed_payment_code.paid' : 'fixed_payment_code.expired';
-    }
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  @ApiOperation({ summary: 'Xendit fixed virtual account payment callback' })
+  async xenditVAWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('va', dto);
   }
 
+  @Public()
   @Post('xendit/ewallet')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
-  @ApiOperation({ summary: 'Xendit E-Wallet webhook endpoint' })
-  async xenditEwalletWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    // Add E-wallet event if not present
-    if (!dto.event) {
-      dto.event = dto.status === 'CAPTURED' ? 'ewallet.capture' : 'ewallet.void';
-    }
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  @ApiOperation({ summary: 'Xendit e-wallet charge callback' })
+  async xenditEwalletWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('ewallet', dto);
   }
 
+  @Public()
   @Post('xendit/retail')
+  @HttpCode(200)
   @UseGuards(WebhookGuard)
-  @ApiOperation({ summary: 'Xendit Retail Outlet webhook endpoint' })
-  async xenditRetailWebhook(
-    @Body() dto: XenditWebhookDto,
-    @Headers('x-callback-token') callbackToken: string,
-  ) {
-    // Add retail event if not present
-    if (!dto.event) {
-      dto.event = dto.status === 'PAID' ? 'retail_outlet.paid' : 'retail_outlet.expired';
-    }
-    return this.xenditWebhook(dto, callbackToken, {} as RawBodyRequest<Request>);
+  @ApiOperation({ summary: 'Xendit retail outlet payment callback' })
+  async xenditRetailWebhook(@WebhookPayload(XenditWebhookDto) dto: XenditWebhookDto) {
+    return this.processXendit('retail', dto);
   }
 
-  // ===========================================================================
-  // Helpers
-  // ===========================================================================
-
-  private extractXenditWebhookData(dto: XenditWebhookDto): {
-    externalId: string;
-    status: string;
-    amount: number;
-    paymentMethod?: string;
-    paymentChannel?: string;
-    paidAt?: string;
-  } {
-    // Try to extract from nested objects first
-    if (dto.invoice) {
-      return {
-        externalId: dto.invoice.external_id,
-        status: dto.invoice.status,
-        amount: dto.invoice.paid_amount || dto.invoice.amount,
-        paymentMethod: dto.invoice.payment_method,
-        paymentChannel: dto.invoice.payment_channel,
-        paidAt: dto.invoice.paid_at,
-      };
-    }
-
-    if (dto.qr_code) {
-      return {
-        externalId: dto.qr_code.external_id,
-        status: dto.qr_code.status,
-        amount: dto.qr_code.amount,
-        paymentMethod: 'QRIS',
-        paidAt: dto.qr_code.paid_at,
-      };
-    }
-
-    if (dto.virtual_account) {
-      return {
-        externalId: dto.virtual_account.external_id,
-        status: dto.virtual_account.status,
-        amount: dto.virtual_account.amount || dto.virtual_account.expected_amount,
-        paymentMethod: 'VA',
-        paymentChannel: dto.virtual_account.bank_code,
-        paidAt: dto.virtual_account.paid_at,
-      };
-    }
-
-    if (dto.ewallet) {
-      return {
-        externalId: dto.ewallet.external_id,
-        status: dto.ewallet.status,
-        amount: dto.ewallet.amount,
-        paymentMethod: 'EWALLET',
-        paymentChannel: dto.ewallet.ewallet_type,
-      };
-    }
-
-    if (dto.retail_outlet) {
-      return {
-        externalId: dto.retail_outlet.external_id,
-        status: dto.retail_outlet.status,
-        amount: dto.retail_outlet.amount || dto.retail_outlet.expected_amount,
-        paymentMethod: 'RETAIL',
-        paymentChannel: dto.retail_outlet.retail_outlet_name,
-        paidAt: dto.retail_outlet.paid_at,
-      };
-    }
-
-    if (dto.refund) {
-      return {
-        externalId: dto.refund.payment_id || dto.refund.invoice_id || dto.refund.id,
-        status: dto.refund.status,
-        amount: dto.refund.amount,
-        paymentMethod: 'REFUND',
-      };
-    }
-
-    // Fall back to top-level fields
+  private async processXendit(route: XenditWebhookRoute, dto: XenditWebhookDto) {
+    this.logger.log(
+      `Xendit ${route} webhook received: event=${dto.event ?? '-'}, id=${dto.id ?? '-'}`,
+    );
+    const result = await this.handleXenditWebhook.execute(route, dto);
     return {
-      externalId: dto.external_id || dto.id || '',
-      status: dto.status || 'PENDING',
-      amount: dto.amount || 0,
-      paymentMethod: dto.payment_method,
-      paymentChannel: dto.payment_channel,
+      success: result.success,
+      code: result.code,
+      message: result.message ?? 'Webhook processed',
     };
   }
 }

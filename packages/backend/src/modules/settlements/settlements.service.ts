@@ -1,523 +1,372 @@
-/**
- * Settlements & Reconciliation Service
- *
- * Features:
- * - Auto-scheduling settlements
- * - Daily/weekly/monthly settlement periods
- * - Payment method breakdown
- * - Cash vs non-cash reconciliation
- * - Dispute handling
- * - Export reports
- */
-
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, type SettlementStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { PaymentMethod, SettlementStatus, Prisma } from '@prisma/client';
+import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { TenantAccessService } from '@shared/tenant';
+import { toPrismaPage } from '@shared/dtos/pagination-query.dto';
+import { parseBusinessDate } from '@shared/utils/business-time';
+import { money, sumMoney, toNumber } from '@shared/utils/money';
+import type {
+  CreateSettlementDto,
+  ListSettlementsQueryDto,
+  ReconciliationQueryDto,
+} from './dto/settlement.dto';
 
-// Types
-export interface SettlementPeriod {
-  start: Date;
-  end: Date;
+const SETTLEMENT_INCLUDE = {
+  outlet: { select: { id: true, name: true, businessId: true } },
+} as const;
+
+type SettlementWithOutlet = Prisma.PaymentSettlementGetPayload<{
+  include: typeof SETTLEMENT_INCLUDE;
+}>;
+
+/** `YYYY-MM-DD` → the `@db.Date` value stored in payment_settlements.settlement_date. */
+function dateOnly(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
-export interface PaymentBreakdown {
-  method: PaymentMethod;
-  transactionCount: number;
-  totalAmount: number;
-  refundAmount: number;
-  netAmount: number;
+function parseRange(startDate: string, endDate: string): { start: Date; end: Date } {
+  try {
+    const start = parseBusinessDate(startDate).start;
+    const end = parseBusinessDate(endDate).end;
+    if (start > end) throw new Error('startDate must be <= endDate');
+    return { start, end };
+  } catch (error) {
+    throw new BadRequestException(error instanceof Error ? error.message : 'Invalid date range');
+  }
 }
 
-export interface SettlementSummary {
-  id: string;
-  outletId: string;
-  paymentMethod: string;
-  settlementDate: Date;
-  totalTransactions: number;
-  grossAmount: number;
-  feeAmount: number;
-  netAmount: number;
-  status: SettlementStatus;
-  referenceNumber?: string;
-  settledAt?: Date;
-  metadata?: Record<string, unknown>;
-}
-
-export interface CreateSettlementDto {
-  outletId: string;
-  periodStart: Date;
-  periodEnd: Date;
-}
-
-export interface CloseSettlementDto {
-  actualCash: number;
-  notes?: string;
-  employeeId: string;
-}
-
-export interface SettlementReport {
-  outlet: { id: string; name: string };
-  period: SettlementPeriod;
-  summary: SettlementSummary;
-  transactions: Array<{
-    id: string;
-    receiptNumber: string;
-    grandTotal: number;
-    paymentMethod: PaymentMethod;
-    createdAt: Date;
-  }>;
-}
-
-// ========================================
-// SETTLEMENTS SERVICE
-// ========================================
-
+/**
+ * Settlement listing, reconciliation and manual confirmation. Every query is
+ * scoped to the caller's business (R3); status transitions are conditional
+ * (pending → settled | disputed) and audited (R9).
+ */
 @Injectable()
 export class SettlementsService {
-  private readonly logger = new Logger(SettlementsService.name);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
-  constructor(private readonly prisma: PrismaService) {}
-
-  // ========================================
-  // AUTO-SCHEDULING (CRON JOBS)
-  // ========================================
-
-  /**
-   * Auto-create daily settlement at midnight
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async autoCreateDailySettlements(): Promise<void> {
-    this.logger.log('Running auto-settlement job...');
-
-    const outlets = await this.prisma.outlet.findMany({
-      where: { isActive: true },
-    });
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
-
-    const endOfYesterday = new Date(yesterday);
-    endOfYesterday.setHours(23, 59, 59, 999);
-
-    for (const outlet of outlets) {
-      try {
-        // Check if settlement already exists (use date range to avoid time mismatch)
-        const existing = await this.prisma.paymentSettlement.findFirst({
-          where: {
-            outletId: outlet.id,
+  async list(user: AuthUser, query: ListSettlementsQueryDto) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    const where: Prisma.PaymentSettlementWhereInput = {
+      outletId: { in: outletIds },
+      outlet: { businessId: user.businessId },
+      ...(query.status && query.status !== 'all' ? { status: query.status } : {}),
+      ...(query.dateFrom || query.dateTo
+        ? {
             settlementDate: {
-              gte: yesterday,
-              lte: endOfYesterday,
+              ...(query.dateFrom ? { gte: dateOnly(query.dateFrom) } : {}),
+              ...(query.dateTo ? { lte: dateOnly(query.dateTo) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    // The web client expects a plain array; the page is bounded by page/limit (R13).
+    const settlements = await this.prisma.paymentSettlement.findMany({
+      where,
+      include: SETTLEMENT_INCLUDE,
+      orderBy: [{ settlementDate: 'desc' }, { paymentMethod: 'asc' }],
+      ...toPrismaPage(query),
+    });
+    return settlements.map((s) => this.toView(s));
+  }
+
+  async get(user: AuthUser, id: string) {
+    const settlement = await this.prisma.paymentSettlement.findFirst({
+      where: { id, outlet: { businessId: user.businessId } },
+      include: SETTLEMENT_INCLUDE,
+    });
+    if (!settlement) throw new NotFoundException('Settlement not found');
+    return this.toView(settlement);
+  }
+
+  async reconciliation(user: AuthUser, query: ReconciliationQueryDto) {
+    const { start, end } = parseRange(query.startDate, query.endDate);
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    const txScope: Prisma.TransactionWhereInput = {
+      outletId: { in: outletIds },
+      outlet: { businessId: user.businessId },
+      createdAt: { gte: start, lte: end },
+    };
+    const salesWhere: Prisma.TransactionWhereInput = {
+      ...txScope,
+      transactionType: 'sale',
+      status: { in: ['completed', 'partially_refunded', 'refunded'] },
+    };
+    const refundsWhere: Prisma.TransactionWhereInput = {
+      ...txScope,
+      transactionType: 'refund',
+      status: { not: 'voided' },
+    };
+
+    const [sales, refunds, paymentsByMethod, refundPaymentsByMethod, settlements, unmatched] =
+      await Promise.all([
+        this.prisma.transaction.aggregate({
+          where: salesWhere,
+          _sum: { grandTotal: true },
+          _count: { _all: true },
+        }),
+        this.prisma.transaction.aggregate({
+          where: refundsWhere,
+          _sum: { grandTotal: true },
+          _count: { _all: true },
+        }),
+        this.prisma.payment.groupBy({
+          by: ['paymentMethod'],
+          where: { status: 'completed', transaction: salesWhere },
+          _sum: { amount: true },
+          _count: { _all: true },
+        }),
+        this.prisma.payment.groupBy({
+          by: ['paymentMethod'],
+          where: { status: 'completed', transaction: refundsWhere },
+          _sum: { amount: true },
+          _count: { _all: true },
+        }),
+        this.prisma.paymentSettlement.groupBy({
+          by: ['status'],
+          where: {
+            outletId: { in: outletIds },
+            outlet: { businessId: user.businessId },
+            settlementDate: {
+              gte: dateOnly(query.startDate),
+              lte: dateOnly(query.endDate),
+            },
+          },
+          _sum: { grossAmount: true, netAmount: true },
+          _count: { _all: true },
+        }),
+        this.prisma.transaction.findMany({
+          where: { ...salesWhere, payments: { none: { status: 'completed' } } },
+          select: { id: true, receiptNumber: true, grandTotal: true },
+          orderBy: { createdAt: 'asc' },
+          take: 100,
+        }),
+      ]);
+
+    const totalSalesAmount = money(sales._sum.grandTotal);
+    const totalRefundsAmount = money(refunds._sum.grandTotal).abs();
+    const netTransactionsAmount = totalSalesAmount.minus(totalRefundsAmount);
+
+    const refundByMethod = new Map(
+      refundPaymentsByMethod.map((r) => [r.paymentMethod, money(r._sum.amount)]),
+    );
+    const byMethod = paymentsByMethod.map((p) => ({
+      method: p.paymentMethod,
+      count: p._count._all,
+      total: toNumber(money(p._sum.amount).minus(refundByMethod.get(p.paymentMethod) ?? 0)),
+    }));
+    for (const [method, amount] of refundByMethod) {
+      if (!paymentsByMethod.some((p) => p.paymentMethod === method)) {
+        byMethod.push({ method, count: 0, total: toNumber(amount.negated()) });
+      }
+    }
+    // Payments net of refunds; includes change handed back in cash (see settlement totals).
+    const totalPaymentsReceived = sumMoney(byMethod.map((m) => m.total));
+
+    const countOf = (status: SettlementStatus) =>
+      settlements.find((s) => s.status === status)?._count._all ?? 0;
+    const totalSettledGross = sumMoney(settlements.map((s) => s._sum.grossAmount));
+    const totalSettledNet = sumMoney(settlements.map((s) => s._sum.netAmount));
+
+    const transactionVsPaymentDiff = netTransactionsAmount.minus(totalPaymentsReceived);
+    const paymentVsSettlementDiff = totalPaymentsReceived.minus(totalSettledGross);
+
+    return {
+      dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
+      transactions: {
+        salesCount: sales._count._all,
+        refundsCount: refunds._count._all,
+        totalSalesAmount: toNumber(totalSalesAmount),
+        totalRefundsAmount: toNumber(totalRefundsAmount),
+        netTransactionsAmount: toNumber(netTransactionsAmount),
+      },
+      payments: {
+        totalPaymentsReceived: toNumber(totalPaymentsReceived),
+        byMethod,
+      },
+      settlements: {
+        totalSettlements: settlements.reduce((n, s) => n + s._count._all, 0),
+        settledCount: countOf('settled'),
+        pendingCount: countOf('pending'),
+        disputedCount: countOf('disputed'),
+        totalSettledGross: toNumber(totalSettledGross),
+        totalSettledNet: toNumber(totalSettledNet),
+      },
+      discrepancies: {
+        transactionVsPaymentDiff: toNumber(transactionVsPaymentDiff),
+        paymentVsSettlementDiff: toNumber(paymentVsSettlementDiff),
+        hasDiscrepancy: transactionVsPaymentDiff.abs().gt(1) || paymentVsSettlementDiff.abs().gt(1),
+      },
+      unmatchedPayments: unmatched.map((t) => ({
+        transactionId: t.id,
+        receiptNumber: t.receiptNumber,
+        amount: toNumber(t.grandTotal),
+        issue: 'No payment record found',
+      })),
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  async create(user: AuthUser, dto: CreateSettlementDto) {
+    const outletId = await this.tenant.assertOutlet(user, dto.outletId);
+    const gross = money(dto.grossAmount);
+    const fee = money(dto.feeAmount);
+    const net = money(dto.netAmount);
+    if (fee.gt(gross)) {
+      throw new BadRequestException('feeAmount cannot exceed grossAmount');
+    }
+    if (!gross.minus(fee).equals(net)) {
+      throw new BadRequestException('netAmount must equal grossAmount - feeAmount');
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await tx.paymentSettlement.create({
+          data: {
+            outletId,
+            paymentMethod: dto.paymentMethod,
+            settlementDate: dateOnly(dto.settlementDate),
+            totalTransactions: dto.totalTransactions,
+            grossAmount: gross,
+            feeAmount: fee,
+            netAmount: net,
+            referenceNumber: dto.referenceNumber ?? null,
+            metadata: { source: 'manual', createdBy: user.employeeId },
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            businessId: user.businessId,
+            outletId,
+            employeeId: user.employeeId,
+            action: 'settlement_created',
+            entityType: 'payment_settlement',
+            entityId: created.id,
+            newValue: {
+              paymentMethod: dto.paymentMethod,
+              settlementDate: dto.settlementDate,
+              grossAmount: gross.toString(),
+              feeAmount: fee.toString(),
+              netAmount: net.toString(),
             },
           },
         });
-
-        if (!existing) {
-          await this.createSettlement({
-            outletId: outlet.id,
-            periodStart: yesterday,
-            periodEnd: endOfYesterday,
-          });
-          this.logger.log(`Created settlement for outlet ${outlet.id}`);
-        }
-      } catch (error) {
-        this.logger.error(`Failed to create settlement for outlet ${outlet.id}: ${error}`);
+        return created;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(
+          'A settlement for this outlet, date and payment method already exists',
+        );
       }
+      throw error;
     }
   }
 
-  // ========================================
-  // SETTLEMENT CRUD
-  // ========================================
-
-  async getSettlements(
-    outletId: string,
-    options?: {
-      status?: SettlementStatus;
-      startDate?: Date;
-      endDate?: Date;
-      limit?: number;
-    },
-  ): Promise<SettlementSummary[]> {
-    const where: Prisma.PaymentSettlementWhereInput = { outletId };
-
-    if (options?.status) where.status = options.status;
-    if (options?.startDate) where.settlementDate = { gte: options.startDate };
-    if (options?.endDate) {
-      where.settlementDate = {
-        ...((where.settlementDate as Prisma.DateTimeFilter) ?? {}),
-        lte: options.endDate,
-      };
-    }
-
-    const settlements = await this.prisma.paymentSettlement.findMany({
-      where,
-      orderBy: { settlementDate: 'desc' },
-      take: options?.limit ?? 30,
+  async settle(user: AuthUser, id: string, notes?: string) {
+    return this.transition(user, id, 'settled', {
+      settledBy: user.employeeId,
+      ...(notes ? { notes } : {}),
     });
-
-    return settlements.map((s) => this.mapSettlementSummary(s));
   }
 
-  async getSettlementById(id: string): Promise<SettlementSummary> {
-    const settlement = await this.prisma.paymentSettlement.findUnique({
-      where: { id },
+  async dispute(user: AuthUser, id: string, reason?: string) {
+    return this.transition(user, id, 'disputed', {
+      disputedBy: user.employeeId,
+      ...(reason ? { disputeReason: reason } : {}),
     });
-
-    if (!settlement) {
-      throw new NotFoundException(`Settlement ${id} not found`);
-    }
-
-    return this.mapSettlementSummary(settlement);
   }
 
-  async createSettlement(data: CreateSettlementDto): Promise<SettlementSummary> {
-    const { outletId, periodStart, periodEnd } = data;
-
-    // Calculate totals from transactions
-    const transactions = await this.prisma.transaction.findMany({
-      where: {
-        outletId,
-        createdAt: { gte: periodStart, lte: periodEnd },
-        status: { in: ['completed', 'refunded'] },
-      },
-      include: {
-        payments: true,
-      },
-    });
-
-    // Calculate breakdown by payment method
-    const breakdownMap = new Map<PaymentMethod, PaymentBreakdown>();
-
-    for (const tx of transactions) {
-      const isRefund = tx.transactionType === 'refund';
-
-      for (const payment of tx.payments) {
-        if (!breakdownMap.has(payment.paymentMethod)) {
-          breakdownMap.set(payment.paymentMethod, {
-            method: payment.paymentMethod,
-            transactionCount: 0,
-            totalAmount: 0,
-            refundAmount: 0,
-            netAmount: 0,
-          });
-        }
-
-        const breakdown = breakdownMap.get(payment.paymentMethod)!;
-        breakdown.transactionCount++;
-
-        if (isRefund) {
-          breakdown.refundAmount += Number(payment.amount);
-        } else {
-          breakdown.totalAmount += Number(payment.amount);
-        }
-        breakdown.netAmount = breakdown.totalAmount - breakdown.refundAmount;
-      }
-    }
-
-    const breakdown = Array.from(breakdownMap.values());
-
-    // Calculate totals
-    const grossAmount = breakdown.reduce((sum, b) => sum + b.totalAmount, 0);
-    const totalRefunds = breakdown.reduce((sum, b) => sum + b.refundAmount, 0);
-    const netAmount = grossAmount - totalRefunds;
-    const totalTransactions = transactions.length;
-
-    // Create settlement record
-    const settlement = await this.prisma.paymentSettlement.create({
-      data: {
-        outletId,
-        paymentMethod: 'mixed',
-        settlementDate: periodStart,
-        totalTransactions,
-        grossAmount,
-        feeAmount: 0,
-        netAmount,
-        status: 'pending',
-        metadata: {
-          periodStart: periodStart.toISOString(),
-          periodEnd: periodEnd.toISOString(),
-          breakdown: breakdown,
-          totalRefunds,
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
-
-    return this.mapSettlementSummary(settlement);
-  }
-
-  async closeSettlement(id: string, data: CloseSettlementDto): Promise<SettlementSummary> {
-    const settlement = await this.prisma.paymentSettlement.findUnique({
-      where: { id },
-    });
-
-    if (!settlement) {
-      throw new NotFoundException(`Settlement ${id} not found`);
-    }
-
-    const existingMeta = (settlement.metadata as Record<string, unknown>) || {};
-
-    // Extract expected cash amount from breakdown (not total netAmount which includes all methods)
-    const breakdown =
-      (existingMeta.breakdown as Array<{
-        method: string;
-        netAmount?: number;
-        totalAmount?: number;
-      }>) || [];
-    let expectedCash = 0;
-    if (breakdown.length > 0) {
-      const cashBreakdown = breakdown.find((b) => b.method === 'cash');
-      expectedCash = cashBreakdown
-        ? (cashBreakdown.netAmount ?? cashBreakdown.totalAmount ?? 0)
-        : 0;
-    } else if (settlement.paymentMethod === 'cash') {
-      expectedCash = Number(settlement.netAmount);
-    }
-
-    const variance = data.actualCash - expectedCash;
-
-    const updated = await this.prisma.paymentSettlement.update({
-      where: { id },
-      data: {
-        settledAt: new Date(),
-        status: Math.abs(variance) < 1 ? 'settled' : 'disputed',
-        metadata: {
-          ...existingMeta,
-          actualCash: data.actualCash,
-          expectedCash,
-          variance,
-          notes: data.notes,
-          settledBy: data.employeeId,
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
-
-    this.logger.log(`Settlement ${id} closed. Variance: ${variance}`);
-
-    return this.mapSettlementSummary(updated);
-  }
-
-  async disputeSettlement(id: string, reason: string): Promise<SettlementSummary> {
-    const settlement = await this.prisma.paymentSettlement.findUnique({ where: { id } });
-    if (!settlement) throw new NotFoundException(`Settlement ${id} not found`);
-
-    const existingMeta = (settlement.metadata as Record<string, unknown>) || {};
-    const updated = await this.prisma.paymentSettlement.update({
-      where: { id },
-      data: {
-        status: 'disputed',
-        metadata: {
-          ...existingMeta,
-          disputeReason: reason,
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
-
-    return this.mapSettlementSummary(updated);
-  }
-
-  async resolveDispute(
+  /** pending → settled | disputed, scoped to the caller's business and audited. */
+  private async transition(
+    user: AuthUser,
     id: string,
-    resolution: string,
-    employeeId: string,
-  ): Promise<SettlementSummary> {
-    const settlement = await this.prisma.paymentSettlement.findUnique({ where: { id } });
-    if (!settlement) throw new NotFoundException(`Settlement ${id} not found`);
+    to: 'settled' | 'disputed',
+    metaPatch: Record<string, string>,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.paymentSettlement.findFirst({
+        where: { id, outlet: { businessId: user.businessId } },
+        select: { id: true, outletId: true, status: true, metadata: true },
+      });
+      if (!current) throw new NotFoundException('Settlement not found');
 
-    const existingMeta = (settlement.metadata as Record<string, unknown>) || {};
-    const updated = await this.prisma.paymentSettlement.update({
-      where: { id },
-      data: {
-        status: 'settled',
-        settledAt: new Date(),
-        metadata: {
-          ...existingMeta,
-          resolution,
-          resolvedBy: employeeId,
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
+      const existingMeta =
+        current.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+          ? (current.metadata as Prisma.JsonObject)
+          : {};
 
-    return this.mapSettlementSummary(updated);
-  }
-
-  // ========================================
-  // REPORTS
-  // ========================================
-
-  async getSettlementReport(id: string): Promise<SettlementReport> {
-    const settlement = await this.prisma.paymentSettlement.findUnique({
-      where: { id },
-      include: { outlet: true },
-    });
-
-    if (!settlement) {
-      throw new NotFoundException(`Settlement ${id} not found`);
-    }
-
-    const meta = (settlement.metadata as Record<string, unknown>) || {};
-    const periodStart = meta.periodStart
-      ? new Date(meta.periodStart as string)
-      : settlement.settlementDate;
-    const periodEnd = meta.periodEnd
-      ? new Date(meta.periodEnd as string)
-      : settlement.settlementDate;
-
-    const transactions = await this.prisma.transaction.findMany({
-      where: {
-        outletId: settlement.outletId,
-        createdAt: { gte: periodStart, lte: periodEnd },
-        status: { in: ['completed', 'refunded'] },
-      },
-      include: { payments: true },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    return {
-      outlet: { id: settlement.outlet.id, name: settlement.outlet.name },
-      period: { start: periodStart, end: periodEnd },
-      summary: this.mapSettlementSummary(settlement),
-      transactions: transactions.map((tx) => ({
-        id: tx.id,
-        receiptNumber: tx.receiptNumber,
-        grandTotal: Number(tx.grandTotal),
-        paymentMethod: tx.payments[0]?.paymentMethod || 'cash',
-        createdAt: tx.createdAt,
-      })),
-    };
-  }
-
-  async getMonthlyReport(
-    outletId: string,
-    year: number,
-    month: number,
-  ): Promise<{
-    month: string;
-    totalSales: number;
-    totalRefunds: number;
-    netSales: number;
-    settlementCount: number;
-    pendingCount: number;
-    disputedCount: number;
-  }> {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-
-    const settlements = await this.prisma.paymentSettlement.findMany({
-      where: {
-        outletId,
-        settlementDate: { gte: startDate, lte: endDate },
-      },
-    });
-
-    // Extract totalRefunds from metadata breakdown (feeAmount is gateway fees, not refunds)
-    const totalRefunds = settlements.reduce((sum, s) => {
-      const meta = (s.metadata as Record<string, unknown>) || {};
-      return sum + (Number(meta.totalRefunds) || 0);
-    }, 0);
-
-    return {
-      month: `${year}-${month.toString().padStart(2, '0')}`,
-      totalSales: settlements.reduce((sum, s) => sum + Number(s.grossAmount), 0),
-      totalRefunds,
-      netSales: settlements.reduce((sum, s) => sum + Number(s.netAmount), 0),
-      settlementCount: settlements.length,
-      pendingCount: settlements.filter((s) => s.status === 'pending').length,
-      disputedCount: settlements.filter((s) => s.status === 'disputed').length,
-    };
-  }
-
-  // ========================================
-  // RECONCILIATION
-  // ========================================
-
-  async reconcileWithPaymentProvider(
-    outletId: string,
-    periodStart: Date,
-    periodEnd: Date,
-    providerData: Array<{ referenceNumber: string; amount: number; status: string }>,
-  ): Promise<{
-    matched: number;
-    unmatched: number;
-    discrepancies: Array<{ referenceNumber: string; expected: number; actual: number }>;
-  }> {
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        transaction: {
-          outletId,
-          createdAt: { gte: periodStart, lte: periodEnd },
+      const { count } = await tx.paymentSettlement.updateMany({
+        where: { id, outlet: { businessId: user.businessId }, status: 'pending' },
+        data: {
+          status: to,
+          ...(to === 'settled' ? { settledAt: new Date() } : {}),
+          metadata: { ...existingMeta, ...metaPatch },
         },
-        paymentMethod: { not: 'cash' },
-        referenceNumber: { not: null },
-      },
-    });
-
-    let matched = 0;
-    let unmatched = 0;
-    const discrepancies: Array<{ referenceNumber: string; expected: number; actual: number }> = [];
-
-    for (const payment of payments) {
-      const providerRecord = providerData.find(
-        (p) => p.referenceNumber === payment.referenceNumber,
-      );
-
-      if (!providerRecord) {
-        unmatched++;
-        discrepancies.push({
-          referenceNumber: payment.referenceNumber!,
-          expected: Number(payment.amount),
-          actual: 0,
-        });
-      } else if (Math.abs(providerRecord.amount - Number(payment.amount)) > 1) {
-        matched++;
-        discrepancies.push({
-          referenceNumber: payment.referenceNumber!,
-          expected: Number(payment.amount),
-          actual: providerRecord.amount,
-        });
-      } else {
-        matched++;
+      });
+      if (count === 0) {
+        throw new ConflictException(`Settlement is already ${current.status}`);
       }
-    }
 
-    return { matched, unmatched, discrepancies };
+      await tx.auditLog.create({
+        data: {
+          businessId: user.businessId,
+          outletId: current.outletId,
+          employeeId: user.employeeId,
+          action: to === 'settled' ? 'settlement_settled' : 'settlement_disputed',
+          entityType: 'payment_settlement',
+          entityId: id,
+          oldValue: { status: current.status },
+          newValue: { status: to, ...metaPatch },
+        },
+      });
+
+      return tx.paymentSettlement.findFirstOrThrow({
+        where: { id, outlet: { businessId: user.businessId } },
+      });
+    });
   }
 
-  // ========================================
-  // PRIVATE HELPERS
-  // ========================================
+  private toView(s: SettlementWithOutlet) {
+    const meta =
+      s.metadata && typeof s.metadata === 'object' && !Array.isArray(s.metadata)
+        ? (s.metadata as Record<string, unknown>)
+        : {};
+    const grossAmount = toNumber(s.grossAmount);
+    const netAmount = toNumber(s.netAmount);
+    const isCash = s.paymentMethod === 'cash';
 
-  private mapSettlementSummary(settlement: {
-    id: string;
-    outletId: string;
-    paymentMethod: string;
-    settlementDate: Date;
-    totalTransactions: number;
-    grossAmount: Prisma.Decimal;
-    feeAmount: Prisma.Decimal;
-    netAmount: Prisma.Decimal;
-    status: SettlementStatus;
-    referenceNumber: string | null;
-    settledAt: Date | null;
-    metadata: Prisma.JsonValue;
-    createdAt: Date;
-    updatedAt: Date;
-  }): SettlementSummary {
     return {
-      id: settlement.id,
-      outletId: settlement.outletId,
-      paymentMethod: settlement.paymentMethod,
-      settlementDate: settlement.settlementDate,
-      totalTransactions: settlement.totalTransactions,
-      grossAmount: Number(settlement.grossAmount),
-      feeAmount: Number(settlement.feeAmount),
-      netAmount: Number(settlement.netAmount),
-      status: settlement.status,
-      referenceNumber: settlement.referenceNumber || undefined,
-      settledAt: settlement.settledAt || undefined,
-      metadata: settlement.metadata as unknown as Record<string, unknown>,
+      id: s.id,
+      date: s.settlementDate.toISOString(),
+      outletId: s.outletId,
+      outletName: s.outlet.name,
+      paymentMethod: s.paymentMethod,
+      totalSales: grossAmount,
+      feeAmount: toNumber(s.feeAmount),
+      netAmount,
+      cashAmount: isCash ? grossAmount : 0,
+      nonCashAmount: isCash ? 0 : grossAmount,
+      settledAmount: s.status === 'settled' ? netAmount : 0,
+      status: s.status,
+      paymentBreakdown: [
+        { method: s.paymentMethod, amount: grossAmount, transactionCount: s.totalTransactions },
+      ],
+      notes: typeof meta.notes === 'string' ? meta.notes : null,
+      settledAt: s.settledAt ? s.settledAt.toISOString() : null,
+      settledBy: typeof meta.settledBy === 'string' ? meta.settledBy : null,
+      businessId: s.outlet.businessId,
+      createdAt: s.createdAt.toISOString(),
     };
   }
 }

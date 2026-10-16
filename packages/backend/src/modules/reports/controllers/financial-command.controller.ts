@@ -1,53 +1,91 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { money, toNumber } from '@shared/utils/money';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
-import { PurchaseOrderStatus } from '@prisma/client';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
+import { computeProfit } from '../utils/profit.util';
 
 /**
  * Financial Command Controller
  * Advanced financial analytics for business owners.
+ *
+ * Definitions (see utils/profit.util.ts):
+ * - revenue  = net sales excl. tax (subtotal - discount) minus completed refunds
+ * - expenses = COGS. Received purchase orders are inventory purchases, reported
+ *              only as cash out / informational, never added to expenses.
  */
 @ApiTags('Financial Command')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN, EmployeeRole.MANAGER)
 @Controller('owner/financial')
 export class FinancialCommandController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
+
+  /** Completed sale/refund totals grouped by outlet (single query each). */
+  private async salesAndRefundsByOutlet(outletIds: string[], start: Date, end: Date) {
+    if (outletIds.length === 0) {
+      return { sales: new Map(), refunds: new Map() } as {
+        sales: Map<string, { subtotal: number; discount: number; tax: number; grand: number }>;
+        refunds: Map<string, number>;
+      };
+    }
+    const base = {
+      outletId: { in: outletIds },
+      status: 'completed' as const,
+      createdAt: { gte: start, lte: end },
+    };
+    const [sales, refunds] = await Promise.all([
+      this.prisma.transaction.groupBy({
+        by: ['outletId'],
+        where: { ...base, transactionType: 'sale' },
+        _sum: { subtotal: true, discountAmount: true, taxAmount: true, grandTotal: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['outletId'],
+        where: { ...base, transactionType: 'refund' },
+        _sum: { subtotal: true },
+      }),
+    ]);
+    return {
+      sales: new Map(
+        sales.map((s) => [
+          s.outletId,
+          {
+            subtotal: toNumber(s._sum.subtotal),
+            discount: toNumber(s._sum.discountAmount),
+            tax: toNumber(s._sum.taxAmount),
+            grand: toNumber(s._sum.grandTotal),
+          },
+        ]),
+      ),
+      refunds: new Map(refunds.map((r) => [r.outletId, toNumber(money(r._sum.subtotal).abs())])),
+    };
+  }
 
   @Get('revenue-expense')
   @ApiOperation({ summary: 'Revenue vs Expense analysis' })
-  async getRevenueExpense(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('outletId') outletId?: string,
-  ) {
+  async getRevenueExpense(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Get outlet IDs
-    const outlets = await this.prisma.outlet.findMany({
-      where: {
-        businessId: user.businessId,
-        ...(outletId ? { id: outletId } : {}),
-      },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    // A requested outlet must belong to the caller's business (R3)
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
 
     if (outletIds.length === 0) {
       return {
@@ -60,179 +98,102 @@ export class FinancialCommandController {
       };
     }
 
-    // Calculate Revenue (completed sales)
-    const salesAggregate = await this.prisma.transaction.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        grandTotal: true,
-        subtotal: true,
-        taxAmount: true,
-        discountAmount: true,
-      },
-      _count: true,
-    });
+    const cacheKey = `financial:revenue-expense:${user.businessId}:${outletIds.join(',')}:${dateRange}:${startDate}:${endDate}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) return cached;
 
-    const totalRevenue = salesAggregate._sum.grandTotal?.toNumber() || 0;
-    const totalTax = salesAggregate._sum.taxAmount?.toNumber() || 0;
-    const totalDiscounts = salesAggregate._sum.discountAmount?.toNumber() || 0;
-
-    // Calculate Expenses
-    // 1. Cost of Goods Sold (COGS)
-    const salesWithCost = await this.prisma.transaction.findMany({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        items: {
-          select: {
-            quantity: true,
-            product: {
-              select: {
-                costPrice: true,
-              },
-            },
-          },
+    const scope = { outletIds, start, end };
+    const [
+      salesAggregate,
+      refundAggregate,
+      totalCOGS,
+      purchaseOrders,
+      revenueDays,
+      cogsDays,
+      refundDays,
+    ] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: {
+          outletId: { in: outletIds },
+          transactionType: 'sale',
+          status: 'completed',
+          createdAt: { gte: start, lte: end },
         },
-      },
-    });
-
-    let totalCOGS = 0;
-    for (const tx of salesWithCost) {
-      for (const item of tx.items) {
-        if (item.product?.costPrice) {
-          totalCOGS += Number(item.quantity) * item.product.costPrice.toNumber();
-        }
-      }
-    }
-
-    // 2. Purchase Orders (direct expenses)
-    const purchaseOrders = await this.prisma.purchaseOrder.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        status: PurchaseOrderStatus.received,
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        totalAmount: true,
-      },
-    });
-
-    const totalPurchases = purchaseOrders._sum?.totalAmount?.toNumber() || 0;
-
-    // 3. Refunds (revenue loss)
-    const refunds = await this.prisma.transaction.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'refund',
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        grandTotal: true,
-      },
-    });
-
-    const totalRefunds = Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
-
-    // Total Expenses = COGS + Purchases + Refunds (discounts reduce revenue, not added to expenses)
-    const totalExpenses = totalCOGS + totalPurchases + totalRefunds;
-
-    // Net Revenue = Revenue - Discounts
-    const netRevenue = totalRevenue - totalDiscounts;
-
-    // Net Profit
-    const netProfit = netRevenue - totalExpenses;
-    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-
-    // Revenue & Expenses by Date for chart
-    const transactions = await this.prisma.transaction.findMany({
-      where: {
-        outletId: { in: outletIds },
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        createdAt: true,
-        grandTotal: true,
-        transactionType: true,
-        status: true,
-        items: {
-          select: {
-            quantity: true,
-            product: {
-              select: {
-                costPrice: true,
-              },
-            },
-          },
+        _sum: { subtotal: true, taxAmount: true, discountAmount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: {
+          outletId: { in: outletIds },
+          transactionType: 'refund',
+          status: 'completed',
+          createdAt: { gte: start, lte: end },
         },
-      },
-      orderBy: { createdAt: 'asc' },
+        _sum: { subtotal: true },
+      }),
+      this.queries.cogs(scope),
+      // Purchases by receivedAt (F1033) — informational only
+      this.prisma.purchaseOrder.aggregate({
+        where: {
+          outletId: { in: outletIds },
+          status: 'received',
+          receivedAt: { gte: start, lte: end },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.queries.salesByDay(scope, 'net'),
+      this.queries.cogsByDay(scope),
+      this.queries.refundsByDay(scope),
+    ]);
+
+    const totalRefunds = toNumber(money(refundAggregate._sum.subtotal).abs());
+    const totalDiscounts = toNumber(salesAggregate._sum.discountAmount);
+    const profit = computeProfit({
+      grossSales: salesAggregate._sum.subtotal,
+      discounts: salesAggregate._sum.discountAmount,
+      refunds: totalRefunds,
+      cogs: totalCOGS,
     });
 
+    // Daily series in WIB (F1032): revenue = net sales - refunds, expenses = COGS
     const revenueByDateMap = new Map<string, number>();
-    const expensesByDateMap = new Map<string, number>();
-
-    for (const tx of transactions) {
-      const date = tx.createdAt.toISOString().split('T')[0];
-
-      if (tx.transactionType === 'sale' && tx.status === 'completed') {
-        const revenue = tx.grandTotal?.toNumber() || 0;
-        revenueByDateMap.set(date, (revenueByDateMap.get(date) || 0) + revenue);
-
-        // Calculate COGS for this transaction
-        let txCOGS = 0;
-        for (const item of tx.items) {
-          if (item.product?.costPrice) {
-            txCOGS += Number(item.quantity) * item.product.costPrice.toNumber();
-          }
-        }
-        expensesByDateMap.set(date, (expensesByDateMap.get(date) || 0) + txCOGS);
-      } else if (tx.transactionType === 'refund') {
-        const refundAmount = Math.abs(tx.grandTotal?.toNumber() || 0);
-        expensesByDateMap.set(date, (expensesByDateMap.get(date) || 0) + refundAmount);
-      }
+    for (const d of revenueDays) revenueByDateMap.set(d.bucket, d.amount);
+    for (const [date, r] of refundDays) {
+      revenueByDateMap.set(date, (revenueByDateMap.get(date) || 0) - r.amount);
     }
 
     const revenueByDate = Array.from(revenueByDateMap.entries())
       .map(([date, revenue]) => ({ date, revenue }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const expensesByDate = Array.from(expensesByDateMap.entries())
+    const expensesByDate = Array.from(cogsDays.entries())
       .map(([date, expenses]) => ({ date, expenses }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    return {
-      totalRevenue,
-      totalExpenses,
-      netProfit,
-      profitMargin,
+    const result = {
+      totalRevenue: profit.netRevenue,
+      totalExpenses: profit.expenses,
+      netProfit: profit.netProfit,
+      profitMargin: profit.profitMargin,
       breakdown: {
         cogs: totalCOGS,
-        purchases: totalPurchases,
+        // Inventory purchased in the period: cash out, NOT part of totalExpenses
+        purchases: toNumber(purchaseOrders._sum?.totalAmount),
         refunds: totalRefunds,
         discounts: totalDiscounts,
-        tax: totalTax,
+        tax: toNumber(salesAggregate._sum.taxAmount),
       },
       revenueByDate,
       expensesByDate,
     };
+
+    await this.redis.set(cacheKey, result, this.CACHE_TTL);
+    return result;
   }
 
   @Get('profit-by-outlet')
   @ApiOperation({ summary: 'Profit analysis by outlet' })
-  async getProfitByOutlet(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getProfitByOutlet(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
     const cacheKey = `financial:profit-by-outlet:${user.businessId}:${dateRange}:${startDate}:${endDate}`;
@@ -245,89 +206,41 @@ export class FinancialCommandController {
       where: { businessId: user.businessId },
       select: { id: true, name: true },
     });
+    const outletIds = outlets.map((o) => o.id);
 
-    const outletProfits = [];
+    // Grouped queries instead of per-outlet loops (F1030)
+    const [{ sales, refunds }, cogsByOutlet] = await Promise.all([
+      this.salesAndRefundsByOutlet(outletIds, start, end),
+      this.queries.cogsByOutlet({ outletIds, start, end }),
+    ]);
 
-    for (const outlet of outlets) {
-      // Revenue
-      const salesAggregate = await this.prisma.transaction.aggregate({
-        where: {
-          outletId: outlet.id,
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: start, lte: end },
-        },
-        _sum: { grandTotal: true, discountAmount: true },
+    const outletProfits = outlets.map((outlet) => {
+      const s = sales.get(outlet.id) ?? { subtotal: 0, discount: 0, tax: 0, grand: 0 };
+      const refundAmount = refunds.get(outlet.id) ?? 0;
+      const cogs = cogsByOutlet.get(outlet.id) ?? 0;
+      // Discount subtracted once, tax excluded (F1028)
+      const p = computeProfit({
+        grossSales: s.subtotal,
+        discounts: s.discount,
+        refunds: refundAmount,
+        cogs,
       });
 
-      const revenue = salesAggregate._sum.grandTotal?.toNumber() || 0;
-      const discounts = salesAggregate._sum.discountAmount?.toNumber() || 0;
-
-      // COGS
-      const salesWithCost = await this.prisma.transaction.findMany({
-        where: {
-          outletId: outlet.id,
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: start, lte: end },
-        },
-        select: {
-          items: {
-            select: {
-              quantity: true,
-              product: {
-                select: {
-                  costPrice: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      let cogs = 0;
-      for (const tx of salesWithCost) {
-        for (const item of tx.items) {
-          if (item.product?.costPrice) {
-            cogs += Number(item.quantity) * item.product.costPrice.toNumber();
-          }
-        }
-      }
-
-      // Refunds
-      const refunds = await this.prisma.transaction.aggregate({
-        where: {
-          outletId: outlet.id,
-          transactionType: 'refund',
-          createdAt: { gte: start, lte: end },
-        },
-        _sum: { grandTotal: true },
-      });
-
-      const refundAmount = Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
-
-      // Discounts reduce revenue, not added to expenses
-      const expenses = cogs + refundAmount;
-      const netRevenue = revenue - discounts;
-      const profit = netRevenue - expenses;
-      const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
-
-      outletProfits.push({
+      return {
         outletId: outlet.id,
         outletName: outlet.name,
-        revenue,
-        expenses,
-        profit,
-        profitMargin,
+        revenue: p.netRevenue,
+        expenses: p.expenses,
+        profit: p.netProfit,
+        profitMargin: p.profitMargin,
         breakdown: {
           cogs,
           refunds: refundAmount,
-          discounts,
+          discounts: s.discount,
         },
-      });
-    }
+      };
+    });
 
-    // Sort by profit descending
     outletProfits.sort((a, b) => b.profit - a.profit);
 
     const result = { outlets: outletProfits };
@@ -339,132 +252,71 @@ export class FinancialCommandController {
 
   @Get('cash-flow')
   @ApiOperation({ summary: 'Cash flow monitoring (in vs out)' })
-  async getCashFlow(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getCashFlow(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    const outletIds = await this.tenant.resolveOutletIds(user);
+    const scope = { outletIds, start, end };
 
-    // Cash IN: Completed payments
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        transaction: {
-          outletId: { in: outletIds },
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: start, lte: end },
-        },
-      },
-      select: {
-        amount: true,
-        paymentMethod: true,
-        createdAt: true,
-      },
-    });
+    // All aggregated in SQL, keyed by WIB day (F1031/F1032)
+    const [byMethod, cashInByDate, purchasesByDate, refundsByDate] = await Promise.all([
+      outletIds.length > 0
+        ? this.prisma.payment.groupBy({
+            by: ['paymentMethod'],
+            where: {
+              transaction: {
+                outletId: { in: outletIds },
+                transactionType: 'sale',
+                status: 'completed',
+                createdAt: { gte: start, lte: end },
+              },
+            },
+            _sum: { amount: true },
+          })
+        : Promise.resolve([]),
+      this.queries.paymentsByDay(scope),
+      this.queries.purchasesByDay(scope),
+      this.queries.refundsByDay(scope),
+    ]);
 
-    // Group by payment method
-    const cashInByMethod = new Map<string, number>();
-    const cashInByDate = new Map<string, number>();
-
-    for (const payment of payments) {
-      const method = payment.paymentMethod;
-      const amount = payment.amount.toNumber();
-      const date = payment.createdAt.toISOString().split('T')[0];
-
-      cashInByMethod.set(method, (cashInByMethod.get(method) || 0) + amount);
-      cashInByDate.set(date, (cashInByDate.get(date) || 0) + amount);
+    const cashOutByDate = new Map<string, number>(purchasesByDate);
+    for (const [date, r] of refundsByDate) {
+      cashOutByDate.set(date, (cashOutByDate.get(date) || 0) + r.grandTotal);
     }
 
-    // Cash OUT: Purchase orders + Refunds
-    const purchaseOrders = await this.prisma.purchaseOrder.findMany({
-      where: {
-        outletId: { in: outletIds },
-        status: PurchaseOrderStatus.received,
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        totalAmount: true,
-        createdAt: true,
-      },
-    });
-
-    const refundTransactions = await this.prisma.transaction.findMany({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'refund',
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        grandTotal: true,
-        createdAt: true,
-      },
-    });
-
-    const cashOutByDate = new Map<string, number>();
-
-    for (const po of purchaseOrders) {
-      const date = po.createdAt.toISOString().split('T')[0];
-      const amount = po.totalAmount.toNumber();
-      cashOutByDate.set(date, (cashOutByDate.get(date) || 0) + amount);
-    }
-
-    for (const refund of refundTransactions) {
-      const date = refund.createdAt.toISOString().split('T')[0];
-      const amount = Math.abs(refund.grandTotal?.toNumber() || 0);
-      cashOutByDate.set(date, (cashOutByDate.get(date) || 0) + amount);
-    }
-
-    // Combine for net cash flow by date
     const allDates = new Set([...cashInByDate.keys(), ...cashOutByDate.keys()]);
     const cashFlowByDate = Array.from(allDates)
       .map((date) => {
         const cashIn = cashInByDate.get(date) || 0;
         const cashOut = cashOutByDate.get(date) || 0;
-        const netCashFlow = cashIn - cashOut;
-
-        return { date, cashIn, cashOut, netCashFlow };
+        return { date, cashIn, cashOut, netCashFlow: cashIn - cashOut };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const totalCashIn = Array.from(cashInByMethod.values()).reduce((sum, v) => sum + v, 0);
+    const cashInByMethod = byMethod.map((m) => ({
+      method: m.paymentMethod as string,
+      amount: toNumber(m._sum.amount),
+    }));
+    const totalCashIn = cashInByMethod.reduce((sum, v) => sum + v.amount, 0);
     const totalCashOut = Array.from(cashOutByDate.values()).reduce((sum, v) => sum + v, 0);
-    const netCashFlow = totalCashIn - totalCashOut;
 
     return {
       totalCashIn,
       totalCashOut,
-      netCashFlow,
-      cashInByMethod: Array.from(cashInByMethod.entries()).map(([method, amount]) => ({
-        method,
-        amount,
-      })),
+      netCashFlow: totalCashIn - totalCashOut,
+      cashInByMethod,
       cashFlowByDate,
     };
   }
 
   @Get('payment-methods-analysis')
   @ApiOperation({ summary: 'Detailed payment methods breakdown' })
-  async getPaymentMethodsAnalysis(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getPaymentMethodsAnalysis(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    const outletIds = await this.tenant.resolveOutletIds(user);
 
     const payments = await this.prisma.payment.groupBy({
       by: ['paymentMethod'],
@@ -489,7 +341,6 @@ export class FinancialCommandController {
       avgTransactionValue: p._count > 0 ? (p._sum.amount?.toNumber() || 0) / p._count : 0,
     }));
 
-    // Sort by total amount descending
     methods.sort((a, b) => b.totalAmount - a.totalAmount);
 
     const totalAmount = methods.reduce((sum, m) => sum + m.totalAmount, 0);
@@ -503,122 +354,68 @@ export class FinancialCommandController {
 
   @Get('expense-categories')
   @ApiOperation({ summary: 'Breakdown of expense categories' })
-  async getExpenseCategories(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getExpenseCategories(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    const outletIds = await this.tenant.resolveOutletIds(user);
+    const base = {
+      outletId: { in: outletIds },
+      status: 'completed' as const,
+      createdAt: { gte: start, lte: end },
+    };
 
-    // 1. COGS (Cost of Goods Sold)
-    const salesWithCost = await this.prisma.transaction.findMany({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        items: {
-          select: {
-            quantity: true,
-            product: {
-              select: {
-                costPrice: true,
-              },
-            },
-          },
+    const [totalCOGS, purchases, refunds, discounts] = await Promise.all([
+      this.queries.cogs({ outletIds, start, end }),
+      this.prisma.purchaseOrder.aggregate({
+        where: {
+          outletId: { in: outletIds },
+          status: 'received',
+          receivedAt: { gte: start, lte: end },
         },
-      },
-    });
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...base, transactionType: 'refund' },
+        _sum: { subtotal: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...base, transactionType: 'sale' },
+        _sum: { discountAmount: true },
+      }),
+    ]);
 
-    let totalCOGS = 0;
-    for (const tx of salesWithCost) {
-      for (const item of tx.items) {
-        if (item.product?.costPrice) {
-          totalCOGS += Number(item.quantity) * item.product.costPrice.toNumber();
-        }
-      }
-    }
-
-    // 2. Purchases
-    const purchases = await this.prisma.purchaseOrder.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        status: PurchaseOrderStatus.received,
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        totalAmount: true,
-      },
-    });
-    const totalPurchases = purchases._sum?.totalAmount?.toNumber() || 0;
-
-    // 3. Refunds
-    const refunds = await this.prisma.transaction.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'refund',
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        grandTotal: true,
-      },
-    });
-    const totalRefunds = Math.abs(refunds._sum.grandTotal?.toNumber() || 0);
-
-    // 4. Discounts
-    const discounts = await this.prisma.transaction.aggregate({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: start, lte: end },
-      },
-      _sum: {
-        discountAmount: true,
-      },
-    });
-    const totalDiscounts = discounts._sum.discountAmount?.toNumber() || 0;
-
+    // Only COGS is an expense. Refunds and discounts reduce revenue (contra-revenue)
+    // and purchases are inventory cash-out; none of them is added to totalExpenses (F1029).
     const categories = [
       {
         category: 'Cost of Goods Sold',
         amount: totalCOGS,
         description: 'Biaya produk yang terjual',
       },
-      {
-        category: 'Purchases',
-        amount: totalPurchases,
-        description: 'Pembelian dari supplier',
-      },
+    ];
+
+    const contraRevenue = [
       {
         category: 'Refunds',
-        amount: totalRefunds,
-        description: 'Pengembalian dana pelanggan',
+        amount: toNumber(money(refunds._sum.subtotal).abs()),
+        description: 'Pengembalian dana pelanggan (mengurangi pendapatan)',
       },
       {
         category: 'Discounts',
-        amount: totalDiscounts,
-        description: 'Diskon yang diberikan',
+        amount: toNumber(discounts._sum.discountAmount),
+        description: 'Diskon yang diberikan (mengurangi pendapatan)',
       },
-    ];
-
-    // Sort by amount descending
-    categories.sort((a, b) => b.amount - a.amount);
-
-    const totalExpenses = categories.reduce((sum, c) => sum + c.amount, 0);
+    ].sort((a, b) => b.amount - a.amount);
 
     return {
       categories,
-      totalExpenses,
+      totalExpenses: totalCOGS,
+      contraRevenue,
+      purchases: {
+        amount: toNumber(purchases._sum?.totalAmount),
+        description: 'Pembelian dari supplier (arus kas keluar, bukan beban)',
+      },
     };
   }
 }

@@ -1,52 +1,36 @@
-import { Controller, Get, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class StaffReportsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
   @Get('staff')
   @ApiOperation({
     summary: 'Staff performance report (services, revenue, commission)',
   })
-  async staffReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('commissionRate') commissionRateParam?: string,
-  ) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async staffReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
-    const defaultCommissionRate = commissionRateParam ? parseFloat(commissionRateParam) : 10;
-
-    // Get all active employees for this outlet (any role that provides service)
-    const employees = await this.prisma.employee.findMany({
-      where: {
-        outletId,
-        isActive: true,
-      },
-      select: { id: true, name: true, role: true },
+    // Active staff assigned to this outlet (for the headcount)
+    const totalStaff = await this.prisma.employee.count({
+      where: { businessId: user.businessId, outletId, isActive: true },
     });
 
     // Get all completed appointments by staff in date range
@@ -67,13 +51,25 @@ export class StaffReportsController {
       },
     });
 
+    // Performance is based on whoever served the appointments (also owners/managers
+    // without an outlet assignment, F0995), scoped to the caller's business
+    const servingIds = [
+      ...new Set(appointments.map((a) => a.employeeId).filter((id): id is string => !!id)),
+    ];
+    const employees =
+      servingIds.length > 0
+        ? await this.prisma.employee.findMany({
+            where: { id: { in: servingIds }, businessId: user.businessId },
+            select: { id: true, name: true, role: true },
+          })
+        : [];
+
     // Calculate staff performance
     const staffStats: Record<
       string,
       {
         services: number;
         revenue: number;
-        commission: number;
         totalTime: number;
       }
     > = {};
@@ -83,15 +79,11 @@ export class StaffReportsController {
       if (!empId) continue;
 
       if (!staffStats[empId]) {
-        staffStats[empId] = { services: 0, revenue: 0, commission: 0, totalTime: 0 };
+        staffStats[empId] = { services: 0, revenue: 0, totalTime: 0 };
       }
 
       staffStats[empId].services += 1;
       staffStats[empId].revenue += Number(appt.servicePrice || 0);
-
-      // Calculate commission using default rate
-      staffStats[empId].commission +=
-        Number(appt.servicePrice || 0) * (defaultCommissionRate / 100);
 
       // Calculate service time
       staffStats[empId].totalTime += appt.durationMinutes || 0;
@@ -107,8 +99,10 @@ export class StaffReportsController {
           name: emp.name,
           services: stats.services,
           revenue: Math.round(stats.revenue),
-          rating: 0, // No rating field in schema, default to 0
-          commission: Math.round(stats.commission),
+          // No rating data and no commission configuration exist: report as
+          // unknown instead of fake numbers (R10, F0993)
+          rating: null,
+          commission: null,
         };
       })
       .sort((a, b) => b.revenue - a.revenue)
@@ -141,11 +135,11 @@ export class StaffReportsController {
     const avgServiceTime = totalServices > 0 ? Math.round(totalTime / totalServices) : 0;
 
     return {
-      totalStaff: employees.length,
+      totalStaff,
       totalServices,
       totalRevenue: Math.round(totalRevenue),
       avgServiceTime,
-      avgRating: 0, // No rating field in schema
+      avgRating: null,
       staffPerformance,
       serviceBreakdown,
     };

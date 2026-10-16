@@ -1,14 +1,18 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { businessDayRange } from '@shared/utils/business-time';
+import { money } from '@shared/utils/money';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { computeProfit } from '../utils/profit.util';
 
 /**
  * Owner Analytics Controller
@@ -16,7 +20,6 @@ import { getDateRange } from '../utils/date-range.util';
  */
 @ApiTags('Owner Analytics')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.SUPER_ADMIN)
 @Controller('owner/analytics')
 export class OwnerAnalyticsController {
@@ -25,31 +28,23 @@ export class OwnerAnalyticsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
 
   @Get('overview')
   @ApiOperation({ summary: 'Business-wide overview metrics (all outlets)' })
-  async getOverview(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getOverview(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Check cache
     const cacheKey = `owner:analytics:overview:${user.businessId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Get all outlet IDs for this business
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    const outletIds = await this.tenant.resolveOutletIds(user);
 
     if (outletIds.length === 0) {
       return {
@@ -69,67 +64,45 @@ export class OwnerAnalyticsController {
       createdAt: { gte: start, lte: end },
     };
 
-    // Aggregate sales data
-    const aggregate = await this.prisma.transaction.aggregate({
-      where: whereClause,
-      _sum: {
-        grandTotal: true,
-        subtotal: true,
-        discountAmount: true,
-        taxAmount: true,
-      },
-      _count: true,
-    });
+    const [aggregate, refunds, customerCount, totalCost] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: whereClause,
+        _sum: { grandTotal: true, subtotal: true, discountAmount: true },
+        _count: true,
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...whereClause, transactionType: 'refund' },
+        _sum: { subtotal: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { ...whereClause, customerId: { not: null } },
+      }),
+      // COGS in SQL instead of loading every item (F1019)
+      this.queries.cogs({ outletIds, start, end }),
+    ]);
 
     const totalSales = aggregate._sum.grandTotal?.toNumber() || 0;
     const totalTransactions = aggregate._count;
     const averageOrderValue = totalTransactions > 0 ? totalSales / totalTransactions : 0;
 
-    // Count unique customers
-    const customerCount = await this.prisma.transaction.groupBy({
-      by: ['customerId'],
-      where: { ...whereClause, customerId: { not: null } },
+    // Profit = net sales excl. tax, net of refunds - COGS (F1020)
+    const profit = computeProfit({
+      grossSales: aggregate._sum.subtotal,
+      discounts: aggregate._sum.discountAmount,
+      refunds: money(refunds._sum.subtotal).abs(),
+      cogs: totalCost,
     });
-
-    // Calculate total profit (sales - cost)
-    const transactionsWithCost = await this.prisma.transaction.findMany({
-      where: whereClause,
-      select: {
-        grandTotal: true,
-        items: {
-          select: {
-            quantity: true,
-            product: {
-              select: {
-                costPrice: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    let totalCost = 0;
-    for (const tx of transactionsWithCost) {
-      for (const item of tx.items) {
-        if (item.product?.costPrice) {
-          totalCost += Number(item.quantity) * item.product.costPrice.toNumber();
-        }
-      }
-    }
-
-    const totalProfit = totalSales - totalCost;
 
     const result = {
       totalSales,
-      totalProfit,
+      totalProfit: profit.netProfit,
       totalTransactions,
       totalCustomers: customerCount.length,
       averageOrderValue,
-      outletsCount: outlets.length,
+      outletsCount: outletIds.length,
     };
 
-    // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
 
     return result;
@@ -137,64 +110,53 @@ export class OwnerAnalyticsController {
 
   @Get('outlets-comparison')
   @ApiOperation({ summary: 'Compare performance across all outlets' })
-  async getOutletsComparison(
-    @CurrentUser() user: AuthUser,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  async getOutletsComparison(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Check cache
     const cacheKey = `owner:analytics:outlets-comparison:${user.businessId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Get all outlets with their transactions
     const outlets = await this.prisma.outlet.findMany({
       where: { businessId: user.businessId },
       select: { id: true, name: true },
     });
+    const outletNames = new Map(outlets.map((o) => [o.id, o.name]));
 
-    const whereClause = {
-      outletId: { in: outlets.map((o) => o.id) },
-      transactionType: 'sale' as const,
-      status: 'completed' as const,
-      createdAt: { gte: start, lte: end },
-    };
+    const groupedData =
+      outlets.length > 0
+        ? await this.prisma.transaction.groupBy({
+            by: ['outletId'],
+            where: {
+              outletId: { in: outlets.map((o) => o.id) },
+              transactionType: 'sale',
+              status: 'completed',
+              createdAt: { gte: start, lte: end },
+            },
+            _sum: { grandTotal: true },
+            _count: true,
+          })
+        : [];
 
-    // Group by outlet
-    const groupedData = await this.prisma.transaction.groupBy({
-      by: ['outletId'],
-      where: whereClause,
-      _sum: { grandTotal: true },
-      _count: true,
-    });
-
-    // Map to outlet details
     const outletPerformance = groupedData.map((group) => {
-      const outlet = outlets.find((o) => o.id === group.outletId);
       const sales = group._sum.grandTotal?.toNumber() || 0;
       const transactions = group._count;
-      const avgOrderValue = transactions > 0 ? sales / transactions : 0;
-
       return {
         outletId: group.outletId,
-        outletName: outlet?.name || 'Unknown',
+        outletName: outletNames.get(group.outletId) || 'Unknown',
         sales,
         transactions,
-        avgOrderValue,
+        avgOrderValue: transactions > 0 ? sales / transactions : 0,
       };
     });
 
-    // Sort by sales descending
     outletPerformance.sort((a, b) => b.sales - a.sales);
 
     const result = { outlets: outletPerformance };
 
-    // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
 
     return result;
@@ -213,76 +175,65 @@ export class OwnerAnalyticsController {
       count?: number;
     }> = [];
 
-    // Get all outlets
     const outlets = await this.prisma.outlet.findMany({
       where: { businessId: user.businessId },
       select: { id: true, name: true },
     });
     const outletIds = outlets.map((o) => o.id);
 
-    // 1. Check for low stock items
-    const lowStock = await this.prisma.stockLevel.findMany({
-      where: {
-        outletId: { in: outletIds },
-        quantity: { lte: 10 }, // Threshold
-      },
-      include: {
-        product: { select: { name: true } },
-        outlet: { select: { name: true } },
-      },
-    });
+    // 1. Low stock: each row against its own lowStockAlert, counted in SQL (F1023/F1024)
+    const lowStockCount = await this.queries.lowStockCount(outletIds);
 
-    if (lowStock.length > 0) {
+    if (lowStockCount > 0) {
       alerts.push({
         type: 'low_stock',
         severity: 'warning',
-        title: `${lowStock.length} produk stok rendah`,
-        description: `Beberapa produk memiliki stok ≤ 10 unit`,
-        count: lowStock.length,
+        title: `${lowStockCount} produk stok rendah`,
+        description: `Beberapa produk berada di bawah batas stok minimum`,
+        count: lowStockCount,
       });
     }
 
-    // 2. Check for stuck transfers (approved > 24h but not shipped)
+    // 2. Stuck transfers (approved > 24h but not shipped) — count only
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const stuckTransfers = await this.prisma.stockTransfer.findMany({
+    const stuckTransfers = await this.prisma.stockTransfer.count({
       where: {
+        businessId: user.businessId,
         sourceOutletId: { in: outletIds },
         status: 'approved',
         approvedAt: { lt: dayAgo },
       },
-      include: {
-        sourceOutlet: { select: { name: true } },
-        destinationOutlet: { select: { name: true } },
-      },
     });
 
-    if (stuckTransfers.length > 0) {
+    if (stuckTransfers > 0) {
       alerts.push({
         type: 'stuck_transfer',
         severity: 'critical',
-        title: `${stuckTransfers.length} transfer terhambat`,
+        title: `${stuckTransfers} transfer terhambat`,
         description: `Transfer telah disetujui >24 jam namun belum dikirim`,
-        count: stuckTransfers.length,
+        count: stuckTransfers,
       });
     }
 
-    // 3. Check for outlets with no sales today
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // 3. Outlets with no sales today — WIB business day (F1021), one groupBy (F1022)
+    const today = businessDayRange();
+    const salesToday =
+      outletIds.length > 0
+        ? await this.prisma.transaction.groupBy({
+            by: ['outletId'],
+            where: {
+              outletId: { in: outletIds },
+              transactionType: 'sale',
+              status: 'completed',
+              createdAt: { gte: today.start, lte: today.end },
+            },
+            _count: true,
+          })
+        : [];
+    const outletsWithSales = new Set(salesToday.map((s) => s.outletId));
 
     for (const outlet of outlets) {
-      const salesCount = await this.prisma.transaction.count({
-        where: {
-          outletId: outlet.id,
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: todayStart, lte: todayEnd },
-        },
-      });
-
-      if (salesCount === 0) {
+      if (!outletsWithSales.has(outlet.id)) {
         alerts.push({
           type: 'no_sales',
           severity: 'warning',
@@ -294,28 +245,29 @@ export class OwnerAnalyticsController {
       }
     }
 
-    // 4. Check for high refund rate (last 7 days)
+    // 4. High refund rate (last 7 days, completed refunds only)
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const refundCount = await this.prisma.transaction.count({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'refund',
-        createdAt: { gte: weekAgo },
-      },
-    });
-
-    const salesCount = await this.prisma.transaction.count({
-      where: {
-        outletId: { in: outletIds },
-        transactionType: 'sale',
-        status: 'completed',
-        createdAt: { gte: weekAgo },
-      },
-    });
+    const [refundCount, salesCount] = await Promise.all([
+      this.prisma.transaction.count({
+        where: {
+          outletId: { in: outletIds },
+          transactionType: 'refund',
+          status: 'completed',
+          createdAt: { gte: weekAgo },
+        },
+      }),
+      this.prisma.transaction.count({
+        where: {
+          outletId: { in: outletIds },
+          transactionType: 'sale',
+          status: 'completed',
+          createdAt: { gte: weekAgo },
+        },
+      }),
+    ]);
 
     const refundRate = salesCount > 0 ? (refundCount / salesCount) * 100 : 0;
     if (refundRate > 5) {
-      // >5% refund rate
       alerts.push({
         type: 'high_refunds',
         severity: 'warning',
@@ -325,7 +277,6 @@ export class OwnerAnalyticsController {
       });
     }
 
-    // Sort by severity
     const severityOrder = { critical: 0, warning: 1, info: 2 };
     alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
@@ -335,16 +286,10 @@ export class OwnerAnalyticsController {
   @Get('real-time-metrics')
   @ApiOperation({ summary: 'Real-time metrics for live dashboard (no cache)' })
   async getRealTimeMetrics(@CurrentUser() user: AuthUser) {
-    // Get all outlet IDs
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId: user.businessId },
-      select: { id: true, name: true },
-    });
-    const outletIds = outlets.map((o) => o.id);
+    const outletIds = await this.tenant.resolveOutletIds(user);
 
-    // Today's data (no cache for real-time)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Today = current WIB business day (F1021)
+    const todayStart = businessDayRange().start;
 
     const whereClause = {
       outletId: { in: outletIds },
@@ -353,44 +298,33 @@ export class OwnerAnalyticsController {
       createdAt: { gte: todayStart },
     };
 
-    const aggregate = await this.prisma.transaction.aggregate({
-      where: whereClause,
-      _sum: { grandTotal: true },
-      _count: true,
-    });
-
-    const todaySales = aggregate._sum.grandTotal?.toNumber() || 0;
-    const todayTransactions = aggregate._count;
-
-    // Last hour sales
     const lastHourStart = new Date(Date.now() - 60 * 60 * 1000);
-    const lastHourAggregate = await this.prisma.transaction.aggregate({
-      where: {
-        ...whereClause,
-        createdAt: { gte: lastHourStart },
-      },
-      _sum: { grandTotal: true },
-      _count: true,
-    });
-
-    const lastHourSales = lastHourAggregate._sum.grandTotal?.toNumber() || 0;
-    const lastHourTransactions = lastHourAggregate._count;
-
-    // Active tables/orders
-    const activeOrders = await this.prisma.order.count({
-      where: {
-        outletId: { in: outletIds },
-        status: { in: ['pending', 'preparing', 'ready'] },
-      },
-    });
+    const [aggregate, lastHourAggregate, activeOrders] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: whereClause,
+        _sum: { grandTotal: true },
+        _count: true,
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...whereClause, createdAt: { gte: lastHourStart } },
+        _sum: { grandTotal: true },
+        _count: true,
+      }),
+      this.prisma.order.count({
+        where: {
+          outletId: { in: outletIds },
+          status: { in: ['pending', 'preparing', 'ready'] },
+        },
+      }),
+    ]);
 
     return {
-      todaySales,
-      todayTransactions,
-      lastHourSales,
-      lastHourTransactions,
+      todaySales: aggregate._sum.grandTotal?.toNumber() || 0,
+      todayTransactions: aggregate._count,
+      lastHourSales: lastHourAggregate._sum.grandTotal?.toNumber() || 0,
+      lastHourTransactions: lastHourAggregate._count,
       activeOrders,
-      outletsCount: outlets.length,
+      outletsCount: outletIds.length,
       timestamp: new Date().toISOString(),
     };
   }

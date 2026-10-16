@@ -5,60 +5,90 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
-  Inject,
-  ForbiddenException,
+  NotFoundException,
+  ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import type { ICreditSaleRepository } from '../../domain/interfaces/repositories/credit-sale.repository';
+import { TenantAccessService } from '../../shared/tenant';
+import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
+import { toPrismaPage } from '../../shared/dtos/pagination-query.dto';
+import { PrismaCreditSaleRepository } from '../../infrastructure/repositories/prisma-credit-sale.repository';
 import { CreateCreditTransactionUseCase } from '../../application/use-cases/credit/create-credit-transaction.use-case';
 import { RecordCreditPaymentUseCase } from '../../application/use-cases/credit/record-credit-payment.use-case';
 import {
   CreateCreditTransactionDto,
   RecordCreditPaymentDto,
   CreditSaleFilterDto,
+  CustomerCreditSalesQueryDto,
+  CreditOutstandingQueryDto,
 } from '../../application/dtos/credit-sale.dto';
+import { PaginationQueryDto } from '../../shared/dtos/pagination-query.dto';
+
+const ALL_POS_ROLES = [
+  EmployeeRole.CASHIER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.MANAGER,
+  EmployeeRole.OWNER,
+] as const;
 
 @ApiTags('Credit Sales')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('credit-sales')
 export class CreditController {
   constructor(
-    @Inject(REPOSITORY_TOKENS.CREDIT_SALE)
-    private readonly creditSaleRepo: ICreditSaleRepository,
+    private readonly creditSaleRepo: PrismaCreditSaleRepository,
     private readonly createCreditTx: CreateCreditTransactionUseCase,
     private readonly recordPayment: RecordCreditPaymentUseCase,
-    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
-  private async verifyCreditSaleAccess(creditSaleId: string, businessId: string): Promise<void> {
-    const creditSale = await this.prisma.creditSale.findFirst({
-      where: { id: creditSaleId },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!creditSale || creditSale.outlet.businessId !== businessId) {
-      throw new ForbiddenException('Access denied to this credit sale');
+  /**
+   * Outlets the caller may read: staff assigned to an outlet see only that
+   * outlet; owners and business-wide staff get the verified requested outlet
+   * or every outlet of the business.
+   */
+  private async readableOutletIds(user: AuthUser, requested?: string): Promise<string[]> {
+    if (user.outletId && !OutletAccessGuard.canAccessAllOutlets(user)) {
+      return [await this.tenant.assertOutlet(user, user.outletId)];
     }
+    return this.tenant.resolveOutletIds(user, requested);
+  }
+
+  /** Outlet a sale is booked into; non-owner staff can only sell at their own outlet. */
+  private async writableOutletId(user: AuthUser, requested?: string): Promise<string> {
+    if (user.outletId && !OutletAccessGuard.canAccessAllOutlets(user)) {
+      if (requested && requested !== user.outletId) {
+        throw new BadRequestException('Cannot create credit sales for other outlets');
+      }
+      return this.tenant.assertOutlet(user, user.outletId);
+    }
+    return this.tenant.assertOutlet(user, requested ?? user.outletId);
+  }
+
+  private async getAccessibleSale(id: string, user: AuthUser) {
+    const sale = await this.creditSaleRepo.findById(id, user.businessId);
+    if (!sale) throw new NotFoundException('Credit sale not found');
+    OutletAccessGuard.enforceOutletAccess(user, sale.outletId, 'credit sale');
+    return sale;
   }
 
   @Post()
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...ALL_POS_ROLES)
   async createCreditTransaction(
     @Body() dto: CreateCreditTransactionDto,
     @CurrentUser() user: AuthUser,
   ) {
+    const outletId = await this.writableOutletId(user, dto.outletId);
     return this.createCreditTx.execute({
-      outletId: user.outletId || dto.outletId,
+      businessId: user.businessId,
+      outletId,
       employeeId: user.employeeId,
+      role: user.role,
       customerId: dto.customerId,
       shiftId: dto.shiftId,
       orderType: dto.orderType,
@@ -86,50 +116,63 @@ export class CreditController {
   }
 
   @Get()
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...ALL_POS_ROLES)
   async listCreditSales(@Query() filters: CreditSaleFilterDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.readableOutletIds(user, filters.outletId);
+    const page = toPrismaPage(filters);
     return this.creditSaleRepo.findAll({
       businessId: user.businessId,
-      outletId: filters.outletId,
+      outletIds,
       customerId: filters.customerId,
       status: filters.status,
       startDate: filters.startDate ? new Date(filters.startDate) : undefined,
       endDate: filters.endDate ? new Date(filters.endDate) : undefined,
+      ...page,
     });
   }
 
   @Get('reports/outstanding')
   @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async getOutstandingReport(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    return this.creditSaleRepo.getCustomerOutstanding(user.businessId, outletId);
+  async getOutstandingReport(
+    @Query() query: CreditOutstandingQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const outletIds = await this.readableOutletIds(user, query.outletId);
+    return this.creditSaleRepo.getCustomerOutstanding(user.businessId, outletIds);
   }
 
   @Get('customer/:customerId')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...ALL_POS_ROLES)
   async getCustomerCreditSales(
-    @Param('customerId') customerId: string,
-    @Query('status') status: string | undefined,
+    @Param('customerId', ParseUUIDPipe) customerId: string,
+    @Query() query: CustomerCreditSalesQueryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.creditSaleRepo.findByCustomerId(customerId, status, user.businessId);
+    await this.tenant.assertOwned('customer', customerId, user.businessId);
+    const outletIds = await this.readableOutletIds(user);
+    return this.creditSaleRepo.findByCustomerId(customerId, user.businessId, {
+      status: query.status,
+      outletIds,
+      ...toPrismaPage(query),
+    });
   }
 
   @Get(':id')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async getCreditSaleDetail(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCreditSaleAccess(id, user.businessId);
-    return this.creditSaleRepo.findById(id);
+  @Roles(...ALL_POS_ROLES)
+  async getCreditSaleDetail(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.getAccessibleSale(id, user);
   }
 
   @Post(':id/payments')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @Roles(...ALL_POS_ROLES)
   async recordCreditPayment(
-    @Param('id') creditSaleId: string,
+    @Param('id', ParseUUIDPipe) creditSaleId: string,
     @Body() dto: RecordCreditPaymentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCreditSaleAccess(creditSaleId, user.businessId);
+    await this.getAccessibleSale(creditSaleId, user);
     return this.recordPayment.execute({
+      businessId: user.businessId,
       creditSaleId,
       amount: dto.amount,
       paymentMethod: dto.paymentMethod,
@@ -140,9 +183,13 @@ export class CreditController {
   }
 
   @Get(':id/payments')
-  @Roles(EmployeeRole.CASHIER, EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
-  async getCreditPayments(@Param('id') creditSaleId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCreditSaleAccess(creditSaleId, user.businessId);
-    return this.creditSaleRepo.getPayments(creditSaleId);
+  @Roles(...ALL_POS_ROLES)
+  async getCreditPayments(
+    @Param('id', ParseUUIDPipe) creditSaleId: string,
+    @Query() query: PaginationQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.getAccessibleSale(creditSaleId, user);
+    return this.creditSaleRepo.getPayments(creditSaleId, user.businessId, toPrismaPage(query));
   }
 }

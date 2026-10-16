@@ -1,18 +1,8 @@
-import { IsOptional } from 'class-validator';
-
 /**
  * Progress status for a single onboarding step
  */
 export interface OnboardingStepStatus {
   done: boolean;
-}
-
-/**
- * Progress status for a step with count and target
- */
-export interface OnboardingStepStatusWithCount extends OnboardingStepStatus {
-  count: number;
-  target?: number;
 }
 
 /**
@@ -32,12 +22,4 @@ export interface OnboardingProgressResponse {
   };
   completedAt: Date | null;
   progress: number;
-}
-
-/**
- * DTO for dismissing the onboarding checklist
- */
-export class DismissOnboardingDto {
-  @IsOptional()
-  dismissed?: boolean;
 }

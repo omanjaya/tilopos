@@ -1,7 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { TemplatesService } from '../templates/templates.service';
-import { BusinessTypeService } from '../business/services/business-type.service';
+import {
+  BusinessTypeService,
+  TYPE_CHANGE_TX_OPTIONS,
+} from '../business/services/business-type.service';
 import { randomBytes } from 'crypto';
 import type { OnboardingProgressResponse, OnboardingStepStatus } from './dto/onboarding.dto';
 import type { GuidedSetupDto } from './dto/guided-setup.dto';
@@ -29,7 +33,6 @@ export class OnboardingService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly templatesService: TemplatesService,
     private readonly businessTypeService: BusinessTypeService,
   ) {}
 
@@ -112,24 +115,12 @@ export class OnboardingService {
   async dismissChecklist(businessId: string): Promise<{ dismissed: boolean; dismissedAt: Date }> {
     const dismissedAt = new Date();
 
-    // Read existing settings first to avoid overwriting
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-
-    const existingSettings = (business?.settings as Record<string, unknown>) ?? {};
-
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...existingSettings,
-          onboardingDismissed: true,
-          onboardingDismissedAt: dismissedAt.toISOString(),
-        } as never,
-      },
-    });
+    await this.prisma.$transaction((tx) =>
+      this.patchBusinessSettings(tx, businessId, {
+        onboardingDismissed: true,
+        onboardingDismissedAt: dismissedAt.toISOString(),
+      }),
+    );
 
     return {
       dismissed: true,
@@ -145,6 +136,26 @@ export class OnboardingService {
     employeeId: string,
     outletId: string | null,
     dto: GuidedSetupDto,
+  ): Promise<GuidedSetupResult> {
+    // Hash outside the transaction (CPU-bound, keeps the row lock short).
+    const hashedPin = dto.employee ? await bcrypt.hash(dto.employee.pin, 10) : null;
+
+    const result = await this.prisma.$transaction(
+      (tx) => this.guidedSetupInTx(tx, businessId, employeeId, outletId, dto, hashedPin),
+      TYPE_CHANGE_TX_OPTIONS,
+    );
+
+    this.logger.log(`Guided setup completed for business ${businessId}`);
+    return result;
+  }
+
+  private async guidedSetupInTx(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    employeeId: string,
+    outletId: string | null,
+    dto: GuidedSetupDto,
+    hashedPin: string | null,
   ): Promise<GuidedSetupResult> {
     const result: GuidedSetupResult = {
       business: { updated: false },
@@ -162,113 +173,154 @@ export class OnboardingService {
       onboarding: { completed: false },
     };
 
+    // Lock the business row: serialises concurrent setups and settings writers.
+    const settings = await this.lockBusinessSettings(tx, businessId);
+    if (settings.guidedSetupCompleted === true) {
+      throw new ConflictException('Guided setup has already been completed');
+    }
+
     // 1. Update business profile
     if (dto.business) {
-      const updateData: Record<string, string> = {};
+      const updateData: Prisma.BusinessUpdateInput = {};
       if (dto.business.name) updateData.name = dto.business.name;
       if (dto.business.phone) updateData.phone = dto.business.phone;
       if (dto.business.address) updateData.address = dto.business.address;
 
       if (Object.keys(updateData).length > 0) {
-        await this.prisma.business.update({
-          where: { id: businessId },
-          data: updateData,
-        });
+        await tx.business.update({ where: { id: businessId }, data: updateData });
         result.business.updated = true;
       }
     }
 
-    // 2. Set business type + enable features
+    const resolvedOutletId = await this.resolveOutletId(tx, businessId, outletId);
+
+    // 2+3. Set business type, enable features and apply the template ONCE
+    //      (changeBusinessType applies the selected template sections itself).
     if (dto.businessType) {
       const typeResult = await this.businessTypeService.changeBusinessType(
         businessId,
         dto.businessType,
+        resolvedOutletId ?? undefined,
+        tx,
+        dto.template?.sections,
       );
       result.businessType = {
         set: typeResult.success,
         type: dto.businessType,
         featuresEnabled: typeResult.featuresEnabled,
       };
-    }
-
-    // 3. Apply template
-    const resolvedOutletId = outletId ?? (await this.getFirstOutletId(businessId));
-    if (dto.businessType && dto.template?.sections && resolvedOutletId) {
-      const templateResult = await this.templatesService.applyTemplate(
-        businessId,
-        resolvedOutletId,
-        dto.businessType,
-        dto.template.sections,
-      );
-      result.template = { applied: true, ...templateResult };
+      if (typeResult.templateApplied && typeResult.templateData) {
+        result.template = { applied: true, ...typeResult.templateData };
+      }
     }
 
     // 4. Set payment methods
     if (dto.paymentMethods && dto.paymentMethods.length > 0) {
-      await this.configurePaymentMethods(businessId, dto.paymentMethods);
+      settings.businessPaymentMethods = this.buildPaymentMethods(dto.paymentMethods);
       result.paymentMethods = { configured: true, count: dto.paymentMethods.length };
     }
 
     // 5. Set tax rate on outlet
     if (dto.taxRate !== undefined && resolvedOutletId) {
-      await this.prisma.outlet.update({
-        where: { id: resolvedOutletId },
+      await tx.outlet.updateMany({
+        where: { id: resolvedOutletId, businessId },
         data: { taxRate: dto.taxRate },
       });
     }
 
-    // 6. Create employee (cashier)
-    if (dto.employee) {
-      const newEmployee = await this.prisma.employee.create({
+    // 6. Create employee (cashier) with a hashed PIN
+    if (dto.employee && hashedPin) {
+      if (dto.employee.email) {
+        const taken = await tx.employee.findFirst({
+          where: { email: { equals: dto.employee.email, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        if (taken) {
+          throw new ConflictException('Email is already used by another employee');
+        }
+      }
+      const newEmployee = await tx.employee.create({
         data: {
           businessId,
           outletId: resolvedOutletId,
           name: dto.employee.name,
           email: dto.employee.email || null,
-          pin: dto.employee.pin,
+          pin: hashedPin,
           role: 'cashier',
         },
+        select: { id: true },
       });
       result.employee = { created: true, id: newEmployee.id };
     }
 
     // 7. Mark onboarding completed
-    await this.prisma.employee.update({
-      where: { id: employeeId },
+    await tx.employee.updateMany({
+      where: { id: employeeId, businessId },
       data: { onboardingCompleted: true },
     });
 
-    const business = await this.prisma.business.findUnique({
+    settings.guidedSetupCompleted = true;
+    settings.guidedSetupCompletedAt = new Date().toISOString();
+    await tx.business.update({
       where: { id: businessId },
-      select: { settings: true },
-    });
-    const existingSettings = (business?.settings as Record<string, unknown>) ?? {};
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...existingSettings,
-          guidedSetupCompleted: true,
-          guidedSetupCompletedAt: new Date().toISOString(),
-        } as never,
-      },
+      data: { settings: settings as Prisma.InputJsonValue },
     });
 
     result.onboarding.completed = true;
-    this.logger.log(`Guided setup completed for business ${businessId}`);
-
     return result;
   }
 
-  private async getFirstOutletId(businessId: string): Promise<string | null> {
-    const outlet = await this.prisma.outlet.findFirst({
+  /**
+   * Reads business.settings with a row lock (SELECT ... FOR UPDATE) so the
+   * read-modify-write of the JSON column cannot lose concurrent updates.
+   * Must be called inside a transaction.
+   */
+  private async lockBusinessSettings(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+  ): Promise<Record<string, unknown>> {
+    const rows = await tx.$queryRaw<{ settings: unknown }[]>`
+      SELECT settings FROM businesses WHERE id = ${businessId}::uuid FOR UPDATE`;
+    const raw = rows[0]?.settings;
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  }
+
+  private async patchBusinessSettings(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    const settings = await this.lockBusinessSettings(tx, businessId);
+    await tx.business.update({
+      where: { id: businessId },
+      data: { settings: { ...settings, ...patch } as Prisma.InputJsonValue },
+    });
+  }
+
+  /** The caller's outlet (verified to belong to the business) or the first active one. */
+  private async resolveOutletId(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    outletId: string | null,
+  ): Promise<string | null> {
+    if (outletId) {
+      const owned = await tx.outlet.findFirst({
+        where: { id: outletId, businessId },
+        select: { id: true },
+      });
+      if (owned) return owned.id;
+    }
+    const outlet = await tx.outlet.findFirst({
       where: { businessId, isActive: true },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
     return outlet?.id ?? null;
   }
 
-  private async configurePaymentMethods(businessId: string, methods: string[]): Promise<void> {
+  private buildPaymentMethods(methods: string[]) {
     const typeMap: Record<string, string> = {
       cash: 'cash',
       qris: 'qris',
@@ -287,7 +339,7 @@ export class OnboardingService {
       ewallet: 'E-Wallet',
     };
 
-    const paymentMethods = methods.map((m) => ({
+    return methods.map((m) => ({
       id: randomBytes(16).toString('hex'),
       name: nameMap[m] || m,
       type: typeMap[m] || m,
@@ -295,33 +347,15 @@ export class OnboardingService {
       processingFee: 0,
       settings: {},
     }));
-
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { settings: true },
-    });
-    const existingSettings = (business?.settings as Record<string, unknown>) ?? {};
-
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...existingSettings,
-          businessPaymentMethods: paymentMethods,
-        } as never,
-      },
-    });
   }
 
   /**
-   * Check if account is created (always true if user exists)
-   *
-   * @param _businessId - Business ID (unused but kept for consistency)
-   * @returns Account created status
+   * Account step: done once the business exists (the caller is authenticated
+   * as an employee of it).
    */
-  private async checkAccountCreated(_businessId: string): Promise<OnboardingStepStatus> {
-    // Account is considered created if the business exists
-    return { done: true };
+  private async checkAccountCreated(businessId: string): Promise<OnboardingStepStatus> {
+    const count = await this.prisma.business.count({ where: { id: businessId } });
+    return { done: count > 0 };
   }
 
   /**
@@ -423,33 +457,20 @@ export class OnboardingService {
    * @returns Printer configuration status
    */
   private async checkPrinterConfigured(businessId: string): Promise<OnboardingStepStatus> {
-    // Check if there are any active printer-type devices
-    const printerDevices = await this.prisma.device.findMany({
-      where: {
-        businessId,
-        isActive: true,
-        deviceType: 'desktop', // Desktop devices are typically used for POS/receipt printing
-      },
-    });
-
-    if (printerDevices.length > 0) {
-      return { done: true };
-    }
-
-    // Also check outlet settings for printer configuration
-    const outlets = await this.prisma.outlet.findMany({
-      where: { businessId },
+    // Printers are configured in Settings > Printers (business.settings.printerConfigs).
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
       select: { settings: true },
     });
-
-    for (const outlet of outlets) {
-      const settings = outlet.settings as Record<string, unknown> | null;
-      if (settings?.printerConfigured === true) {
-        return { done: true };
-      }
-    }
-
-    return { done: false };
+    const settings = business?.settings as Record<string, unknown> | null;
+    const printers = settings?.printerConfigs;
+    const hasActivePrinter =
+      Array.isArray(printers) &&
+      printers.some(
+        (p) =>
+          typeof p === 'object' && p !== null && (p as { isActive?: unknown }).isActive !== false,
+      );
+    return { done: hasActivePrinter };
   }
 
   /**

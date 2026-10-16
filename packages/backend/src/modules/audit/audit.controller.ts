@@ -1,58 +1,41 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Inject } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
+import { Controller, Get, Post, Query, Body } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { IAuditLogRepository } from '../../domain/interfaces/repositories/audit.repository';
 import { AuditService } from './audit.service';
 import {
+  AuditDateRangeQueryDto,
+  AuditEntityQueryDto,
+  AuditListQueryDto,
   ComplianceExportDto,
-  ExportFormat,
-  SuspiciousActivityType,
+  ComplianceExportQueryDto,
+  SuspiciousActivityQueryDto,
 } from '../../application/dtos/audit.dto';
 import { RequireFeature } from '../../common/guards/feature.guard';
 
 @ApiTags('Audit')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 @RequireFeature('audit_log')
 @Controller('audit')
 export class AuditController {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.AUDIT)
-    private readonly auditRepo: IAuditLogRepository,
-    private readonly auditService: AuditService,
-  ) {}
+  constructor(private readonly auditService: AuditService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List audit logs by date range' })
-  @ApiQuery({ name: 'startDate', required: false })
-  @ApiQuery({ name: 'endDate', required: false })
-  async list(
-    @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    return this.auditRepo.findByDateRange(user.businessId, start, end);
+  @ApiOperation({
+    summary: 'List audit logs by date range (newest first, page/limit, max 100 per page)',
+  })
+  async list(@CurrentUser() user: AuthUser, @Query() query: AuditListQueryDto) {
+    const { start, end } = this.auditService.resolveRange(query.startDate, query.endDate);
+    return this.auditService.listLogs(user.businessId, start, end, query);
   }
 
   @Get('entity')
-  @ApiOperation({ summary: 'Get audit logs by entity' })
-  @ApiQuery({ name: 'entityType', required: true })
-  @ApiQuery({ name: 'entityId', required: true })
-  async byEntity(
-    @Query('entityType') entityType: string,
-    @Query('entityId') entityId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.auditRepo.findByEntity(entityType, entityId, user.businessId);
+  @ApiOperation({ summary: 'Get audit logs by entity (page/limit, max 100 per page)' })
+  async byEntity(@CurrentUser() user: AuthUser, @Query() query: AuditEntityQueryDto) {
+    return this.auditService.listByEntity(user.businessId, query.entityType, query.entityId, query);
   }
 
   // ======================================================================
@@ -63,33 +46,19 @@ export class AuditController {
   @ApiOperation({
     summary: 'Get flagged suspicious activities',
     description:
-      'Detects patterns like multiple voids, unusual discounts, cash drawer abuse, after-hours, and large refunds',
+      'Detects multiple voids, unusual discounts, after-hours activity and large refunds',
   })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
-  @ApiQuery({ name: 'types', required: false, isArray: true, enum: SuspiciousActivityType })
-  @ApiQuery({ name: 'outletId', required: false })
   async getSuspiciousActivities(
     @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('types') types?: SuspiciousActivityType | SuspiciousActivityType[],
-    @Query('outletId') outletId?: string,
+    @Query() query: SuspiciousActivityQueryDto,
   ) {
-    const typesArray = types ? (Array.isArray(types) ? types : [types]) : undefined;
-
-    const now = new Date();
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : now;
-
+    const { start, end } = this.auditService.resolveRange(query.startDate, query.endDate);
     return this.auditService.detectSuspiciousActivities(
       user.businessId,
       start,
       end,
-      typesArray,
-      outletId,
+      query.types,
+      query.outletId,
     );
   }
 
@@ -98,16 +67,18 @@ export class AuditController {
   // ======================================================================
 
   @Post('compliance-export')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Generate compliance report (CSV or JSON)',
     description:
       'Exports audit trail for tax compliance with date range, action type, and employee filters',
   })
   async generateComplianceExport(@CurrentUser() user: AuthUser, @Body() dto: ComplianceExportDto) {
+    const { start, end } = this.auditService.resolveRange(dto.startDate, dto.endDate);
     return this.auditService.generateComplianceExport(
       user.businessId,
-      new Date(dto.startDate),
-      new Date(dto.endDate),
+      start,
+      end,
       dto.format,
       dto.actionTypes,
       dto.employeeId,
@@ -120,9 +91,7 @@ export class AuditController {
 
   @Get('suspicious-activity')
   @ApiOperation({
-    summary: 'Get flagged suspicious activities (last 30 days by default)',
-    description:
-      'Quick detection of suspicious patterns: multiple voids, large discounts, after-hours transactions, repeated failed logins',
+    summary: 'Get flagged suspicious activities (last 30 days)',
   })
   async getSuspiciousActivity(@CurrentUser() user: AuthUser) {
     return this.auditService.detectSuspiciousActivity(user.businessId);
@@ -137,32 +106,18 @@ export class AuditController {
     summary: 'Export compliance report (CSV or JSON) via GET',
     description: 'Exports audit logs filtered by action type, employee, and date range',
   })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
-  @ApiQuery({ name: 'format', required: true, enum: ExportFormat })
-  @ApiQuery({ name: 'actionTypes', required: false, isArray: true })
-  @ApiQuery({ name: 'employeeId', required: false })
   async getComplianceExport(
     @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-    @Query('format') format: ExportFormat,
-    @Query('actionTypes') actionTypes?: string | string[],
-    @Query('employeeId') employeeId?: string,
+    @Query() query: ComplianceExportQueryDto,
   ) {
-    const actionTypesArray = actionTypes
-      ? Array.isArray(actionTypes)
-        ? actionTypes
-        : [actionTypes]
-      : undefined;
-
+    const { start, end } = this.auditService.resolveRange(query.startDate, query.endDate);
     return this.auditService.exportComplianceReport(
       user.businessId,
-      new Date(startDate),
-      new Date(endDate),
-      format,
-      actionTypesArray,
-      employeeId,
+      start,
+      end,
+      query.format,
+      query.actionTypes,
+      query.employeeId,
     );
   }
 
@@ -176,15 +131,8 @@ export class AuditController {
     description:
       'Returns aggregated counts by action, entity type, employee, and suspicious activity count',
   })
-  @ApiQuery({ name: 'startDate', required: false })
-  @ApiQuery({ name: 'endDate', required: false })
-  async getAuditSummary(
-    @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
+  async getAuditSummary(@CurrentUser() user: AuthUser, @Query() query: AuditDateRangeQueryDto) {
+    const { start, end } = this.auditService.resolveRange(query.startDate, query.endDate);
     return this.auditService.getAuditSummary(user.businessId, start, end);
   }
 }

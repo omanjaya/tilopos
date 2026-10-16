@@ -7,44 +7,104 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
+  ParseArrayPipe,
+  ParseUUIDPipe,
   Inject,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { OutletAccessGuard } from '../../shared/guards/outlet-access.guard';
+import { TenantAccessService } from '../../shared/tenant/tenant-access.service';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { ISettingsRepository } from '../../domain/interfaces/repositories/settings.repository';
-import { UpdateOutletDto } from '../../application/dtos/settings.dto';
-import { UpdateTaxConfigDto } from '../../application/dtos/settings.dto';
-import { UpdateReceiptTemplateDto } from '../../application/dtos/settings.dto';
-import { UpdateOperatingHoursDto } from '../../application/dtos/settings.dto';
+import type { SettingsRepository } from '../../infrastructure/repositories/settings/settings.repository';
 import {
+  UpdateOutletDto,
+  UpdateTaxConfigDto,
+  UpdateReceiptTemplateDto,
+  UpdateOperatingHoursDto,
   CreatePaymentMethodDto,
   UpdatePaymentMethodDto,
   CreatePrinterConfigDto,
   UpdatePrinterConfigDto,
   CreateReportScheduleDto,
   UpdateReportScheduleDto,
+  UpdateBusinessDto,
+  CreateOutletDto,
+  CreateModifierGroupDto,
+  UpdateModifierGroupDto,
+  CreateLoyaltyProgramDto,
+  UpdateLoyaltyProgramDto,
+  CreateLoyaltyTierDto,
+  UpdateLoyaltyTierDto,
+  UpdateOutletTaxDto,
+  UpdateLegacyReceiptTemplateDto,
+  LegacyOperatingHoursEntryDto,
+  LegacyPaymentMethodConfigDto,
+  EDITABLE_BUSINESS_SETTINGS,
 } from '../../application/dtos/settings.dto';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import { OutletQueryDto } from '../../application/dtos/transaction.dto';
+import {
+  toPosPaymentMethods,
+  type PosPaymentMethodView,
+  type PosReceiptTemplateView,
+} from './pos-settings.view';
+
+/** Roles that run the POS (and may read its payment/receipt configuration). */
+const POS_READERS = [
+  EmployeeRole.OWNER,
+  EmployeeRole.MANAGER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.CASHIER,
+] as const;
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Array bodies are not validated by the global ValidationPipe; validate each item explicitly. */
+const arrayOf = <T>(items: new () => T) =>
+  new ParseArrayPipe({
+    items,
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    forbidUnknownValues: true,
+  });
+
+/**
+ * Picks the display settings a client may change via PUT /settings/business.
+ * Everything else in business.settings is owned by dedicated endpoints.
+ */
+function pickEditableBusinessSettings(
+  settings: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!settings) return undefined;
+  const patch: Record<string, unknown> = {};
+  for (const key of EDITABLE_BUSINESS_SETTINGS) {
+    if (settings[key] === undefined) continue;
+    const value = settings[key];
+    if (key === 'brandColor' && !(typeof value === 'string' && HEX_COLOR.test(value))) {
+      throw new BadRequestException('settings.brandColor must be a #RRGGBB hex color');
+    }
+    patch[key] = value;
+  }
+  return patch;
+}
 
 @ApiTags('Settings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
 @Controller('settings')
 export class SettingsController {
   constructor(
     @Inject(REPOSITORY_TOKENS.SETTINGS)
-    private readonly settingsRepo: ISettingsRepository,
+    private readonly settingsRepo: SettingsRepository,
+    private readonly tenant: TenantAccessService,
   ) {}
+
+  // ==================== Business profile (owner only) ====================
 
   @Get('business')
   async getBusiness(@CurrentUser() user: AuthUser) {
@@ -52,25 +112,18 @@ export class SettingsController {
   }
 
   @Put('business')
-  async updateBusiness(
-    @CurrentUser() user: AuthUser,
-    @Body()
-    dto: {
-      name?: string;
-      phone?: string;
-      email?: string;
-      address?: string;
-      settings?: Record<string, unknown>;
-    },
-  ) {
+  @Roles(EmployeeRole.OWNER)
+  async updateBusiness(@CurrentUser() user: AuthUser, @Body() dto: UpdateBusinessDto) {
     return this.settingsRepo.updateBusiness(user.businessId, {
       name: dto.name,
       phone: dto.phone,
       email: dto.email,
       address: dto.address,
-      settings: dto.settings,
+      settings: pickEditableBusinessSettings(dto.settings),
     });
   }
+
+  // ==================== Outlets ====================
 
   @Get('outlets')
   async listOutlets(@CurrentUser() user: AuthUser) {
@@ -78,18 +131,8 @@ export class SettingsController {
   }
 
   @Post('outlets')
-  async createOutlet(
-    @Body()
-    dto: {
-      name: string;
-      code?: string;
-      address?: string;
-      phone?: string;
-      taxRate?: number;
-      serviceCharge?: number;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
+  @Roles(EmployeeRole.OWNER)
+  async createOutlet(@Body() dto: CreateOutletDto, @CurrentUser() user: AuthUser) {
     return this.settingsRepo.createOutlet({
       businessId: user.businessId,
       name: dto.name,
@@ -101,10 +144,25 @@ export class SettingsController {
     });
   }
 
+  @Get('outlets/:id')
+  async getOutlet(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    const outlet = await this.settingsRepo.findOutletById(user.businessId, id);
+    if (!outlet) throw new NotFoundException('Outlet not found');
+    return outlet;
+  }
+
   @Put('outlets/:id')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async updateOutlet(@Param('id') id: string, @Body() dto: UpdateOutletDto) {
-    return this.settingsRepo.updateOutlet(id, {
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async updateOutlet(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOutletDto,
+  ) {
+    OutletAccessGuard.enforceOutletAccess(user, id, 'outlet');
+    if (dto.isActive !== undefined && user.role !== EmployeeRole.OWNER) {
+      throw new BadRequestException('Only the owner can activate or deactivate outlets');
+    }
+    return this.settingsRepo.updateOutlet(user.businessId, id, {
       name: dto.name,
       code: dto.code,
       address: dto.address,
@@ -115,53 +173,65 @@ export class SettingsController {
     });
   }
 
+  @Delete('outlets/:id')
+  @Roles(EmployeeRole.OWNER)
+  async deleteOutlet(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.settingsRepo.deleteOutlet(user.businessId, id);
+    return { message: 'Outlet deactivated' };
+  }
+
+  // ==================== Modifier groups ====================
+
   @Get('modifier-groups')
   async listModifierGroups(@CurrentUser() user: AuthUser) {
     return this.settingsRepo.findModifierGroups(user.businessId);
   }
 
   @Post('modifier-groups')
-  async createModifierGroup(
-    @Body()
-    dto: {
-      name: string;
-      selectionType?: 'single' | 'multiple';
-      minSelection?: number;
-      maxSelection?: number;
-      isRequired?: boolean;
-      modifiers: { name: string; price: number }[];
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async createModifierGroup(@Body() dto: CreateModifierGroupDto, @CurrentUser() user: AuthUser) {
+    const minSelection = dto.minSelection ?? 0;
+    const maxSelection = dto.maxSelection ?? null;
+    if (maxSelection !== null && minSelection > maxSelection) {
+      throw new BadRequestException('minSelection cannot be greater than maxSelection');
+    }
     return this.settingsRepo.createModifierGroup({
       businessId: user.businessId,
       name: dto.name,
       selectionType: dto.selectionType || 'single',
-      minSelection: dto.minSelection ?? 0,
-      maxSelection: dto.maxSelection || null,
+      minSelection,
+      maxSelection,
       isRequired: dto.isRequired ?? false,
-      modifiers: dto.modifiers,
+      modifiers: dto.modifiers.map((m) => ({ name: m.name, price: m.price })),
     });
   }
 
   @Put('modifier-groups/:id')
-  @BusinessScoped({ resource: 'modifierGroup', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updateModifierGroup(
-    @Param('id') id: string,
-    @Body() dto: { name?: string; isActive?: boolean },
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateModifierGroupDto,
   ) {
-    return this.settingsRepo.updateModifierGroup(id, {
+    return this.settingsRepo.updateModifierGroup(user.businessId, id, {
       name: dto.name,
       isActive: dto.isActive,
+      selectionType: dto.selectionType,
+      minSelection: dto.minSelection,
+      maxSelection: dto.maxSelection,
+      isRequired: dto.isRequired,
+      modifiers: dto.modifiers?.map((m) => ({ id: m.id, name: m.name, price: m.price })),
     });
   }
 
   @Delete('modifier-groups/:id')
-  @BusinessScoped({ resource: 'modifierGroup', param: 'id' })
-  async deleteModifierGroup(@Param('id') id: string) {
-    await this.settingsRepo.deleteModifierGroup(id);
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async deleteModifierGroup(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.settingsRepo.deleteModifierGroup(user.businessId, id);
     return { message: 'Modifier group deactivated' };
   }
+
+  // ==================== Loyalty ====================
 
   @Get('loyalty')
   async getLoyaltyProgram(@CurrentUser() user: AuthUser) {
@@ -171,11 +241,8 @@ export class SettingsController {
   }
 
   @Post('loyalty')
-  async createLoyaltyProgram(
-    @Body()
-    dto: { name: string; amountPerPoint: number; redemptionRate: number; pointExpiryDays?: number },
-    @CurrentUser() user: AuthUser,
-  ) {
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async createLoyaltyProgram(@Body() dto: CreateLoyaltyProgramDto, @CurrentUser() user: AuthUser) {
     return this.settingsRepo.createLoyaltyProgram({
       businessId: user.businessId,
       name: dto.name,
@@ -185,54 +252,26 @@ export class SettingsController {
     });
   }
 
-  @Get('outlets/:id')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async getOutlet(@Param('id') id: string) {
-    const outlet = await this.settingsRepo.findOutletById(id);
-    if (!outlet) throw new NotFoundException('Outlet not found');
-    return outlet;
+  @Put('loyalty')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async updateLoyaltyProgram(@Body() dto: UpdateLoyaltyProgramDto, @CurrentUser() user: AuthUser) {
+    return this.settingsRepo.updateLoyaltyProgram(user.businessId, {
+      name: dto.name,
+      amountPerPoint: dto.amountPerPoint,
+      redemptionRate: dto.redemptionRate,
+      pointExpiryDays: dto.pointExpiryDays,
+      isActive: dto.isActive,
+    });
   }
 
   @Get('loyalty/tiers')
-  async getLoyaltyTiers(@CurrentUser() user: AuthUser, @Query('_unused') _unused?: string) {
+  async getLoyaltyTiers(@CurrentUser() user: AuthUser) {
     return this.settingsRepo.findLoyaltyTiers(user.businessId);
   }
 
-  @Delete('outlets/:id')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async deleteOutlet(@Param('id') id: string) {
-    await this.settingsRepo.deleteOutlet(id);
-    return { message: 'Outlet deactivated' };
-  }
-
-  @Put('loyalty')
-  async updateLoyaltyProgram(
-    @Body()
-    dto: {
-      name?: string;
-      amountPerPoint?: number;
-      redemptionRate?: number;
-      pointExpiryDays?: number;
-      isActive?: boolean;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.settingsRepo.updateLoyaltyProgram(user.businessId, dto);
-  }
-
   @Post('loyalty/tiers')
-  async createLoyaltyTier(
-    @Body()
-    dto: {
-      name: string;
-      minPoints: number;
-      minSpent?: number;
-      pointMultiplier: number;
-      benefits?: string[];
-      sortOrder?: number;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async createLoyaltyTier(@Body() dto: CreateLoyaltyTierDto, @CurrentUser() user: AuthUser) {
     return this.settingsRepo.createLoyaltyTier({
       businessId: user.businessId,
       name: dto.name,
@@ -245,102 +284,112 @@ export class SettingsController {
   }
 
   @Put('loyalty/tiers/:id')
-  @BusinessScoped({ resource: 'loyaltyTier', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updateLoyaltyTier(
-    @Param('id') id: string,
-    @Body()
-    dto: {
-      name?: string;
-      minPoints?: number;
-      minSpent?: number;
-      pointMultiplier?: number;
-      benefits?: string[];
-      sortOrder?: number;
-      isActive?: boolean;
-    },
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateLoyaltyTierDto,
   ) {
-    return this.settingsRepo.updateLoyaltyTier(id, dto);
+    return this.settingsRepo.updateLoyaltyTier(user.businessId, id, {
+      name: dto.name,
+      minPoints: dto.minPoints,
+      minSpent: dto.minSpent,
+      pointMultiplier: dto.pointMultiplier,
+      benefits: dto.benefits,
+      sortOrder: dto.sortOrder,
+      isActive: dto.isActive,
+    });
   }
 
   @Delete('loyalty/tiers/:id')
-  @BusinessScoped({ resource: 'loyaltyTier', param: 'id' })
-  async deleteLoyaltyTier(@Param('id') id: string) {
-    await this.settingsRepo.deleteLoyaltyTier(id);
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
+  async deleteLoyaltyTier(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.settingsRepo.deleteLoyaltyTier(user.businessId, id);
     return { message: 'Loyalty tier deactivated' };
   }
 
-  // Legacy Tax Configuration (per outlet)
+  // ==================== Legacy per-outlet tax / receipt / hours ====================
+
+  /** Read by the POS for every front-of-house role to compute cart totals. */
   @Get('outlets/:id/tax')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async getTaxConfig(@Param('id') outletId: string) {
-    return this.settingsRepo.getTaxConfig(outletId);
+  @Roles(
+    EmployeeRole.OWNER,
+    EmployeeRole.MANAGER,
+    EmployeeRole.SUPERVISOR,
+    EmployeeRole.CASHIER,
+    EmployeeRole.KITCHEN,
+    EmployeeRole.INVENTORY,
+  )
+  async getTaxConfig(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) outletId: string) {
+    return this.settingsRepo.getTaxConfig(user.businessId, outletId);
   }
 
   @Put('outlets/:id/tax')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updateTaxConfig(
-    @Param('id') outletId: string,
-    @Body()
-    dto: {
-      taxRate?: number;
-      serviceCharge?: number;
-      taxInclusive?: boolean;
-      taxName?: string;
-      taxNumber?: string;
-    },
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) outletId: string,
+    @Body() dto: UpdateOutletTaxDto,
   ) {
-    return this.settingsRepo.updateTaxConfig(outletId, dto);
+    OutletAccessGuard.enforceOutletAccess(user, outletId, 'outlet');
+    return this.settingsRepo.updateTaxConfig(user.businessId, outletId, {
+      taxRate: dto.taxRate,
+      serviceCharge: dto.serviceCharge,
+      taxInclusive: dto.taxInclusive,
+      taxName: dto.taxName,
+      taxNumber: dto.taxNumber,
+    });
   }
 
-  // Legacy Receipt Template (per outlet)
   @Get('outlets/:id/receipt')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async getReceiptTemplate(@Param('id') outletId: string) {
-    return this.settingsRepo.getReceiptTemplate(outletId);
+  async getReceiptTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) outletId: string,
+  ) {
+    return this.settingsRepo.getReceiptTemplate(user.businessId, outletId);
   }
 
   @Put('outlets/:id/receipt')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updateReceiptTemplate(
-    @Param('id') outletId: string,
-    @Body()
-    dto: {
-      header?: string;
-      footer?: string;
-      showLogo?: boolean;
-      logoUrl?: string;
-      showQRCode?: boolean;
-      showTaxDetails?: boolean;
-      showServiceCharge?: boolean;
-      paperSize?: '58mm' | '80mm';
-      fontSize?: 'small' | 'medium' | 'large';
-    },
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) outletId: string,
+    @Body() dto: UpdateLegacyReceiptTemplateDto,
   ) {
-    return this.settingsRepo.updateReceiptTemplate(outletId, dto);
+    OutletAccessGuard.enforceOutletAccess(user, outletId, 'outlet');
+    return this.settingsRepo.updateReceiptTemplate(user.businessId, outletId, {
+      header: dto.header,
+      footer: dto.footer,
+      showLogo: dto.showLogo,
+      logoUrl: dto.logoUrl,
+      showQRCode: dto.showQRCode,
+      showTaxDetails: dto.showTaxDetails,
+      showServiceCharge: dto.showServiceCharge,
+      paperSize: dto.paperSize,
+      fontSize: dto.fontSize,
+    });
   }
 
-  // Legacy Operating Hours (per outlet)
   @Get('outlets/:id/hours')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
-  async getOperatingHours(@Param('id') outletId: string) {
-    return this.settingsRepo.getOperatingHours(outletId);
+  async getOperatingHours(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) outletId: string,
+  ) {
+    return this.settingsRepo.getOperatingHours(user.businessId, outletId);
   }
 
   @Put('outlets/:id/hours')
-  @BusinessScoped({ resource: 'outlet', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updateOperatingHours(
-    @Param('id') outletId: string,
-    @Body()
-    dto: {
-      dayOfWeek: number;
-      isOpen: boolean;
-      openTime?: string;
-      closeTime?: string;
-      breakStart?: string;
-      breakEnd?: string;
-    }[],
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) outletId: string,
+    @Body(arrayOf(LegacyOperatingHoursEntryDto)) dto: LegacyOperatingHoursEntryDto[],
   ) {
-    await this.settingsRepo.updateOperatingHours(outletId, dto);
+    if (dto.length > 7 || new Set(dto.map((h) => h.dayOfWeek)).size !== dto.length) {
+      throw new BadRequestException('At most one entry per day of week');
+    }
+    OutletAccessGuard.enforceOutletAccess(user, outletId, 'outlet');
+    await this.settingsRepo.updateOperatingHours(user.businessId, outletId, dto);
     return { message: 'Operating hours updated' };
   }
 
@@ -351,20 +400,19 @@ export class SettingsController {
   }
 
   @Put('payment-methods')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   async updatePaymentMethods(
     @CurrentUser() user: AuthUser,
-    @Body()
-    dto: {
-      method: string;
-      enabled: boolean;
-      displayName: string;
-      processingFee?: number;
-      feeType?: 'percentage' | 'fixed';
-      minAmount?: number;
-      maxAmount?: number;
-      sortOrder?: number;
-    }[],
+    @Body(arrayOf(LegacyPaymentMethodConfigDto)) dto: LegacyPaymentMethodConfigDto[],
   ) {
+    if (dto.length > 50) {
+      throw new BadRequestException('Too many payment methods');
+    }
+    for (const m of dto) {
+      if (m.feeType !== 'fixed' && m.processingFee !== undefined && m.processingFee > 100) {
+        throw new BadRequestException(`processingFee for ${m.method} must be at most 100%`);
+      }
+    }
     await this.settingsRepo.updatePaymentMethods(user.businessId, dto);
     return { message: 'Payment methods updated' };
   }
@@ -378,17 +426,9 @@ export class SettingsController {
   }
 
   @Put('tax')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update tax configuration for business' })
   async updateBusinessTaxConfig(@CurrentUser() user: AuthUser, @Body() dto: UpdateTaxConfigDto) {
-    if (dto.taxRate !== undefined && (dto.taxRate < 0 || dto.taxRate > 100)) {
-      throw new BadRequestException('taxRate must be between 0 and 100');
-    }
-    if (
-      dto.serviceChargeRate !== undefined &&
-      (dto.serviceChargeRate < 0 || dto.serviceChargeRate > 100)
-    ) {
-      throw new BadRequestException('serviceChargeRate must be between 0 and 100');
-    }
     return this.settingsRepo.updateBusinessTaxConfig(user.businessId, {
       taxEnabled: dto.taxEnabled,
       taxRate: dto.taxRate,
@@ -403,25 +443,21 @@ export class SettingsController {
 
   @Get('receipt')
   @ApiOperation({ summary: 'Get receipt template for current outlet' })
-  async getOutletReceiptTemplate(@CurrentUser() user: AuthUser) {
-    const outletId = user.outletId;
-    if (!outletId) {
-      throw new BadRequestException('No outlet associated with this user');
-    }
-    return this.settingsRepo.getOutletReceiptTemplate(outletId);
+  async getOutletReceiptTemplate(@CurrentUser() user: AuthUser, @Query() query: OutletQueryDto) {
+    const outletId = await this.resolveOutlet(user, query.outletId);
+    return this.settingsRepo.getOutletReceiptTemplate(user.businessId, outletId);
   }
 
   @Put('receipt')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update receipt template for current outlet' })
   async updateOutletReceiptTemplate(
     @CurrentUser() user: AuthUser,
+    @Query() query: OutletQueryDto,
     @Body() dto: UpdateReceiptTemplateDto,
   ) {
-    const outletId = user.outletId;
-    if (!outletId) {
-      throw new BadRequestException('No outlet associated with this user');
-    }
-    return this.settingsRepo.updateOutletReceiptTemplate(outletId, {
+    const outletId = await this.resolveOutlet(user, query.outletId);
+    return this.settingsRepo.updateOutletReceiptTemplate(user.businessId, outletId, {
       header: dto.header,
       footer: dto.footer,
       showLogo: dto.showLogo,
@@ -437,22 +473,25 @@ export class SettingsController {
   // ==================== Operating Hours API ====================
 
   @Get('hours/:outletId')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
   @ApiOperation({ summary: 'Get operating hours for outlet' })
-  async getOutletOperatingHours(@Param('outletId') outletId: string) {
-    return this.settingsRepo.getOutletOperatingHours(outletId);
+  async getOutletOperatingHours(
+    @CurrentUser() user: AuthUser,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+  ) {
+    return this.settingsRepo.getOutletOperatingHours(user.businessId, outletId);
   }
 
   @Put('hours/:outletId')
-  @BusinessScoped({ resource: 'outlet', param: 'outletId' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update operating hours for outlet' })
   async updateOutletOperatingHours(
-    @Param('outletId') outletId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('outletId', ParseUUIDPipe) outletId: string,
     @Body() dto: UpdateOperatingHoursDto,
   ) {
     const { hours } = dto;
 
-    // Validate that all 7 days are present (0-6)
+    // Validate that all 7 days are present (0-6); HH:mm format is validated by the DTO
     const daysPresent = new Set(hours.map((h) => h.dayOfWeek));
     for (let i = 0; i <= 6; i++) {
       if (!daysPresent.has(i)) {
@@ -460,22 +499,9 @@ export class SettingsController {
       }
     }
 
-    // Validate HH:mm format for all entries
-    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
-    for (const entry of hours) {
-      if (!timeRegex.test(entry.openTime)) {
-        throw new BadRequestException(
-          `Invalid openTime format for day ${entry.dayOfWeek}: ${entry.openTime}`,
-        );
-      }
-      if (!timeRegex.test(entry.closeTime)) {
-        throw new BadRequestException(
-          `Invalid closeTime format for day ${entry.dayOfWeek}: ${entry.closeTime}`,
-        );
-      }
-    }
-
+    OutletAccessGuard.enforceOutletAccess(user, outletId, 'outlet');
     return this.settingsRepo.updateOutletOperatingHours(
+      user.businessId,
       outletId,
       hours.map((h) => ({
         dayOfWeek: h.dayOfWeek,
@@ -484,6 +510,26 @@ export class SettingsController {
         isClosed: h.isClosed,
       })),
     );
+  }
+
+  // ==================== POS read-only views (front-of-house) ====================
+
+  @Get('pos/payment-methods')
+  @Roles(...POS_READERS)
+  @ApiOperation({ summary: 'Active payment methods for the POS (read-only, no gateway settings)' })
+  async getPosPaymentMethods(@CurrentUser() user: AuthUser): Promise<PosPaymentMethodView[]> {
+    return toPosPaymentMethods(await this.settingsRepo.getBusinessPaymentMethods(user.businessId));
+  }
+
+  @Get('pos/receipt')
+  @Roles(...POS_READERS)
+  @ApiOperation({ summary: 'Receipt template of an accessible outlet for the POS (read-only)' })
+  async getPosReceiptTemplate(
+    @CurrentUser() user: AuthUser,
+    @Query() query: OutletQueryDto,
+  ): Promise<PosReceiptTemplateView> {
+    const outletId = await this.resolveOutlet(user, query.outletId);
+    return this.settingsRepo.getOutletReceiptTemplate(user.businessId, outletId);
   }
 
   // ==================== Payment Method Setup API (CRUD) ====================
@@ -495,6 +541,7 @@ export class SettingsController {
   }
 
   @Post('payment-methods/create')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Create a new payment method' })
   async createBusinessPaymentMethod(
     @CurrentUser() user: AuthUser,
@@ -510,6 +557,7 @@ export class SettingsController {
   }
 
   @Put('payment-methods/:id/update')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update a payment method' })
   async updateBusinessPaymentMethod(
     @CurrentUser() user: AuthUser,
@@ -526,6 +574,7 @@ export class SettingsController {
   }
 
   @Delete('payment-methods/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Deactivate a payment method' })
   async deleteBusinessPaymentMethod(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.settingsRepo.deleteBusinessPaymentMethod(user.businessId, id);
@@ -541,8 +590,10 @@ export class SettingsController {
   }
 
   @Post('printers')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Create a new printer config' })
   async createPrinterConfig(@CurrentUser() user: AuthUser, @Body() dto: CreatePrinterConfigDto) {
+    const outletId = await this.tenant.assertOutlet(user, dto.outletId);
     return this.settingsRepo.createPrinterConfig(user.businessId, {
       name: dto.name,
       type: dto.type,
@@ -551,17 +602,21 @@ export class SettingsController {
       port: dto.port,
       autoPrint: dto.autoPrint,
       copies: dto.copies,
-      outletId: dto.outletId,
+      outletId,
     });
   }
 
   @Put('printers/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update a printer config' })
   async updatePrinterConfig(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdatePrinterConfigDto,
   ) {
+    if (dto.outletId !== undefined) {
+      await this.tenant.assertOutlet(user, dto.outletId);
+    }
     return this.settingsRepo.updatePrinterConfig(user.businessId, id, {
       name: dto.name,
       type: dto.type,
@@ -576,6 +631,7 @@ export class SettingsController {
   }
 
   @Delete('printers/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Delete a printer config' })
   async deletePrinterConfig(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.settingsRepo.deletePrinterConfig(user.businessId, id);
@@ -591,6 +647,7 @@ export class SettingsController {
   }
 
   @Post('report-schedules')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Create a new report schedule' })
   async createReportSchedule(@CurrentUser() user: AuthUser, @Body() dto: CreateReportScheduleDto) {
     return this.settingsRepo.createReportSchedule(user.businessId, {
@@ -602,6 +659,7 @@ export class SettingsController {
   }
 
   @Put('report-schedules/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update a report schedule' })
   async updateReportSchedule(
     @CurrentUser() user: AuthUser,
@@ -617,9 +675,25 @@ export class SettingsController {
   }
 
   @Delete('report-schedules/:id')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Delete a report schedule' })
   async deleteReportSchedule(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.settingsRepo.deleteReportSchedule(user.businessId, id);
     return { message: 'Report schedule deleted' };
+  }
+
+  /** ?outletId= (validated against the caller's business/outlet access) or the caller's own outlet. */
+  private async resolveOutlet(user: AuthUser, outletId?: string): Promise<string> {
+    if (outletId) {
+      return this.tenant.assertOutlet(user, outletId);
+    }
+    return this.requireOutlet(user);
+  }
+
+  private requireOutlet(user: AuthUser): string {
+    if (!user.outletId) {
+      throw new BadRequestException('No outlet associated with this user');
+    }
+    return user.outletId;
   }
 }

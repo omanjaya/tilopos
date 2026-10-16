@@ -1,15 +1,74 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import {
   BUSINESS_TYPE_PRESETS,
   getBusinessTypePreset,
   isValidBusinessType,
-  getAllBusinessTypeCodes,
   type BusinessTypePreset,
 } from '@config/business-types.config';
 import { FeatureService } from './feature.service';
 import { OutletFeatureService } from './outlet-feature.service';
-import { TemplatesService } from '../../templates/templates.service';
+import {
+  TemplatesService,
+  type TemplateData,
+  type ApplySections,
+} from '../../templates/templates.service';
+
+const ALL_TEMPLATE_SECTIONS: ApplySections = {
+  categories: true,
+  products: true,
+  modifiers: true,
+  tables: true,
+};
+
+/** Interactive transaction budget for type changes (template apply can be large). */
+export const TYPE_CHANGE_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 };
+
+/**
+ * Loads the template for a type, or null when none exists (e.g. "custom").
+ * Only a missing template is tolerated; any other error propagates.
+ */
+export async function loadTemplateOrNull(
+  templatesService: TemplatesService,
+  typeCode: string,
+  logger: Logger,
+): Promise<TemplateData | null> {
+  try {
+    return await templatesService.getTemplate(typeCode);
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      logger.warn(`No template for "${typeCode}", skipping template apply`);
+      return null;
+    }
+    throw error;
+  }
+}
+
+/** Soft-deactivates outlet-level data (outletProducts + tables) of one outlet. */
+export async function deactivateOutletData(
+  tx: Prisma.TransactionClient,
+  outletId: string,
+): Promise<{ outletProductsDeactivated: number; tablesDeactivated: number }> {
+  const outletProducts = await tx.outletProduct.updateMany({
+    where: { outletId, isActive: true },
+    data: { isActive: false },
+  });
+  const tables = await tx.table.updateMany({
+    where: { outletId, isActive: true },
+    data: { isActive: false },
+  });
+  return {
+    outletProductsDeactivated: outletProducts.count,
+    tablesDeactivated: tables.count,
+  };
+}
 
 export interface BusinessTypeInfo {
   code: string;
@@ -35,6 +94,7 @@ export interface ChangeBusinessTypeResult {
     categories: number;
     products: number;
     modifierGroups: number;
+    modifiers: number;
     tables: number;
   };
   message?: string;
@@ -113,118 +173,139 @@ export class BusinessTypeService {
   }
 
   /**
-   * Change business type: soft-delete old data, reset features, apply new template
+   * Change business type (destructive for the target outlet): soft-deactivate its
+   * outlet data, reset business + outlet features and apply the new template.
+   * `outletId` must belong to `businessId`; everything runs in one transaction so
+   * a failure never leaves the outlet wiped without a template.
+   *
+   * Pass `tx` to run inside a caller's transaction (guided setup) and
+   * `templateSections` to apply only part of the template (default: all).
    */
   async changeBusinessType(
     businessId: string,
     newTypeCode: string,
     outletId?: string,
+    tx?: Prisma.TransactionClient,
+    templateSections: ApplySections = ALL_TEMPLATE_SECTIONS,
   ): Promise<ChangeBusinessTypeResult> {
     if (!isValidBusinessType(newTypeCode)) {
       throw new BadRequestException(`Invalid business type: ${newTypeCode}`);
     }
 
-    const business = await this.prisma.business.findUnique({
+    // Read the template file before opening the transaction.
+    const template = await loadTemplateOrNull(this.templatesService, newTypeCode, this.logger);
+
+    const run = (client: Prisma.TransactionClient) =>
+      this.changeBusinessTypeInTx(
+        client,
+        businessId,
+        newTypeCode,
+        outletId,
+        template,
+        templateSections,
+      );
+
+    const result = tx ? await run(tx) : await this.prisma.$transaction(run, TYPE_CHANGE_TX_OPTIONS);
+
+    this.logger.log(
+      `Business ${businessId} changed type from "${result.previousType}" to "${newTypeCode}" ` +
+        `(template: ${result.templateApplied}, deactivated: ${JSON.stringify(result.dataReset)})`,
+    );
+    return result;
+  }
+
+  private async changeBusinessTypeInTx(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    newTypeCode: string,
+    outletId: string | undefined,
+    template: TemplateData | null,
+    templateSections: ApplySections,
+  ): Promise<ChangeBusinessTypeResult> {
+    const business = await tx.business.findUnique({
       where: { id: businessId },
       select: { businessType: true },
     });
-
     if (!business) {
       throw new BadRequestException('Business not found');
     }
-
     const previousType = business.businessType;
 
-    // Resolve outletId — use provided or fallback to default outlet
-    const resolvedOutletId = outletId ?? (await this.resolveDefaultOutletId(businessId));
+    const resolvedOutletId = await this.resolveOutletId(tx, businessId, outletId);
 
-    // 1. Soft-deactivate outlet-level data only (not business-level, other outlets unaffected)
-    const dataReset = await this.deactivateOutletData(resolvedOutletId);
+    // 1. Soft-deactivate outlet-level data only (other outlets unaffected)
+    const dataReset = await deactivateOutletData(tx, resolvedOutletId);
 
     // 2. Initialize features — both business-level and outlet-level
-    await this.featureService.initializeFeaturesForBusinessType(businessId, newTypeCode);
-    await this.outletFeatureService.initializeFeaturesForOutletType(resolvedOutletId, newTypeCode);
+    await this.featureService.initializeFeaturesForBusinessType(businessId, newTypeCode, tx);
+    await this.outletFeatureService.initializeFeaturesForOutletType(
+      resolvedOutletId,
+      newTypeCode,
+      tx,
+    );
 
-    // 3. Apply new template (skip if template not found, e.g. "custom")
-    let templateApplied = false;
-    let templateData:
-      | { categories: number; products: number; modifierGroups: number; tables: number }
-      | undefined;
-    try {
-      const result = await this.templatesService.applyTemplate(
+    // 3. Apply the new template (none for e.g. "custom")
+    let templateData: ChangeBusinessTypeResult['templateData'];
+    if (template) {
+      const applied = await this.templatesService.applyTemplateData(
+        tx,
         businessId,
         resolvedOutletId,
-        newTypeCode,
-        { categories: true, products: true, modifiers: true, tables: true },
+        template,
+        templateSections,
       );
-      templateApplied = true;
       templateData = {
-        categories: result.categories,
-        products: result.products,
-        modifierGroups: result.modifierGroups,
-        tables: result.tables,
+        categories: applied.categories,
+        products: applied.products,
+        modifierGroups: applied.modifierGroups,
+        modifiers: applied.modifiers,
+        tables: applied.tables,
       };
-    } catch (error) {
-      // Template not found (e.g. "custom" type) — continue without template
-      this.logger.warn(
-        `Template for "${newTypeCode}" not found, skipping template apply: ${error instanceof Error ? error.message : error}`,
-      );
     }
 
-    // Count enabled features
-    const enabledFeatures = await this.featureService.getEnabledFeatureKeys(businessId);
-
-    this.logger.log(
-      `Business ${businessId} changed type from "${previousType}" to "${newTypeCode}" ` +
-        `(template: ${templateApplied}, deactivated: ${JSON.stringify(dataReset)})`,
-    );
+    const featuresEnabled = await tx.businessFeature.count({
+      where: { businessId, isEnabled: true },
+    });
 
     return {
       success: true,
       previousType,
       newType: newTypeCode,
-      featuresEnabled: enabledFeatures.length,
-      templateApplied,
+      featuresEnabled,
+      templateApplied: template !== null,
       dataReset,
       templateData,
     };
   }
 
   /**
-   * Soft-deactivate outlet-level data only (outletProducts + tables).
-   * Business-level data (products, categories, modifiers) is shared across outlets and stays active.
+   * The outlet to reset: the requested one (must belong to the business) or the
+   * business's first outlet.
    */
-  private async deactivateOutletData(outletId: string) {
-    const [outletProducts, tables] = await this.prisma.$transaction([
-      this.prisma.outletProduct.updateMany({
-        where: { outletId, isActive: true },
-        data: { isActive: false },
-      }),
-      this.prisma.table.updateMany({
-        where: { outletId, isActive: true },
-        data: { isActive: false },
-      }),
-    ]);
+  private async resolveOutletId(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    outletId?: string,
+  ): Promise<string> {
+    if (outletId) {
+      const owned = await tx.outlet.findFirst({
+        where: { id: outletId, businessId },
+        select: { id: true },
+      });
+      if (!owned) {
+        throw new ForbiddenException('Outlet is not accessible');
+      }
+      return owned.id;
+    }
 
-    return {
-      outletProductsDeactivated: outletProducts.count,
-      tablesDeactivated: tables.count,
-    };
-  }
-
-  /**
-   * Resolve the default outlet for a business (first outlet found)
-   */
-  private async resolveDefaultOutletId(businessId: string): Promise<string> {
-    const outlet = await this.prisma.outlet.findFirst({
+    const outlet = await tx.outlet.findFirst({
       where: { businessId },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
-
     if (!outlet) {
       throw new BadRequestException('Business has no outlets');
     }
-
     return outlet.id;
   }
 
@@ -275,12 +356,5 @@ export class BusinessTypeService {
    */
   isValidType(code: string): boolean {
     return isValidBusinessType(code);
-  }
-
-  /**
-   * Get all valid business type codes
-   */
-  getAllTypeCodes(): string[] {
-    return getAllBusinessTypeCodes();
   }
 }

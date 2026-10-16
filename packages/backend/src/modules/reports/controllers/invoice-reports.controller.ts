@@ -1,71 +1,47 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { toPrismaPage } from '@shared/dtos/pagination-query.dto';
+import { AnalyticsQueriesService } from '../../../infrastructure/services/analytics-queries.service';
+import {
+  InvoiceListQueryDto,
+  ReportSearchQueryDto,
+} from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
+
+/** Max rows returned by the items summary (R13). */
+const MAX_ITEM_ROWS = 1000;
 
 @ApiTags('Reports - Invoices')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports/invoices')
 export class InvoiceReportsController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
-
-  private async validateOutletAccess(outletId: string, user: AuthUser) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-    return outlet;
-  }
 
   @Get()
   @ApiOperation({ summary: 'Invoice list with summary' })
-  async invoiceList(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    await this.validateOutletAccess(outletId, user);
+  async invoiceList(@CurrentUser() user: AuthUser, @Query() query: InvoiceListQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { startDate, endDate, search, status } = query;
 
     const { start, end } = getDateRange(undefined, startDate, endDate);
-    const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50));
+    const pageNum = query.page ?? 1;
+    const limitNum = query.limit ?? 50;
     const skip = (pageNum - 1) * limitNum;
 
     const cacheKey = `report:invoices:${outletId}:${startDate}:${endDate}:${search}:${status}:${pageNum}:${limitNum}`;
@@ -78,9 +54,7 @@ export class InvoiceReportsController {
       outletId,
       transactionType: 'sale' as const,
       createdAt: { gte: start, lte: end },
-      ...(status && status !== 'all'
-        ? { status: status as 'completed' | 'voided' | 'refunded' }
-        : {}),
+      ...(status && status !== 'all' ? { status } : {}),
       ...(search
         ? {
             OR: [
@@ -149,22 +123,14 @@ export class InvoiceReportsController {
 
   @Get('transactions')
   @ApiOperation({ summary: 'Transaction summary grouped by date' })
-  async transactionsSummary(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('search') search?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    await this.validateOutletAccess(outletId, user);
+  async transactionsSummary(@CurrentUser() user: AuthUser, @Query() query: ReportSearchQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { startDate, endDate, search } = query;
+    const { skip, take } = toPrismaPage({ page: query.page, limit: query.limit ?? 100 });
 
     const { start, end } = getDateRange(undefined, startDate, endDate);
 
-    const cacheKey = `report:invoices:transactions:${outletId}:${startDate}:${endDate}:${search}`;
+    const cacheKey = `report:invoices:transactions:${outletId}:${startDate}:${endDate}:${search}:${skip}:${take}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
@@ -181,15 +147,22 @@ export class InvoiceReportsController {
         : {}),
     };
 
-    const transactions = await this.prisma.transaction.findMany({
-      where: baseWhere,
-      include: {
-        employee: { select: { name: true } },
-        customer: { select: { name: true } },
-        payments: { select: { paymentMethod: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Paginated list (F1004) + daily totals aggregated in SQL by WIB day (F1006)
+    const [transactions, total, days] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: baseWhere,
+        include: {
+          employee: { select: { name: true } },
+          customer: { select: { name: true } },
+          payments: { select: { paymentMethod: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.transaction.count({ where: baseWhere }),
+      this.queries.invoicesByDay({ outletIds: [outletId], start, end }, search),
+    ]);
 
     const transactionList = transactions.map((tx) => ({
       id: tx.id,
@@ -202,21 +175,14 @@ export class InvoiceReportsController {
       status: tx.status,
     }));
 
-    // Group by date for daily summary
-    const dailyMap = new Map<string, { count: number; total: number }>();
-    for (const tx of transactions) {
-      const date = tx.createdAt.toISOString().split('T')[0];
-      const existing = dailyMap.get(date) || { count: 0, total: 0 };
-      existing.count += 1;
-      existing.total += tx.grandTotal?.toNumber() || 0;
-      dailyMap.set(date, existing);
-    }
+    const dailySummary = days.map((d) => ({ date: d.bucket, count: d.count, total: d.amount }));
+    const page = Math.floor(skip / take) + 1;
 
-    const dailySummary = Array.from(dailyMap.entries())
-      .map(([date, data]) => ({ date, count: data.count, total: data.total }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-
-    const result = { transactions: transactionList, dailySummary };
+    const result = {
+      transactions: transactionList,
+      dailySummary,
+      pagination: { page, limit: take, total, totalPages: Math.ceil(total / take) },
+    };
 
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
     return result;
@@ -224,18 +190,9 @@ export class InvoiceReportsController {
 
   @Get('items-summary')
   @ApiOperation({ summary: 'Aggregated item sales summary' })
-  async itemsSummary(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('search') search?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    await this.validateOutletAccess(outletId, user);
+  async itemsSummary(@CurrentUser() user: AuthUser, @Query() query: ReportSearchQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { startDate, endDate, search } = query;
 
     const { start, end } = getDateRange(undefined, startDate, endDate);
 
@@ -245,74 +202,27 @@ export class InvoiceReportsController {
       return cached;
     }
 
-    const itemWhere = {
-      transaction: {
-        outletId,
-        transactionType: 'sale' as const,
-        status: 'completed' as const,
-        createdAt: { gte: start, lte: end },
-      },
-      ...(search ? { productName: { contains: search, mode: 'insensitive' as const } } : {}),
-    };
+    // Grouped by product + variant in SQL (F1005)
+    const scope = { outletIds: [outletId], start, end };
+    const [rows, totals] = await Promise.all([
+      this.queries.itemSales(scope, { search, byVariant: true, limit: MAX_ITEM_ROWS }),
+      this.queries.itemTotals(scope, search),
+    ]);
 
-    const transactionItems = await this.prisma.transactionItem.findMany({
-      where: itemWhere,
-      select: {
-        productId: true,
-        productName: true,
-        variantName: true,
-        quantity: true,
-        subtotal: true,
-        transactionId: true,
-      },
-    });
-
-    // Group by productId + variantName
-    const itemMap = new Map<
-      string,
-      {
-        productId: string;
-        productName: string;
-        variantName: string | null;
-        totalQuantity: number;
-        totalRevenue: number;
-        transactionIds: Set<string>;
-      }
-    >();
-
-    for (const item of transactionItems) {
-      const productId = item.productId || 'unknown';
-      const key = `${productId}:${item.variantName || ''}`;
-      const existing = itemMap.get(key) || {
-        productId,
-        productName: item.productName,
-        variantName: item.variantName || null,
-        totalQuantity: 0,
-        totalRevenue: 0,
-        transactionIds: new Set<string>(),
-      };
-      existing.totalQuantity += Number(item.quantity) || 0;
-      existing.totalRevenue += item.subtotal?.toNumber() || 0;
-      existing.transactionIds.add(item.transactionId);
-      itemMap.set(key, existing);
-    }
-
-    const items = Array.from(itemMap.values())
-      .map((item) => ({
-        productId: item.productId,
-        productName: item.productName,
-        variantName: item.variantName,
-        totalQuantity: item.totalQuantity,
-        totalRevenue: item.totalRevenue,
-        averagePrice: item.totalQuantity > 0 ? item.totalRevenue / item.totalQuantity : 0,
-        transactionCount: item.transactionIds.size,
-      }))
-      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+    const items = rows.map((item) => ({
+      productId: item.productId || 'unknown',
+      productName: item.productName,
+      variantName: item.variantName || null,
+      totalQuantity: item.quantity,
+      totalRevenue: item.revenue,
+      averagePrice: item.quantity > 0 ? item.revenue / item.quantity : 0,
+      transactionCount: item.transactionCount,
+    }));
 
     const summary = {
       totalItems: items.length,
-      totalQuantity: items.reduce((sum, i) => sum + i.totalQuantity, 0),
-      totalRevenue: items.reduce((sum, i) => sum + i.totalRevenue, 0),
+      totalQuantity: totals.quantity,
+      totalRevenue: totals.revenue,
     };
 
     const result = { items, summary };

@@ -1,115 +1,75 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { RedisService } from '../../../infrastructure/cache/redis.service';
+import { TenantAccessService } from '@shared/tenant';
+import { money, sumMoney, toNumber } from '@shared/utils/money';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { REPORT_CACHE_TTL_SECONDS } from '../utils/report-cache';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class PaymentReportsController {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = REPORT_CACHE_TTL_SECONDS;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
   @Get('payment-methods')
   @ApiOperation({ summary: 'Payment method breakdown report' })
-  async paymentMethodReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    if (!outletId) {
-      throw new BadRequestException('outletId is required');
-    }
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { id: true, businessId: true },
-    });
-    if (!outlet) {
-      throw new NotFoundException(`Outlet with ID ${outletId} not found`);
-    }
-    if (outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-
+  async paymentMethodReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const { dateRange, startDate, endDate } = query;
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
-    // Check cache
     const cacheKey = `report:payment-methods:${outletId}:${dateRange}:${startDate}:${endDate}`;
     const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Get all payments from completed transactions
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        transaction: {
-          outletId,
-          transactionType: 'sale',
-          status: 'completed',
-          createdAt: { gte: start, lte: end },
-        },
-      },
-      select: {
-        paymentMethod: true,
-        amount: true,
-      },
-    });
+    const saleWhere = {
+      outletId,
+      transactionType: 'sale' as const,
+      status: 'completed' as const,
+      createdAt: { gte: start, lte: end },
+    };
 
-    // Aggregate by payment method
-    const methodStats = new Map<string, { count: number; amount: number }>();
+    // Aggregated in SQL (F0981); count = payment rows per method,
+    // totalTransactions = distinct sales (split payments no longer inflate it, F0982)
+    const [grouped, totalTransactions] = await Promise.all([
+      this.prisma.payment.groupBy({
+        by: ['paymentMethod'],
+        where: { transaction: saleWhere },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.transaction.count({ where: { ...saleWhere, payments: { some: {} } } }),
+    ]);
 
-    let totalAmount = 0;
-    let totalTransactions = 0;
+    const totalAmountDec = sumMoney(grouped.map((g) => g._sum.amount));
+    const totalAmount = toNumber(totalAmountDec);
 
-    for (const payment of payments) {
-      const method = payment.paymentMethod;
-      const amount = payment.amount.toNumber();
-      const existing = methodStats.get(method);
-
-      totalAmount += amount;
-      totalTransactions += 1;
-
-      if (existing) {
-        existing.count += 1;
-        existing.amount += amount;
-      } else {
-        methodStats.set(method, { count: 1, amount });
-      }
-    }
-
-    // Convert to array with percentages
-    const methods = Array.from(methodStats.entries())
-      .map(([method, stats]) => ({
-        method,
-        count: stats.count,
-        amount: Math.round(stats.amount * 100) / 100,
-        percentage: totalAmount > 0 ? Math.round((stats.amount / totalAmount) * 100 * 10) / 10 : 0,
-      }))
+    const methods = grouped
+      .map((g) => {
+        const amount = toNumber(money(g._sum.amount));
+        return {
+          method: g.paymentMethod as string,
+          count: g._count._all,
+          amount: Math.round(amount * 100) / 100,
+          percentage: totalAmount > 0 ? Math.round((amount / totalAmount) * 100 * 10) / 10 : 0,
+        };
+      })
       .sort((a, b) => b.amount - a.amount);
 
     const result = {
@@ -118,7 +78,6 @@ export class PaymentReportsController {
       totalTransactions,
     };
 
-    // Cache result
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
 
     return result;

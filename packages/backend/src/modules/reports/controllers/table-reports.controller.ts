@@ -1,40 +1,35 @@
-import { Controller, Get, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../../infrastructure/auth/roles.guard';
 import { Roles } from '../../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../../shared/constants/roles';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { TenantAccessService } from '@shared/tenant';
+import { ReportQueryDto } from '../../../application/dtos/report-query.dto';
 import { getDateRange } from '../utils/date-range.util';
+import { businessHour } from '@shared/utils/business-time';
+
+/** No operating-hours data per outlet yet; occupancy uses this assumption. */
+const ASSUMED_OPERATING_HOURS_PER_DAY = 10;
 
 @ApiTags('Reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
 @Controller('reports')
 export class TableReportsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
   @Get('table')
   @ApiOperation({
     summary: 'Table performance report (occupancy, turnover, peak hours)',
   })
-  async tableReport(
-    @CurrentUser() user: AuthUser,
-    @Query('outletId') outletId: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    if (!outlet || outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
+  async tableReport(@CurrentUser() user: AuthUser, @Query() query: ReportQueryDto) {
+    const { dateRange, startDate, endDate } = query;
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
 
     const { start, end } = getDateRange(dateRange, startDate, endDate);
 
@@ -67,6 +62,7 @@ export class TableReportsController {
         outletId,
         tableId: { not: null },
         createdAt: { gte: start, lte: end },
+        transactionType: 'sale',
         status: 'completed',
       },
       select: {
@@ -93,17 +89,19 @@ export class TableReportsController {
         ? Math.round(diningTimes.reduce((a, b) => a + b, 0) / diningTimes.length)
         : 0;
 
-    // Assume average 2 guests per table for orders (simple estimation)
-    const totalGuests = ordersWithTable.length * 2;
-    const avgGuestsPerTable = completedOrders.length > 0 ? 2 : 0;
+    // Guest counts are not recorded on orders; report them as unknown instead of
+    // fabricating "2 guests per order" (R10, F0989)
+    const totalGuests: number | null = null;
+    const avgGuestsPerTable: number | null = null;
 
     // Turnover rate (sessions per table per day)
     const totalDays = Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     const turnoverRate =
       tables.length > 0 ? +(ordersWithTable.length / tables.length / totalDays).toFixed(1) : 0;
 
-    // Calculate occupancy based on operating hours (assume 10 hours/day)
-    const operatingHoursPerDay = 10;
+    // Occupancy is an ESTIMATE: outlets have no operating-hours setting, so a
+    // 10h business day is assumed. Flagged in the response (occupancyEstimated).
+    const operatingHoursPerDay = ASSUMED_OPERATING_HOURS_PER_DAY;
     const totalTableHours = tables.length * totalDays * operatingHoursPerDay;
     const occupiedHours = diningTimes.reduce((sum, t) => sum + t, 0) / 60;
     const avgOccupancy =
@@ -155,13 +153,13 @@ export class TableReportsController {
     // Peak dining hours
     const hourCounts: Record<number, number> = {};
     for (const order of ordersWithTable) {
-      const hour = order.createdAt.getHours();
+      const hour = businessHour(order.createdAt); // WIB (R14)
       hourCounts[hour] = (hourCounts[hour] || 0) + 1;
     }
 
     const peakDiningHours = Object.entries(hourCounts)
       .map(([hour, count]) => ({
-        hour: `${hour.padStart(2, '0')}:00`,
+        hour: `${String(hour).padStart(2, '0')}:00`,
         occupancy: tables.length > 0 ? Math.round((count / (tables.length * totalDays)) * 100) : 0,
       }))
       .sort((a, b) => b.occupancy - a.occupancy)
@@ -170,6 +168,8 @@ export class TableReportsController {
     return {
       totalTables: tables.length,
       avgOccupancy: Math.min(100, avgOccupancy), // Cap at 100%
+      occupancyEstimated: true,
+      assumedOperatingHoursPerDay: operatingHoursPerDay,
       avgDiningTime,
       turnoverRate,
       totalGuests,
