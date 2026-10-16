@@ -539,4 +539,4 @@ Build a modern, reliable, and scalable Point of Sale system that addresses the p
 
 ---
 
-> **Next Document:** [02-LAYERED-ARCHITECTURE.md](./02-LAYERED-ARCHITECTURE.md)
+> **Next Document:** [02-layered-architecture.md](./02-layered-architecture.md)

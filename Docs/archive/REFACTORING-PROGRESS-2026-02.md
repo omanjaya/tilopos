@@ -1,3 +1,5 @@
+> **Arsip / historis — tidak akurat.** Status di bawah tidak lagi berlaku: Phase 3 dan 4 justru mundur (lihat [Audit Kekurangan 2026-09-26](../audit/AUDIT-KEKURANGAN-2026-09-26.md), bagian 5).
+
 # TiloPOS Refactoring Progress Report
 **Period:** February 5-9, 2026
 **Status:** 7 of 10 Phases Completed (70%)

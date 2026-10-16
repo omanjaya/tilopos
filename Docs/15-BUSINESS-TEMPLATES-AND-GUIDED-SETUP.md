@@ -68,7 +68,7 @@ Register (email + PIN)
 
 ### 4.1 Tipe Bisnis yang Didukung
 
-Mengacu pada `docs/10-BUSINESS-TYPE-CONFIGURATION.md`, 12 preset:
+Mengacu pada `Docs/10-BUSINESS-TYPE-CONFIGURATION.md`, 12 preset:
 
 | Code | Label | Template Tersedia |
 |------|-------|-------------------|

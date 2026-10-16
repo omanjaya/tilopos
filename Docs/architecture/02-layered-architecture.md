@@ -1055,4 +1055,4 @@ export class PosModule {}
 
 ---
 
-> **Next Document:** [03-CLEAN-CODE-PRACTICES.md](./03-CLEAN-CODE-PRACTICES.md)
+> **Next Document:** [03-clean-code-practices.md](./03-clean-code-practices.md)

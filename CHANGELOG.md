@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Remediation of the 26 September 2026 audit
+([Docs/audit/AUDIT-KEKURANGAN-2026-09-26.md](./Docs/audit/AUDIT-KEKURANGAN-2026-09-26.md)).
+Engineering rules that came out of it: [Docs/ENGINEERING-RULES.md](./Docs/ENGINEERING-RULES.md).
+
+### Changed
+
+- License is now proprietary (all rights reserved); the MIT LICENSE file and README badge were inconsistent with `"license": "UNLICENSED"`.
+
+### Security
+- Browser access tokens now stay in memory; rotating httpOnly/Secure/SameSite refresh cookies
+  use hashed server-side families with atomic reuse detection and logout revocation. Offline
+  sales retain their original operator across refresh and account changes. `JWT_EXPIRES_IN`
+  remains unchanged by owner decision; the proposed 15-minute lifetime is deferred.
+- MFA and e-mail verification tokens are no longer accepted as access tokens; JWT is the first
+  global guard, followed by roles, business scope and feature guards. Unauthenticated routes are
+  explicit (`@Public()`) and every mutating route declares its roles (enforced by a unit test).
+- Tenant isolation: cross-business / cross-outlet access (IDOR) closed across POS, orders,
+  inventory, customers, settlements, online store and more via a shared `TenantAccessService`
+  and a Prisma guard that rejects unscoped queries.
+- Prices, discounts, promotions and vouchers are computed on the server; cashiers can no longer
+  submit their own selling price.
+- Production refuses to boot with missing/unsafe configuration (env validation) and no longer
+  falls back to the mock payment gateway.
+- The destructive demo seed only runs with `ALLOW_DESTRUCTIVE_SEED=true` outside production;
+  `prisma migrate reset` needs the same flag.
+
+### Fixed
+- Held bills now sync through tenant/outlet-scoped server APIs with server-priced snapshots,
+  offline drafts, atomic claims and retry recovery; logout and 24-hour expiry no longer lose them.
+- Settlement cron ran twice; double refunds; negative quantities at online-store checkout;
+  offline POS sales never reaching the server; service worker caching `/api` responses.
+- Business-day reports and crons now use Asia/Jakarta; crons take a distributed lock so they
+  run once per cluster instead of once per replica.
+- Web build (`tsc -b`) errors and vitest picking up Playwright specs.
+
+### Changed - database (migration `20260927000000_audit_2026_09_schema_hardening`)
+- Official migration for `transfer_templates`; per-tenant unique document numbers (receipts,
+  invoices, work orders, tickets, outlet codes, vouchers); new FK indexes; explicit `onDelete`
+  policies; idempotency key `clientTransactionId` and `refundOfId` on transactions;
+  `migration_lock.toml` is now committed.
+
+### Changed - infrastructure & tooling
+- One Node.js LTS everywhere: 22 (`.nvmrc`, `engines`, CI, Dockerfiles).
+- Dockerfiles build from the repository root with `npm ci` and the workspace lockfile, pinned base
+  images, `HEALTHCHECK`, non-root users, `TZ=Asia/Jakarta`; migrations no longer run in the
+  backend `CMD` (compose `migrate` service / k8s init container instead).
+- Web image uses unprivileged nginx on port 8080 with a `/health` endpoint and a configurable
+  backend upstream (`BACKEND_UPSTREAM`).
+- `prisma`, `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` moved to runtime
+  dependencies; unused `react-shepherd` / `shepherd.js` (AGPL-3.0) removed, and the redundant
+  direct `react-router` dependency dropped (the app imports `react-router-dom` only).
+- Kubernetes manifests fixed: env contract matches the code (`DATABASE_URL`, `JWT_EXPIRES_IN`,
+  `CORS_ORIGIN`, S3/SMTP key names), probes on `/api/v1/health/live|ready`, ServiceAccount,
+  RWX uploads PVC, UID alignment, Redis StatefulSet with password + `noeviction`,
+  NetworkPolicies, PodDisruptionBudgets, nightly backup CronJob to a dedicated bucket, no
+  gitignored file referenced by kustomize, no `:latest` images.
+- CI re-enabled: lint without `--fix`, backend typecheck + unit tests, integration tests against
+  Postgres/Redis (non-blocking for now), web vitest + build, Docker image builds, `npm audit`
+  (non-blocking). The stale `ci-cd.yml.disabled` was removed. Dependabot, CODEOWNERS and a PR
+  template were added.
+- ELK: credentials for Kibana/Logstash, `tilo-logs-*` index, shared network with the app.
+- Root `.env.example` for docker compose; backend `.env.example` covers every variable the code reads.
+- RabbitMQ image upgraded to 4.1 (3.x is end of life). Existing 3.x volumes must have all feature
+  flags enabled before upgrading, or be recreated in development.
+
+### Documentation
+- `docs/` merged into `Docs/`; stray refactoring notes moved to `Docs/archive/`.
+- README: working setup steps, real seeded logins, fixed links, no CD claim.
+- Backup & restore runbook: `Docs/operations/backup-restore.md`; deployment guide:
+  `Docs/operations/deployment.md`.
+- Progress tracker no longer lists GoFood / GrabFood / ShopeeFood and other stubs as done.
+
 ### Planned
 - Mobile app (iOS & Android)
 - Desktop app (Electron)
@@ -16,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] - 2025-02-06
+## [0.1.0] - 2026-02-06
 
 ### Added - Security & Documentation 🔒📚
 
@@ -50,7 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ✅ **CHANGELOG.md** - Version history (this file)
 - ✅ **SECURITY.md** - Security policy
-- ✅ **LICENSE** - MIT License
+- ✅ **LICENSE** - Proprietary (all rights reserved)
 - ✅ **GitHub Issue Templates** - Bug report & feature request
 
 #### Repository Cleanup
@@ -73,7 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0-beta] - 2025-02-01
+## [0.1.0-beta] - 2026-02-01
 
 ### Added - UX Improvements & Code Quality ✨
 
@@ -118,7 +190,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0-alpha] - 2025-01-30
+## [0.1.0-alpha] - 2026-01-30
 
 ### Added - Core Features 🚀
 
@@ -209,9 +281,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
-| **0.1.0** | 2025-02-06 | Security fixes, NestJS v11, Documentation |
-| **0.1.0-beta** | 2025-02-01 | UX improvements, Code refactoring |
-| **0.1.0-alpha** | 2025-01-30 | Core features implementation |
+| **0.1.0** | 2026-02-06 | Security fixes, NestJS v11, Documentation |
+| **0.1.0-beta** | 2026-02-01 | UX improvements, Code refactoring |
+| **0.1.0-alpha** | 2026-01-30 | Core features implementation |
 
 ---
 

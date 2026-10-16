@@ -48,7 +48,7 @@ We pledge to make participation in our project a harassment-free experience for 
 ### Prerequisites
 
 Before you begin, ensure you have the following installed:
-- **Node.js 20+** (LTS version)
+- **Node.js 22 LTS** (version in `.nvmrc`)
 - **PostgreSQL 15+**
 - **Redis 7+**
 - **Git**
@@ -77,15 +77,15 @@ Before you begin, ensure you have the following installed:
 
 5. **Setup environment**
    ```bash
-   cd packages/backend
-   cp .env.example .env
-   # Edit .env with your configuration
+   cp packages/backend/.env.example packages/backend/.env
+   cp packages/web/.env.example packages/web/.env
+   # Defaults match the Postgres/Redis containers from docker-compose.dev.yml
    ```
 
-6. **Run migrations and seed**
+6. **Run migrations and seed** (from the repository root)
    ```bash
    npm run db:migrate
-   npm run db:seed
+   ALLOW_DESTRUCTIVE_SEED=true npm run db:seed   # truncates all tables, dev only
    ```
 
 7. **Start development servers**
@@ -104,6 +104,9 @@ Before you begin, ensure you have the following installed:
 ### Using Docker (Recommended)
 
 ```bash
+# Compose reads ./.env (only JWT_SECRET is required for development)
+cp .env.example .env
+
 # Start all services
 npm run docker:dev
 
@@ -150,9 +153,9 @@ tilopos/
    npm run test:e2e
    ```
 
-4. **Run linting**
+4. **Run linting** (CI runs the non-fixing variant)
    ```bash
-   npm run lint
+   npm run lint:check
    ```
 
 5. **Commit your changes**

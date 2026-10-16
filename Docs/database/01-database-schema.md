@@ -976,4 +976,4 @@ CREATE INDEX idx_self_order_active ON self_order_sessions(outlet_id, status) WHE
 
 ---
 
-> **Next:** [06-UI-UX-DESIGN.md](./06-UI-UX-DESIGN.md)
+> **Next:** [00-UI-UX-STRATEGY.md](../ui/00-UI-UX-STRATEGY.md)

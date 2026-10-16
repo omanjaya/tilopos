@@ -1,5 +1,8 @@
+# Rendered at container start by the nginx image entrypoint (envsubst).
+# Only variables defined in the environment are substituted (BACKEND_UPSTREAM);
+# nginx runtime variables such as $host are left untouched.
 server {
-    listen 80;
+    listen 8080;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
@@ -31,9 +34,22 @@ server {
         return 404;
     }
 
+    # Liveness/readiness for k8s and Docker HEALTHCHECK (must not fall through to the SPA)
+    location = /health {
+        access_log off;
+        default_type text/plain;
+        return 200 'ok';
+    }
+
+    # Service worker and index must always be revalidated so deploys take effect
+    location = /sw.js {
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
+    }
+
     # API proxy to backend
     location /api/ {
-        proxy_pass http://backend:3001;
+        proxy_pass ${BACKEND_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -44,9 +60,17 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
+    # Locally stored uploads are served by the backend (STORAGE_ADAPTER=local)
+    location /uploads/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # WebSocket proxy to backend
     location /socket.io/ {
-        proxy_pass http://backend:3001;
+        proxy_pass ${BACKEND_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

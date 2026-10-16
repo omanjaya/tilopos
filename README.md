@@ -4,19 +4,17 @@
 
 ![TiloPOS](https://img.shields.io/badge/TiloPOS-v0.1.0-blue?style=for-the-badge)
 ![Build Status](https://img.shields.io/github/actions/workflow/status/omanjaya/tilopos/ci.yml?style=for-the-badge&label=Build)
-![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge)
-![Coverage](https://img.shields.io/badge/Coverage-80%25-green?style=for-the-badge)
 
 ![NestJS](https://img.shields.io/badge/NestJS-v11.0-E0234E?style=flat-square&logo=nestjs)
 ![React](https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript)
+![Node.js](https://img.shields.io/badge/Node.js-22_LTS-339933?style=flat-square&logo=nodedotjs)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis)
 
-![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![License](https://img.shields.io/badge/license-proprietary-red?style=flat-square)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)
 ![Maintenance](https://img.shields.io/badge/Maintained-Yes-success?style=flat-square)
-![Security](https://img.shields.io/badge/Security-0%20Vulnerabilities-success?style=flat-square)
 
 **Modern, offline-first Point of Sale system untuk UMKM Indonesia**
 
@@ -51,7 +49,7 @@
 - ✅ **Offline-First Architecture** - Tetap berjalan tanpa internet
 - ✅ **Built-in KDS** - Kitchen Display System terintegrasi
 - ✅ **Modern UI/UX** - Dark mode, responsive, accessible
-- ✅ **Multi-Platform** - Web, iOS, Android, Desktop
+- ✅ **Web / PWA** - Jalan di browser tablet, laptop & desktop (aplikasi native masih rencana)
 - ✅ **Better Refund Handling** - Proses refund yang mudah
 - ✅ **Real-time Sync** - Sinkronisasi otomatis antar device
 
@@ -116,7 +114,6 @@
 
 ### 🎨 UX Features
 - **Onboarding Wizard** - Setup guide untuk user baru
-- **Product Tours** - Interactive tutorials (Shepherd.js)
 - **Command Palette** - `⌘K` quick navigation
 - **Keyboard Shortcuts** - Global shortcuts + help dialog (`⌘/`)
 - **Help Center** - Tutorial library & contextual help
@@ -132,11 +129,11 @@
 - **Database:** PostgreSQL 15 with Prisma ORM
 - **Cache:** Redis 7
 - **Message Queue:** RabbitMQ
-- **Authentication:** JWT (Access + Refresh tokens)
+- **Authentication:** JWT access token (login e-mail + PIN, MFA opsional)
 - **File Upload:** AWS S3 / Local storage
 - **Real-time:** Socket.io
-- **Monitoring:** Sentry
-- **Logging:** Winston
+- **Monitoring:** Health checks (`/api/v1/health/*`), Prometheus metrics (opsional)
+- **Logging:** Winston (+ ELK opsional)
 
 ### Frontend
 - **Framework:** React 18 + TypeScript + Vite
@@ -148,15 +145,15 @@
 - **Forms:** React Hook Form + Zod
 - **Routing:** React Router v7
 - **Export:** ExcelJS + jsPDF
-- **PWA:** Workbox
+- **PWA:** Service worker (offline POS)
 
 ### DevOps & Tools
 - **Monorepo:** npm workspaces
 - **Linting:** ESLint + Prettier
 - **Testing:** Jest (backend) + Vitest (frontend) + Playwright (E2E)
 - **Git Hooks:** Husky + lint-staged
-- **CI/CD:** GitHub Actions
-- **Docker:** Docker Compose for dev environment
+- **CI:** GitHub Actions (lint, unit tests, build). No automated deployment (CD) yet.
+- **Docker:** Docker Compose (dev & single-host), Kubernetes manifests in `k8s/`
 
 ---
 
@@ -164,85 +161,74 @@
 
 ### Prerequisites
 
-- Node.js 20+ (LTS)
-- PostgreSQL 15+
-- Redis 7+
-- RabbitMQ 3.12+ (optional for queue features)
+- Node.js 22 LTS (see `.nvmrc`; `nvm use` / `fnm use`)
+- Docker + Docker Compose (recommended), **or** locally installed PostgreSQL 15+, Redis 7+ (RabbitMQ optional)
 
-### Installation
+### Option A: Docker (recommended)
 
 ```bash
-# Clone repository
 git clone https://github.com/omanjaya/tilopos.git
 cd tilopos
 
-# Install dependencies
-npm install
-
-# Setup environment variables
-cd packages/backend
+# Compose reads ./.env - only JWT_SECRET is required for development
 cp .env.example .env
-# Edit .env with your configuration
+# set JWT_SECRET to >= 32 random chars, e.g.: openssl rand -base64 48
 
-# Run database migrations
-npm run db:migrate
+npm run docker:dev            # backend, web, postgres, redis, rabbitmq (migrations run on start)
 
-# Seed database with sample data
-npm run db:seed
+# Load demo data (TRUNCATES all tables - development only)
+docker compose -f docker-compose.dev.yml exec -e ALLOW_DESTRUCTIVE_SEED=true backend npm run db:seed
 ```
 
-### Development
+Other commands: `npm run docker:dev:logs`, `npm run docker:dev:down`,
+`docker compose -f docker-compose.dev.yml down -v` (also deletes the volumes).
+
+### Option B: Local Node.js
 
 ```bash
-# Start backend (http://localhost:3001)
-npm run dev
+npm install                                   # installs all workspaces from the root lockfile
 
-# Start frontend (http://localhost:5173) - in new terminal
-npm run dev:web
+# Postgres/Redis/RabbitMQ can still come from Docker:
+docker compose -f docker-compose.dev.yml up -d postgres redis rabbitmq
 
-# Or use Docker Compose (recommended)
-npm run docker:dev
+cp packages/backend/.env.example packages/backend/.env   # defaults match the dev containers
+cp packages/web/.env.example packages/web/.env
+
+npm run db:generate
+npm run db:migrate                            # prisma migrate dev
+ALLOW_DESTRUCTIVE_SEED=true npm run db:seed   # demo data (truncates all tables)
+
+npm run dev                                   # backend  http://localhost:3001
+npm run dev:web                               # frontend http://localhost:5173 (new terminal)
 ```
 
-### Using Docker (Recommended)
+`prisma migrate reset` also runs the seed and therefore needs `ALLOW_DESTRUCTIVE_SEED=true` as well.
 
-```bash
-# Start all services (backend, frontend, postgres, redis, rabbitmq)
-npm run docker:dev
+### Services
 
-# Stop services
-npm run docker:dev:down
-
-# View logs
-npm run docker:dev:logs
-
-# Clean volumes (nuclear option)
-docker compose -f docker-compose.dev.yml down -v
-```
-
-**Accessing Services:**
 - Frontend: http://localhost:5173
-- Backend API: http://localhost:3001
-- API Docs: http://localhost:3001/api/docs
-- PostgreSQL: localhost:5432
+- Backend API: http://localhost:3001/api/v1
+- API docs (non-production only): http://localhost:3001/api/docs
+- Health: http://localhost:3001/api/v1/health/ready
+- PostgreSQL: localhost:5432 (user `tilopos`, password `tilopos_dev`, db `tilopos`)
 - Redis: localhost:6379
-- RabbitMQ UI: http://localhost:15672 (user: tilo, pass: tilopass)
+- RabbitMQ UI: http://localhost:15672 (user `tilo`, password `tilopass_dev` or `RABBITMQ_PASSWORD` from `.env`)
 
-### Default Credentials
+### Demo logins (after seeding)
 
-After seeding, you can login with:
+Login uses **e-mail + PIN**. All demo accounts share the PIN from `SEED_DEFAULT_PIN` (default `1234`).
 
-**Super Admin:**
-- Email: `admin@tilopos.com`
-- Password: `admin123`
+| Role | E-mail |
+| --- | --- |
+| Super Admin | `superadmin@tilopos.id` |
+| Owner | `budi@brewbites.id` |
+| Manager | `siti@brewbites.id` |
+| Supervisor | `agus@brewbites.id` |
+| Cashier | `dewi@brewbites.id`, `rina@brewbites.id` |
+| Kitchen | `joko@brewbites.id` |
+| Inventory | `hendra@brewbites.id` |
 
-**Manager:**
-- Email: `manager@outlet1.com`
-- Password: `manager123`
-
-**Cashier:**
-- Email: `cashier@outlet1.com`
-- Password: `cashier123`
+The seeder refuses to run in production. Never use these accounts or PINs outside development.
 
 ---
 
@@ -270,11 +256,13 @@ tilopos/
 │       │   ├── hooks/        # Custom React hooks
 │       │   └── lib/          # Utility functions
 │       └── public/           # Static assets
-├── Docs/                     # Design & architecture docs
-│   ├── 01-SYSTEM-DESIGN.md
-│   ├── 02-LAYERED-ARCHITECTURE.md
-│   ├── 05-DATABASE-SCHEMA.md
-│   └── ui/                   # UI/UX documentation
+├── Docs/                     # All documentation (index: Docs/00-INDEX.md)
+│   ├── architecture/         # System design, layers, clean code
+│   ├── database/             # Schema documentation
+│   ├── operations/           # Deployment, backup & restore
+│   ├── ui/                   # UI/UX documentation
+│   └── ENGINEERING-RULES.md  # Mandatory engineering rules
+├── k8s/                      # Kubernetes manifests (kustomize)
 ├── docker-compose*.yml       # Docker configurations
 └── CLAUDE.md                 # Development guidelines
 ```
@@ -287,7 +275,8 @@ npm install              # Install all dependencies
 npm run dev              # Start backend
 npm run dev:web          # Start frontend
 npm run build            # Build all workspaces
-npm run lint             # Lint all workspaces
+npm run lint             # Lint all workspaces (auto-fix)
+npm run lint:check       # Lint without fixing (what CI runs)
 npm run test             # Test all workspaces
 
 # Backend
@@ -296,9 +285,9 @@ npm run dev              # Start with hot reload
 npm run build            # Build for production
 npm run lint             # ESLint
 npm run test             # Unit tests
-npm run test:e2e         # E2E tests
-npm run db:migrate       # Run migrations
-npm run db:seed          # Seed database
+npm run test:e2e         # Integration tests (needs a seeded database)
+npm run db:migrate       # Create/apply migrations (prisma migrate dev)
+npm run db:seed          # Seed demo data (needs ALLOW_DESTRUCTIVE_SEED=true)
 npm run db:studio        # Open Prisma Studio
 
 # Frontend
@@ -320,7 +309,7 @@ npm run test:e2e         # E2E tests (Playwright)
 - **Single Responsibility** - One purpose per file/function
 - **KISS Principle** - Keep it simple
 
-See [CLAUDE.md](./CLAUDE.md) for detailed development guidelines.
+See [Docs/ENGINEERING-RULES.md](./Docs/ENGINEERING-RULES.md) and [CLAUDE.md](./CLAUDE.md) for detailed development guidelines.
 
 ---
 
@@ -401,19 +390,29 @@ const products = await prisma.product.findMany({
 
 ## 📚 Documentation
 
+Start at the [documentation index](./Docs/00-INDEX.md).
+
 ### Architecture Docs
-- [System Design](./Docs/01-SYSTEM-DESIGN.md) - Overall architecture
-- [Layered Architecture](./Docs/02-LAYERED-ARCHITECTURE.md) - Clean architecture layers
-- [Database Schema](./Docs/05-DATABASE-SCHEMA.md) - ERD & table descriptions
+- [System Design](./Docs/architecture/01-system-design.md) - Overall architecture
+- [Layered Architecture](./Docs/architecture/02-layered-architecture.md) - Clean architecture layers
+- [Database Schema](./Docs/database/01-database-schema.md) - ERD & table descriptions
+- [Engineering Rules](./Docs/ENGINEERING-RULES.md) - Mandatory rules for every change
 
 ### Development Docs
-- [Clean Code Practices](./Docs/03-CLEAN-CODE-PRACTICES.md) - Coding standards
-- [Shared Components](./Docs/04-SHARED-COMPONENTS.md) - UI component library
-- [UI/UX Design](./Docs/06-UI-UX-DESIGN.md) - Design system
+- [Clean Code Practices](./Docs/architecture/03-clean-code-practices.md) - Coding standards
+- [Shared Components](./Docs/ui/03-SHARED-COMPONENTS.md) - UI component library
+- [UI/UX Strategy](./Docs/ui/00-UI-UX-STRATEGY.md) - Design direction
 
-### Feature Docs
-- [God Class Audit](./Docs/11-GOD-CLASS-AUDIT.md) - Code quality improvements
-- [UX Improvements](./Docs/08-UX-IMPROVEMENTS-PLAN.md) - UX enhancement roadmap
+### Operations
+- [Deployment Guide](./Docs/operations/deployment.md) - Env contract, migrations, release checklist
+- [Backup & Restore](./Docs/operations/backup-restore.md) - Backup schedule and restore runbook
+- [Kubernetes](./k8s/README.md) - Manifests, secrets, overlays
+
+### Status & Audits
+- [Audit 2026-09-26](./Docs/audit/AUDIT-KEKURANGAN-2026-09-26.md) - Known gaps and remediation
+- [Progress Tracker](./Docs/progress/01-progress-tracker.md)
+- [God Class Audit](./Docs/maintenance/01-god-class-audit.md) - Code quality improvements
+- [UX Improvements](./Docs/progress/03-ux-improvements-plan.md) - UX enhancement roadmap
 
 ### UI/UX Docs
 - [UI Strategy](./Docs/ui/00-UI-UX-STRATEGY.md)
@@ -434,7 +433,8 @@ cd packages/backend
 # Unit tests
 npm run test
 
-# E2E tests
+# Integration tests (Postgres + Redis with seeded demo data)
+ALLOW_DESTRUCTIVE_SEED=true npm run db:seed
 npm run test:e2e
 
 # Coverage
@@ -456,11 +456,12 @@ npm run test:e2e
 npm run test:e2e:ui      # With UI
 ```
 
-### Test Coverage Goals
+### Continuous Integration
 
-- Unit Tests: >80% coverage
-- Integration Tests: Critical paths
-- E2E Tests: Happy paths & key user flows
+`.github/workflows/ci.yml` runs on pushes and pull requests to `main`/`develop`:
+lint without `--fix`, backend typecheck + unit tests, backend integration tests against
+Postgres/Redis (non-blocking for now), web vitest + production build, Docker image builds,
+and `npm audit` (non-blocking). Nothing is deployed automatically.
 
 ---
 
@@ -479,55 +480,38 @@ npm run build:web
 
 ### Environment Variables
 
-**Backend** (`.env`):
-```bash
-# Database
-DATABASE_URL=postgresql://user:pass@host:5432/tilopos
+The backend validates its environment at boot and refuses to start in production when
+something required is missing (`packages/backend/src/config/env.validation.ts`).
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+- Always: `DATABASE_URL`, `JWT_SECRET` (>= 32 chars in production), `JWT_EXPIRES_IN`
+- Production: `CORS_ORIGIN`, `FRONTEND_URL`, `REDIS_HOST`, and `PAYMENT_GATEWAY=midtrans|xendit`
+  with its keys (`mock` is rejected)
+- Optional: `TRUST_PROXY`, `METRICS_ENABLED`, S3 (`S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, ...),
+  SMTP (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, ...), RabbitMQ (`RABBITMQ_URL`)
 
-# JWT
-JWT_SECRET=your-secret-key-here
-JWT_EXPIRES_IN=7d
+Full references: [`packages/backend/.env.example`](./packages/backend/.env.example) (local),
+[`.env.example`](./.env.example) (docker compose), [`k8s/base/configmap.yaml`](./k8s/base/configmap.yaml) +
+[`k8s/base/secrets.yaml.example`](./k8s/base/secrets.yaml.example) (Kubernetes).
 
-# AWS S3 (optional)
-AWS_ACCESS_KEY_ID=your-access-key
-AWS_SECRET_ACCESS_KEY=your-secret-key
-AWS_BUCKET_NAME=your-bucket
+Frontend `VITE_*` variables ([`packages/web/.env.example`](./packages/web/.env.example)) are baked in at build time.
 
-# Sentry (optional)
-SENTRY_DSN=your-sentry-dsn
-
-# RabbitMQ (optional)
-RABBITMQ_URL=amqp://user:pass@host:5672
-```
-
-**Frontend** (`.env`):
-```bash
-VITE_API_URL=https://api.yourdomain.com
-VITE_CDN_URL=https://cdn.yourdomain.com
-```
-
-### Docker Production
+### Docker (single host)
 
 ```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
-
-# Start services
-docker-compose -f docker-compose.prod.yml up -d
-
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f
+cp .env.example .env     # fill every [prod] value
+npm run docker:prod      # builds images from the repo root, runs migrations once, starts the stack
+npm run docker:prod:down
 ```
+
+### Kubernetes
+
+See [k8s/README.md](./k8s/README.md) and the [deployment guide](./Docs/operations/deployment.md).
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these guidelines:
+Contributions are by invitation only (proprietary project). Team members, please follow these guidelines:
 
 ### Getting Started
 
@@ -557,14 +541,14 @@ chore: Maintenance tasks
 - Write clear descriptions
 - Include tests for new features
 - Update documentation if needed
-- Ensure all tests pass
+- Ensure `npm run lint:check` and all tests pass
 - Follow coding standards
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+Proprietary software — all rights reserved. See [LICENSE](./LICENSE). Use, copying or distribution requires prior written permission.
 
 ---
 
@@ -580,7 +564,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ## 📞 Support
 
-- **Documentation:** [Docs](./Docs/)
+- **Documentation:** [Docs](./Docs/00-INDEX.md)
 - **Issues:** [GitHub Issues](https://github.com/omanjaya/tilopos/issues)
 - **Email:** support@tilopos.com
 

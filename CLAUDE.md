@@ -5,6 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important Rules
 
 - NEVER create markdown files (.md) or any documentation files unless explicitly requested by the user.
+- Follow `Docs/ENGINEERING-RULES.md` (derived from the Sept 2026 audit, findings in `Docs/audit/`). Non-negotiables:
+  - Auth is global (`JwtAuthGuard` APP_GUARD); unauthenticated routes need `@Public()`. Every non-public mutation needs `@Roles()`.
+  - `businessId` comes only from `@CurrentUser()`. Scope every query by tenant; verify every client-supplied id via `TenantAccessService`. Never put `undefined` in a Prisma `where` (the `strictWhere` middleware throws).
+  - `@Body()`/`@Query()` must be class-validator DTO classes; never pass a raw body into Prisma `data`.
+  - Prices, discounts, totals and points are computed server-side; use `@shared/utils/money` for arithmetic.
+  - Multi-write operations in `$transaction`; status transitions via conditional `updateMany` + count check; stock via atomic increment/decrement; crons use `DistributedLockService` + `timeZone`.
+  - No fake success (no mock fallback in production, no swallowed errors, no `catch {}`).
+  - Relations to employee/customer use the `*_PUBLIC_SELECT` constants; lists are paginated; dates use `@shared/utils/business-time` (Asia/Jakarta).
+  - Frontend: API types must match backend; render error states; route/menu roles come from `src/config/permissions.ts`.
 
 ## Project Overview
 
@@ -86,7 +95,7 @@ npm run db:studio              # Prisma Studio UI
 **Key patterns:**
 - All routes lazy-loaded via `React.lazy` in `routes/lazy-imports.tsx`
 - Desktop/Mobile: **separate files**, NOT responsive breakpoints. Desktop = `page.tsx`, Mobile = `page.mobile.tsx`, routed via `<DeviceRoute desktop={} mobile={} />`
-- API client (`api/client.ts`): base URL `/api/v1`, auto-attaches JWT from `useAuthStore`, 401 → logout + redirect
+- API client (`api/client.ts`): base URL `/api/v1`, auto-attaches in-memory JWT from `useAuthStore`, single-flight cookie refresh on 401; `/auth/*` errors stay local to the caller
 - Vite proxies `/api` and `/socket.io` to backend (`localhost:3001`)
 - State: TanStack Query for server state, Zustand for client state
 - Forms: React Hook Form + Zod validation
@@ -196,6 +205,4 @@ docker compose -f docker-compose.dev.yml logs -f backend
 docker compose -f docker-compose.dev.yml up -d --build backend
 ```
 
-### Other Projects on This VPS
-
-- **FileForge** (`/root/project`) — also running via Docker, uses ports 8000, 8880, 8443. Unrelated to TiloPOS.
+Ports 8000, 8443 and 8880 on the shared VPS are used by another (unrelated) deployment; don't bind TiloPOS services to them.

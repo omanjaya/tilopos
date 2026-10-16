@@ -2,6 +2,8 @@
 
 > **Last Updated:** 01 Februari 2026 (Session 5 Round 5)
 > **Overall Completion:** ~100% (UX Improvements Complete!)
+>
+> **Koreksi 27 September 2026:** beberapa item yang dulu ditandai selesai ternyata masih stub/mock: integrasi marketplace GoFood/GrabFood/ShopeeFood (semua panggilan melempar `NotImplementedException`), endpoint integrations controller (respons hardcoded), push notification (selalu mock), Midtrans VA (nomor placeholder) dan status Xendit retail. Item-item tersebut ditandai **Not implemented (stub/mock)** di bawah. Lihat [Audit Kekurangan 2026-09-26](../audit/AUDIT-KEKURANGAN-2026-09-26.md), bagian 2 "Fitur stub / belum selesai".
 
 ---
 
@@ -365,7 +367,7 @@
    - Auto-apply di POS checkout
 
 4. **Notifications Multi-Channel (notifications.service.ts)**
-   - Push notifications (FCM/APNs stub)
+   - Push notifications (FCM/APNs stub) — **Not implemented (stub/mock)**
    - Email (SMTP/SendGrid stub)
    - SMS (Twilio stub)
    - WhatsApp Business API stub
@@ -464,10 +466,10 @@
    - Files: `sync-engine.service.ts`
 
 ### Selesai - Priority 4 (4/6)
-4. **Marketplace Integrations**
-   - GoFood Gateway dengan full API integration
-   - GrabFood Gateway dengan full API integration
-   - ShopeeFood Gateway dengan full API integration
+4. **Marketplace Integrations** — **Not implemented (stub/mock)**, lihat koreksi di atas
+   - GoFood Gateway: stub (`NotImplementedException`)
+   - GrabFood Gateway: stub (`NotImplementedException`)
+   - ShopeeFood Gateway: stub (`NotImplementedException`)
    - Menu sync, order receiving, settlements
    - Files: `marketplace.service.ts`
 
@@ -545,7 +547,7 @@
 | Desktop App (Electron) | Yes | - | - | Yes | 0% |
 | Offline-First Sync | Yes | Done + PWA | - | - | 95% |
 | Payment Integrations | 5+ gateway | Midtrans+Xendit stub | - | EDC | 75% |
-| Marketplace Integrations | 6+ | 3 | - | 3 | 50% |
+| Marketplace Integrations | 6+ | 0 (3 stub/mock) | - | 6 | 0% |
 | Real-time (WebSocket) | Yes | Done + Zustand + Provider | - | - | 70% |
 | Reports & Analytics | Full BI | Done | - | - | 95% |
 | Ingredient/Recipe | Yes | CRUD+Recipe+Cost+Alerts | - | Auto-deduct UI | 90% |
@@ -1351,7 +1353,7 @@ Yang dibutuhkan:
 - [x] Payment Gateway Factory pattern
 - [x] **Midtrans full integration** (QRIS, VA, e-wallet)
   - [x] QRIS, GoPay, OVO, Dana, ShopeePay
-  - [x] Bank transfer / Virtual Account
+  - [ ] Bank transfer / Virtual Account — **Not implemented (stub/mock)**: nomor VA placeholder
   - [x] Credit Card payment
   - [x] Webhook handler dengan signature verification (HMAC SHA512)
   - [x] Refund processing via gateway
@@ -1360,7 +1362,7 @@ Yang dibutuhkan:
   - [x] Virtual Accounts (BCA, BNI, BRI, Mandiri, Permata)
   - [x] E-Wallets (GoPay, OVO, Dana, ShopeePay, LinkAja)
   - [x] Credit/Debit Card via Invoice
-  - [x] Retail Outlets (Alfamart, Indomaret)
+  - [ ] Retail Outlets (Alfamart, Indomaret) — **Not implemented (stub/mock)**: cek status belum ada
   - [x] Webhook handler dengan signature verification (HMAC SHA256)
   - [x] Refund processing for all payment types
 - [x] Mock Gateway untuk testing
@@ -1375,29 +1377,31 @@ Yang dibutuhkan:
 
 ## 9. Marketplace Integrations
 
-**Status:** 50% -- FOOD DELIVERY PLATFORMS DONE
+**Status:** 0% -- Not implemented (stub/mock); lihat [Audit Kekurangan 2026-09-26](../audit/AUDIT-KEKURANGAN-2026-09-26.md)
 
 | Platform | Status |
 |----------|--------|
-| GoFood | Done |
-| GrabFood | Done |
-| ShopeeFood | Done |
+| GoFood | Not implemented (stub/mock) |
+| GrabFood | Not implemented (stub/mock) |
+| ShopeeFood | Not implemented (stub/mock) |
 | Tokopedia | Belum |
 | Shopee | Belum |
 | Instagram Shopping | Belum |
 | Facebook Shop | Belum |
 | WhatsApp Catalog | Belum |
 
-### Sudah Selesai (GoFood, GrabFood, ShopeeFood)
-- [x] API authentication (OAuth)
-- [x] Menu/catalog sync
-- [x] Order receiving (fetchNewOrders)
-- [x] Order accept/reject
-- [x] Order status updates (preparing -> ready -> picked_up)
-- [x] Settlement reconciliation
-- [x] MarketplaceService aggregator
-- [x] Cron polling untuk new orders (30 detik)
-- [x] Files: `marketplace.service.ts`
+### Klaim lama (GoFood, GrabFood, ShopeeFood) — Not implemented (stub/mock)
+
+Daftar ini dulu ditandai selesai; kodenya hanya kerangka yang melempar `NotImplementedException`.
+- [ ] API authentication (OAuth)
+- [ ] Menu/catalog sync
+- [ ] Order receiving (fetchNewOrders)
+- [ ] Order accept/reject
+- [ ] Order status updates (preparing -> ready -> picked_up)
+- [ ] Settlement reconciliation
+- [ ] MarketplaceService aggregator
+- [ ] Cron polling untuk new orders (30 detik)
+- [ ] Files: `marketplace.service.ts`
 
 ### Belum
 - [ ] E-commerce platforms (Tokopedia, Shopee)

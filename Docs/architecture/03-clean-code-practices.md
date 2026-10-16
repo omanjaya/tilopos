@@ -143,4 +143,4 @@ it('should calculate correct total', async () => {
 
 ---
 
-> **Next:** [04-SHARED-COMPONENTS.md](./04-SHARED-COMPONENTS.md)
+> **Next:** [03-SHARED-COMPONENTS.md](../ui/03-SHARED-COMPONENTS.md)

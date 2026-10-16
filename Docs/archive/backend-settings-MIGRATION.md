@@ -328,6 +328,6 @@ If you encounter any issues during migration:
 
 ## Related Documentation
 
-- [Settings Repositories README](./README.md) - Detailed documentation
-- [Repository Patterns](../../../docs/architecture/repository-pattern.md) - Architecture guide
-- [Testing Guide](../../../docs/testing/repository-testing.md) - Testing patterns
+- [Settings Repositories README](../../packages/backend/src/infrastructure/repositories/settings/README.md) - Detailed documentation
+- Repository Patterns - Architecture guide (never written)
+- Testing Guide - Testing patterns (never written)

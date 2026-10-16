@@ -1,7 +1,20 @@
 # TiloPOS Documentation Index
 
-> **Last Updated:** 08 Februari 2026
-> **Project Status:** Production Ready (~100% Backend, ~95% Frontend)
+> **Last Updated:** 27 September 2026
+> **Project Status:** Belum siap produksi — lihat [Audit Kekurangan 2026-09-26](./audit/AUDIT-KEKURANGAN-2026-09-26.md).
+> Angka persentase lama di bawah bersifat historis.
+
+This is the single documentation root (the former lowercase `docs/` folder was merged
+into `Docs/`). Main entry points:
+
+| Topic | Document |
+|-------|----------|
+| Engineering rules (wajib dibaca) | [ENGINEERING-RULES.md](./ENGINEERING-RULES.md) |
+| Latest audit & remediation list | [audit/AUDIT-KEKURANGAN-2026-09-26.md](./audit/AUDIT-KEKURANGAN-2026-09-26.md) |
+| Feature docs per modul (sales pitch, user guide, feature audit) | [index.md](./index.md#peta-fitur) |
+| Deployment (Docker Compose / Kubernetes) | [operations/deployment.md](./operations/deployment.md) |
+| Backup & restore runbook | [operations/backup-restore.md](./operations/backup-restore.md) |
+| Historical / superseded documents | [archive/](./archive/) |
 
 ---
 
@@ -10,6 +23,15 @@
 ```
 Docs/
 ├── 00-INDEX.md                           # You are here
+├── index.md                              # Feature docs overview (modules 01-13)
+├── 01-pos/ … 13-kds/                     # Per-module sales-pitch / user-guide / feature-audit
+├── sales/                                # Sales material (business types, pricing, comparison)
+├── ENGINEERING-RULES.md                  # Engineering rules
+├── audit/                                # Audit reports
+├── operations/                           # Deployment & backup/restore runbooks
+├── archive/                              # Historical docs (not maintained)
+├── security/                             # Security audit phases
+├── analisa/                              # UX/system analysis
 ├── research/                             # Research & Analysis
 │   └── 01-moka-pos-analysis.md          # Competitor analysis
 ├── architecture/                         # System Architecture
@@ -72,7 +94,7 @@ TiloPOS adalah sistem Point of Sale modern yang dirancang untuk bisnis F&B dan r
 - **Offline-First Architecture** - Tetap berfungsi tanpa internet
 - **Multi-Outlet Support** - Kelola banyak outlet dari satu dashboard
 - **Real-time Sync** - WebSocket untuk update instan
-- **Integration Ready** - GoFood, GrabFood, Xendit, Midtrans
+- **Integration Ready** - Xendit, Midtrans (GoFood/GrabFood/ShopeeFood masih stub, belum diimplementasikan)
 
 ### Technology Stack
 
@@ -92,7 +114,7 @@ TiloPOS adalah sistem Point of Sale modern yang dirancang untuk bisnis F&B dan r
 | Orders & KDS | ✅ 90% |
 | Reports | ✅ 95% |
 | Payments | ✅ 75% |
-| Integrations | 🔄 50% |
+| Integrations | 🔄 marketplace (GoFood/GrabFood/ShopeeFood) masih stub |
 | Mobile App | ⏳ 0% |
 
 ---

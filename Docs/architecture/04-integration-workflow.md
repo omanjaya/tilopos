@@ -1873,7 +1873,7 @@ TiloPOS implements a **robust, scalable, event-driven architecture** with:
 **Integration map complete** - all modules, events, and data flows documented.
 # TiloPOS Integration Architecture - Visual Diagrams
 
-**Companion Document:** [12-INTEGRATION-WORKFLOW.md](./12-INTEGRATION-WORKFLOW.md)
+**Companion Document:** [05-integration-audit.md](../maintenance/05-integration-audit.md)
 **Last Updated:** 2026-02-06
 
 ## Table of Contents

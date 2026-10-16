@@ -1,4 +1,6 @@
-# TiloPOS — Dokumentasi Lengkap
+# TiloPOS — Dokumentasi Fitur
+
+> Indeks utama dokumentasi ada di [00-INDEX.md](./00-INDEX.md). Halaman ini merangkum dokumentasi fitur per modul.
 
 ## Tentang TiloPOS
 
