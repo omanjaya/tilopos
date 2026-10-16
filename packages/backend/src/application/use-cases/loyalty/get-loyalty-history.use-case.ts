@@ -1,11 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { ILoyaltyRepository } from '../../../domain/interfaces/repositories/loyalty.repository';
-import type { ICustomerRepository } from '../../../domain/interfaces/repositories/customer.repository';
-import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
-import { AppError } from '../../../shared/errors/app-error';
-import { ErrorCode } from '../../../shared/constants/error-codes';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { AppError } from '@shared/errors/app-error';
+import { ErrorCode } from '@shared/constants/error-codes';
 
 export interface GetLoyaltyHistoryParams {
+  businessId: string;
   customerId: string;
   limit?: number;
 }
@@ -13,7 +12,7 @@ export interface GetLoyaltyHistoryParams {
 export interface LoyaltyHistoryResult {
   transactions: Array<{
     id: string;
-    type: 'earned' | 'redeemed' | 'adjusted' | 'expired';
+    type: 'earned' | 'redeemed' | 'adjusted' | 'expired' | 'reversed';
     points: number;
     balanceAfter: number;
     description: string | null;
@@ -21,35 +20,39 @@ export interface LoyaltyHistoryResult {
   }>;
 }
 
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 100;
+
 @Injectable()
 export class GetLoyaltyHistoryUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.LOYALTY)
-    private readonly loyaltyRepo: ILoyaltyRepository,
-    @Inject(REPOSITORY_TOKENS.CUSTOMER)
-    private readonly customerRepo: ICustomerRepository,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(params: GetLoyaltyHistoryParams): Promise<LoyaltyHistoryResult> {
-    const customer = await this.customerRepo.findById(params.customerId);
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: params.customerId, businessId: params.businessId },
+      select: { id: true },
+    });
     if (!customer) {
-      throw new AppError(ErrorCode.CUSTOMER_NOT_FOUND, 'Customer not found');
+      throw new AppError(ErrorCode.CUSTOMER_NOT_FOUND, 'Customer not found', HttpStatus.NOT_FOUND);
     }
 
-    const transactions = await this.loyaltyRepo.findTransactionsByCustomer(
-      params.customerId,
-      params.limit,
-    );
+    const requested = Number.isInteger(params.limit) ? (params.limit as number) : DEFAULT_LIMIT;
+    const take = Math.min(Math.max(requested, 1), MAX_LIMIT);
 
-    return {
-      transactions: transactions.map((tx) => ({
-        id: tx.id,
-        type: tx.type,
-        points: tx.points,
-        balanceAfter: tx.balanceAfter,
-        description: tx.description,
-        createdAt: tx.createdAt,
-      })),
-    };
+    const transactions = await this.prisma.loyaltyTransaction.findMany({
+      where: { customerId: customer.id, customer: { businessId: params.businessId } },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        type: true,
+        points: true,
+        balanceAfter: true,
+        description: true,
+        createdAt: true,
+      },
+    });
+
+    return { transactions };
   }
 }

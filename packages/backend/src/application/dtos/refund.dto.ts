@@ -4,20 +4,26 @@ import {
   IsOptional,
   IsNumber,
   IsEnum,
+  IsUUID,
   ValidateNested,
   Min,
+  Max,
+  MaxLength,
+  ArrayMinSize,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RefundItemDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   transactionItemId!: string;
 
-  @ApiProperty()
-  @IsNumber()
-  @Min(1)
+  @ApiProperty({ description: 'Quantity to refund (up to 3 decimals for weighed items)' })
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  @Max(100000)
   quantity!: number;
 
   @ApiProperty({ enum: ['defect', 'wrong_order', 'customer_request', 'other'] })
@@ -27,11 +33,13 @@ export class RefundItemDto {
 
 export class ProcessRefundDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   transactionId!: string;
 
   @ApiProperty({ type: [RefundItemDto] })
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => RefundItemDto)
   items!: RefundItemDto[];
@@ -43,5 +51,6 @@ export class ProcessRefundDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }

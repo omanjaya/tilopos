@@ -7,7 +7,7 @@ export interface UpdateProfileInput {
   name?: string;
   phone?: string;
   profilePhotoUrl?: string;
-  preferences?: Record<string, unknown>;
+  preferences?: object;
 }
 
 export interface UpdateProfileOutput {
@@ -39,7 +39,10 @@ export class UpdateProfileUseCase {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.phone !== undefined && { phone: input.phone }),
       ...(input.profilePhotoUrl !== undefined && { profilePhotoUrl: input.profilePhotoUrl }),
-      ...(input.preferences !== undefined && { preferences: input.preferences }),
+      ...(input.preferences !== undefined && {
+        // Merge validated keys into the stored preferences instead of replacing them.
+        preferences: { ...(employee.preferences ?? {}), ...input.preferences },
+      }),
     });
 
     return {

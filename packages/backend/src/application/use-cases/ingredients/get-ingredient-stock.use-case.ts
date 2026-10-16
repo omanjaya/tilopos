@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 
 export interface GetIngredientStockParams {
+  businessId: string;
+  /** Must already be verified to belong to `businessId`. */
   outletId: string;
   lowStockOnly?: boolean;
 }
@@ -16,7 +18,10 @@ export class GetIngredientStockUseCase {
 
   async execute(params: GetIngredientStockParams) {
     if (params.lowStockOnly) {
-      const lowStock = await this.ingredientRepository.getLowStock(params.outletId);
+      const lowStock = await this.ingredientRepository.getLowStock(
+        params.outletId,
+        params.businessId,
+      );
       return lowStock.map((stock) => ({
         id: stock.id,
         outletId: stock.outletId,
@@ -34,7 +39,10 @@ export class GetIngredientStockUseCase {
       }));
     }
 
-    const stocks = await this.ingredientRepository.getStockLevelsByOutlet(params.outletId);
+    const stocks = await this.ingredientRepository.getStockLevelsByOutlet(
+      params.outletId,
+      params.businessId,
+    );
     return stocks.map((stock) => ({
       id: stock.id,
       outletId: stock.outletId,

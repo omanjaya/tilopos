@@ -12,6 +12,15 @@ import {
   ValidateNested,
   ArrayMinSize,
   ArrayMaxSize,
+  MaxLength,
+  IsNotEmpty,
+  IsEmail,
+  IsUUID,
+  ValidateIf,
+  IsIP,
+  IsIn,
+  IsObject,
+  IsUrl,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -22,21 +31,26 @@ export class UpdateOutletDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
   name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   code?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   address?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   phone?: string;
 
   @ApiPropertyOptional()
@@ -77,6 +91,7 @@ export class UpdateTaxConfigDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   taxName?: string;
 
   @ApiPropertyOptional()
@@ -114,11 +129,13 @@ export class UpdateReceiptTemplateDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   header?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   footer?: string;
 
   @ApiPropertyOptional()
@@ -154,6 +171,7 @@ export class UpdateReceiptTemplateDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   customMessage?: string;
 }
 
@@ -215,6 +233,8 @@ export type PaymentMethodType = 'cash' | 'card' | 'ewallet' | 'qris' | 'bank_tra
 export class CreatePaymentMethodDto {
   @ApiProperty()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name!: string;
 
   @ApiProperty({ enum: ['cash', 'card', 'ewallet', 'qris', 'bank_transfer'] })
@@ -235,6 +255,7 @@ export class CreatePaymentMethodDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsObject()
   settings?: Record<string, unknown>;
 }
 
@@ -242,6 +263,8 @@ export class UpdatePaymentMethodDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name?: string;
 
   @ApiPropertyOptional({ enum: ['cash', 'card', 'ewallet', 'qris', 'bank_transfer'] })
@@ -263,6 +286,7 @@ export class UpdatePaymentMethodDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsObject()
   settings?: Record<string, unknown>;
 }
 
@@ -283,6 +307,8 @@ export type PrinterConnectionEnum = 'usb' | 'network' | 'bluetooth';
 export class CreatePrinterConfigDto {
   @ApiProperty()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name!: string;
 
   @ApiProperty({ enum: ['receipt', 'kitchen', 'label'] })
@@ -295,12 +321,14 @@ export class CreatePrinterConfigDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsIP()
   ipAddress?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
   port?: number;
 
   @ApiPropertyOptional()
@@ -310,13 +338,13 @@ export class CreatePrinterConfigDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(10)
   copies?: number;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 }
 
@@ -324,6 +352,8 @@ export class UpdatePrinterConfigDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name?: string;
 
   @ApiPropertyOptional({ enum: ['receipt', 'kitchen', 'label'] })
@@ -338,12 +368,14 @@ export class UpdatePrinterConfigDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsIP()
   ipAddress?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
   port?: number;
 
   @ApiPropertyOptional()
@@ -358,14 +390,14 @@ export class UpdatePrinterConfigDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(10)
   copies?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   outletId?: string;
 }
 
@@ -385,7 +417,9 @@ export class CreateReportScheduleDto {
 
   @ApiProperty()
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  @IsEmail({}, { each: true })
   recipients!: string[];
 
   @ApiPropertyOptional()
@@ -408,11 +442,536 @@ export class UpdateReportScheduleDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  @IsEmail({}, { each: true })
   recipients?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+// ==================== Business Profile DTOs ====================
+
+/** Keys of business.settings that PUT /settings/business may change (display only). */
+export const EDITABLE_BUSINESS_SETTINGS = ['brandColor'] as const;
+
+export class UpdateBusinessDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(255)
+  email?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  address?: string;
+
+  /**
+   * Patch of display settings. Only EDITABLE_BUSINESS_SETTINGS keys are applied;
+   * other keys (payment methods, printers, tax, onboarding flags) are owned by
+   * their dedicated endpoints and ignored here.
+   */
+  @ApiPropertyOptional({ description: 'Only brandColor is applied' })
+  @IsOptional()
+  @IsObject()
+  settings?: Record<string, unknown>;
+}
+
+export class CreateOutletDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  code?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  address?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  serviceCharge?: number;
+}
+
+// ==================== Modifier Group DTOs ====================
+
+export class ModifierInputDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @ApiProperty()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000_000)
+  price!: number;
+}
+
+export class CreateModifierGroupDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @ApiPropertyOptional({ enum: ['single', 'multiple'] })
+  @IsOptional()
+  @IsIn(['single', 'multiple'])
+  selectionType?: 'single' | 'multiple';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  minSelection?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  maxSelection?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
+
+  @ApiProperty({ type: [ModifierInputDto] })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ModifierInputDto)
+  modifiers!: ModifierInputDto[];
+}
+
+/** Modifier line in PUT /settings/modifier-groups/:id: with id = update that modifier, without id = new. */
+export class UpdateModifierInputDto extends ModifierInputDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+}
+
+export class UpdateModifierGroupDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiPropertyOptional({ enum: ['single', 'multiple'] })
+  @IsOptional()
+  @IsIn(['single', 'multiple'])
+  selectionType?: 'single' | 'multiple';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  minSelection?: number;
+
+  /** null clears the upper bound. */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  maxSelection?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
+
+  /**
+   * When present, the full list of modifiers the group should have: items with id are updated,
+   * items without id are created, active modifiers missing from the list are deactivated.
+   */
+  @ApiPropertyOptional({ type: [UpdateModifierInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => UpdateModifierInputDto)
+  modifiers?: UpdateModifierInputDto[];
+}
+
+// ==================== Loyalty DTOs ====================
+
+export class CreateLoyaltyProgramDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  /** Rupiah spent per point earned; must be ≥ 1 (it is a divisor). */
+  @ApiProperty()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @Max(1_000_000_000)
+  amountPerPoint!: number;
+
+  @ApiProperty()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100_000_000)
+  redemptionRate!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  pointExpiryDays?: number;
+}
+
+export class UpdateLoyaltyProgramDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @Max(1_000_000_000)
+  amountPerPoint?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100_000_000)
+  redemptionRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  pointExpiryDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class CreateLoyaltyTierDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  name!: string;
+
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000_000)
+  minPoints!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000_000_000)
+  minSpent?: number;
+
+  @ApiProperty()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(100)
+  pointMultiplier!: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  benefits?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  sortOrder?: number;
+}
+
+export class UpdateLoyaltyTierDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000_000)
+  minPoints?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000_000_000)
+  minSpent?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(100)
+  pointMultiplier?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  benefits?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  sortOrder?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+// ==================== Legacy per-outlet DTOs ====================
+
+export class UpdateOutletTaxDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  serviceCharge?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  taxInclusive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  taxName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  taxNumber?: string;
+}
+
+export class UpdateLegacyReceiptTemplateDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  header?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  footer?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  showLogo?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(500)
+  logoUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  showQRCode?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  showTaxDetails?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  showServiceCharge?: boolean;
+
+  @ApiPropertyOptional({ enum: ['58mm', '80mm'] })
+  @IsOptional()
+  @IsIn(['58mm', '80mm'])
+  paperSize?: '58mm' | '80mm';
+
+  @ApiPropertyOptional({ enum: ['small', 'medium', 'large'] })
+  @IsOptional()
+  @IsIn(['small', 'medium', 'large'])
+  fontSize?: 'small' | 'medium' | 'large';
+}
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export class LegacyOperatingHoursEntryDto {
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek!: number;
+
+  @ApiProperty()
+  @IsBoolean()
+  isOpen!: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(HH_MM, { message: 'openTime must be in HH:mm format' })
+  openTime?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(HH_MM, { message: 'closeTime must be in HH:mm format' })
+  closeTime?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(HH_MM, { message: 'breakStart must be in HH:mm format' })
+  breakStart?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(HH_MM, { message: 'breakEnd must be in HH:mm format' })
+  breakEnd?: string;
+}
+
+export class LegacyPaymentMethodConfigDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  method!: string;
+
+  @ApiProperty()
+  @IsBoolean()
+  enabled!: boolean;
+
+  @ApiProperty()
+  @IsString()
+  @MaxLength(100)
+  displayName!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1_000_000)
+  processingFee?: number;
+
+  @ApiPropertyOptional({ enum: ['percentage', 'fixed'] })
+  @IsOptional()
+  @IsIn(['percentage', 'fixed'])
+  feeType?: 'percentage' | 'fixed';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1_000_000_000_000)
+  minAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1_000_000_000_000)
+  maxAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  sortOrder?: number;
 }

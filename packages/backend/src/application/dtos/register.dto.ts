@@ -7,8 +7,12 @@ import {
   IsNumber,
   Min,
   Max,
+  MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+/** Digits with optional leading + and common separators, 6-20 chars. */
+const PHONE_PATTERN = /^\+?[0-9][0-9 ()-]{5,19}$/;
 
 export class RegisterDto {
   @ApiProperty({ example: 'John Doe' })
@@ -18,6 +22,7 @@ export class RegisterDto {
 
   @ApiProperty({ example: 'john@example.com' })
   @IsEmail()
+  @MaxLength(255)
   email!: string;
 
   @ApiProperty({ example: '123456', description: '6-digit PIN' })
@@ -35,10 +40,12 @@ export class RegisterDto {
   @ApiPropertyOptional({ example: '08123456789' })
   @IsOptional()
   @IsString()
+  @Matches(PHONE_PATTERN, { message: 'phone must be a valid phone number' })
   phone?: string;
 
   @ApiProperty({ example: 'fnb_restaurant' })
   @IsString()
+  @MaxLength(50)
   businessType!: string;
 
   @ApiProperty({ example: 'Restoran Padang Jaya' })
@@ -49,11 +56,13 @@ export class RegisterDto {
   @ApiPropertyOptional({ example: '08123456789' })
   @IsOptional()
   @IsString()
+  @Matches(PHONE_PATTERN, { message: 'businessPhone must be a valid phone number' })
   businessPhone?: string;
 
   @ApiPropertyOptional({ example: 'Jl. Sudirman No. 1' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   businessAddress?: string;
 
   @ApiProperty({ example: 'Outlet Utama' })
@@ -64,11 +73,14 @@ export class RegisterDto {
   @ApiPropertyOptional({ example: 'OTL-001' })
   @IsOptional()
   @IsString()
+  @Length(1, 20)
+  @Matches(/^[A-Za-z0-9_-]+$/, { message: 'outletCode may only contain letters, digits, - and _' })
   outletCode?: string;
 
   @ApiPropertyOptional({ example: 'Jl. Sudirman No. 1' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   outletAddress?: string;
 
   @ApiPropertyOptional({ example: 11, description: 'Tax rate percentage' })

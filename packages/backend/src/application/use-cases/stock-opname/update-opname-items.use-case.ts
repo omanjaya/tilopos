@@ -1,9 +1,11 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Decimal } from '@prisma/client/runtime/library';
+import { OPNAME_DETAIL_INCLUDE, throwOpnameTransitionError } from './opname-common';
 
 export interface UpdateOpnameItemsInput {
   opnameId: string;
+  businessId: string;
   items: { itemId: string; actualQuantity: number; notes?: string }[];
 }
 
@@ -12,60 +14,53 @@ export class UpdateOpnameItemsUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
   async execute(input: UpdateOpnameItemsInput) {
-    const opname = await this.prisma.stockOpname.findUnique({
-      where: { id: input.opnameId },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      // Touching the row with a status-conditional update locks it for this transaction,
+      // so a concurrent complete/cancel cannot slip in between the check and the writes.
+      const touched = await tx.stockOpname.updateMany({
+        where: {
+          id: input.opnameId,
+          outlet: { businessId: input.businessId },
+          status: { in: ['draft', 'in_progress'] },
+        },
+        data: { updatedAt: new Date() },
+      });
+      if (touched.count === 0) {
+        await throwOpnameTransitionError(tx, input.opnameId, input.businessId, 'update items for');
+      }
 
-    if (!opname) throw new NotFoundException('Stock opname not found');
-    if (opname.status !== 'draft' && opname.status !== 'in_progress') {
-      throw new BadRequestException(
-        `Cannot update items for opname with status "${opname.status}"`,
-      );
-    }
+      const itemIds = [...new Set(input.items.map((i) => i.itemId))];
+      const existing = await tx.stockOpnameItem.findMany({
+        where: { id: { in: itemIds }, opnameId: input.opnameId },
+        select: { id: true, systemQuantity: true, notes: true },
+      });
+      const byId = new Map(existing.map((e) => [e.id, e]));
+      const missing = itemIds.find((id) => !byId.has(id));
+      if (missing) throw new NotFoundException(`Opname item "${missing}" not found`);
 
-    await this.prisma.$transaction(async (tx) => {
       for (const item of input.items) {
-        const existing = await tx.stockOpnameItem.findUnique({
-          where: { id: item.itemId },
-        });
-        if (!existing || existing.opnameId !== input.opnameId) {
-          throw new NotFoundException(`Opname item "${item.itemId}" not found`);
-        }
-
-        const actualQty = new Decimal(item.actualQuantity);
-        const diff = actualQty.minus(existing.systemQuantity);
-
+        const current = byId.get(item.itemId)!;
+        const actualQty = new Prisma.Decimal(item.actualQuantity);
         await tx.stockOpnameItem.update({
           where: { id: item.itemId },
           data: {
             actualQuantity: actualQty,
-            difference: diff,
-            notes: item.notes ?? existing.notes,
+            difference: actualQty.minus(current.systemQuantity),
+            notes: item.notes ?? current.notes,
           },
         });
       }
 
-      // If status is still draft, move to in_progress
-      if (opname.status === 'draft') {
-        await tx.stockOpname.update({
-          where: { id: input.opnameId },
-          data: { status: 'in_progress', startedAt: new Date() },
-        });
-      }
-    });
+      // draft -> in_progress on the first count (conditional, idempotent).
+      await tx.stockOpname.updateMany({
+        where: { id: input.opnameId, status: 'draft' },
+        data: { status: 'in_progress', startedAt: new Date() },
+      });
 
-    return this.prisma.stockOpname.findUnique({
-      where: { id: input.opnameId },
-      include: {
-        items: {
-          include: {
-            product: { select: { name: true, sku: true } },
-            variant: { select: { name: true, sku: true } },
-          },
-        },
-        createdByEmployee: { select: { name: true } },
-        approvedByEmployee: { select: { name: true } },
-      },
+      return tx.stockOpname.findUnique({
+        where: { id: input.opnameId },
+        include: OPNAME_DETAIL_INCLUDE,
+      });
     });
   }
 }

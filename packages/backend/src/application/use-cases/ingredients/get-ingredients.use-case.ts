@@ -1,10 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 
 export interface GetIngredientsParams {
   businessId: string;
   activeOnly?: boolean;
+  skip?: number;
+  take?: number;
 }
 
 @Injectable()
@@ -18,6 +20,7 @@ export class GetIngredientsUseCase {
     const ingredients = await this.ingredientRepository.findByBusiness(
       params.businessId,
       params.activeOnly ?? true,
+      { skip: params.skip, take: params.take },
     );
 
     return ingredients.map((ingredient) => ({

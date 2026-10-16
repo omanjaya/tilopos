@@ -1,20 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
-import { IAuditLogRepository } from '../../../domain/interfaces/repositories/audit.repository';
+import type { IAuditLogRepository } from '../../../domain/interfaces/repositories/audit.repository';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
-import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 
 export interface AdjustIngredientStockParams {
+  businessId: string;
+  /** Must already be verified to belong to `businessId`. */
   outletId: string;
   ingredientId: string;
-  quantity: number; // Can be positive (add) or negative (deduct)
+  quantity: number; // positive adds, negative deducts; never 0
   referenceId?: string;
   referenceType?: string;
   notes?: string;
   employeeId?: string;
-  businessId: string;
 }
 
+/**
+ * Manual ingredient stock adjustment. Ownership check, conditional increment/decrement
+ * and the movement row are one transaction inside the repository (R3, R9); the audit log
+ * is written after the stock change committed.
+ */
 @Injectable()
 export class AdjustIngredientStockUseCase {
   constructor(
@@ -25,47 +30,28 @@ export class AdjustIngredientStockUseCase {
   ) {}
 
   async execute(params: AdjustIngredientStockParams) {
-    // Get or create ingredient stock level
-    let stock = await this.ingredientRepository.getStockLevel(params.outletId, params.ingredientId);
-    if (!stock) {
-      // Auto-create stock level if it doesn't exist (similar to product stock)
-      const created = await this.ingredientRepository.updateStockLevel(
-        params.outletId,
-        params.ingredientId,
-        0,
-      );
-      stock = created;
-    }
+    const result = await this.ingredientRepository.applyStockAdjustment({
+      businessId: params.businessId,
+      outletId: params.outletId,
+      ingredientId: params.ingredientId,
+      quantity: params.quantity,
+      movementType: 'adjustment',
+      referenceId: params.referenceId,
+      referenceType: params.referenceType ?? 'manual_adjustment',
+      notes: params.notes,
+      createdBy: params.employeeId,
+    });
 
-    const currentQty = Number(stock.quantity);
-    const newQty = currentQty + params.quantity;
-
-    // Validate: don't allow negative stock
-    if (newQty < 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Insufficient stock for this operation');
-    }
-
-    // Adjust stock
-    await this.ingredientRepository.adjustStock(
-      params.outletId,
-      params.ingredientId,
-      params.quantity,
-      params.referenceId,
-      params.referenceType,
-      params.notes,
-    );
-
-    // Create audit log
-    const auditRecord = {
+    await this.auditLogRepository.create({
       id: crypto.randomUUID(),
       businessId: params.businessId,
       outletId: params.outletId,
       employeeId: params.employeeId ?? null,
       action: params.quantity >= 0 ? 'INGREDIENT_STOCK_ADD' : 'INGREDIENT_STOCK_DEDUCT',
       entityType: 'IngredientStock',
-      entityId: stock.id,
-      oldValue: { quantity: currentQty },
-      newValue: { quantity: newQty },
+      entityId: result.stockLevelId,
+      oldValue: { quantity: result.previousQuantity },
+      newValue: { quantity: result.newQuantity },
       ipAddress: null,
       deviceId: null,
       metadata: {
@@ -74,15 +60,13 @@ export class AdjustIngredientStockUseCase {
         notes: params.notes,
       },
       createdAt: new Date(),
-    } as const;
-
-    await this.auditLogRepository.create(auditRecord);
+    });
 
     return {
       ingredientId: params.ingredientId,
       outletId: params.outletId,
-      previousQuantity: currentQty,
-      newQuantity: newQty,
+      previousQuantity: result.previousQuantity,
+      newQuantity: result.newQuantity,
       adjusted: params.quantity,
     };
   }

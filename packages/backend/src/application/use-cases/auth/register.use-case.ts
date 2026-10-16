@@ -42,8 +42,10 @@ export class RegisterUseCase {
       throw new BadRequestException(`Tipe bisnis tidak valid: ${dto.businessType}`);
     }
 
+    // Login is by e-mail across tenants, so an e-mail may belong to one account only.
     const existingEmployee = await this.prisma.employee.findFirst({
-      where: { email: dto.email },
+      where: { email: { equals: dto.email, mode: 'insensitive' } },
+      select: { id: true },
     });
 
     if (existingEmployee) {
@@ -52,6 +54,9 @@ export class RegisterUseCase {
 
     const hashedPin = await bcrypt.hash(dto.pin, 12);
 
+    // Business, outlet, owner, plan features and the trial are created
+    // atomically: a half-registered business (no features → FeatureGuard
+    // blocks everything, or silently no trial) is never left behind.
     const result = await this.prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
         data: {
@@ -87,20 +92,17 @@ export class RegisterUseCase {
         },
       });
 
+      await this.featureService.initializeFeaturesForBusinessType(
+        business.id,
+        dto.businessType,
+        tx,
+      );
+
+      // 14-day premium trial for new businesses
+      await this.subscriptionService.startTrial(business.id, tx);
+
       return { business, outlet, employee };
     });
-
-    await this.featureService.initializeFeaturesForBusinessType(
-      result.business.id,
-      dto.businessType,
-    );
-
-    // Start 14-day premium trial for new businesses
-    try {
-      await this.subscriptionService.startTrial(result.business.id);
-    } catch (error) {
-      this.logger.warn(`Failed to start trial for business ${result.business.id}`, error);
-    }
 
     const enabledFeatures = await this.featureService.getEnabledFeatureKeys(result.business.id);
 

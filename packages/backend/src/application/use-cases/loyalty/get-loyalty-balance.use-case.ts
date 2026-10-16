@@ -1,11 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { ILoyaltyRepository } from '../../../domain/interfaces/repositories/loyalty.repository';
-import type { ICustomerRepository } from '../../../domain/interfaces/repositories/customer.repository';
-import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
-import { AppError } from '../../../shared/errors/app-error';
-import { ErrorCode } from '../../../shared/constants/error-codes';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { AppError } from '@shared/errors/app-error';
+import { ErrorCode } from '@shared/constants/error-codes';
+import { toNumber } from '@shared/utils/money';
 
 export interface GetLoyaltyBalanceParams {
+  businessId: string;
   customerId: string;
 }
 
@@ -25,34 +25,47 @@ export interface LoyaltyBalanceResult {
 
 @Injectable()
 export class GetLoyaltyBalanceUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.LOYALTY)
-    private readonly loyaltyRepo: ILoyaltyRepository,
-    @Inject(REPOSITORY_TOKENS.CUSTOMER)
-    private readonly customerRepo: ICustomerRepository,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(params: GetLoyaltyBalanceParams): Promise<LoyaltyBalanceResult> {
-    const customer = await this.customerRepo.findById(params.customerId);
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: params.customerId, businessId: params.businessId },
+      select: {
+        id: true,
+        loyaltyPoints: true,
+        loyaltyTier: true,
+        totalSpent: true,
+        visitCount: true,
+      },
+    });
     if (!customer) {
-      throw new AppError(ErrorCode.CUSTOMER_NOT_FOUND, 'Customer not found');
+      throw new AppError(ErrorCode.CUSTOMER_NOT_FOUND, 'Customer not found', HttpStatus.NOT_FOUND);
     }
 
-    const program = await this.loyaltyRepo.findActiveProgram(customer.businessId);
+    const program = await this.prisma.loyaltyProgram.findFirst({
+      where: { businessId: params.businessId, isActive: true },
+      select: { id: true },
+    });
     const programActive = !!program;
 
-    let nextTier: { name: string; minPoints: number; pointsNeeded: number } | undefined;
-
+    let nextTier: LoyaltyBalanceResult['nextTier'];
     if (programActive) {
-      const tiers = await this.loyaltyRepo.findTiersByBusiness(customer.businessId);
-      const currentTierIndex = tiers.findIndex((t) => t.name === customer.loyaltyTier);
-
-      if (currentTierIndex >= 0 && currentTierIndex < tiers.length - 1) {
-        const next = tiers[currentTierIndex + 1];
+      // Next tier = the lowest tier that needs more points than the customer has
+      // (works for customers on the default 'regular' tier too).
+      const next = await this.prisma.loyaltyTier.findFirst({
+        where: {
+          businessId: params.businessId,
+          isActive: true,
+          minPoints: { gt: customer.loyaltyPoints },
+        },
+        orderBy: [{ minPoints: 'asc' }, { sortOrder: 'asc' }],
+        select: { name: true, minPoints: true },
+      });
+      if (next) {
         nextTier = {
           name: next.name,
           minPoints: next.minPoints,
-          pointsNeeded: Math.max(0, next.minPoints - customer.loyaltyPoints),
+          pointsNeeded: next.minPoints - customer.loyaltyPoints,
         };
       }
     }
@@ -61,7 +74,7 @@ export class GetLoyaltyBalanceUseCase {
       customerId: customer.id,
       currentPoints: customer.loyaltyPoints,
       currentTier: customer.loyaltyTier,
-      totalSpent: customer.totalSpent,
+      totalSpent: toNumber(customer.totalSpent),
       visitCount: customer.visitCount,
       programActive,
       nextTier,

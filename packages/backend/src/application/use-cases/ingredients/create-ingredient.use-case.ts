@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 import { AppError, ErrorCode } from '../../../shared/errors/app-error';
 

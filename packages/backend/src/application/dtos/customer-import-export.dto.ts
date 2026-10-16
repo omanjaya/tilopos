@@ -1,13 +1,30 @@
-import { IsString, IsEnum, IsOptional, IsArray } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+/** Hard cap on rows per import request (R13). */
+export const MAX_IMPORT_ROWS = 5000;
 
 export class CustomerImportDto {
   @ApiProperty({ enum: ['csv', 'json'] })
   @IsEnum(['csv', 'json'])
   format!: 'csv' | 'json';
 
-  @ApiProperty({ description: 'CSV content string or JSON array string' })
+  @ApiProperty({ description: 'CSV content string or JSON array string (max 2 MB)' })
   @IsString()
+  @MaxLength(2_000_000)
   data!: string;
 }
 
@@ -16,23 +33,28 @@ export class CustomerExportQueryDto {
   @IsEnum(['csv', 'json'])
   format!: 'csv' | 'json';
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: ['new', 'returning', 'vip', 'at-risk', 'inactive'] })
   @IsOptional()
-  @IsString()
-  segment?: string;
+  @IsEnum(['new', 'returning', 'vip', 'at-risk', 'inactive'])
+  segment?: 'new' | 'returning' | 'vip' | 'at-risk' | 'inactive';
 }
 
 export class BirthdayQueryDto {
   @ApiPropertyOptional({ description: 'Number of days ahead to look (default 7)' })
   @IsOptional()
-  @IsString()
-  daysAhead?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  daysAhead?: number;
 }
 
 export class BirthdayNotifyDto {
   @ApiProperty({ type: [String] })
   @IsArray()
-  @IsString({ each: true })
+  @ArrayNotEmpty()
+  @ArrayMaxSize(500)
+  @IsUUID('all', { each: true })
   customerIds!: string[];
 }
 
@@ -42,6 +64,8 @@ export interface CustomerImportRow {
   phone?: string;
   birthday?: string;
   loyaltyTier?: string;
+  address?: string;
+  notes?: string;
 }
 
 export interface CustomerImportResultError {

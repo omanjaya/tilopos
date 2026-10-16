@@ -1,20 +1,22 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { AppError } from '@shared/errors/app-error';
-import { ErrorCode } from '@shared/constants/error-codes';
-import type { IOrderRepository } from '@domain/interfaces/repositories/order.repository';
+import {
+  assertValidQuantity,
+  resolveOrderItems,
+  type OrderItemRequest,
+} from './order-items.helper';
 
-export interface ModifyOrderItemInput {
-  productId: string;
-  variantId?: string;
-  quantity: number;
-  station?: string;
-  notes?: string;
-}
+export type ModifyOrderItemInput = OrderItemRequest;
 
 export interface ModifyOrderInput {
   orderId: string;
+  businessId: string;
   employeeId: string;
   addItems?: ModifyOrderItemInput[];
   removeItemIds?: string[];
@@ -30,98 +32,85 @@ export interface ModifyOrderOutput {
   itemsUpdated: number;
 }
 
+export const MODIFIABLE_ORDER_STATUSES: OrderStatus[] = ['pending', 'confirmed'];
+const MAX_PRIORITY = 10;
+
+/**
+ * The single order-modification implementation (PUT /orders/:id and PUT /orders/:id/items).
+ * All writes happen in one transaction that first locks the order row with a
+ * conditional update, so the kitchen cannot start the order mid-modification.
+ */
 @Injectable()
 export class ModifyOrderUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.ORDER)
-    private readonly orderRepo: IOrderRepository,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(input: ModifyOrderInput): Promise<ModifyOrderOutput> {
-    const order = await this.orderRepo.findById(input.orderId);
-    if (!order) {
-      throw new AppError(ErrorCode.ORDER_NOT_FOUND, `Order ${input.orderId} not found`);
+    for (const update of input.updateItems ?? []) {
+      if (update.quantity !== undefined) assertValidQuantity(update.quantity);
+    }
+    if (
+      input.priority !== undefined &&
+      (!Number.isInteger(input.priority) || input.priority < 0 || input.priority > MAX_PRIORITY)
+    ) {
+      throw new BadRequestException(`Priority must be an integer between 0 and ${MAX_PRIORITY}`);
     }
 
-    const modifiableStatuses = ['pending', 'confirmed'];
-    if (!modifiableStatuses.includes(order.status)) {
-      throw new AppError(
-        ErrorCode.ORDER_NOT_FOUND,
-        `Cannot modify order in status: ${order.status}`,
-      );
-    }
-
-    let itemsAdded = 0;
-    let itemsRemoved = 0;
-    let itemsUpdated = 0;
-
-    // Add new items
-    if (input.addItems && input.addItems.length > 0) {
-      const productIds = input.addItems.map((i) => i.productId);
-      const products = await this.prisma.product.findMany({
-        where: { id: { in: productIds }, isActive: true },
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: input.orderId, outlet: { businessId: input.businessId } },
+        select: { id: true, status: true },
       });
-
-      for (const item of input.addItems) {
-        const product = products.find((p) => p.id === item.productId);
-        await this.prisma.orderItem.create({
-          data: {
-            orderId: input.orderId,
-            productId: item.productId,
-            variantId: item.variantId || null,
-            productName: product?.name || 'Unknown',
-            quantity: item.quantity,
-            station: item.station || null,
-            notes: item.notes || null,
-            status: 'pending',
-          },
-        });
-        itemsAdded++;
+      if (!order) {
+        throw new NotFoundException(`Order ${input.orderId} not found`);
       }
-    }
+      if (!MODIFIABLE_ORDER_STATUSES.includes(order.status)) {
+        throw new ConflictException(`Cannot modify order in status: ${order.status}`);
+      }
 
-    // Remove items
-    if (input.removeItemIds && input.removeItemIds.length > 0) {
-      const deleteResult = await this.prisma.orderItem.deleteMany({
-        where: {
-          id: { in: input.removeItemIds },
-          orderId: input.orderId,
-          status: 'pending',
-        },
+      // Conditional touch: locks the row for this transaction and fails if the
+      // status moved on since we read it.
+      const orderData: Prisma.OrderUpdateManyMutationInput = { updatedAt: new Date() };
+      if (input.notes !== undefined) orderData.notes = input.notes;
+      if (input.priority !== undefined) orderData.priority = input.priority;
+      const locked = await tx.order.updateMany({
+        where: { id: order.id, status: { in: MODIFIABLE_ORDER_STATUSES } },
+        data: orderData,
       });
-      itemsRemoved = deleteResult.count;
-    }
-
-    // Update existing items
-    if (input.updateItems && input.updateItems.length > 0) {
-      for (const update of input.updateItems) {
-        const updateData: Record<string, unknown> = {};
-        if (update.quantity !== undefined) updateData.quantity = update.quantity;
-        if (update.notes !== undefined) updateData.notes = update.notes;
-
-        await this.prisma.orderItem.updateMany({
-          where: { id: update.itemId, orderId: input.orderId },
-          data: updateData,
-        });
-        itemsUpdated++;
+      if (locked.count !== 1) {
+        throw new ConflictException('Order status changed concurrently, please retry');
       }
-    }
 
-    // Update order-level fields
-    const orderUpdate: Record<string, unknown> = {};
-    if (input.notes !== undefined) orderUpdate.notes = input.notes;
-    if (input.priority !== undefined) orderUpdate.priority = input.priority;
+      let itemsAdded = 0;
+      if (input.addItems && input.addItems.length > 0) {
+        const items = await resolveOrderItems(tx, input.businessId, input.addItems);
+        const created = await tx.orderItem.createMany({
+          data: items.map((item) => ({ ...item, orderId: order.id, status: 'pending' as const })),
+        });
+        itemsAdded = created.count;
+      }
 
-    if (Object.keys(orderUpdate).length > 0) {
-      await this.orderRepo.update(input.orderId, orderUpdate);
-    }
+      let itemsRemoved = 0;
+      if (input.removeItemIds && input.removeItemIds.length > 0) {
+        const deleted = await tx.orderItem.deleteMany({
+          where: { id: { in: input.removeItemIds }, orderId: order.id, status: 'pending' },
+        });
+        itemsRemoved = deleted.count;
+      }
 
-    return {
-      orderId: input.orderId,
-      itemsAdded,
-      itemsRemoved,
-      itemsUpdated,
-    };
+      let itemsUpdated = 0;
+      for (const update of input.updateItems ?? []) {
+        const data: Prisma.OrderItemUpdateManyMutationInput = {};
+        if (update.quantity !== undefined) data.quantity = update.quantity;
+        if (update.notes !== undefined) data.notes = update.notes;
+        if (Object.keys(data).length === 0) continue;
+        const res = await tx.orderItem.updateMany({
+          where: { id: update.itemId, orderId: order.id, status: 'pending' },
+          data,
+        });
+        itemsUpdated += res.count;
+      }
+
+      return { orderId: order.id, itemsAdded, itemsRemoved, itemsUpdated };
+    });
   }
 }

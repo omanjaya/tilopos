@@ -1,4 +1,16 @@
-import { IsArray, IsString, IsOptional, IsNumber, IsBoolean, IsEnum, Min } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsNumber,
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsUUID,
+  ArrayMinSize,
+  ArrayMaxSize,
+  Min,
+  Max,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum BulkUpdateAction {
@@ -12,7 +24,9 @@ export enum BulkUpdateAction {
 export class BulkUpdateProductsDto {
   @ApiProperty({ type: [String] })
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsUUID('all', { each: true })
   productIds!: string[];
 
   @ApiProperty({ enum: BulkUpdateAction })
@@ -21,23 +35,24 @@ export class BulkUpdateProductsDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   categoryId?: string | null;
 
   @ApiPropertyOptional({ enum: ['increase', 'decrease'] })
   @IsOptional()
-  @IsString()
+  @IsIn(['increase', 'decrease'])
   operation?: 'increase' | 'decrease';
 
   @ApiPropertyOptional({ enum: ['percentage', 'fixed'] })
   @IsOptional()
-  @IsString()
+  @IsIn(['percentage', 'fixed'])
   priceType?: 'percentage' | 'fixed';
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(1_000_000_000)
   value?: number;
 
   @ApiPropertyOptional()
@@ -54,7 +69,9 @@ export class BulkUpdateProductsDto {
 export class BulkDeleteProductsDto {
   @ApiProperty({ type: [String] })
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsUUID('all', { each: true })
   productIds!: string[];
 
   @ApiPropertyOptional({

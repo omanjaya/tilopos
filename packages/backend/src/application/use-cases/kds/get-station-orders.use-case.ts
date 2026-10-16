@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import type { OrderItemStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import { KitchenStation } from '../../../modules/kds/kds.gateway';
+import { startOfBusinessDay } from '../../../shared/utils/business-time';
+
+const ACTIVE_ITEM_STATUSES: OrderItemStatus[] = ['pending', 'preparing', 'ready'];
+/** Hard cap on items returned to one KDS screen (R13). */
+const MAX_ITEMS = 500;
 
 export interface StationOrderItem {
   id: string;
@@ -20,12 +26,16 @@ export interface StationOrderItem {
   priority: number;
   customerId: string | null;
   orderNotes: string | null;
+  tableName: string | null;
+  /** Order items carry no modifiers in the current schema. */
+  modifiers: unknown[];
 }
 
 export interface GetStationOrdersParams {
+  /** Must already be access-checked (TenantAccessService.assertOutlet). */
   outletId: string;
   station?: KitchenStation;
-  status?: string;
+  status?: OrderItemStatus;
   includeCompleted?: boolean;
 }
 
@@ -36,6 +46,8 @@ export interface GetStationOrdersResult {
     pending: number;
     preparing: number;
     ready: number;
+    served: number;
+    /** @deprecated same as `served` (bumped items are 'ready', delivered ones 'served'). */
     completed: number;
   };
 }
@@ -47,23 +59,28 @@ export class GetStationOrdersUseCase {
   async execute(params: GetStationOrdersParams): Promise<GetStationOrdersResult> {
     const { outletId, station, status, includeCompleted = false } = params;
 
-    // Build where clause
-    const where: Record<string, unknown> = {
-      order: {
-        outletId,
-      },
+    if (!outletId) {
+      throw new Error('GetStationOrdersUseCase: outletId is required');
+    }
+
+    // Active items only by default; with includeCompleted, today's history too
+    // (bounded to the business day). An explicit status narrows either view.
+    const where: Prisma.OrderItemWhereInput = {
+      order: { outletId },
+      ...(station ? { station } : {}),
     };
-
-    if (station) {
-      where.station = station;
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (!includeCompleted) {
-      where.status = { in: ['pending', 'preparing', 'ready'] };
+    if (includeCompleted) {
+      // Everything still active plus whatever was finished/cancelled today.
+      where.OR = [
+        { status: { in: ACTIVE_ITEM_STATUSES } },
+        { createdAt: { gte: startOfBusinessDay() } },
+      ];
+      if (status) where.status = status;
+    } else if (status) {
+      // Finished statuses are only visible with includeCompleted.
+      where.status = ACTIVE_ITEM_STATUSES.includes(status) ? status : { in: [] };
+    } else {
+      where.status = { in: ACTIVE_ITEM_STATUSES };
     }
 
     // Get order items with their related data
@@ -78,10 +95,12 @@ export class GetStationOrdersUseCase {
             priority: true,
             customerId: true,
             notes: true,
+            table: { select: { name: true } },
           },
         },
       },
       orderBy: [{ order: { priority: 'desc' } }, { createdAt: 'asc' }],
+      take: MAX_ITEMS,
     });
 
     // Transform to result format
@@ -103,6 +122,8 @@ export class GetStationOrdersUseCase {
       priority: (item.order as { priority: number }).priority,
       customerId: (item.order as { customerId: string | null }).customerId,
       orderNotes: (item.order as { notes: string | null }).notes,
+      tableName: item.order.table?.name ?? null,
+      modifiers: [],
     }));
 
     // Calculate summary
@@ -111,7 +132,8 @@ export class GetStationOrdersUseCase {
       pending: items.filter((i) => i.status === 'pending').length,
       preparing: items.filter((i) => i.status === 'preparing').length,
       ready: items.filter((i) => i.status === 'ready').length,
-      completed: items.filter((i) => i.status === 'completed').length,
+      served: items.filter((i) => i.status === 'served').length,
+      completed: items.filter((i) => i.status === 'served').length,
     };
 
     return { items, summary };

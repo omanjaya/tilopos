@@ -11,8 +11,8 @@ export class DeleteTableUseCase {
     private readonly tableRepo: ITableRepository,
   ) {}
 
-  async execute(id: string): Promise<void> {
-    const existing = await this.tableRepo.findById(id);
+  async execute(id: string, businessId: string): Promise<void> {
+    const existing = await this.tableRepo.findById(id, businessId);
     if (!existing) {
       throw new AppError(ErrorCode.TABLE_NOT_FOUND, 'Table not found');
     }
@@ -21,6 +21,6 @@ export class DeleteTableUseCase {
       throw new AppError(ErrorCode.TABLE_OCCUPIED, 'Cannot delete an occupied table');
     }
 
-    await this.tableRepo.delete(id);
+    await this.tableRepo.delete(id, businessId);
   }
 }

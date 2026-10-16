@@ -1,33 +1,45 @@
-import { IsString, IsNotEmpty, IsNumber, IsPositive, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsPositive,
+  IsOptional,
+  IsUUID,
+  Max,
+  MaxLength,
+} from 'class-validator';
 
 export class CashInDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   shiftId!: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
+  @Max(999999999)
   amount!: number;
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   notes?: string;
 }
 
 export class CashOutDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   shiftId!: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
+  @Max(999999999)
   amount!: number;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(255)
   reason!: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   notes?: string;
 }

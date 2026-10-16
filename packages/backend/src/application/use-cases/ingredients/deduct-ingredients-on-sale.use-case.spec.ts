@@ -1,504 +1,208 @@
+import { NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   DeductIngredientsOnSaleUseCase,
   DeductIngredientsInput,
+  SALE_REFERENCE_TYPE,
+  VOID_REFERENCE_TYPE,
 } from './deduct-ingredients-on-sale.use-case';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
 
-// Helper to create a Decimal-like object matching Prisma's Decimal behavior
-function decimal(value: number) {
-  return { toNumber: () => value };
-}
+const D = (v: number | string) => new Prisma.Decimal(v);
 
 describe('DeductIngredientsOnSaleUseCase', () => {
   let useCase: DeductIngredientsOnSaleUseCase;
-  let mockPrisma: {
-    recipe: { findFirst: jest.Mock };
-    ingredientStockLevel: { findFirst: jest.Mock; update: jest.Mock };
-    ingredientStockMovement: { create: jest.Mock };
+  let tx: {
+    $executeRaw: jest.Mock;
+    $queryRaw: jest.Mock;
+    outlet: { findUnique: jest.Mock };
+    recipe: { findMany: jest.Mock };
+    ingredientStockLevel: { updateMany: jest.Mock; findMany: jest.Mock };
+    ingredientStockMovement: { findFirst: jest.Mock; createMany: jest.Mock; groupBy: jest.Mock };
+  };
+  let prisma: { $transaction: jest.Mock };
+
+  const baseRecipe = {
+    productId: 'prod-1',
+    variantId: null,
+    items: [
+      { ingredientId: 'ing-rice', quantity: D('0.2') },
+      { ingredientId: 'ing-oil', quantity: D('0.05') },
+    ],
   };
 
-  beforeEach(() => {
-    mockPrisma = {
-      recipe: {
-        findFirst: jest.fn(),
-      },
-      ingredientStockLevel: {
-        findFirst: jest.fn(),
-        update: jest.fn(),
-      },
-      ingredientStockMovement: {
-        create: jest.fn(),
-      },
-    };
-
-    useCase = new DeductIngredientsOnSaleUseCase(mockPrisma as unknown as PrismaService);
-  });
-
-  const baseInput: DeductIngredientsInput = {
+  const input: DeductIngredientsInput = {
     outletId: 'outlet-1',
     transactionId: 'txn-1',
     items: [{ productId: 'prod-1', quantity: 2 }],
   };
 
-  it('should deduct correct quantities based on recipe', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(0.2),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-        {
-          id: 'ri-2',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-oil',
-          quantity: decimal(0.05),
-          unit: 'liter',
-          ingredient: { id: 'ing-oil', name: 'Cooking Oil' },
-        },
-      ],
-    };
-
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(10),
-      lowStockAlert: decimal(2),
-    };
-
-    const oilStock = {
-      id: 'is-2',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-oil',
-      quantity: decimal(5),
-      lowStockAlert: decimal(1),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst
-      .mockResolvedValueOnce(riceStock)
-      .mockResolvedValueOnce(oilStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    const result = await useCase.execute(baseInput);
-
-    // Rice: 0.2 kg per serving * 2 quantity = 0.4 kg deducted
-    // Remaining: 10 - 0.4 = 9.6
-    expect(result.deductions).toHaveLength(2);
-    expect(result.deductions[0]).toEqual({
-      ingredientId: 'ing-rice',
-      ingredientName: 'Rice',
-      quantityDeducted: 0.4,
-      remainingStock: 9.6,
-      isBelowAlert: false,
-      insufficientStock: false,
-    });
-
-    // Oil: 0.05 liter per serving * 2 = 0.1 liter deducted
-    // Remaining: 5 - 0.1 = 4.9
-    expect(result.deductions[1]).toEqual({
-      ingredientId: 'ing-oil',
-      ingredientName: 'Cooking Oil',
-      quantityDeducted: 0.1,
-      remainingStock: 4.9,
-      isBelowAlert: false,
-      insufficientStock: false,
-    });
-
-    // Verify stock level update for rice
-    expect(mockPrisma.ingredientStockLevel.update).toHaveBeenCalledWith({
-      where: { id: 'is-1' },
-      data: { quantity: 9.6 },
-    });
-
-    // Verify stock movement created for rice
-    expect(mockPrisma.ingredientStockMovement.create).toHaveBeenCalledWith({
-      data: {
-        outletId: 'outlet-1',
-        ingredientId: 'ing-rice',
-        movementType: 'usage',
-        quantity: -0.4,
-        referenceId: 'txn-1',
-        referenceType: 'transaction',
+  beforeEach(() => {
+    tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      outlet: { findUnique: jest.fn().mockResolvedValue({ businessId: 'biz-1' }) },
+      recipe: { findMany: jest.fn().mockResolvedValue([baseRecipe]) },
+      ingredientStockLevel: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            ingredientId: 'ing-rice',
+            quantity: D(9.6),
+            lowStockAlert: D(1),
+            ingredient: { name: 'Rice' },
+          },
+          {
+            ingredientId: 'ing-oil',
+            quantity: D(0.5),
+            lowStockAlert: D(1),
+            ingredient: { name: 'Oil' },
+          },
+        ]),
       },
-    });
+      ingredientStockMovement: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+    };
+    prisma = { $transaction: jest.fn().mockImplementation(async (cb) => cb(tx)) };
+    useCase = new DeductIngredientsOnSaleUseCase(prisma as unknown as PrismaService);
   });
 
-  it('should handle product with no recipe (no-op)', async () => {
-    mockPrisma.recipe.findFirst.mockResolvedValue(null);
-
-    const result = await useCase.execute(baseInput);
-
-    expect(result.deductions).toHaveLength(0);
-    expect(mockPrisma.ingredientStockLevel.findFirst).not.toHaveBeenCalled();
-    expect(mockPrisma.ingredientStockLevel.update).not.toHaveBeenCalled();
-    expect(mockPrisma.ingredientStockMovement.create).not.toHaveBeenCalled();
-  });
-
-  it('should handle ingredient with no stock level record (skip)', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-unknown',
-          quantity: decimal(0.5),
-          unit: 'kg',
-          ingredient: { id: 'ing-unknown', name: 'Unknown Ingredient' },
-        },
-      ],
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(null);
-
-    const result = await useCase.execute(baseInput);
-
-    expect(result.deductions).toHaveLength(0);
-    expect(mockPrisma.ingredientStockLevel.update).not.toHaveBeenCalled();
-  });
-
-  it('should handle quantity multiplier correctly', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(0.3),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-      ],
-    };
-
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(5),
-      lowStockAlert: decimal(1),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(riceStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    // Ordering 5 portions
-    const input: DeductIngredientsInput = {
-      outletId: 'outlet-1',
-      transactionId: 'txn-1',
-      items: [{ productId: 'prod-1', quantity: 5 }],
-    };
-
-    const result = await useCase.execute(input);
-
-    // 0.3 kg * 5 = 1.5 kg deducted
-    // Remaining: 5 - 1.5 = 3.5
-    expect(result.deductions[0].quantityDeducted).toBe(1.5);
-    expect(result.deductions[0].remainingStock).toBe(3.5);
-  });
-
-  it('should set remaining stock to zero when deduction exceeds current stock', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(1),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-      ],
-    };
-
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(1),
-      lowStockAlert: decimal(2),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(riceStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    // Ordering 3 portions: needs 3 kg but only 1 kg available
-    const input: DeductIngredientsInput = {
-      outletId: 'outlet-1',
-      transactionId: 'txn-1',
-      items: [{ productId: 'prod-1', quantity: 3 }],
-    };
-
-    const result = await useCase.execute(input);
-
-    // newQty = 1 - 3 = -2, Math.max(0, -2) = 0
-    expect(result.deductions[0].remainingStock).toBe(0);
-
-    // Stock update should set to 0 (clamped)
-    expect(mockPrisma.ingredientStockLevel.update).toHaveBeenCalledWith({
-      where: { id: 'is-1' },
-      data: { quantity: 0 },
-    });
-  });
-
-  it('should flag ingredient as below alert threshold', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(0.5),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-      ],
-    };
-
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(3),
-      lowStockAlert: decimal(5),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(riceStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    const result = await useCase.execute(baseInput);
-
-    // 0.5 * 2 = 1 kg deducted, remaining = 3 - 1 = 2
-    // 2 <= 5 (lowStockAlert) -> isBelowAlert = true
-    expect(result.deductions[0].isBelowAlert).toBe(true);
-    expect(result.deductions[0].remainingStock).toBe(2);
-  });
-
-  it('should handle multiple items in a single transaction', async () => {
-    const recipe1 = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(0.2),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-      ],
-    };
-
-    const recipe2 = {
-      id: 'recipe-2',
-      productId: 'prod-2',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-2',
-          recipeId: 'recipe-2',
-          ingredientId: 'ing-noodle',
-          quantity: decimal(0.15),
-          unit: 'kg',
-          ingredient: { id: 'ing-noodle', name: 'Noodle' },
-        },
-      ],
-    };
-
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(10),
-      lowStockAlert: decimal(2),
-    };
-
-    const noodleStock = {
-      id: 'is-2',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-noodle',
-      quantity: decimal(8),
-      lowStockAlert: decimal(1),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValueOnce(recipe1).mockResolvedValueOnce(recipe2);
-    mockPrisma.ingredientStockLevel.findFirst
-      .mockResolvedValueOnce(riceStock)
-      .mockResolvedValueOnce(noodleStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    const input: DeductIngredientsInput = {
-      outletId: 'outlet-1',
-      transactionId: 'txn-1',
+  it('batches the recipe lookup, scopes it to the outlet business and deducts with guarded decrements', async () => {
+    const result = await useCase.execute({
+      ...input,
       items: [
         { productId: 'prod-1', quantity: 2 },
-        { productId: 'prod-2', quantity: 3 },
+        { productId: 'prod-1', quantity: 1 },
       ],
-    };
+    });
 
-    const result = await useCase.execute(input);
-
-    expect(result.deductions).toHaveLength(2);
-
-    // Rice: 0.2 * 2 = 0.4 deducted
-    expect(result.deductions[0].ingredientName).toBe('Rice');
-    expect(result.deductions[0].quantityDeducted).toBeCloseTo(0.4);
-
-    // Noodle: 0.15 * 3 = 0.45 deducted
-    expect(result.deductions[1].ingredientName).toBe('Noodle');
-    expect(result.deductions[1].quantityDeducted).toBeCloseTo(0.45);
-  });
-
-  it('should handle variant-specific recipe', async () => {
-    const recipe = {
-      id: 'recipe-v1',
-      productId: 'prod-1',
-      variantId: 'var-spicy',
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-v1',
-          ingredientId: 'ing-chili',
-          quantity: decimal(0.1),
-          unit: 'kg',
-          ingredient: { id: 'ing-chili', name: 'Chili' },
-        },
-      ],
-    };
-
-    const chiliStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-chili',
-      quantity: decimal(2),
-      lowStockAlert: decimal(0.5),
-    };
-
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(chiliStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
-
-    const input: DeductIngredientsInput = {
-      outletId: 'outlet-1',
-      transactionId: 'txn-1',
-      items: [{ productId: 'prod-1', variantId: 'var-spicy', quantity: 1 }],
-    };
-
-    const result = await useCase.execute(input);
-
-    expect(result.deductions[0].ingredientName).toBe('Chili');
-    expect(result.deductions[0].quantityDeducted).toBe(0.1);
-    expect(result.deductions[0].remainingStock).toBe(1.9);
-
-    expect(mockPrisma.recipe.findFirst).toHaveBeenCalledWith({
-      where: { productId: 'prod-1', variantId: 'var-spicy' },
-      include: { items: { include: { ingredient: true } } },
+    expect(tx.recipe.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.recipe.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { productId: { in: ['prod-1'] }, product: { businessId: 'biz-1' } },
+      }),
+    );
+    // Aggregated per ingredient: 0.2 * 3 = 0.6 rice, one guarded update each.
+    expect(tx.ingredientStockLevel.updateMany).toHaveBeenCalledTimes(2);
+    expect(tx.ingredientStockLevel.updateMany).toHaveBeenCalledWith({
+      where: { outletId: 'outlet-1', ingredientId: 'ing-rice', quantity: { gte: D('0.6') } },
+      data: { quantity: { decrement: D('0.6') } },
+    });
+    expect(tx.ingredientStockMovement.createMany).toHaveBeenCalledTimes(1);
+    const rows = tx.ingredientStockMovement.createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      movementType: 'usage',
+      referenceId: 'txn-1',
+      referenceType: SALE_REFERENCE_TYPE,
+    });
+    expect(result.alreadyApplied).toBe(false);
+    expect(result.deductions.find((d) => d.ingredientId === 'ing-oil')).toMatchObject({
+      quantityDeducted: 0.15,
+      insufficientStock: false,
+      isBelowAlert: true,
     });
   });
 
-  it('should record stock movement for each ingredient deduction', async () => {
-    const recipe = {
-      id: 'recipe-1',
-      productId: 'prod-1',
-      variantId: null,
-      items: [
-        {
-          id: 'ri-1',
-          recipeId: 'recipe-1',
-          ingredientId: 'ing-rice',
-          quantity: decimal(0.3),
-          unit: 'kg',
-          ingredient: { id: 'ing-rice', name: 'Rice' },
-        },
-      ],
-    };
+  it('is idempotent: a sale that already has usage movements is not deducted again', async () => {
+    tx.ingredientStockMovement.findFirst.mockResolvedValue({ id: 'mv-1' });
 
-    const riceStock = {
-      id: 'is-1',
-      outletId: 'outlet-1',
-      ingredientId: 'ing-rice',
-      quantity: decimal(10),
-      lowStockAlert: decimal(2),
-    };
+    const result = await useCase.execute(input);
 
-    mockPrisma.recipe.findFirst.mockResolvedValue(recipe);
-    mockPrisma.ingredientStockLevel.findFirst.mockResolvedValue(riceStock);
-    mockPrisma.ingredientStockLevel.update.mockResolvedValue({});
-    mockPrisma.ingredientStockMovement.create.mockResolvedValue({});
+    expect(result).toEqual({ alreadyApplied: true, deductions: [] });
+    expect(tx.$executeRaw).toHaveBeenCalled(); // advisory lock taken before the check
+    expect(tx.ingredientStockLevel.updateMany).not.toHaveBeenCalled();
+    expect(tx.ingredientStockMovement.createMany).not.toHaveBeenCalled();
+  });
 
-    await useCase.execute(baseInput);
-
-    // 0.3 * 2 = 0.6
-    expect(mockPrisma.ingredientStockMovement.create).toHaveBeenCalledWith({
-      data: {
-        outletId: 'outlet-1',
-        ingredientId: 'ing-rice',
-        movementType: 'usage',
-        quantity: -0.6,
-        referenceId: 'txn-1',
-        referenceType: 'transaction',
+  it('prefers the exact-variant recipe and falls back to the base recipe', async () => {
+    tx.recipe.findMany.mockResolvedValue([
+      baseRecipe,
+      {
+        productId: 'prod-1',
+        variantId: 'var-L',
+        items: [{ ingredientId: 'ing-rice', quantity: D(1) }],
       },
-    });
-  });
+    ]);
 
-  it('should query recipe with null variantId when no variant specified', async () => {
-    mockPrisma.recipe.findFirst.mockResolvedValue(null);
-
-    await useCase.execute(baseInput);
-
-    expect(mockPrisma.recipe.findFirst).toHaveBeenCalledWith({
-      where: { productId: 'prod-1', variantId: null },
-      include: { items: { include: { ingredient: true } } },
-    });
-  });
-
-  it('should return empty deductions when all items have no recipes', async () => {
-    mockPrisma.recipe.findFirst.mockResolvedValue(null);
-
-    const input: DeductIngredientsInput = {
-      outletId: 'outlet-1',
-      transactionId: 'txn-1',
+    await useCase.execute({
+      ...input,
       items: [
-        { productId: 'prod-1', quantity: 2 },
-        { productId: 'prod-2', quantity: 3 },
-        { productId: 'prod-3', quantity: 1 },
+        { productId: 'prod-1', variantId: 'var-L', quantity: 1 },
+        { productId: 'prod-1', variantId: 'var-S', quantity: 1 },
       ],
-    };
+    });
+
+    // var-L uses its own recipe (1 rice); var-S falls back to base (0.2 rice + 0.05 oil).
+    expect(tx.ingredientStockLevel.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ ingredientId: 'ing-rice', quantity: { gte: D('1.2') } }),
+      }),
+    );
+  });
+
+  it('never goes negative: takes what is left of a short ingredient and flags it', async () => {
+    tx.ingredientStockLevel.updateMany.mockImplementation(async (args) =>
+      args.where.ingredientId === 'ing-oil' && args.where.quantity?.gte?.equals?.(D('0.1'))
+        ? { count: 0 }
+        : { count: 1 },
+    );
+    tx.$queryRaw.mockResolvedValue([{ id: 'sl-oil', quantity: D('0.04') }]);
 
     const result = await useCase.execute(input);
 
-    expect(result.deductions).toHaveLength(0);
-    expect(mockPrisma.recipe.findFirst).toHaveBeenCalledTimes(3);
+    expect(tx.ingredientStockLevel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sl-oil', quantity: { gte: D('0.04') } },
+      data: { quantity: { decrement: D('0.04') } },
+    });
+    const oil = result.deductions.find((d) => d.ingredientId === 'ing-oil');
+    expect(oil).toMatchObject({ quantityDeducted: 0.04, insufficientStock: true });
+    const rows = tx.ingredientStockMovement.createMany.mock.calls[0][0].data;
+    expect(
+      rows.find((r: { ingredientId: string }) => r.ingredientId === 'ing-oil').notes,
+    ).toContain('Insufficient stock');
+  });
+
+  it('uses the caller transaction when one is passed', async () => {
+    await useCase.execute(input, tx as unknown as Prisma.TransactionClient);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.ingredientStockMovement.createMany).toHaveBeenCalled();
+  });
+
+  it('rejects an unknown outlet', async () => {
+    tx.outlet.findUnique.mockResolvedValue(null);
+    await expect(useCase.execute(input)).rejects.toThrow(NotFoundException);
+  });
+
+  describe('restore', () => {
+    it('reverses recorded usage once', async () => {
+      tx.ingredientStockMovement.groupBy.mockResolvedValue([
+        { ingredientId: 'ing-rice', _sum: { quantity: D('-0.4') } },
+      ]);
+
+      const result = await useCase.restore({ outletId: 'outlet-1', transactionId: 'txn-1' });
+
+      expect(tx.ingredientStockLevel.updateMany).toHaveBeenCalledWith({
+        where: { outletId: 'outlet-1', ingredientId: 'ing-rice' },
+        data: { quantity: { increment: D('0.4') } },
+      });
+      expect(tx.ingredientStockMovement.createMany.mock.calls[0][0].data[0]).toMatchObject({
+        referenceType: VOID_REFERENCE_TYPE,
+        quantity: D('0.4'),
+      });
+      expect(result.restored).toEqual([{ ingredientId: 'ing-rice', quantityRestored: 0.4 }]);
+    });
+
+    it('is idempotent', async () => {
+      tx.ingredientStockMovement.findFirst.mockResolvedValue({ id: 'void-mv' });
+
+      const result = await useCase.restore({ outletId: 'outlet-1', transactionId: 'txn-1' });
+
+      expect(result).toEqual({ alreadyApplied: true, restored: [] });
+      expect(tx.ingredientStockLevel.updateMany).not.toHaveBeenCalled();
+    });
   });
 });

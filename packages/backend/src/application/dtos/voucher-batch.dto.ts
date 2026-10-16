@@ -1,9 +1,18 @@
-import { IsString, IsOptional, IsDateString, IsInt, Min, Max, Matches } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsInt,
+  IsUUID,
+  Min,
+  Max,
+  Matches,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class GenerateVoucherBatchDto {
   @ApiProperty({ description: 'ID of the promotion to link vouchers to' })
-  @IsString()
+  @IsUUID()
   promotionId!: string;
 
   @ApiProperty({ description: 'Prefix for generated voucher codes (e.g. "PROMO")' })

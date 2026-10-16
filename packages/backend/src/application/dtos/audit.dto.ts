@@ -1,36 +1,69 @@
-import { IsString, IsOptional, IsEnum, IsArray, IsDateString, IsUUID } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { MAX_PAGE_SIZE } from '@shared/dtos/pagination-query.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // ============================================================================
 // Suspicious Activity Query
 // ============================================================================
 
+/**
+ * Only patterns that are actually detected (see AuditService). Types without
+ * a data source (no-sale drawer opens, price overrides) are not advertised.
+ */
 export enum SuspiciousActivityType {
   MULTIPLE_VOIDS = 'multiple_voids',
   UNUSUAL_DISCOUNT = 'unusual_discount',
-  CASH_DRAWER_NO_SALE = 'cash_drawer_no_sale',
   AFTER_HOURS = 'after_hours',
   LARGE_REFUND = 'large_refund',
-  FREQUENT_NO_SALE = 'frequent_no_sale',
-  PRICE_OVERRIDE = 'price_override',
 }
 
-export class SuspiciousActivityQueryDto {
-  @ApiProperty({ description: 'Start date (ISO 8601)' })
-  @IsDateString()
-  startDate!: string;
+/** Maximum date range (days) accepted by audit queries and exports. */
+export const AUDIT_MAX_RANGE_DAYS = 366;
 
-  @ApiProperty({ description: 'End date (ISO 8601)' })
-  @IsDateString()
-  endDate!: string;
+const toArray = ({ value }: { value: unknown }): unknown =>
+  value === undefined || value === null || value === ''
+    ? undefined
+    : Array.isArray(value)
+      ? value
+      : [value];
 
+/** Optional date range; accepts `YYYY-MM-DD` (business day, WIB) or ISO 8601. */
+export class AuditDateRangeQueryDto {
+  @ApiPropertyOptional({ description: 'Start date (YYYY-MM-DD or ISO 8601)' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: 'End date (YYYY-MM-DD or ISO 8601)' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
+export class SuspiciousActivityQueryDto extends AuditDateRangeQueryDto {
   @ApiPropertyOptional({
     description: 'Types of suspicious activities to look for',
     enum: SuspiciousActivityType,
     isArray: true,
   })
   @IsOptional()
+  @Transform(toArray)
   @IsArray()
+  @ArrayMaxSize(10)
   @IsEnum(SuspiciousActivityType, { each: true })
   types?: SuspiciousActivityType[];
 
@@ -38,6 +71,51 @@ export class SuspiciousActivityQueryDto {
   @IsOptional()
   @IsUUID()
   outletId?: string;
+}
+
+/** GET /audit — returns a plain array (page of results) for backwards compatibility. */
+export class AuditListQueryDto extends AuditDateRangeQueryDto {
+  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: MAX_PAGE_SIZE, default: MAX_PAGE_SIZE })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_PAGE_SIZE)
+  limit?: number = MAX_PAGE_SIZE;
+}
+
+export class AuditEntityQueryDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  entityType!: string;
+
+  @ApiProperty()
+  @IsUUID()
+  entityId!: string;
+
+  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: MAX_PAGE_SIZE, default: MAX_PAGE_SIZE })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_PAGE_SIZE)
+  limit?: number = MAX_PAGE_SIZE;
 }
 
 // ============================================================================
@@ -50,11 +128,11 @@ export enum ExportFormat {
 }
 
 export class ComplianceExportDto {
-  @ApiProperty({ description: 'Start date (ISO 8601)' })
+  @ApiProperty({ description: 'Start date (YYYY-MM-DD or ISO 8601)' })
   @IsDateString()
   startDate!: string;
 
-  @ApiProperty({ description: 'End date (ISO 8601)' })
+  @ApiProperty({ description: 'End date (YYYY-MM-DD or ISO 8601)' })
   @IsDateString()
   endDate!: string;
 
@@ -67,8 +145,11 @@ export class ComplianceExportDto {
     type: [String],
   })
   @IsOptional()
+  @Transform(toArray)
   @IsArray()
+  @ArrayMaxSize(50)
   @IsString({ each: true })
+  @MaxLength(100, { each: true })
   actionTypes?: string[];
 
   @ApiPropertyOptional({ description: 'Filter by employee ID' })
@@ -76,6 +157,9 @@ export class ComplianceExportDto {
   @IsUUID()
   employeeId?: string;
 }
+
+/** Same filters as ComplianceExportDto, bound from the query string (GET). */
+export class ComplianceExportQueryDto extends ComplianceExportDto {}
 
 // ============================================================================
 // Suspicious Activity Result

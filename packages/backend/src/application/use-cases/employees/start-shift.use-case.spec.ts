@@ -62,6 +62,7 @@ describe('StartShiftUseCase', () => {
   const baseInput: StartShiftInput = {
     outletId: 'outlet-1',
     employeeId: 'emp-1',
+    businessId: 'biz-1',
     openingCash: 500000,
   };
 
@@ -83,6 +84,9 @@ describe('StartShiftUseCase', () => {
     };
 
     mockPrisma = {
+      outlet: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'outlet-1' }),
+      },
       $transaction: jest.fn().mockImplementation(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         async (fn: (tx: any) => Promise<unknown>) => fn(mockTx),
@@ -186,5 +190,25 @@ describe('StartShiftUseCase', () => {
     ) as jest.Mock;
 
     await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
+  });
+
+  it('rejects an outlet that does not belong to the business', async () => {
+    mockEmployeeRepo.findById.mockResolvedValue(activeEmployee);
+    (mockPrisma.outlet.findFirst as jest.Mock).mockResolvedValue(null);
+
+    await expect(useCase.execute({ ...baseInput, outletId: 'foreign-outlet' })).rejects.toThrow(
+      'Outlet is not accessible',
+    );
+    expect(mockPrisma.outlet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'foreign-outlet', businessId: 'biz-1' } }),
+    );
+    expect(mockTx.shift.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an employee from another business', async () => {
+    mockEmployeeRepo.findById.mockResolvedValue({ ...activeEmployee, businessId: 'biz-2' });
+
+    await expect(useCase.execute(baseInput)).rejects.toThrow(AppError);
+    expect(mockTx.shift.create).not.toHaveBeenCalled();
   });
 });

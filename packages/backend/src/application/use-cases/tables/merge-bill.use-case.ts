@@ -1,88 +1,152 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import type { PaymentMethod } from '@prisma/client';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { DocumentNumberService } from '@shared/numbering';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
-import type { ITransactionRepository } from '@domain/interfaces/repositories/transaction.repository';
+import { sumMoney, toNumber } from '@shared/utils/money';
 
 export interface MergeBillInput {
   transactionIds: string[];
   employeeId: string;
   businessId: string;
-  outletId: string;
-  paymentMethod: string;
+  paymentMethod?: PaymentMethod;
 }
 
+export interface MergeBillOutput {
+  mergedTransactionId: string;
+  receiptNumber: string;
+  outletId: string;
+  grandTotal: number;
+}
+
+/**
+ * Merges several completed sales of ONE outlet into a single bill (R8/R9).
+ *
+ * All writes run in one $transaction. The originals are claimed with a
+ * conditional update (completed -> split, voidReason "Merged into ...") so a
+ * bill can only be merged once. Reports and settlements count only
+ * 'completed'/'refunded' transactions, so the originals drop out and the merged
+ * bill — which receives their items and payments and the summed subtotal,
+ * discount, tax and service charge — is counted exactly once. 'voided' is not
+ * used because voiding means "sale did not happen" (stock restoration, void reports).
+ */
 @Injectable()
 export class MergeBillUseCase {
   constructor(
-    @Inject(REPOSITORY_TOKENS.TRANSACTION)
-    private readonly transactionRepo: ITransactionRepository,
+    private readonly prisma: PrismaService,
+    private readonly documentNumbers: DocumentNumberService,
   ) {}
 
-  async execute(
-    input: MergeBillInput,
-  ): Promise<{ mergedTransactionId: string; grandTotal: number }> {
-    const transactions = [];
-    for (const id of input.transactionIds) {
-      const tx = await this.transactionRepo.findById(id);
-      if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
-      // Validate business ownership to prevent cross-business merging
-      if (tx.businessId && tx.businessId !== input.businessId) {
-        throw new BusinessError(
-          ErrorCode.INVALID_TRANSACTION,
-          `Transaction ${id} does not belong to this business`,
-        );
-      }
-      if (tx.status !== 'completed') {
-        throw new BusinessError(
-          ErrorCode.INVALID_TRANSACTION,
-          `Transaction ${id} is not completed`,
-        );
-      }
-      transactions.push(tx);
+  async execute(input: MergeBillInput): Promise<MergeBillOutput> {
+    if (!input.businessId) {
+      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Business context required');
+    }
+    const ids = [...new Set(input.transactionIds)];
+    if (ids.length < 2) {
+      throw new BusinessError(ErrorCode.INVALID_TRANSACTION, 'Select at least 2 different bills');
     }
 
-    const totalSubtotal = transactions.reduce((sum, tx) => sum + tx.subtotal, 0);
-    const totalDiscount = transactions.reduce((sum, tx) => sum + tx.discountAmount, 0);
-    const totalTax = transactions.reduce((sum, tx) => sum + tx.taxAmount, 0);
-    const totalServiceCharge = transactions.reduce((sum, tx) => sum + tx.serviceCharge, 0);
-    const grandTotal = totalSubtotal - totalDiscount + totalTax + totalServiceCharge;
-
-    const receiptNumber = `MRG-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    const merged = await this.transactionRepo.save({
-      id: '',
-      outletId: input.outletId,
-      employeeId: input.employeeId,
-      customerId: null,
-      shiftId: transactions[0].shiftId,
-      receiptNumber,
-      transactionType: 'sale',
-      orderType: transactions[0].orderType,
-      tableId: null,
-      subtotal: totalSubtotal,
-      discountAmount: totalDiscount,
-      taxAmount: totalTax,
-      serviceCharge: totalServiceCharge,
-      grandTotal,
-      notes: `Merged from: ${input.transactionIds.join(', ')}`,
-      status: 'completed',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const originals = await this.prisma.transaction.findMany({
+      where: { id: { in: ids }, outlet: { businessId: input.businessId } },
+      select: {
+        id: true,
+        outletId: true,
+        shiftId: true,
+        customerId: true,
+        tableId: true,
+        orderType: true,
+        status: true,
+        transactionType: true,
+        receiptNumber: true,
+        subtotal: true,
+        discountAmount: true,
+        taxAmount: true,
+        serviceCharge: true,
+        grandTotal: true,
+      },
+      orderBy: { createdAt: 'asc' },
     });
-
-    // Mark original transactions as completed but linked to merged transaction.
-    // Do NOT use 'voided' status — voiding implies stock restoration, but stock
-    // was already deducted by the original transactions and is now accounted for
-    // by the merged transaction. Using 'voided' here would cause stock restoration
-    // logic to incorrectly return stock to inventory.
-    for (const id of input.transactionIds) {
-      await this.transactionRepo.update(id, {
-        notes: `[MERGED] Original transaction merged into ${merged.id}`,
-        voidReason: `Merged into ${merged.id}`,
-      });
+    if (originals.length !== ids.length) {
+      throw new NotFoundException('One or more transactions not found');
+    }
+    for (const t of originals) {
+      if (t.status !== 'completed' || t.transactionType !== 'sale') {
+        throw new BusinessError(
+          ErrorCode.INVALID_TRANSACTION,
+          `Transaction ${t.receiptNumber} is not a completed sale`,
+        );
+      }
+    }
+    const outletId = originals[0].outletId;
+    if (originals.some((t) => t.outletId !== outletId)) {
+      throw new BusinessError(
+        ErrorCode.INVALID_TRANSACTION,
+        'Only bills of the same outlet can be merged',
+      );
     }
 
-    return { mergedTransactionId: merged.id, grandTotal };
+    const same = <K extends 'customerId' | 'tableId' | 'shiftId'>(key: K) =>
+      originals.every((t) => t[key] === originals[0][key]) ? originals[0][key] : null;
+
+    const subtotal = sumMoney(originals.map((t) => t.subtotal));
+    const discountAmount = sumMoney(originals.map((t) => t.discountAmount));
+    const taxAmount = sumMoney(originals.map((t) => t.taxAmount));
+    const serviceCharge = sumMoney(originals.map((t) => t.serviceCharge));
+    const grandTotal = sumMoney(originals.map((t) => t.grandTotal));
+
+    return this.prisma.$transaction(async (tx) => {
+      const receiptNumber = await this.documentNumbers.next(tx, input.businessId, 'MRG');
+
+      const claimed = await tx.transaction.updateMany({
+        where: { id: { in: ids }, status: 'completed' },
+        data: {
+          status: 'split',
+          voidReason: `Merged into ${receiptNumber}`,
+        },
+      });
+      if (claimed.count !== ids.length) {
+        throw new ConflictException('One or more bills were already merged, split or changed');
+      }
+
+      const merged = await tx.transaction.create({
+        data: {
+          outletId,
+          employeeId: input.employeeId,
+          customerId: same('customerId'),
+          shiftId: same('shiftId') ?? originals[0].shiftId,
+          receiptNumber,
+          transactionType: 'sale',
+          orderType: originals[0].orderType,
+          tableId: same('tableId'),
+          subtotal,
+          discountAmount,
+          taxAmount,
+          serviceCharge,
+          grandTotal,
+          notes: `Merged from: ${originals.map((t) => t.receiptNumber).join(', ')}`,
+          status: 'completed',
+        },
+        select: { id: true },
+      });
+
+      // Items and payments follow the bill, so product sales and payment totals
+      // are counted once (on the merged bill) and a later void/refund covers them.
+      await tx.transactionItem.updateMany({
+        where: { transactionId: { in: ids } },
+        data: { transactionId: merged.id },
+      });
+      await tx.payment.updateMany({
+        where: { transactionId: { in: ids } },
+        data: { transactionId: merged.id },
+      });
+
+      return {
+        mergedTransactionId: merged.id,
+        receiptNumber,
+        outletId,
+        grandTotal: toNumber(grandTotal),
+      };
+    });
   }
 }

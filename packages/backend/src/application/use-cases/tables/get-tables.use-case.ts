@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { ITableRepository } from '../../../domain/interfaces/repositories/table.repository';
-import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
+import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../infrastructure/database/prisma.service';
 
 export interface GetTablesParams {
-  outletId: string;
+  /** Outlets already verified by TenantAccessService (never empty-means-all). */
+  outletIds: string[];
   section?: string;
   status?: 'available' | 'occupied' | 'reserved' | 'cleaning';
   activeOnly?: boolean;
@@ -11,20 +12,36 @@ export interface GetTablesParams {
 
 @Injectable()
 export class GetTablesUseCase {
-  constructor(
-    @Inject(REPOSITORY_TOKENS.TABLE)
-    private readonly tableRepo: ITableRepository,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(params: GetTablesParams) {
-    if (params.section) {
-      return this.tableRepo.findBySection(params.outletId, params.section);
+    if (params.outletIds.length === 0) {
+      return [];
     }
-
-    if (params.status) {
-      return this.tableRepo.findByStatus(params.outletId, params.status);
-    }
-
-    return this.tableRepo.findByOutlet(params.outletId, params.activeOnly);
+    const where: Prisma.TableWhereInput = {
+      outletId: { in: params.outletIds },
+      ...(params.section && { section: params.section }),
+      ...(params.status && { status: params.status }),
+      ...((params.activeOnly || params.section || params.status) && { isActive: true }),
+    };
+    const tables = await this.prisma.table.findMany({
+      where,
+      orderBy: [{ section: 'asc' }, { name: 'asc' }],
+      take: 1000,
+    });
+    return tables.map((t) => ({
+      id: t.id,
+      outletId: t.outletId,
+      name: t.name,
+      capacity: t.capacity,
+      section: t.section,
+      positionX: t.positionX,
+      positionY: t.positionY,
+      status: t.status,
+      currentOrderId: t.currentOrderId,
+      occupiedAt: t.occupiedAt,
+      isActive: t.isActive,
+      createdAt: t.createdAt,
+    }));
   }
 }

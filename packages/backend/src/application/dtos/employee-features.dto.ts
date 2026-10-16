@@ -1,5 +1,8 @@
-import { IsString, IsOptional, IsDateString, Matches } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsUUID, Matches, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+// Date ranges accept YYYY-MM-DD (a WIB business day) or a full ISO timestamp.
+// The controller caps every range at MAX_REPORT_RANGE_DAYS.
 
 // ============================================================================
 // Shift Report DTOs
@@ -17,7 +20,7 @@ export class ShiftReportQueryDto {
 
 export class ShiftSummaryQueryDto {
   @ApiProperty({ description: 'Outlet ID' })
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty({ description: 'Start date (ISO 8601)' })
@@ -35,11 +38,11 @@ export class ShiftSummaryQueryDto {
 
 export class CreateScheduleDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   employeeId!: string;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty({ description: 'Date (ISO 8601 date)' })
@@ -59,18 +62,19 @@ export class CreateScheduleDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }
 
 export class UpdateScheduleDto {
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   employeeId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   outletId?: string;
 
   @ApiPropertyOptional({ description: 'Date (ISO 8601 date)' })
@@ -93,12 +97,13 @@ export class UpdateScheduleDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }
 
 export class ScheduleQueryDto {
   @ApiProperty({ description: 'Outlet ID' })
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty({ description: 'Start of week date (ISO 8601)' })
@@ -122,7 +127,7 @@ export class CommissionQueryDto {
 
 export class CommissionSummaryQueryDto {
   @ApiProperty({ description: 'Outlet ID' })
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty({ description: 'Start date (ISO 8601)' })
@@ -140,7 +145,7 @@ export class CommissionSummaryQueryDto {
 
 export class ClockInDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 }
 
@@ -156,7 +161,7 @@ export class AttendanceQueryDto {
 
 export class AttendanceSummaryQueryDto {
   @ApiProperty({ description: 'Outlet ID' })
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty({ description: 'Start date (ISO 8601)' })

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
@@ -11,6 +11,8 @@ import type { IEmployeeRepository } from '@domain/interfaces/repositories/employ
 export interface StartShiftInput {
   outletId: string;
   employeeId: string;
+  /** Caller's business; the employee and the outlet must both belong to it. */
+  businessId: string;
   openingCash: number;
 }
 
@@ -30,8 +32,17 @@ export class StartShiftUseCase {
 
   async execute(input: StartShiftInput): Promise<StartShiftOutput> {
     const employee = await this.employeeRepo.findById(input.employeeId);
-    if (!employee || !employee.isActive) {
+    if (!employee || !employee.isActive || employee.businessId !== input.businessId) {
       throw new AppError(ErrorCode.EMPLOYEE_NOT_FOUND, 'Employee not found or inactive');
+    }
+
+    // The outlet is client-supplied: it must belong to the employee's business.
+    const outlet = await this.prisma.outlet.findFirst({
+      where: { id: input.outletId, businessId: employee.businessId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new ForbiddenException('Outlet is not accessible');
     }
 
     const shift = await this.prisma.$transaction(

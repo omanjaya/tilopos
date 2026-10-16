@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { ITableRepository } from '../../../domain/interfaces/repositories/table.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 import { AppError } from '../../../shared/errors/app-error';
@@ -25,7 +25,11 @@ export class CreateTableUseCase {
     const duplicate = existing.find((t) => t.name === params.name);
 
     if (duplicate) {
-      throw new AppError(ErrorCode.DUPLICATE_TABLE, 'Table with this name already exists');
+      throw new AppError(
+        ErrorCode.DUPLICATE_TABLE,
+        'Table with this name already exists',
+        HttpStatus.CONFLICT,
+      );
     }
 
     return this.tableRepo.create({

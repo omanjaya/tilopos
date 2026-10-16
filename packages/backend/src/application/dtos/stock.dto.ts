@@ -1,31 +1,44 @@
-import { IsString, IsOptional, IsNumber, IsEnum, Min } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsEnum,
+  IsUUID,
+  IsNotEmpty,
+  MaxLength,
+  Min,
+  Max,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateStockDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   productId!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   variantId?: string;
 
   @ApiProperty({ enum: ['set', 'increment', 'decrement'] })
   @IsEnum(['set', 'increment', 'decrement'])
   adjustmentType!: 'set' | 'increment' | 'decrement';
 
-  @ApiProperty()
-  @IsNumber()
+  @ApiProperty({ description: '> 0 for increment/decrement; >= 0 for set' })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
+  @Max(1_000_000_000)
   quantity!: number;
 
   @ApiProperty()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
   reason!: string;
 
   @ApiPropertyOptional({
@@ -34,5 +47,6 @@ export class UpdateStockDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(1_000_000_000_000)
   unitCost?: number;
 }

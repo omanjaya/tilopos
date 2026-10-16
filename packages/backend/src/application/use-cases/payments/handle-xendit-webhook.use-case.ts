@@ -1,396 +1,68 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
-import { Payment, Transaction } from '@prisma/client';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-export interface HandleXenditWebhookParams {
-  event: string;
-  externalId: string;
-  status: string;
-  amount: number;
-  paymentMethod?: string;
-  paymentChannel?: string;
-  paidAt?: string;
-  rawPayload: Record<string, unknown>;
-}
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { XenditWebhookDto } from '../../dtos/xendit-webhook.dto';
+import { PaymentWebhookProcessor, type WebhookResultCode } from './payment-webhook.processor';
+import { normalizeXenditWebhook, type XenditWebhookRoute } from './xendit-webhook.mapper';
 
 export interface HandleXenditWebhookResult {
   success: boolean;
+  code: WebhookResultCode;
   event: string;
   externalId: string;
-  status: string;
   message?: string;
 }
 
-// ============================================================================
-// Use Case
-// ============================================================================
-
+/**
+ * Xendit callbacks. The callback token is verified by WebhookGuard (constant
+ * time, fail closed). The payment is located by our own id sent as
+ * external_id / reference_id; amount and state transitions are enforced by
+ * PaymentWebhookProcessor. Processing errors propagate as non-2xx so Xendit
+ * retries; an unknown reference is answered with 404 for the same reason.
+ */
 @Injectable()
 export class HandleXenditWebhookUseCase {
   private readonly logger = new Logger(HandleXenditWebhookUseCase.name);
-  private readonly webhookToken: string;
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
-  ) {
-    this.webhookToken = this.configService.get<string>('XENDIT_WEBHOOK_TOKEN', '');
-  }
+  constructor(private readonly processor: PaymentWebhookProcessor) {}
 
-  // ---------------------------------------------------------------------------
-  // Main Execute Method
-  // ---------------------------------------------------------------------------
-
-  async execute(params: HandleXenditWebhookParams): Promise<HandleXenditWebhookResult> {
-    this.logger.log(
-      `Processing Xendit webhook: event=${params.event}, externalId=${params.externalId}`,
-    );
-
-    try {
-      // Find payment by external_id (which maps to our referenceNumber)
-      const payment = await this.findPayment(params.externalId);
-
-      if (!payment) {
-        this.logger.warn(`Payment not found for external_id: ${params.externalId}`);
-        // Return success to Xendit but log warning
-        // This prevents retries for legitimate non-matching webhooks
-        return {
-          success: true,
-          event: params.event,
-          externalId: params.externalId,
-          status: params.status,
-          message: 'Payment not found, webhook acknowledged',
-        };
-      }
-
-      // Idempotency check
-      const mappedStatus = this.mapXenditStatusToPaymentStatus(params.status);
-      if (payment.status === mappedStatus) {
-        this.logger.log(
-          `Payment ${params.externalId} already has status '${mappedStatus}', skipping`,
-        );
-        return {
-          success: true,
-          event: params.event,
-          externalId: params.externalId,
-          status: mappedStatus,
-          message: 'Already processed',
-        };
-      }
-
-      // Route based on event type
-      const result = await this.handleEventType(params, payment);
-
+  async execute(
+    route: XenditWebhookRoute,
+    body: XenditWebhookDto,
+  ): Promise<HandleXenditWebhookResult> {
+    const n = normalizeXenditWebhook(route, body);
+    if (!n) {
+      this.logger.log(`Xendit ${route} callback without payment state change acknowledged`);
       return {
-        success: result.success,
-        event: params.event,
-        externalId: params.externalId,
-        status: mappedStatus,
-        message: result.message,
+        success: true,
+        code: 'ignored',
+        event: body.event ?? route,
+        externalId: body.external_id ?? '',
       };
-    } catch (error) {
-      this.logger.error(
-        `Webhook processing failed: ${error instanceof Error ? error.message : error}`,
-      );
-      throw error;
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Webhook Verification
-  // ---------------------------------------------------------------------------
-
-  verifyCallback(token: string): boolean {
-    if (!this.webhookToken) {
-      this.logger.error('XENDIT_WEBHOOK_TOKEN not configured - rejecting webhook');
-      return false;
+    if (!n.reference) {
+      this.logger.error(`Xendit ${n.event} callback without a reference; cannot be matched`);
+      throw new NotFoundException('Callback carries no payment reference');
     }
 
-    return token === this.webhookToken;
-  }
-
-  verifySignature(payload: string, signature: string): boolean {
-    if (!this.webhookToken) {
-      this.logger.error('XENDIT_WEBHOOK_TOKEN not configured - rejecting webhook');
-      return false;
-    }
-
-    const expectedSignature = createHash('sha256')
-      .update(payload + this.webhookToken)
-      .digest('hex');
-
-    return signature === expectedSignature;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Event Handlers
-  // ---------------------------------------------------------------------------
-
-  private async handleEventType(
-    params: HandleXenditWebhookParams,
-    payment: Payment & { transaction: Transaction },
-  ): Promise<{ success: boolean; message: string }> {
-    const event = params.event.toLowerCase();
-
-    // Invoice events
-    if (event.includes('invoice.paid')) {
-      return this.handlePaymentSuccess(payment, params, 'Invoice paid');
-    }
-    if (event.includes('invoice.expired')) {
-      return this.handlePaymentExpired(payment, params, 'Invoice expired');
-    }
-
-    // QRIS events
-    if (event.includes('qr_code.paid') || event.includes('qris.paid')) {
-      return this.handlePaymentSuccess(payment, params, 'QRIS paid');
-    }
-    if (event.includes('qr_code.expired')) {
-      return this.handlePaymentExpired(payment, params, 'QRIS expired');
-    }
-
-    // Virtual Account events
-    if (event.includes('payment_code.paid') || event.includes('va.paid')) {
-      return this.handlePaymentSuccess(payment, params, 'VA paid');
-    }
-    if (event.includes('payment_code.expired')) {
-      return this.handlePaymentExpired(payment, params, 'VA expired');
-    }
-
-    // E-Wallet events
-    if (event.includes('ewallet.capture') || event.includes('ewallet.paid')) {
-      return this.handlePaymentSuccess(payment, params, 'E-wallet captured');
-    }
-    if (event.includes('ewallet.void') || event.includes('ewallet.voided')) {
-      return this.handlePaymentVoided(payment, params, 'E-wallet voided');
-    }
-    if (event.includes('ewallet.refund')) {
-      return this.handlePaymentRefund(payment, params, 'E-wallet refunded');
-    }
-
-    // Retail outlet events
-    if (event.includes('retail_outlet.paid') || event.includes('retail.paid')) {
-      return this.handlePaymentSuccess(payment, params, 'Retail outlet paid');
-    }
-    if (event.includes('retail_outlet.expired')) {
-      return this.handlePaymentExpired(payment, params, 'Retail outlet expired');
-    }
-
-    // Refund events
-    if (event.includes('refund.completed')) {
-      return this.handlePaymentRefund(payment, params, 'Refund completed');
-    }
-    if (event.includes('refund.failed')) {
-      return this.handleRefundFailed(payment, params, 'Refund failed');
-    }
-
-    // Generic payment events
-    if (event.includes('payment.succeeded')) {
-      return this.handlePaymentSuccess(payment, params, 'Payment succeeded');
-    }
-    if (event.includes('payment.failed')) {
-      return this.handlePaymentFailed(payment, params, 'Payment failed');
-    }
-
-    // Unknown event - acknowledge but don't process
-    this.logger.log(`Unknown webhook event: ${params.event}`);
-    return { success: true, message: 'Event acknowledged' };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Payment Status Handlers
-  // ---------------------------------------------------------------------------
-
-  private async handlePaymentSuccess(
-    payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const transaction = payment.transaction;
-
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'completed',
-          referenceNumber: params.externalId,
-        },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'completed' },
-      }),
-    ]);
-
-    this.logger.log(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  private async handlePaymentExpired(
-    payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const transaction = payment.transaction;
-
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'failed' },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'voided' },
-      }),
-    ]);
-
-    this.logger.log(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  private async handlePaymentFailed(
-    payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const transaction = payment.transaction;
-
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'failed' },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'voided' },
-      }),
-    ]);
-
-    this.logger.log(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  private async handlePaymentVoided(
-    payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const transaction = payment.transaction;
-
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'failed' },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'voided' },
-      }),
-    ]);
-
-    this.logger.log(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  private async handlePaymentRefund(
-    payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const transaction = payment.transaction;
-
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'refunded' },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'refunded' },
-      }),
-    ]);
-
-    this.logger.log(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  private async handleRefundFailed(
-    _payment: Payment & { transaction: Transaction },
-    params: HandleXenditWebhookParams,
-    message: string,
-  ): Promise<{ success: boolean; message: string }> {
-    // Don't change payment status on refund failure, just log
-    this.logger.warn(`${message} for external_id: ${params.externalId}`);
-    return { success: true, message };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  private async findPayment(externalId: string) {
-    // Try different patterns for external_id
-    // Xendit prefixes: INV_, QRIS_, VA_, EW_, RETAIL_
-    const cleanId = this.cleanExternalId(externalId);
-
-    const payment = await this.prisma.payment.findFirst({
-      where: {
-        OR: [{ referenceNumber: externalId }, { referenceNumber: cleanId }],
-      },
-      include: {
-        transaction: true,
-      },
+    const result = await this.processor.process({
+      provider: 'xendit',
+      reference: n.reference,
+      outcome: n.outcome,
+      amount: n.amount,
+      gatewayRef: n.gatewayRef,
+      event: n.event,
     });
 
-    return payment;
-  }
-
-  private cleanExternalId(externalId: string): string {
-    // Remove Xendit prefixes to get original reference
-    const prefixes = ['INV_', 'QRIS_', 'VA_', 'EW_', 'RETAIL_', 'QR_'];
-    let cleaned = externalId;
-
-    for (const prefix of prefixes) {
-      if (cleaned.toUpperCase().startsWith(prefix)) {
-        cleaned = cleaned.substring(prefix.length);
-        break;
-      }
+    if (result.code === 'not_found') {
+      throw new NotFoundException(`Payment not found for reference ${n.reference}`);
     }
 
-    return cleaned;
-  }
-
-  private mapXenditStatusToPaymentStatus(status: string): string {
-    const statusMap: Record<string, string> = {
-      // Xendit statuses
-      PAID: 'completed',
-      SETTLED: 'completed',
-      COMPLETED: 'completed',
-      CAPTURED: 'completed',
-      SUCCEEDED: 'completed',
-      PENDING: 'pending',
-      ACTIVE: 'pending',
-      EXPIRED: 'failed',
-      FAILED: 'failed',
-      VOIDED: 'failed',
-      CANCELLED: 'failed',
-      REFUNDED: 'refunded',
-      // Lowercase variants
-      paid: 'completed',
-      settled: 'completed',
-      completed: 'completed',
-      pending: 'pending',
-      expired: 'failed',
-      failed: 'failed',
-      voided: 'failed',
-      refunded: 'refunded',
+    this.logger.log(`Xendit ${n.event} for ${n.reference}: ${result.code} (${result.message})`);
+    return {
+      success: result.code !== 'amount_mismatch',
+      code: result.code,
+      event: n.event,
+      externalId: n.reference,
+      message: result.message,
     };
-
-    return statusMap[status] || 'pending';
   }
 }

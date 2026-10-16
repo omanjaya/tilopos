@@ -6,11 +6,15 @@ import {
   IsArray,
   IsEnum,
   IsUUID,
-  IsDateString,
+  IsNotEmpty,
+  MaxLength,
+  ArrayMinSize,
+  ArrayMaxSize,
   ValidateNested,
   Min,
+  Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // ==================== Ingredient Import/Export DTOs ====================
@@ -18,32 +22,31 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class IngredientImportItemDto {
   @ApiProperty({ description: 'Ingredient name' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
   name!: string;
 
   @ApiProperty({ description: 'Unit of measurement (e.g., kg, liter, pcs)' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
   unit!: string;
 
   @ApiPropertyOptional({ description: 'Cost per unit' })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
+  @Max(1_000_000_000)
   costPerUnit?: number;
 
-  @ApiPropertyOptional({ description: 'Minimum stock level for alerts' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  minStockLevel?: number;
-
-  @ApiPropertyOptional({ description: 'Supplier ID to associate with' })
-  @IsOptional()
-  @IsString()
-  supplierId?: string;
+  // minStockLevel / supplierId are intentionally NOT accepted: ingredients have no such
+  // columns (low-stock alerts are per outlet stock row), so the old import silently
+  // dropped them. With forbidNonWhitelisted they are now rejected with 400.
 
   @ApiPropertyOptional({ description: 'SKU code' })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   sku?: string;
 }
 
@@ -55,9 +58,11 @@ export class IngredientImportDto {
   @ApiProperty({
     type: [IngredientImportItemDto],
     description:
-      'Array of ingredients to import (for JSON format). For CSV, this is the parsed data.',
+      'Rows to import (max 1000). Always a parsed array; for CSV the client parses the file.',
   })
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => IngredientImportItemDto)
   data!: IngredientImportItemDto[];
@@ -76,8 +81,8 @@ export class IngredientExportQueryDto {
 
   @ApiPropertyOptional({ description: 'Include current stock levels in export' })
   @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
-  @Type(() => Boolean)
   includeStock?: boolean;
 }
 
@@ -94,22 +99,4 @@ export class LowStockAlertQueryDto {
   @Min(0)
   @Type(() => Number)
   threshold?: number;
-}
-
-// ==================== Recipe Cost History DTOs ====================
-
-export class RecipeCostHistoryQueryDto {
-  @ApiProperty({ description: 'Recipe ID to track cost history' })
-  @IsUUID()
-  recipeId!: string;
-
-  @ApiPropertyOptional({ description: 'Start date for cost history range (ISO 8601)' })
-  @IsOptional()
-  @IsDateString()
-  startDate?: string;
-
-  @ApiPropertyOptional({ description: 'End date for cost history range (ISO 8601)' })
-  @IsOptional()
-  @IsDateString()
-  endDate?: string;
 }

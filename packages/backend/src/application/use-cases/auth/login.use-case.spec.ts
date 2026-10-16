@@ -2,6 +2,9 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { LoginUseCase, LoginInput } from './login.use-case';
+import type { PurposeTokenService } from '@infrastructure/auth/purpose-token.service';
+import type { LoginAttemptService } from '@infrastructure/security/login-attempt.service';
+import { HttpException } from '@nestjs/common';
 import type {
   IEmployeeRepository,
   EmployeeRecord,
@@ -15,6 +18,10 @@ describe('LoginUseCase', () => {
   let mockJwtService: jest.Mocked<JwtService>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockPrisma: any;
+  let mockPurposeTokens: PurposeTokenService;
+  let mockAttempts: jest.Mocked<
+    Pick<LoginAttemptService, 'assertNotLocked' | 'recordFailure' | 'reset'>
+  >;
 
   const activeEmployee: EmployeeRecord = {
     id: 'emp-1',
@@ -65,6 +72,11 @@ describe('LoginUseCase', () => {
       decode: jest.fn(),
     } as unknown as jest.Mocked<JwtService>;
 
+    mockPurposeTokens = {
+      sign: jest.fn().mockReturnValue('mfa-token'),
+      verify: jest.fn(),
+    } as unknown as PurposeTokenService;
+
     mockPrisma = {
       outlet: {
         findFirst: jest.fn(),
@@ -72,7 +84,19 @@ describe('LoginUseCase', () => {
       },
     };
 
-    useCase = new LoginUseCase(mockEmployeeRepo, mockJwtService, mockPrisma);
+    mockAttempts = {
+      assertNotLocked: jest.fn().mockResolvedValue(undefined),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+    };
+
+    useCase = new LoginUseCase(
+      mockEmployeeRepo,
+      mockJwtService,
+      mockPrisma,
+      mockPurposeTokens,
+      mockAttempts as unknown as LoginAttemptService,
+    );
   });
 
   afterEach(() => {
@@ -223,7 +247,7 @@ describe('LoginUseCase', () => {
 
     mockEmployeeRepo.findByEmail.mockResolvedValue(mfaEmployee);
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-    mockJwtService.sign.mockReturnValue('mfa-token-123');
+    (mockPurposeTokens.sign as jest.Mock).mockReturnValue('mfa-token-123');
 
     const result = await useCase.execute(baseInput);
 
@@ -234,7 +258,7 @@ describe('LoginUseCase', () => {
     }
   });
 
-  it('should sign MFA token with 5 minute expiry and correct payload', async () => {
+  it('should sign a purpose-bound MFA token (not an access token) with 5 minute expiry', async () => {
     const mfaEmployee: EmployeeRecord = {
       ...activeEmployee,
       mfaEnabled: true,
@@ -246,15 +270,49 @@ describe('LoginUseCase', () => {
 
     await useCase.execute(baseInput);
 
-    expect(mockJwtService.sign).toHaveBeenCalledWith(
-      {
-        sub: 'emp-1',
-        purpose: 'mfa_verification',
-        businessId: 'biz-1',
-        outletId: 'outlet-1',
-        role: 'cashier',
-      },
-      { expiresIn: '5m' },
+    expect(mockPurposeTokens.sign).toHaveBeenCalledWith(
+      'mfa_verification',
+      { sub: 'emp-1', outletId: 'outlet-1' },
+      '5m',
     );
+    expect(mockJwtService.sign).not.toHaveBeenCalled();
+  });
+
+  describe('per-account lockout', () => {
+    it('records a failure for a wrong PIN (case-insensitive account key)', async () => {
+      mockEmployeeRepo.findByEmail.mockResolvedValue(activeEmployee);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(useCase.execute({ ...baseInput, email: 'John@Example.com' })).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockAttempts.recordFailure).toHaveBeenCalledWith('pin', 'john@example.com');
+      expect(mockAttempts.reset).not.toHaveBeenCalled();
+    });
+
+    it('records a failure for an unknown e-mail too (no enumeration shortcut)', async () => {
+      mockEmployeeRepo.findByEmail.mockResolvedValue(null);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(useCase.execute(baseInput)).rejects.toThrow(UnauthorizedException);
+      expect(mockAttempts.recordFailure).toHaveBeenCalledWith('pin', 'john@example.com');
+    });
+
+    it('refuses to check the PIN while the account is locked', async () => {
+      mockAttempts.assertNotLocked.mockRejectedValue(new HttpException('locked', 429));
+      (bcrypt.compare as jest.Mock).mockClear();
+
+      await expect(useCase.execute(baseInput)).rejects.toThrow('locked');
+      expect(mockEmployeeRepo.findByEmail).not.toHaveBeenCalled();
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+    });
+
+    it('clears the counter after a successful PIN check', async () => {
+      mockEmployeeRepo.findByEmail.mockResolvedValue(activeEmployee);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await useCase.execute(baseInput);
+      expect(mockAttempts.reset).toHaveBeenCalledWith('pin', 'john@example.com');
+    });
   });
 });

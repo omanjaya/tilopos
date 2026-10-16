@@ -1,306 +1,150 @@
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { CreateOrderUseCase, CreateOrderInput } from './create-order.use-case';
-import { EventBusService } from '@infrastructure/events/event-bus.service';
+import type { EventBusService } from '@infrastructure/events/event-bus.service';
 import { OrderStatusChangedEvent } from '@domain/events/order-status-changed.event';
-import type {
-  IOrderRepository,
-  OrderRecord,
-} from '@domain/interfaces/repositories/order.repository';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
+import type { DocumentNumberService } from '@shared/numbering';
 
 describe('CreateOrderUseCase', () => {
+  const BUSINESS = 'biz-1';
+  const OUTLET = 'outlet-1';
+
+  let tx: {
+    outlet: { findFirst: jest.Mock };
+    product: { findMany: jest.Mock };
+    productVariant: { findMany: jest.Mock };
+    customer: { findFirst: jest.Mock };
+    table: { findFirst: jest.Mock; updateMany: jest.Mock };
+    order: { create: jest.Mock };
+  };
+  let prisma: { $transaction: jest.Mock };
+  let eventBus: { publish: jest.Mock };
+  let numbers: { next: jest.Mock };
   let useCase: CreateOrderUseCase;
-  let mockOrderRepo: jest.Mocked<IOrderRepository>;
-  let mockPrisma: jest.Mocked<PrismaService>;
-  let mockEventBus: jest.Mocked<EventBusService>;
 
-  const savedOrder: OrderRecord = {
-    id: 'order-1',
-    outletId: 'outlet-1',
-    orderNumber: 'ORD-TEST123',
-    orderType: 'dine_in',
-    tableId: null,
-    customerId: null,
-    status: 'pending',
-    priority: 0,
-    notes: null,
-    estimatedTime: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const baseProduct = {
-    id: 'prod-1',
-    name: 'Nasi Goreng',
-    isActive: true,
-  };
-
-  const baseDineInInput: CreateOrderInput = {
-    outletId: 'outlet-1',
-    orderType: 'dine_in',
+  const baseInput: CreateOrderInput = {
+    businessId: BUSINESS,
+    outletId: OUTLET,
+    orderType: 'takeaway',
     items: [{ productId: 'prod-1', quantity: 2 }],
   };
 
-  const baseTakeawayInput: CreateOrderInput = {
-    outletId: 'outlet-1',
-    orderType: 'takeaway',
-    items: [{ productId: 'prod-1', quantity: 1 }],
-  };
-
   beforeEach(() => {
-    mockOrderRepo = {
-      findById: jest.fn(),
-      findByOutletId: jest.fn(),
-      findActiveByOutletId: jest.fn(),
-      save: jest.fn(),
-      update: jest.fn(),
-    };
-
-    mockPrisma = {
+    tx = {
+      outlet: { findFirst: jest.fn().mockResolvedValue({ id: OUTLET }) },
       product: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([{ id: 'prod-1', name: 'Nasi Goreng' }]),
       },
-      orderItem: {
-        create: jest.fn(),
-      },
+      productVariant: { findMany: jest.fn().mockResolvedValue([]) },
+      customer: { findFirst: jest.fn().mockResolvedValue({ id: 'cust-1' }) },
       table: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({ id: 'table-5', outletId: 'outlet-1', status: 'available' }),
-        update: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue({ id: 'table-1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-    } as unknown as jest.Mocked<PrismaService>;
-
-    mockEventBus = {
-      publish: jest.fn(),
-      ofType: jest.fn(),
-      onAll: jest.fn(),
-    } as unknown as jest.Mocked<EventBusService>;
-
-    useCase = new CreateOrderUseCase(mockOrderRepo, mockPrisma, mockEventBus);
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('should create a dine-in order successfully', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const result = await useCase.execute(baseDineInInput);
-
-    expect(result.orderId).toBe('order-1');
-    expect(result.orderNumber).toBeDefined();
-    expect(result.orderNumber).toMatch(/^ORD-/);
-    expect(result.estimatedTime).toBeNull();
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        outletId: 'outlet-1',
-        orderType: 'dine_in',
-        status: 'pending',
-      }),
-    );
-  });
-
-  it('should create a takeaway order successfully', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue({ ...savedOrder, orderType: 'takeaway' });
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const result = await useCase.execute(baseTakeawayInput);
-
-    expect(result.orderId).toBe('order-1');
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderType: 'takeaway',
-      }),
-    );
-  });
-
-  it('should create a delivery order successfully', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue({ ...savedOrder, orderType: 'delivery' });
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const deliveryInput: CreateOrderInput = {
-      outletId: 'outlet-1',
-      orderType: 'delivery',
-      items: [{ productId: 'prod-1', quantity: 1 }],
+      order: { create: jest.fn().mockResolvedValue({}) },
     };
-
-    const result = await useCase.execute(deliveryInput);
-
-    expect(result.orderId).toBe('order-1');
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderType: 'delivery',
-      }),
+    prisma = { $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)) };
+    eventBus = { publish: jest.fn() };
+    numbers = { next: jest.fn().mockResolvedValue('ORD-20260927-0001') };
+    useCase = new CreateOrderUseCase(
+      prisma as unknown as PrismaService,
+      eventBus as unknown as EventBusService,
+      numbers as unknown as DocumentNumberService,
     );
   });
 
-  it('should link order to table and update table status for dine-in', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue({
-      ...savedOrder,
-      tableId: 'table-5',
-    });
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-    (mockPrisma.table.update as jest.Mock).mockResolvedValue({});
+  it('creates the order with nested items and a per-tenant number, then publishes order:new', async () => {
+    const result = await useCase.execute(baseInput);
 
-    const inputWithTable: CreateOrderInput = {
-      ...baseDineInInput,
-      tableId: 'table-5',
-    };
-
-    await useCase.execute(inputWithTable);
-
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
+    expect(result.orderNumber).toBe('ORD-20260927-0001');
+    expect(numbers.next).toHaveBeenCalledWith(tx, BUSINESS, 'ORD');
+    expect(tx.product.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        tableId: 'table-5',
+        where: expect.objectContaining({ businessId: BUSINESS, isActive: true }),
       }),
     );
-    expect(mockPrisma.table.update).toHaveBeenCalledWith({
-      where: { id: 'table-5' },
-      data: expect.objectContaining({
-        status: 'occupied',
-        currentOrderId: 'order-1',
+    const data = tx.order.create.mock.calls[0][0].data;
+    expect(data.items.create).toEqual([
+      expect.objectContaining({ productId: 'prod-1', productName: 'Nasi Goreng', quantity: 2 }),
+    ]);
+    const event = eventBus.publish.mock.calls[0][0] as OrderStatusChangedEvent;
+    expect(event.previousStatus).toBe('');
+    expect(event.newStatus).toBe('pending');
+  });
+
+  it('rejects an order without items', async () => {
+    await expect(useCase.execute({ ...baseInput, items: [] })).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5])('rejects quantity %p', async (quantity) => {
+    await expect(
+      useCase.execute({ ...baseInput, items: [{ productId: 'prod-1', quantity }] }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.order.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a product of another business instead of creating an "Unknown" line', async () => {
+    tx.product.findMany.mockResolvedValue([]);
+    await expect(
+      useCase.execute({ ...baseInput, items: [{ productId: 'foreign', quantity: 1 }] }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.order.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an outlet outside the business', async () => {
+    tx.outlet.findFirst.mockResolvedValue(null);
+    await expect(useCase.execute(baseInput)).rejects.toThrow(BadRequestException);
+    expect(tx.outlet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: OUTLET, businessId: BUSINESS } }),
+    );
+  });
+
+  it('claims the table with a conditional update before creating the order', async () => {
+    await useCase.execute({ ...baseInput, orderType: 'dine_in', tableId: 'table-1' });
+
+    expect(tx.table.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'table-1', outletId: OUTLET, status: 'available' },
       }),
-    });
+    );
+    expect(tx.table.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.order.create.mock.invocationCallOrder[0],
+    );
   });
 
-  it('should NOT update table when no tableId is provided', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    await useCase.execute(baseDineInInput);
-
-    expect(mockPrisma.table.update).not.toHaveBeenCalled();
+  it('fails with 409 and creates no order when the table is taken', async () => {
+    tx.table.updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      useCase.execute({ ...baseInput, orderType: 'dine_in', tableId: 'table-1' }),
+    ).rejects.toThrow(ConflictException);
+    expect(tx.order.create).not.toHaveBeenCalled();
+    expect(eventBus.publish).not.toHaveBeenCalled();
   });
 
-  it('should create order items with correct product names', async () => {
-    const products = [
-      { id: 'prod-1', name: 'Nasi Goreng', isActive: true },
-      { id: 'prod-2', name: 'Mie Goreng', isActive: true },
-    ];
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue(products);
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const multiItemInput: CreateOrderInput = {
-      outletId: 'outlet-1',
+  it("still creates a paid order when onTableUnavailable is 'keep'", async () => {
+    tx.table.updateMany.mockResolvedValue({ count: 0 });
+    await useCase.execute({
+      ...baseInput,
       orderType: 'dine_in',
-      items: [
-        { productId: 'prod-1', quantity: 2 },
-        { productId: 'prod-2', quantity: 1, notes: 'No chili' },
-      ],
-    };
-
-    await useCase.execute(multiItemInput);
-
-    expect(mockPrisma.orderItem.create).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.orderItem.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        orderId: 'order-1',
-        productId: 'prod-1',
-        productName: 'Nasi Goreng',
-        quantity: 2,
-        status: 'pending',
-      }),
+      tableId: 'table-1',
+      onTableUnavailable: 'keep',
     });
-    expect(mockPrisma.orderItem.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        orderId: 'order-1',
-        productId: 'prod-2',
-        productName: 'Mie Goreng',
-        quantity: 1,
-        notes: 'No chili',
-        status: 'pending',
-      }),
-    });
+    expect(tx.order.create).toHaveBeenCalled();
   });
 
-  it('should use "Unknown" when product is not found in database', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([]); // empty - no products found
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    await useCase.execute(baseDineInInput);
-
-    expect(mockPrisma.orderItem.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        productName: 'Unknown',
-      }),
-    });
+  it('treats a duplicate fixed id as a conflict (idempotent replays)', async () => {
+    tx.order.create.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }));
+    await expect(useCase.execute({ ...baseInput, id: 'trx-1' })).rejects.toThrow(ConflictException);
+    expect(eventBus.publish).not.toHaveBeenCalled();
   });
 
-  it('should publish OrderStatusChangedEvent after creation', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
+  it('uses a provided order number only when it fits the column', async () => {
+    await useCase.execute({ ...baseInput, orderNumber: 'TRX-20260927-0001' });
+    expect(tx.order.create.mock.calls[0][0].data.orderNumber).toBe('TRX-20260927-0001');
+    expect(numbers.next).not.toHaveBeenCalled();
 
-    await useCase.execute(baseDineInInput);
-
-    expect(mockEventBus.publish).toHaveBeenCalledWith(expect.any(OrderStatusChangedEvent));
-    expect(mockEventBus.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderId: 'order-1',
-        outletId: 'outlet-1',
-        newStatus: 'pending',
-      }),
-    );
-  });
-
-  it('should set default priority to 0 when not provided', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue(savedOrder);
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    await useCase.execute(baseDineInInput);
-
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        priority: 0,
-      }),
-    );
-  });
-
-  it('should use provided priority value', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue({ ...savedOrder, priority: 5 });
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const priorityInput: CreateOrderInput = {
-      ...baseDineInInput,
-      priority: 5,
-    };
-
-    await useCase.execute(priorityInput);
-
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        priority: 5,
-      }),
-    );
-  });
-
-  it('should set customerId when provided', async () => {
-    (mockPrisma.product.findMany as jest.Mock).mockResolvedValue([baseProduct]);
-    mockOrderRepo.save.mockResolvedValue({ ...savedOrder, customerId: 'cust-1' });
-    (mockPrisma.orderItem.create as jest.Mock).mockResolvedValue({});
-
-    const inputWithCustomer: CreateOrderInput = {
-      ...baseDineInInput,
-      customerId: 'cust-1',
-    };
-
-    await useCase.execute(inputWithCustomer);
-
-    expect(mockOrderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        customerId: 'cust-1',
-      }),
-    );
+    await useCase.execute({ ...baseInput, orderNumber: 'TXN-1727400000000-ABCDEF' });
+    expect(tx.order.create.mock.calls[1][0].data.orderNumber).toBe('ORD-20260927-0001');
   });
 });

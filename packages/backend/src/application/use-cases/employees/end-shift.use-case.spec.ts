@@ -1,64 +1,67 @@
+import { Prisma } from '@prisma/client';
 import { EndShiftUseCase, EndShiftInput } from './end-shift.use-case';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { BusinessError } from '@shared/errors/business-error';
-import type {
-  IShiftRepository,
-  ShiftRecord,
-} from '@domain/interfaces/repositories/shift.repository';
 import type { PrismaService } from '@infrastructure/database/prisma.service';
+
+const dec = (n: number) => new Prisma.Decimal(n);
 
 describe('EndShiftUseCase', () => {
   let useCase: EndShiftUseCase;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockEventBus: jest.Mocked<EventBusService>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let tx: any;
 
-  const openShift: ShiftRecord = {
+  const openShift = {
     id: 'shift-1',
     outletId: 'outlet-1',
     employeeId: 'emp-1',
     startedAt: new Date('2025-01-01T08:00:00Z'),
     endedAt: null,
-    openingCash: 500000,
+    openingCash: dec(500000),
     closingCash: null,
     expectedCash: null,
     cashDifference: null,
-    cashIn: null,
-    cashOut: null,
+    cashIn: dec(0),
+    cashOut: dec(0),
     notes: null,
     status: 'open',
-    createdAt: new Date('2025-01-01T08:00:00Z'),
   };
 
   const baseInput: EndShiftInput = {
     shiftId: 'shift-1',
     employeeId: 'emp-1',
+    businessId: 'biz-1',
     closingCash: 750000,
   };
 
+  const mockCash = (sales: number | null, refunds: number | null) => {
+    tx.payment.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: sales === null ? null : dec(sales) } })
+      .mockResolvedValueOnce({ _sum: { amount: refunds === null ? null : dec(refunds) } });
+  };
+
   beforeEach(() => {
-    mockShiftRepo = {
-      findById: jest.fn(),
-      findOpenShift: jest.fn(),
-      create: jest.fn(),
-      close: jest.fn(),
-      addCashIn: jest.fn(),
-      addCashOut: jest.fn(),
+    tx = {
+      shift: {
+        findFirst: jest.fn().mockResolvedValue(openShift),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      payment: { aggregate: jest.fn() },
+      transaction: {
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _sum: { grandTotal: dec(300000) }, _count: { id: 3 } }),
+      },
+      employee: {
+        findFirst: jest.fn().mockResolvedValue({ name: 'John Doe' }),
+      },
     };
 
     mockPrisma = {
-      payment: {
-        aggregate: jest.fn(),
-      },
-      transaction: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { grandTotal: null } }),
-      },
-      employee: {
-        findUnique: jest.fn().mockResolvedValue({
-          name: 'John Doe',
-          businessId: 'biz-1',
-        }),
-      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $transaction: jest.fn().mockImplementation(async (fn: (t: any) => unknown) => fn(tx)),
     } as unknown as jest.Mocked<PrismaService>;
 
     mockEventBus = {
@@ -67,161 +70,79 @@ describe('EndShiftUseCase', () => {
       onAll: jest.fn(),
     } as unknown as jest.Mocked<EventBusService>;
 
-    useCase = new EndShiftUseCase(mockShiftRepo, mockPrisma, mockEventBus);
+    useCase = new EndShiftUseCase(mockPrisma, mockEventBus);
   });
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('should end shift successfully with correct cash count', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-    (mockPrisma.payment.aggregate as jest.Mock)
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 300000 } } }) // cash sales
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 50000 } } }); // cash refunds
-    mockShiftRepo.close.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
-      closingCash: 750000,
-      endedAt: new Date(),
-    });
+  it('ends the shift with Decimal totals and a conditional status update', async () => {
+    mockCash(300000, 50000);
 
     const result = await useCase.execute(baseInput);
 
-    // expectedCash = openingCash(500000) + sales(300000) - refunds(50000) = 750000
-    expect(result.shiftId).toBe('shift-1');
-    expect(result.expectedCash).toBe(750000);
-    expect(result.actualCash).toBe(750000);
-    expect(result.difference).toBe(0); // 750000 - 750000 = 0
-    expect(result.endedAt).toBeInstanceOf(Date);
-    expect(mockShiftRepo.close).toHaveBeenCalledWith(
-      'shift-1',
+    // expected = 500000 + 300000 - 50000 = 750000
+    expect(result).toEqual(
       expect.objectContaining({
-        closingCash: 750000,
+        shiftId: 'shift-1',
         expectedCash: 750000,
-        cashDifference: 0,
+        actualCash: 750000,
+        difference: 0,
       }),
     );
-  });
-
-  it('should calculate positive difference when actual cash exceeds expected', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-    (mockPrisma.payment.aggregate as jest.Mock)
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 200000 } } }) // cash sales
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 0 } } }); // no refunds
-    mockShiftRepo.close.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
+    expect(tx.shift.findFirst).toHaveBeenCalledWith({
+      where: { id: 'shift-1', outlet: { businessId: 'biz-1' } },
     });
-
-    const input: EndShiftInput = {
-      ...baseInput,
-      closingCash: 750000, // more than expected 700000
-    };
-
-    const result = await useCase.execute(input);
-
-    // expectedCash = 500000 + 200000 - 0 = 700000
-    // difference = 750000 - 700000 = 50000
-    expect(result.expectedCash).toBe(700000);
-    expect(result.actualCash).toBe(750000);
-    expect(result.difference).toBe(50000);
+    const call = tx.shift.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'shift-1', status: 'open' });
+    expect(call.data.status).toBe('closed');
+    expect(call.data.expectedCash.toNumber()).toBe(750000);
+    expect(call.data.cashDifference.toNumber()).toBe(0);
+    expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
   });
 
-  it('should calculate negative difference when actual cash is less than expected', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-    (mockPrisma.payment.aggregate as jest.Mock)
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 200000 } } })
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 0 } } });
-    mockShiftRepo.close.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
-    });
+  it('includes petty cash in/out and refunds stored as negatives', async () => {
+    tx.shift.findFirst.mockResolvedValue({ ...openShift, cashIn: dec(20000), cashOut: dec(5000) });
+    mockCash(200000, -10000);
 
-    const input: EndShiftInput = {
-      ...baseInput,
-      closingCash: 650000, // less than expected 700000
-    };
+    const result = await useCase.execute({ ...baseInput, closingCash: 700000 });
 
-    const result = await useCase.execute(input);
-
-    expect(result.expectedCash).toBe(700000);
-    expect(result.actualCash).toBe(650000);
-    expect(result.difference).toBe(-50000);
+    // 500000 + 200000 - 10000 + 20000 - 5000 = 705000
+    expect(result.expectedCash).toBe(705000);
+    expect(result.difference).toBe(-5000);
   });
 
-  it('should throw BusinessError when shift is not found', async () => {
-    mockShiftRepo.findById.mockResolvedValue(null);
+  it('handles fractional amounts without float drift', async () => {
+    tx.shift.findFirst.mockResolvedValue({ ...openShift, openingCash: dec(0.1) });
+    mockCash(0.2, null);
 
-    await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
+    const result = await useCase.execute({ ...baseInput, closingCash: 0.3 });
+
+    expect(result.expectedCash).toBe(0.3);
+    expect(result.difference).toBe(0);
+  });
+
+  it('throws when the shift is not in the caller business', async () => {
+    tx.shift.findFirst.mockResolvedValue(null);
+
     await expect(useCase.execute(baseInput)).rejects.toThrow('Shift not found');
+    expect(tx.shift.updateMany).not.toHaveBeenCalled();
   });
 
-  it('should throw BusinessError when shift is already closed', async () => {
-    mockShiftRepo.findById.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
-      endedAt: new Date(),
-    });
+  it('throws when the shift is already closed', async () => {
+    tx.shift.findFirst.mockResolvedValue({ ...openShift, status: 'closed' });
 
-    await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
     await expect(useCase.execute(baseInput)).rejects.toThrow('Shift is not open');
   });
 
-  it('should throw BusinessError when employee does not own the shift', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-
-    const wrongEmployeeInput: EndShiftInput = {
-      ...baseInput,
-      employeeId: 'emp-other',
-    };
-
-    await expect(useCase.execute(wrongEmployeeInput)).rejects.toThrow(BusinessError);
-    await expect(useCase.execute(wrongEmployeeInput)).rejects.toThrow(
+  it('throws when the employee does not own the shift', async () => {
+    await expect(useCase.execute({ ...baseInput, employeeId: 'emp-other' })).rejects.toThrow(
       'This shift does not belong to the employee',
     );
   });
 
-  it('should handle zero cash sales and refunds', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-    (mockPrisma.payment.aggregate as jest.Mock)
-      .mockResolvedValueOnce({ _sum: { amount: null } }) // no cash sales
-      .mockResolvedValueOnce({ _sum: { amount: null } }); // no cash refunds
-    mockShiftRepo.close.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
-    });
+  it('loses the race cleanly when a concurrent request closed the shift first', async () => {
+    mockCash(0, 0);
+    tx.shift.updateMany.mockResolvedValue({ count: 0 });
 
-    const input: EndShiftInput = {
-      ...baseInput,
-      closingCash: 500000, // exactly opening cash
-    };
-
-    const result = await useCase.execute(input);
-
-    // expectedCash = 500000 + 0 - 0 = 500000
-    expect(result.expectedCash).toBe(500000);
-    expect(result.difference).toBe(0);
-  });
-
-  it('should call shiftRepo.close with correct endedAt', async () => {
-    mockShiftRepo.findById.mockResolvedValue(openShift);
-    (mockPrisma.payment.aggregate as jest.Mock)
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 0 } } })
-      .mockResolvedValueOnce({ _sum: { amount: { toNumber: () => 0 } } });
-    mockShiftRepo.close.mockResolvedValue({
-      ...openShift,
-      status: 'closed',
-    });
-
-    const result = await useCase.execute(baseInput);
-
-    expect(mockShiftRepo.close).toHaveBeenCalledWith(
-      'shift-1',
-      expect.objectContaining({
-        endedAt: expect.any(Date),
-      }),
-    );
-    expect(result.endedAt).toBeInstanceOf(Date);
+    await expect(useCase.execute(baseInput)).rejects.toThrow(BusinessError);
+    expect(mockEventBus.publish).not.toHaveBeenCalled();
   });
 });

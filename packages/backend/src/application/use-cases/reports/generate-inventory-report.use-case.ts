@@ -5,6 +5,8 @@ import { ExcelGeneratorService } from '@infrastructure/export/excel-generator.se
 import type { Content } from 'pdfmake/interfaces';
 
 export interface GenerateInventoryReportInput {
+  /** Caller's business — the outlet must belong to it (R3). */
+  businessId: string;
   outletId: string;
   format: 'pdf' | 'excel';
 }
@@ -21,19 +23,25 @@ export class GenerateInventoryReportUseCase {
     input: GenerateInventoryReportInput,
   ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const stockLevels = await this.prisma.stockLevel.findMany({
-      where: { outletId: input.outletId },
-      include: { product: true, variant: true },
+      where: { outletId: input.outletId, outlet: { businessId: input.businessId } },
+      select: {
+        quantity: true,
+        lowStockAlert: true,
+        product: { select: { name: true, sku: true } },
+        variant: { select: { name: true, sku: true } },
+      },
     });
 
     const rows = stockLevels.map((sl) => ({
-      productName: sl.product?.name || 'Unknown',
-      sku: sl.product?.sku || '',
+      productName: [sl.product?.name, sl.variant?.name].filter(Boolean).join(' - ') || 'Unknown',
+      sku: sl.variant?.sku || sl.product?.sku || '',
       currentStock: sl.quantity.toNumber(),
       lowStockAlert: sl.lowStockAlert,
       status: sl.quantity.toNumber() <= sl.lowStockAlert ? 'LOW' : 'OK',
     }));
 
-    const dateStr = new Date().toISOString().split('T')[0];
+    // Business date (WIB) for the file name
+    const dateStr = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     if (input.format === 'pdf') {
       const tableBody: Content[][] = [

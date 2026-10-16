@@ -6,12 +6,12 @@ import { ErrorCode } from '../../../shared/constants/error-codes';
 
 export interface UpdateTableParams {
   id: string;
+  businessId: string;
   name?: string;
   capacity?: number;
   section?: string;
   positionX?: number;
   positionY?: number;
-  status?: 'available' | 'occupied' | 'reserved' | 'cleaning';
   isActive?: boolean;
 }
 
@@ -23,19 +23,22 @@ export class UpdateTableUseCase {
   ) {}
 
   async execute(params: UpdateTableParams) {
-    const existing = await this.tableRepo.findById(params.id);
+    const existing = await this.tableRepo.findById(params.id, params.businessId);
     if (!existing) {
       throw new AppError(ErrorCode.TABLE_NOT_FOUND, 'Table not found');
     }
 
-    return this.tableRepo.update(params.id, {
-      ...(params.name !== undefined && { name: params.name }),
-      ...(params.capacity !== undefined && { capacity: params.capacity }),
-      ...(params.section !== undefined && { section: params.section }),
-      ...(params.positionX !== undefined && { positionX: params.positionX }),
-      ...(params.positionY !== undefined && { positionY: params.positionY }),
-      ...(params.status !== undefined && { status: params.status }),
-      ...(params.isActive !== undefined && { isActive: params.isActive }),
-    });
+    return this.tableRepo.update(
+      params.id,
+      {
+        ...(params.name !== undefined && { name: params.name }),
+        ...(params.capacity !== undefined && { capacity: params.capacity }),
+        ...(params.section !== undefined && { section: params.section }),
+        ...(params.positionX !== undefined && { positionX: params.positionX }),
+        ...(params.positionY !== undefined && { positionY: params.positionY }),
+        ...(params.isActive !== undefined && { isActive: params.isActive }),
+      },
+      params.businessId,
+    );
   }
 }

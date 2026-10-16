@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException, UnauthorizedException } from '@n
 import * as bcrypt from 'bcrypt';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import type { IEmployeeRepository } from '@domain/interfaces/repositories/employee.repository';
+import { LoginAttemptService } from '@infrastructure/security/login-attempt.service';
 
 export interface ChangePinInput {
   employeeId: string;
@@ -14,6 +15,7 @@ export class ChangePinUseCase {
   constructor(
     @Inject(REPOSITORY_TOKENS.EMPLOYEE)
     private readonly employeeRepo: IEmployeeRepository,
+    private readonly attempts: LoginAttemptService,
   ) {}
 
   async execute(input: ChangePinInput): Promise<{ success: boolean }> {
@@ -26,11 +28,15 @@ export class ChangePinUseCase {
       throw new UnauthorizedException('PIN not configured for this employee');
     }
 
-    // Verify current PIN
+    // Verify current PIN (a stolen session must not be able to brute-force it)
+    await this.attempts.assertNotLocked('change_pin', input.employeeId);
     const pinValid = await bcrypt.compare(input.currentPin, employee.pin);
     if (!pinValid) {
+      await this.attempts.recordFailure('change_pin', input.employeeId);
       throw new UnauthorizedException('Current PIN is incorrect');
     }
+
+    await this.attempts.reset('change_pin', input.employeeId);
 
     // Check if new PIN is same as current PIN
     const samePin = await bcrypt.compare(input.newPin, employee.pin);

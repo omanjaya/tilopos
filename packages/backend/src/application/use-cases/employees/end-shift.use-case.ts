@@ -1,15 +1,18 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
+import { Injectable } from '@nestjs/common';
 import { EventBusService } from '@infrastructure/events/event-bus.service';
 import { ShiftEndedEvent } from '@domain/events/shift-ended.event';
 import { BusinessError } from '@shared/errors/business-error';
 import { ErrorCode } from '@shared/constants/error-codes';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import type { IShiftRepository } from '@domain/interfaces/repositories/shift.repository';
+import { money, toNumber } from '@shared/utils/money';
+import { computeShiftCash } from './shift-cash';
 
 export interface EndShiftInput {
   shiftId: string;
+  /** Owner of the shift (the caller, or the employee a supervisor closes it for). */
   employeeId: string;
+  /** Caller's business; the shift must belong to one of its outlets. */
+  businessId: string;
   closingCash: number;
   notes?: string;
 }
@@ -25,103 +28,86 @@ export interface EndShiftOutput {
 @Injectable()
 export class EndShiftUseCase {
   constructor(
-    @Inject(REPOSITORY_TOKENS.SHIFT)
-    private readonly shiftRepo: IShiftRepository,
     private readonly prisma: PrismaService,
     private readonly eventBus: EventBusService,
   ) {}
 
+  /**
+   * Closes an open shift exactly once (Docs/ENGINEERING-RULES.md R9): totals are
+   * computed and the status flips open → closed with a conditional update in one
+   * transaction, so a double submit cannot close (or publish) twice.
+   */
   async execute(input: EndShiftInput): Promise<EndShiftOutput> {
-    const shift = await this.shiftRepo.findById(input.shiftId);
-    if (!shift) {
-      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift not found');
-    }
-
-    if (shift.status !== 'open') {
-      throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
-    }
-
-    if (shift.employeeId !== input.employeeId) {
-      throw new BusinessError(
-        ErrorCode.UNAUTHORIZED_ACTION,
-        'This shift does not belong to the employee',
-      );
-    }
-
-    const cashPayments = await this.prisma.payment.aggregate({
-      where: {
-        transaction: {
-          shiftId: input.shiftId,
-          transactionType: 'sale',
-          status: { not: 'voided' },
-        },
-        paymentMethod: 'cash',
-        status: 'completed',
-      },
-      _sum: { amount: true },
-    });
-
-    const cashRefunds = await this.prisma.payment.aggregate({
-      where: {
-        transaction: {
-          shiftId: input.shiftId,
-          transactionType: 'refund',
-          status: { not: 'voided' },
-        },
-        paymentMethod: 'cash',
-        status: 'completed',
-      },
-      _sum: { amount: true },
-    });
-
-    const totalCashIn = cashPayments._sum.amount?.toNumber() || 0;
-    const totalCashOut = Math.abs(cashRefunds._sum.amount?.toNumber() || 0);
-    // Include cash drawer adjustments (petty cash in/out during shift)
-    const shiftCashIn = Number(shift.cashIn ?? 0);
-    const shiftCashOut = Number(shift.cashOut ?? 0);
-    const expectedCash =
-      shift.openingCash + totalCashIn - totalCashOut + shiftCashIn - shiftCashOut;
-    const difference = input.closingCash - expectedCash;
     const endedAt = new Date();
 
-    // Calculate total sales for shift summary
-    const salesAgg = await this.prisma.transaction.aggregate({
-      where: { shiftId: input.shiftId, transactionType: 'sale', status: 'completed' },
-      _sum: { grandTotal: true },
-    });
-    const totalSales = salesAgg._sum.grandTotal?.toNumber() || 0;
+    const result = await this.prisma.$transaction(async (tx) => {
+      const shift = await tx.shift.findFirst({
+        where: { id: input.shiftId, outlet: { businessId: input.businessId } },
+      });
+      if (!shift) {
+        throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift not found');
+      }
+      if (shift.status !== 'open') {
+        throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
+      }
+      if (shift.employeeId !== input.employeeId) {
+        throw new BusinessError(
+          ErrorCode.UNAUTHORIZED_ACTION,
+          'This shift does not belong to the employee',
+        );
+      }
 
-    await this.shiftRepo.close(input.shiftId, {
-      closingCash: input.closingCash,
-      expectedCash,
-      cashDifference: difference,
-      endedAt,
-      notes: input.notes,
-    });
+      const totals = await computeShiftCash(tx, shift);
+      const closingCash = money(input.closingCash);
+      const difference = closingCash.minus(totals.expectedCash);
 
-    // Get employee name for event
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: input.employeeId },
-      select: { name: true, businessId: true },
+      const updated = await tx.shift.updateMany({
+        where: { id: shift.id, status: 'open' },
+        data: {
+          closingCash,
+          expectedCash: totals.expectedCash,
+          cashDifference: difference,
+          endedAt,
+          status: 'closed',
+          ...(input.notes !== undefined && { notes: input.notes }),
+        },
+      });
+      if (updated.count !== 1) {
+        throw new BusinessError(ErrorCode.SHIFT_NOT_OPEN, 'Shift is not open');
+      }
+
+      const employee = await tx.employee.findFirst({
+        where: { id: shift.employeeId, businessId: input.businessId },
+        select: { name: true },
+      });
+
+      return {
+        outletId: shift.outletId,
+        employeeName: employee?.name ?? '',
+        totalSales: totals.totalSales,
+        expectedCash: totals.expectedCash,
+        closingCash,
+        difference,
+      };
     });
 
     this.eventBus.publish(
       new ShiftEndedEvent(
         input.shiftId,
         input.employeeId,
-        employee?.name ?? '',
-        shift.outletId,
-        employee?.businessId ?? '',
-        totalSales,
-        input.closingCash,
+        result.employeeName,
+        result.outletId,
+        input.businessId,
+        toNumber(result.totalSales),
+        toNumber(result.closingCash),
       ),
     );
 
     return {
       shiftId: input.shiftId,
-      expectedCash,
-      actualCash: input.closingCash,
-      difference,
+      expectedCash: toNumber(result.expectedCash),
+      actualCash: toNumber(result.closingCash),
+      difference: toNumber(result.difference),
       endedAt,
     };
   }

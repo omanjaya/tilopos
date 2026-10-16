@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
-import { Transaction, Payment } from '@prisma/client';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { createHash, timingSafeEqual } from 'crypto';
 import { AppError } from '../../../shared/errors/app-error';
 import { ErrorCode } from '../../../shared/constants/error-codes';
+import {
+  PaymentWebhookProcessor,
+  type WebhookOutcome,
+  type WebhookResultCode,
+} from './payment-webhook.processor';
 
 export interface HandleWebhookParams {
   orderId: string;
@@ -18,210 +21,106 @@ export interface HandleWebhookParams {
 
 export interface HandleWebhookResult {
   success: boolean;
+  code: WebhookResultCode;
   transactionStatus: string;
   transactionId: string;
   orderId: string;
 }
 
+/**
+ * Midtrans HTTP notification. `order_id` is our Payment id (see
+ * ProcessMultiPaymentUseCase). Amount and state transitions are enforced by
+ * PaymentWebhookProcessor; processing errors propagate as non-2xx so Midtrans
+ * retries.
+ */
 @Injectable()
 export class HandleMidtransWebhookUseCase {
   private readonly logger = new Logger(HandleMidtransWebhookUseCase.name);
-  private readonly serverKey: string;
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-  ) {
-    this.serverKey = this.configService.get<string>('MIDTRANS_SERVER_KEY', '');
-  }
+    private readonly processor: PaymentWebhookProcessor,
+  ) {}
 
   async execute(params: HandleWebhookParams): Promise<HandleWebhookResult> {
-    // Verify webhook signature
-    if (!this.serverKey) {
-      this.logger.error('MIDTRANS_SERVER_KEY not configured - rejecting webhook');
-      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Webhook verification not configured');
-    }
+    this.verifySignature(params);
 
-    if (!params.signatureKey) {
-      this.logger.error(`Missing signature_key for order ${params.orderId}`);
-      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Missing webhook signature');
-    }
-
-    const expectedSignature = createHash('sha512')
-      .update(`${params.orderId}${params.statusCode}${params.grossAmount}${this.serverKey}`)
-      .digest('hex');
-
-    if (params.signatureKey !== expectedSignature) {
-      this.logger.error(`Invalid webhook signature for order ${params.orderId}`);
-      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Invalid webhook signature');
-    }
-
-    // Find payment by referenceNumber (order_id from Midtrans)
-    const payment = await this.prisma.payment.findFirst({
-      where: { referenceNumber: params.orderId },
-      include: {
-        transaction: true,
-      },
+    const outcome = this.mapOutcome(params.transactionStatus, params.fraudStatus);
+    const result = await this.processor.process({
+      provider: 'midtrans',
+      reference: params.orderId,
+      outcome,
+      // For refunds Midtrans reports the refunded amount elsewhere; gross_amount
+      // is the original charge, which is what completion is checked against.
+      amount: params.grossAmount,
+      gatewayRef: params.transactionId,
+      event: params.transactionStatus,
     });
 
-    if (!payment) {
-      this.logger.warn(`Payment not found for order ${params.orderId}`);
-      throw new AppError(
-        ErrorCode.TRANSACTION_NOT_FOUND,
-        `Payment not found for order ${params.orderId}`,
-      );
+    if (result.code === 'not_found') {
+      // Non-2xx: Midtrans retries, and the miss is visible in logs/alerts.
+      throw new NotFoundException(`Payment not found for order ${params.orderId}`);
     }
 
-    // Idempotency check: if payment already has this status, return early
-    const incomingStatus = this.mapWebhookStatusToPaymentStatus(params.transactionStatus);
-    if (payment.status === incomingStatus) {
-      this.logger.log(`Payment ${params.orderId} already has status '${incomingStatus}', skipping`);
-      return {
-        success: true,
-        transactionStatus: params.transactionStatus,
-        transactionId: params.transactionId,
-        orderId: params.orderId,
-      };
-    }
-
-    const transaction = payment.transaction;
-
-    // Handle based on transaction status
-    switch (params.transactionStatus) {
-      case 'capture':
-      case 'settlement':
-        // Check fraud status before marking as completed
-        if (params.fraudStatus === 'deny' || params.fraudStatus === 'challenge') {
-          this.logger.warn(
-            `Fraud detected for order ${params.orderId}: fraudStatus=${params.fraudStatus}`,
-          );
-          await this.handleFraudRejection(transaction, payment, params);
-        } else {
-          await this.handlePaymentSuccess(transaction, payment, params);
-        }
-        break;
-
-      case 'deny':
-      case 'cancel':
-      case 'expire':
-        await this.handlePaymentFailed(transaction, payment, params);
-        break;
-
-      case 'refund':
-      case 'partial_refund':
-        await this.handlePaymentRefund(transaction, payment, params);
-        break;
-
-      default:
-        // For pending status, just log it
-        this.logger.log(`Pending status for order ${params.orderId}`);
-        break;
-    }
+    this.logger.log(
+      `Midtrans ${params.transactionStatus} for order ${params.orderId}: ${result.code} (${result.message})`,
+    );
 
     return {
-      success: true,
+      success:
+        result.code === 'applied' || result.code === 'duplicate' || result.code === 'ignored',
+      code: result.code,
       transactionStatus: params.transactionStatus,
       transactionId: params.transactionId,
       orderId: params.orderId,
     };
   }
 
-  private mapWebhookStatusToPaymentStatus(transactionStatus: string): string {
+  /** Defence in depth: WebhookGuard verifies too; this never runs unverified. */
+  private verifySignature(params: HandleWebhookParams): void {
+    const serverKey = this.configService.get<string>('MIDTRANS_SERVER_KEY');
+    if (!serverKey) {
+      this.logger.error('MIDTRANS_SERVER_KEY not configured - rejecting webhook');
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Webhook verification not configured');
+    }
+    if (!params.signatureKey) {
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Missing webhook signature');
+    }
+    const expected = Buffer.from(
+      createHash('sha512')
+        .update(`${params.orderId}${params.statusCode}${params.grossAmount}${serverKey}`)
+        .digest('hex'),
+    );
+    const given = Buffer.from(String(params.signatureKey));
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      this.logger.error(`Invalid webhook signature for order ${params.orderId}`);
+      throw new AppError(ErrorCode.UNAUTHORIZED_ACTION, 'Invalid webhook signature');
+    }
+  }
+
+  /**
+   * capture + fraud_status=challenge stays pending (manual review in the
+   * Midtrans dashboard), deny is a failure, partial_refund never refunds the
+   * whole payment.
+   */
+  mapOutcome(transactionStatus: string, fraudStatus?: string): WebhookOutcome {
     switch (transactionStatus) {
       case 'capture':
       case 'settlement':
+        if (fraudStatus === 'challenge') return 'pending';
+        if (fraudStatus === 'deny') return 'failed';
         return 'completed';
       case 'deny':
       case 'cancel':
       case 'expire':
+      case 'failure':
         return 'failed';
       case 'refund':
-      case 'partial_refund':
         return 'refunded';
+      case 'partial_refund':
+        return 'partially_refunded';
       default:
         return 'pending';
     }
-  }
-
-  private async handleFraudRejection(
-    transaction: Transaction,
-    payment: Payment,
-    params: HandleWebhookParams,
-  ): Promise<void> {
-    const status = params.fraudStatus === 'challenge' ? 'pending_review' : 'failed';
-
-    await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: status === 'pending_review' ? 'pending' : 'voided' },
-    });
-
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'failed' },
-    });
-
-    this.logger.warn(
-      `Payment fraud rejection for order ${params.orderId}: fraudStatus=${params.fraudStatus}, action=${status}`,
-    );
-  }
-
-  private async handlePaymentSuccess(
-    transaction: Transaction,
-    payment: Payment,
-    params: HandleWebhookParams,
-  ): Promise<void> {
-    // Update both atomically to prevent partial state
-    await this.prisma.$transaction([
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'completed' },
-      }),
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'completed' },
-      }),
-    ]);
-
-    this.logger.log(`Payment successful for order ${params.orderId}`);
-  }
-
-  private async handlePaymentFailed(
-    transaction: Transaction,
-    payment: Payment,
-    params: HandleWebhookParams,
-  ): Promise<void> {
-    // Update both atomically to prevent partial state
-    await this.prisma.$transaction([
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'voided' },
-      }),
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'failed' },
-      }),
-    ]);
-
-    this.logger.log(`Payment failed for order ${params.orderId}`);
-  }
-
-  private async handlePaymentRefund(
-    transaction: Transaction,
-    payment: Payment,
-    params: HandleWebhookParams,
-  ): Promise<void> {
-    // Update both atomically to prevent partial state
-    await this.prisma.$transaction([
-      this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'refunded' },
-      }),
-      this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'refunded' },
-      }),
-    ]);
-
-    this.logger.log(`Payment refunded for order ${params.orderId}`);
   }
 }

@@ -3,7 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { REPOSITORY_TOKENS } from '@infrastructure/repositories/repository.tokens';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { PurposeTokenService } from '@infrastructure/auth/purpose-token.service';
 import type { IEmployeeRepository } from '@domain/interfaces/repositories/employee.repository';
+import { LoginAttemptService } from '@infrastructure/security/login-attempt.service';
 
 export interface LoginInput {
   email: string;
@@ -37,9 +39,15 @@ export class LoginUseCase {
     private readonly employeeRepo: IEmployeeRepository,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly purposeTokens: PurposeTokenService,
+    private readonly attempts: LoginAttemptService,
   ) {}
 
   async execute(input: LoginInput): Promise<LoginOutput | MfaRequiredOutput> {
+    // Per-account lockout: IP throttling alone does not stop a distributed PIN guess.
+    const account = input.email.trim().toLowerCase();
+    await this.attempts.assertNotLocked('pin', account);
+
     const employee = await this.employeeRepo.findByEmail(input.email);
 
     // Always run bcrypt to prevent timing-based user enumeration.
@@ -51,8 +59,11 @@ export class LoginUseCase {
 
     if (!employee || !employee.isActive || !employee.pin || !pinValid) {
       this.logger.warn(`Failed login attempt for email: ${input.email}`);
+      await this.attempts.recordFailure('pin', account);
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    await this.attempts.reset('pin', account);
 
     let outletId = input.outletId || employee.outletId;
 
@@ -74,15 +85,11 @@ export class LoginUseCase {
     }
 
     if (employee.mfaEnabled) {
-      const mfaPayload = {
-        sub: employee.id,
-        purpose: 'mfa_verification' as const,
-        businessId: employee.businessId,
-        outletId,
-        role: employee.role,
-      };
-
-      const mfaToken = this.jwtService.sign(mfaPayload, { expiresIn: '5m' });
+      const mfaToken = this.purposeTokens.sign(
+        'mfa_verification',
+        { sub: employee.id, outletId },
+        '5m',
+      );
 
       return {
         requiresMfa: true,

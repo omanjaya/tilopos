@@ -1,9 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import { Inject, Injectable } from '@nestjs/common';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 
 export interface UpdateIngredientParams {
   id: string;
+  businessId: string;
   name?: string;
   sku?: string;
   unit?: string;
@@ -20,20 +21,19 @@ export class UpdateIngredientUseCase {
   ) {}
 
   async execute(params: UpdateIngredientParams) {
-    const ingredient = await this.ingredientRepository.findById(params.id);
-    if (!ingredient) {
-      throw new NotFoundException('Ingredient not found');
-    }
-
-    // Update ingredient
-    const updated = await this.ingredientRepository.update(params.id, {
-      name: params.name,
-      sku: params.sku,
-      unit: params.unit,
-      costPerUnit: params.costPerUnit,
-      imageUrl: params.imageUrl,
-      isActive: params.isActive,
-    });
+    // Scoped update (updateMany where { id, businessId }); 404 when not in the business.
+    const updated = await this.ingredientRepository.update(
+      params.id,
+      {
+        name: params.name,
+        sku: params.sku,
+        unit: params.unit,
+        costPerUnit: params.costPerUnit,
+        imageUrl: params.imageUrl,
+        isActive: params.isActive,
+      },
+      params.businessId,
+    );
 
     return {
       id: updated.id,

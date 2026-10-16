@@ -1,4 +1,8 @@
-import { IsString, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsUUID, MaxLength } from 'class-validator';
+
+/** Max size of an inline CSV/JSON import payload (~2 MB) and max rows per import. */
+export const MAX_IMPORT_PAYLOAD_CHARS = 2_000_000;
+export const MAX_IMPORT_ROWS = 5000;
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ImportProductsDto {
@@ -6,8 +10,9 @@ export class ImportProductsDto {
   @IsEnum(['csv', 'json'])
   format!: 'csv' | 'json';
 
-  @ApiProperty({ description: 'CSV content string or JSON array string' })
+  @ApiProperty({ description: 'CSV content string or JSON array string (max 5000 rows)' })
   @IsString()
+  @MaxLength(MAX_IMPORT_PAYLOAD_CHARS)
   data!: string;
 }
 
@@ -18,23 +23,23 @@ export class ExportProductsQueryDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsUUID()
   categoryId?: string;
 }
 
 export class StockDiscrepancyQueryDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 }
 
 export class AutoRequestTransferDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   outletId!: string;
 
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   sourceOutletId!: string;
 }
 

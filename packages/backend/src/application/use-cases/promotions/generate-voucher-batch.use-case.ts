@@ -41,58 +41,60 @@ export class GenerateVoucherBatchUseCase {
       throw new BadRequestException('Cannot generate vouchers for an inactive promotion');
     }
 
-    const vouchers: GeneratedVoucher[] = [];
-    const existingCodes = new Set<string>();
+    // Codes are looked up upper-cased (see PromotionRulesEngine.evaluateVoucher).
+    const prefix = params.prefix.trim().toUpperCase();
+    const expiresAt = params.expiresAt ?? null;
+    const created: string[] = [];
 
-    // Pre-fetch existing codes with the same prefix to avoid collisions
-    const existingVouchers = await this.prisma.voucher.findMany({
-      where: {
-        code: { startsWith: `${params.prefix}-` },
-        businessId: params.businessId,
-      },
-      select: { code: true },
-    });
-    for (const v of existingVouchers) {
-      existingCodes.add(v.code);
-    }
-
-    // Generate unique codes
-    const codesToCreate: string[] = [];
-    let attempts = 0;
-    const maxAttempts = params.quantity * 10; // Prevent infinite loops
-
-    while (codesToCreate.length < params.quantity && attempts < maxAttempts) {
-      const random = randomBytes(3).toString('hex').toUpperCase().slice(0, 6);
-      const code = `${params.prefix}-${random}`;
-
-      if (!existingCodes.has(code)) {
-        existingCodes.add(code);
-        codesToCreate.push(code);
+    // Codes are unique per business (uq_voucher_business_code). Generate, insert with
+    // skipDuplicates and top up whatever collided (e.g. a concurrent batch) - R15.
+    for (let round = 0; round < 5 && created.length < params.quantity; round++) {
+      const needed = params.quantity - created.length;
+      const candidates = new Set<string>();
+      let attempts = 0;
+      while (candidates.size < needed && attempts < needed * 10) {
+        candidates.add(`${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`);
+        attempts++;
       }
-      attempts++;
+      const codes = [...candidates];
+
+      const existing = await this.prisma.voucher.findMany({
+        where: { businessId: params.businessId, code: { in: codes } },
+        select: { code: true },
+      });
+      const taken = new Set(existing.map((v) => v.code));
+      const fresh = codes.filter((c) => !taken.has(c));
+      if (fresh.length === 0) continue;
+
+      await this.prisma.voucher.createMany({
+        data: fresh.map((code) => ({
+          businessId: params.businessId,
+          promotionId: params.promotionId,
+          code,
+          expiresAt,
+        })),
+        skipDuplicates: true,
+      });
+
+      // Re-read which of our codes now belong to this promotion (skipDuplicates hides collisions).
+      const inserted = await this.prisma.voucher.findMany({
+        where: {
+          businessId: params.businessId,
+          promotionId: params.promotionId,
+          code: { in: fresh },
+        },
+        select: { code: true },
+      });
+      created.push(...inserted.map((v) => v.code));
     }
 
-    if (codesToCreate.length < params.quantity) {
+    if (created.length < params.quantity) {
       throw new BadRequestException(
-        `Could only generate ${codesToCreate.length} unique codes. Try a different prefix or reduce quantity.`,
+        `Could only generate ${created.length} unique codes. Try a different prefix or reduce quantity.`,
       );
     }
 
-    const expiresAt = params.expiresAt ?? null;
-
-    // Batch create vouchers using createMany
-    await this.prisma.voucher.createMany({
-      data: codesToCreate.map((code) => ({
-        businessId: params.businessId,
-        promotionId: params.promotionId,
-        code,
-        expiresAt,
-      })),
-    });
-
-    for (const code of codesToCreate) {
-      vouchers.push({ code, expiresAt });
-    }
+    const vouchers: GeneratedVoucher[] = created.map((code) => ({ code, expiresAt }));
 
     return {
       generated: vouchers.length,

@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
+import type { IIngredientRepository } from '../../../domain/interfaces/repositories/ingredient.repository';
 import { REPOSITORY_TOKENS } from '../../../infrastructure/repositories/repository.tokens';
 
 export interface GetRecipesParams {
+  businessId: string;
   productId?: string;
   variantId?: string;
 }
@@ -14,28 +15,28 @@ export class GetRecipesUseCase {
     private readonly ingredientRepository: IIngredientRepository,
   ) {}
 
+  /** Recipes of a product of the caller's business; foreign products yield []. */
   async execute(params: GetRecipesParams) {
-    if (params.productId) {
-      const recipes = await this.ingredientRepository.findRecipesByProduct(
-        params.productId,
-        params.variantId,
-      );
-      return recipes.map((recipe) => ({
-        id: recipe.id,
-        productId: recipe.productId,
-        variantId: recipe.variantId,
-        notes: recipe.notes,
-        items: recipe.items.map((item) => ({
-          id: item.id,
-          ingredientId: item.ingredientId,
-          quantity: Number(item.quantity),
-          unit: item.unit,
-        })),
-        createdAt: recipe.createdAt,
-        updatedAt: recipe.updatedAt,
-      }));
-    }
+    if (!params.productId) return [];
 
-    return [];
+    const recipes = await this.ingredientRepository.findRecipesByProduct(
+      params.productId,
+      params.variantId,
+      params.businessId,
+    );
+    return recipes.map((recipe) => ({
+      id: recipe.id,
+      productId: recipe.productId,
+      variantId: recipe.variantId,
+      notes: recipe.notes,
+      items: recipe.items.map((item) => ({
+        id: item.id,
+        ingredientId: item.ingredientId,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+      })),
+      createdAt: recipe.createdAt,
+      updatedAt: recipe.updatedAt,
+    }));
   }
 }
