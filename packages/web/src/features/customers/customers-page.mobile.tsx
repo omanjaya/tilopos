@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customersApi } from '@/api/endpoints/customers.api';
@@ -13,6 +13,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
+import { useCan } from '@/features/auth/use-permission';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
@@ -47,16 +49,17 @@ export function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
 
-  const { data: customersData, isLoading } = useQuery({
-    queryKey: ['customers', search],
-    queryFn: () =>
-      customersApi.list({
-        search: search || undefined,
-      }),
+  const canWrite = useCan('customers.write');
+  const canCreate = useCan('customers.create');
+
+  // GET /customers has no server-side search: fetch once, filter locally.
+  const { data: customersData, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['customers', 'all'],
+    queryFn: () => customersApi.list(),
   });
 
   const deactivateMutation = useMutation({
-    mutationFn: (id: string) => customersApi.update(id, { isActive: false }),
+    mutationFn: (id: string) => customersApi.deactivate(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success({ title: 'Pelanggan dinonaktifkan' });
@@ -66,7 +69,12 @@ export function CustomersPage() {
     onError: (error) => handleMutationError(error, 'Gagal menonaktifkan'),
   });
 
-  const customers = customersData || [];
+  const customers = useMemo(() => {
+    const all = customersData ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((c) => [c.name, c.email, c.phone].some((v) => v?.toLowerCase().includes(q)));
+  }, [customersData, search]);
 
   return (
     <div className="flex flex-col h-screen bg-muted/30">
@@ -97,7 +105,9 @@ export function CustomersPage() {
 
       {/* Customers List */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {isLoading ? (
+        {isError ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
+        ) : isLoading ? (
           <div className="space-y-3">
             {[...Array(5)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -122,9 +132,11 @@ export function CustomersPage() {
             <p className="text-sm text-muted-foreground mb-4">
               Tambahkan pelanggan pertama Anda
             </p>
-            <Button onClick={() => navigate('/app/customers/new')}>
-              <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
-            </Button>
+            {canCreate && (
+              <Button onClick={() => navigate('/app/customers/new')}>
+                <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
+              </Button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -140,7 +152,7 @@ export function CustomersPage() {
       </div>
 
       {/* Floating Action Button */}
-      {customers.length > 0 && (
+      {canCreate && customers.length > 0 && (
         <Button
           size="lg"
           className="fixed bottom-20 right-4 z-30 h-14 w-14 rounded-full shadow-lg"
@@ -214,6 +226,7 @@ export function CustomersPage() {
                 </div>
 
                 {/* Actions */}
+                {canWrite && (
                 <div className="space-y-2 pt-4">
                   <Button
                     variant="outline"
@@ -241,6 +254,7 @@ export function CustomersPage() {
                     Nonaktifkan Pelanggan
                   </Button>
                 </div>
+                )}
               </div>
             </>
           )}
@@ -253,7 +267,7 @@ export function CustomersPage() {
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         onConfirm={() => deleteTarget && deactivateMutation.mutate(deleteTarget.id)}
         title="Nonaktifkan Pelanggan"
-        description={`Apakah Anda yakin ingin menonaktifkan "${deleteTarget?.name}"? Pelanggan masih dapat diaktifkan kembali nanti.`}
+        description={`Apakah Anda yakin ingin menonaktifkan "${deleteTarget?.name}"? Pelanggan nonaktif tidak lagi muncul di daftar.`}
         confirmLabel="Nonaktifkan"
         isLoading={deactivateMutation.isPending}
       />
@@ -275,7 +289,19 @@ function CustomerCard({ customer, onClick }: { customer: Customer; onClick: () =
     .slice(0, 2);
 
   return (
-    <Card className="overflow-hidden cursor-pointer active:scale-[0.98] transition-transform" onClick={onClick}>
+    <Card
+      role="button"
+      tabIndex={0}
+      aria-label={`Lihat detail ${customer.name}`}
+      className="overflow-hidden cursor-pointer active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <CardContent className="p-4">
         <div className="flex items-center gap-3">
           {/* Avatar */}

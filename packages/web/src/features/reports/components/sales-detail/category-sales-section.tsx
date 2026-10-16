@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatNumber, formatPercentage } from '@/lib/format';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
 
 interface CategorySalesSectionProps {
   outletId: string;
@@ -10,7 +11,7 @@ interface CategorySalesSectionProps {
 }
 
 export function CategorySalesSection({ outletId, startDate, endDate }: CategorySalesSectionProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['report', 'dashboard-items', outletId, startDate, endDate],
     queryFn: () => reportsApi.dashboardItems({ outletId, startDate, endDate }),
     enabled: !!outletId,
@@ -23,6 +24,16 @@ export function CategorySalesSection({ outletId, startDate, endDate }: CategoryS
           <Skeleton key={i} className="h-10" />
         ))}
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ReportErrorState
+        description="Terjadi kesalahan saat mengambil data laporan."
+        error={error as Error}
+        onRetry={() => void refetch()}
+      />
     );
   }
 

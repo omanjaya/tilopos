@@ -21,10 +21,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ROLE_LABELS, ROLE_OPTIONS, STATUS_OPTIONS } from '@/lib/constants';
+import { ROLE_LABELS, ROLE_OPTIONS } from '@/lib/constants';
+import { canManageRole } from '@/config/permissions';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
-import { Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, RotateCcw } from 'lucide-react';
 import type { Employee } from '@/types/employee.types';
 import type { EmployeeRole } from '@/types/auth.types';
 import { useUIStore } from '@/stores/ui.store';
@@ -38,18 +39,41 @@ export function EmployeesPage() {
   const outletId = selectedOutletId ?? user?.outletId ?? '';
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
 
-  const { data: employeesData, isLoading } = useQuery({
-    queryKey: ['employees', outletId, search, roleFilter, statusFilter],
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active');
+
+  // Role and status are filtered server-side (GET /employees ?role= &status=); the free-text
+  // search stays client-side on the (≤500) loaded rows so typing does not refetch.
+  const { data: employeesData, isLoading, error, refetch } = useQuery({
+    queryKey: ['employees', outletId, roleFilter, statusFilter],
     queryFn: () =>
       employeesApi.list({
         outletId: outletId || undefined,
-        search: search || undefined,
-        role: roleFilter !== 'all' ? (roleFilter as EmployeeRole) : undefined,
-        isActive: statusFilter !== 'all' ? statusFilter === 'true' : undefined,
+        role: roleFilter === 'all' ? undefined : (roleFilter as EmployeeRole),
+        status: statusFilter,
       }),
+  });
+
+  const term = search.trim().toLowerCase();
+  const filteredEmployees = (employeesData ?? []).filter(
+    (e) =>
+      !term ||
+      e.name.toLowerCase().includes(term) ||
+      (e.email ?? '').toLowerCase().includes(term) ||
+      (e.phone ?? '').toLowerCase().includes(term),
+  );
+
+  const reactivateMutation = useMutation({
+    mutationFn: (employee: Employee) => employeesApi.update(employee.id, { isActive: true }),
+    onSuccess: (_data, employee) => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success({
+        title: 'Karyawan diaktifkan kembali',
+        description: `"${employee.name}" dapat masuk lagi`,
+      });
+    },
+    onError: (error) => handleMutationError(error, 'Gagal mengaktifkan karyawan'),
   });
 
   const deleteMutation = useMutation({
@@ -57,8 +81,8 @@ export function EmployeesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       toast.success({
-        title: 'Karyawan berhasil dihapus',
-        description: `"${deleteTarget?.name}" telah dihapus dari daftar karyawan`,
+        title: 'Karyawan berhasil dinonaktifkan',
+        description: `"${deleteTarget?.name}" tidak lagi dapat masuk`,
       });
       setDeleteTarget(null);
     },
@@ -88,7 +112,9 @@ export function EmployeesPage() {
     {
       key: 'actions',
       header: '',
-      cell: (row) => (
+      // Backend canManageRole: only roles strictly below the caller can be edited/removed
+      cell: (row) =>
+        !canManageRole(user?.role, row.role) ? null : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi karyawan">
@@ -99,12 +125,21 @@ export function EmployeesPage() {
             <DropdownMenuItem onClick={() => navigate(`/app/employees/${row.id}/edit`)}>
               <Pencil className="mr-2 h-4 w-4" /> Edit
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setDeleteTarget(row)}
-              className="text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
-            </DropdownMenuItem>
+            {row.isActive ? (
+              <DropdownMenuItem
+                onClick={() => setDeleteTarget(row)}
+                className="text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Nonaktifkan
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => reactivateMutation.mutate(row)}
+                disabled={reactivateMutation.isPending}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" /> Aktifkan Kembali
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -124,8 +159,10 @@ export function EmployeesPage() {
 
       <DataTable
         columns={columns}
-        data={employeesData ?? []}
+        data={filteredEmployees}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
         searchPlaceholder="Cari karyawan..."
         onSearch={setSearch}
         emptyTitle="Belum ada karyawan"
@@ -150,18 +187,17 @@ export function EmployeesPage() {
                 ))}
               </SelectContent>
             </Select>
-
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Semua Status" />
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => setStatusFilter(v as 'active' | 'inactive' | 'all')}
+            >
+              <SelectTrigger className="w-[150px]" aria-label="Filter status karyawan">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="active">Aktif</SelectItem>
+                <SelectItem value="inactive">Nonaktif</SelectItem>
                 <SelectItem value="all">Semua Status</SelectItem>
-                {STATUS_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
               </SelectContent>
             </Select>
           </div>
@@ -171,9 +207,9 @@ export function EmployeesPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Hapus Karyawan"
-        description={`Apakah Anda yakin ingin menghapus "${deleteTarget?.name}"? Tindakan ini tidak dapat dibatalkan.`}
-        confirmLabel="Hapus"
+        title="Nonaktifkan Karyawan"
+        description={`"${deleteTarget?.name}" akan dinonaktifkan dan tidak dapat lagi masuk. Lanjutkan?`}
+        confirmLabel="Nonaktifkan"
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         isLoading={deleteMutation.isPending}
       />

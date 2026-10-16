@@ -17,8 +17,13 @@ export function TutorialLibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTutorial, setSelectedTutorial] = useState<string | null>(null);
   const [watchedTutorials, setWatchedTutorials] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('tilo-watched-tutorials');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
+    try {
+      const saved = localStorage.getItem('tilo-watched-tutorials');
+      return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
+    } catch (error) {
+      console.warn('Ignoring invalid watched-tutorials state', error);
+      return new Set<string>();
+    }
   });
 
   const filteredTutorials = selectedCategory === 'all'
@@ -33,16 +38,20 @@ export function TutorialLibraryPage() {
     setWatchedTutorials(prev => {
       const updated = new Set(prev);
       updated.add(tutorialId);
-      localStorage.setItem('tilo-watched-tutorials', JSON.stringify([...updated]));
+      try {
+        localStorage.setItem('tilo-watched-tutorials', JSON.stringify([...updated]));
+      } catch (error) {
+        console.warn('Cannot persist watched tutorials', error);
+      }
       return updated;
     });
   };
 
   const getCategoryLabel = (category: string) => {
     switch (category) {
-      case 'getting-started': return 'Getting Started';
-      case 'advanced': return 'Advanced';
-      case 'troubleshooting': return 'Troubleshooting';
+      case 'getting-started': return 'Memulai';
+      case 'advanced': return 'Lanjutan';
+      case 'troubleshooting': return 'Pemecahan Masalah';
       default: return category;
     }
   };
@@ -60,9 +69,10 @@ export function TutorialLibraryPage() {
     <div className="container py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Tutorial Library</h1>
+        <h1 className="text-3xl font-bold">Pustaka Tutorial</h1>
         <p className="mt-2 text-muted-foreground">
-          Pelajari cara menggunakan TILO dengan video tutorial lengkap
+          Pelajari cara menggunakan TiloPOS. Video tutorial sedang kami siapkan dan akan ditambahkan
+          bertahap.
         </p>
       </div>
 
@@ -89,7 +99,7 @@ export function TutorialLibraryPage() {
             size="sm"
             onClick={() => setSelectedCategory(category.id)}
           >
-            <Filter className="mr-2 h-4 w-4" />
+            <Filter className="mr-2 h-4 w-4" aria-hidden="true" />
             {category.name}
             <Badge variant="secondary" className="ml-2">
               {category.count}
@@ -101,9 +111,10 @@ export function TutorialLibraryPage() {
       {/* Tutorial Grid */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {displayedTutorials.map((tutorial) => (
-          <div
+          <button
+            type="button"
             key={tutorial.id}
-            className="group cursor-pointer overflow-hidden rounded-lg border transition-shadow hover:shadow-lg"
+            className="group cursor-pointer overflow-hidden rounded-lg border text-left transition-shadow hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setSelectedTutorial(tutorial.id)}
           >
             {/* Thumbnail */}
@@ -112,10 +123,16 @@ export function TutorialLibraryPage() {
                 <Play className="h-12 w-12 text-primary opacity-50 transition-opacity group-hover:opacity-100" />
               </div>
 
-              {/* Duration Badge */}
+              {/* Duration / availability badge */}
               <div className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-1 text-xs text-white">
-                <Clock className="mr-1 inline h-3 w-3" />
-                {tutorial.duration}
+                {tutorial.videoUrl ? (
+                  <>
+                    <Clock className="mr-1 inline h-3 w-3" aria-hidden="true" />
+                    {tutorial.duration}
+                  </>
+                ) : (
+                  'Video segera hadir'
+                )}
               </div>
 
               {/* Watched Badge */}
@@ -148,7 +165,7 @@ export function TutorialLibraryPage() {
                 ))}
               </div>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -178,6 +195,7 @@ export function TutorialLibraryPage() {
                 </DialogHeader>
 
                 {/* Video Player */}
+                {tutorial.videoUrl ? (
                 <div className="aspect-video overflow-hidden rounded-lg bg-black">
                   <iframe
                     width="100%"
@@ -191,14 +209,23 @@ export function TutorialLibraryPage() {
                     referrerPolicy="no-referrer"
                   />
                 </div>
+                ) : (
+                  <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-lg bg-muted text-center text-muted-foreground">
+                    <Play className="h-10 w-10 opacity-50" aria-hidden="true" />
+                    <p className="font-medium">Video untuk tutorial ini belum tersedia</p>
+                    <p className="text-sm">Sementara itu, lihat Pusat Bantuan untuk panduan tertulis.</p>
+                  </div>
+                )}
 
                 {/* Tutorial Info */}
                 <div className="mt-4">
                   <div className="mb-4 flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center">
-                      <Clock className="mr-1 h-4 w-4" />
-                      {tutorial.duration}
-                    </span>
+                    {tutorial.videoUrl && (
+                      <span className="flex items-center">
+                        <Clock className="mr-1 h-4 w-4" aria-hidden="true" />
+                        {tutorial.duration}
+                      </span>
+                    )}
                     <Badge>{getCategoryLabel(tutorial.category)}</Badge>
                   </div>
 
@@ -214,7 +241,7 @@ export function TutorialLibraryPage() {
                   </div>
 
                   {/* Mark as Watched Button */}
-                  {!watchedTutorials.has(tutorial.id) && (
+                  {tutorial.videoUrl && !watchedTutorials.has(tutorial.id) && (
                     <Button
                       onClick={() => handleMarkWatched(tutorial.id)}
                       className="mt-4"

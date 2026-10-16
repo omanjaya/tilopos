@@ -31,9 +31,9 @@ export function ItemSummarySection({ data, isLoading, className }: ItemSummarySe
         <h3 className="text-sm font-semibold">Ringkasan Item</h3>
         <Tabs value={tab} onValueChange={(v) => setTab(v as ItemTab)}>
           <TabsList className="h-8">
-            <TabsTrigger value="top_items" className="text-xs px-2.5">Top Items</TabsTrigger>
+            <TabsTrigger value="top_items" className="text-xs px-2.5">Item Teratas</TabsTrigger>
             <TabsTrigger value="cat_volume" className="text-xs px-2.5">Kategori (Volume)</TabsTrigger>
-            <TabsTrigger value="cat_sales" className="text-xs px-2.5">Kategori (Sales)</TabsTrigger>
+            <TabsTrigger value="cat_sales" className="text-xs px-2.5">Kategori (Penjualan)</TabsTrigger>
             <TabsTrigger value="cat_items" className="text-xs px-2.5">Per Kategori</TabsTrigger>
           </TabsList>
         </Tabs>

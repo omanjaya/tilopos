@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/lib/toast-utils';
+import { useCan } from '@/features/auth/use-permission';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { BRAND_PRESETS, DEFAULT_BRAND_COLOR, isValidHex, applyBrandTheme } from '@/lib/color-utils';
 import { cn } from '@/lib/utils';
@@ -43,12 +44,21 @@ export function AppearanceSettingsPage() {
     }
   }, [business]);
 
+  // Revert an unsaved live preview when leaving the page
+  useEffect(() => {
+    return () => {
+      const saved = useUIStore.getState();
+      applyBrandTheme(saved.brandColor ?? DEFAULT_BRAND_COLOR, saved.theme === 'dark');
+    };
+  }, []);
+
   const updateMutation = useMutation({
-    mutationFn: (color: string) =>
-      settingsApi.updateBusiness({
-        settings: { ...(business?.settings as Record<string, unknown> ?? {}), brandColor: color },
-      }),
-    onSuccess: () => {
+    // PUT /settings/business only applies settings.brandColor (#RRGGBB) and
+    // ignores other settings keys, so no read-merge is needed.
+    mutationFn: (color: string) => settingsApi.updateBusiness({ settings: { brandColor: color } }),
+    onSuccess: (_res, color) => {
+      setBrandColor(color === DEFAULT_BRAND_COLOR ? null : color);
+      applyBrandTheme(color, theme === 'dark');
       queryClient.invalidateQueries({ queryKey: ['business'] });
       toast.success({ title: 'Warna brand berhasil disimpan' });
     },
@@ -59,8 +69,7 @@ export function AppearanceSettingsPage() {
     setSelectedColor(hex);
     setIsCustom(false);
     setCustomHex('');
-    // Live preview
-    setBrandColor(hex);
+    // Live preview only; persisted on save
     applyBrandTheme(hex, theme === 'dark');
   };
 
@@ -71,8 +80,7 @@ export function AppearanceSettingsPage() {
     if (isValidHex(hex)) {
       setSelectedColor(hex);
       setIsCustom(true);
-      // Live preview
-      setBrandColor(hex);
+      // Live preview only; persisted on save
       applyBrandTheme(hex, theme === 'dark');
     }
   };
@@ -82,15 +90,18 @@ export function AppearanceSettingsPage() {
       toast.error({ title: 'Warna tidak valid' });
       return;
     }
-    setBrandColor(selectedColor);
     updateMutation.mutate(selectedColor);
   };
+
+  // Brand color is stored via PUT /settings/business (owner only)
+  const canEdit = useCan('business.edit');
 
   const handleReset = () => {
     setSelectedColor(DEFAULT_BRAND_COLOR);
     setIsCustom(false);
     setCustomHex('');
-    setBrandColor(null);
+    applyBrandTheme(DEFAULT_BRAND_COLOR, theme === 'dark');
+    updateMutation.mutate(DEFAULT_BRAND_COLOR);
   };
 
   return (
@@ -165,6 +176,12 @@ export function AppearanceSettingsPage() {
               </div>
 
               {/* Actions */}
+              {!canEdit && (
+                <p className="pt-2 text-xs text-muted-foreground">
+                  Hanya pemilik bisnis yang dapat menyimpan warna brand.
+                </p>
+              )}
+              {canEdit && (
               <div className="flex items-center gap-3 pt-2">
                 <Button onClick={handleSave} disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? (
@@ -179,6 +196,7 @@ export function AppearanceSettingsPage() {
                   Reset ke Default
                 </Button>
               </div>
+              )}
             </CardContent>
           </Card>
         </div>

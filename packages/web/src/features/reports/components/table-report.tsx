@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { formatNumber, formatDuration, formatRupiah } from '@/lib/format';
 import { Table2, Clock, Users, RotateCcw, TrendingUp } from 'lucide-react';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
+import { reportDateParams } from '../report-date-params';
 import type { DateRange, TableReport as TableReportType } from '@/types/report.types';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
 
@@ -16,15 +18,11 @@ interface TableReportProps {
 }
 
 export function TableReport({ outletId, dateRange, customDateRange }: TableReportProps) {
-    const { data: reportData, isLoading } = useQuery<TableReportType>({
-        queryKey: ['report', 'table', outletId, dateRange, customDateRange],
-        queryFn: () => reportsApi.table({
-            outletId,
-            dateRange,
-            startDate: customDateRange?.from?.toISOString(),
-            endDate: customDateRange?.to?.toISOString(),
-        }),
-        enabled: !!outletId,
+    const { startDate, endDate, ready } = reportDateParams(dateRange, customDateRange);
+    const { data: reportData, isLoading, error, refetch } = useQuery<TableReportType>({
+        queryKey: ['report', 'table', outletId, dateRange, startDate, endDate],
+        queryFn: () => reportsApi.table({ outletId, dateRange, startDate, endDate }),
+        enabled: !!outletId && ready,
     });
 
     if (isLoading) {
@@ -34,6 +32,16 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                     <Skeleton key={i} className="h-32" />
                 ))}
             </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <ReportErrorState
+                description="Terjadi kesalahan saat mengambil data laporan."
+                error={error as Error}
+                onRetry={() => void refetch()}
+            />
         );
     }
 
@@ -68,6 +76,11 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                     <CardContent>
                         <div className="text-2xl font-bold">{reportData.avgOccupancy}%</div>
                         <Progress value={reportData.avgOccupancy} className="mt-2 h-2" />
+                        {reportData.occupancyEstimated && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Estimasi (asumsi {reportData.assumedOperatingHoursPerDay} jam operasional/hari)
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -84,7 +97,7 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Table Turnover</CardTitle>
+                        <CardTitle className="text-sm font-medium">Perputaran Meja</CardTitle>
                         <RotateCcw className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
@@ -113,13 +126,13 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                                         <div>
                                             <span className="text-sm font-medium">{table.name}</span>
                                             <p className="text-xs text-muted-foreground">
-                                                {table.turnover}x turnover • ~{table.avgTime}m
+                                                {table.turnover}x perputaran • ~{table.avgTime} menit
                                             </p>
                                         </div>
                                         <div className="text-right">
                                             <p className="text-sm font-medium">{formatRupiah(table.revenue)}</p>
                                             <Badge variant={i < 3 ? 'default' : 'secondary'} className="text-[10px]">
-                                                {i < 3 ? 'Top' : 'Low'}
+                                                {i < 3 ? 'Teratas' : 'Rendah'}
                                             </Badge>
                                         </div>
                                     </div>
@@ -134,6 +147,9 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                         <CardTitle className="flex items-center gap-2 text-base">
                             <Clock className="h-4 w-4" />
                             Jam Ramai
+                            {reportData.occupancyEstimated && (
+                                <span className="text-xs font-normal text-muted-foreground">(estimasi)</span>
+                            )}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -158,7 +174,7 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                 </Card>
             </div>
 
-            {/* Guest Stats */}
+            {/* Guest Stats — guest counts are not recorded by the backend (null) */}
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-base">
@@ -167,22 +183,22 @@ export function TableReport({ outletId, dateRange, customDateRange }: TableRepor
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid gap-4 md:grid-cols-3">
-                        <div className="text-center p-4 rounded-lg bg-muted/50">
-                            <div className="text-2xl font-bold text-primary">{formatNumber(reportData.totalGuests)}</div>
-                            <p className="text-sm text-muted-foreground">Total Tamu</p>
-                        </div>
-                        <div className="text-center p-4 rounded-lg bg-muted/50">
-                            <div className="text-2xl font-bold text-primary">{reportData.avgGuestsPerTable}</div>
-                            <p className="text-sm text-muted-foreground">Rata-rata per Meja</p>
-                        </div>
-                        <div className="text-center p-4 rounded-lg bg-muted/50">
-                            <div className="text-2xl font-bold text-primary">
-                                {reportData.totalTables > 0 ? Math.round(reportData.totalGuests / reportData.totalTables) : 0}
+                    {reportData.totalGuests === null ? (
+                        <p className="text-sm text-muted-foreground">
+                            Tidak tersedia — jumlah tamu per pesanan belum dicatat.
+                        </p>
+                    ) : (
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="text-center p-4 rounded-lg bg-muted/50">
+                                <div className="text-2xl font-bold text-primary">{formatNumber(reportData.totalGuests)}</div>
+                                <p className="text-sm text-muted-foreground">Total Tamu</p>
                             </div>
-                            <p className="text-sm text-muted-foreground">Tamu per Hari per Meja</p>
+                            <div className="text-center p-4 rounded-lg bg-muted/50">
+                                <div className="text-2xl font-bold text-primary">{reportData.avgGuestsPerTable ?? '-'}</div>
+                                <p className="text-sm text-muted-foreground">Rata-rata per Meja</p>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </CardContent>
             </Card>
         </div>

@@ -7,7 +7,8 @@ import { DashboardPage } from '../dashboard-page';
 
 // ---- Mock API modules ----
 
-const { mockDashboardSummary, mockDashboardItems, mockOutletComparison } = vi.hoisted(() => ({
+const { mockDashboardSummary, mockDashboardItems, mockOutletComparison, currentRole } = vi.hoisted(() => ({
+  currentRole: { value: 'owner' },
   mockDashboardSummary: {
     grossSales: 15000000,
     netSales: 14000000,
@@ -44,7 +45,7 @@ vi.mock('@/stores/ui.store', () => ({
 vi.mock('@/stores/auth.store', () => ({
   useAuthStore: vi.fn((selector: (state: { user: { outletId: string; name: string; outletName: string; role: string } }) => unknown) =>
     selector({
-      user: { outletId: 'outlet-1', name: 'Admin', outletName: 'Outlet Utama', role: 'owner' },
+      user: { outletId: 'outlet-1', name: 'Admin', outletName: 'Outlet Utama', role: currentRole.value },
     }),
   ),
 }));
@@ -90,6 +91,29 @@ function renderDashboard() {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentRole.value = 'owner';
+  });
+
+  it('shows a no-access landing instead of Rp 0 KPIs for roles without report access', async () => {
+    currentRole.value = 'cashier';
+    renderDashboard();
+
+    expect(screen.getByText(/Ringkasan penjualan hanya tersedia/)).toBeInTheDocument();
+    expect(screen.getByText('Buka Kasir (POS)')).toBeInTheDocument();
+    expect(screen.queryByText('Penjualan Kotor')).not.toBeInTheDocument();
+    const { reportsApi } = await import('@/api/endpoints/reports.api');
+    expect(reportsApi.dashboardSummary).not.toHaveBeenCalled();
+  });
+
+  it('renders an error state (not zero KPIs) when the summary query fails', async () => {
+    const { reportsApi } = await import('@/api/endpoints/reports.api');
+    vi.mocked(reportsApi.dashboardSummary).mockRejectedValueOnce(new Error('403 Forbidden'));
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText('Gagal memuat ringkasan penjualan')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Penjualan Kotor')).not.toBeInTheDocument();
   });
 
   it('renders metric cards with loaded data', async () => {
@@ -143,15 +167,15 @@ describe('DashboardPage', () => {
 
     // Tabs should be present
     const dashboardTab = screen.getByRole('tab', { name: 'Dashboard' });
-    const outletComparisonTab = screen.getByRole('tab', { name: 'Outlet Comparison' });
+    const outletComparisonTab = screen.getByRole('tab', { name: 'Perbandingan Outlet' });
 
     expect(dashboardTab).toBeInTheDocument();
     expect(outletComparisonTab).toBeInTheDocument();
 
-    // Click on "Outlet Comparison" tab
+    // Click on "Perbandingan Outlet" tab
     await user.click(outletComparisonTab);
 
     // The page should still be rendered after tab switch
-    expect(screen.getByRole('tab', { name: 'Outlet Comparison' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Perbandingan Outlet' })).toBeInTheDocument();
   });
 });

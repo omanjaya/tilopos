@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
+import { useCan } from '@/features/auth/use-permission';
 import type { SalesReportTab } from '@/types/report.types';
 
 import { SummarySection } from './components/sales-detail/summary-section';
@@ -57,6 +58,9 @@ export function SalesReportPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
+  // Laba Kotor reads GET /reports/financial (owner/manager only; supervisor gets 403)
+  const canViewFinancial = useCan('reports.financial');
+  const tabs = canViewFinancial ? TABS : TABS.filter((t) => t.id !== 'gross-profit');
 
   const startDate = format(dateRange.from, 'yyyy-MM-dd');
   const endDate = format(dateRange.to, 'yyyy-MM-dd');
@@ -85,7 +89,7 @@ export function SalesReportPage() {
 
       {/* Horizontal scrollable tab chips */}
       <div ref={scrollRef} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -105,7 +109,7 @@ export function SalesReportPage() {
       {/* Content */}
       <div>
         {activeTab === 'summary' && <SummarySection {...sectionProps} />}
-        {activeTab === 'gross-profit' && <GrossProfitSection {...sectionProps} />}
+        {canViewFinancial && activeTab === 'gross-profit' && <GrossProfitSection {...sectionProps} />}
         {activeTab === 'payment-methods' && <PaymentMethodsSection {...sectionProps} />}
         {activeTab === 'item-sales' && <ItemSalesSection {...sectionProps} />}
         {activeTab === 'category-sales' && <CategorySalesSection {...sectionProps} />}

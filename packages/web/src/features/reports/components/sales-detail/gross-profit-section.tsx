@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatPercentage } from '@/lib/format';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
 
 interface GrossProfitSectionProps {
   outletId: string;
@@ -19,7 +20,7 @@ function Row({ label, value, isBold }: { label: string; value: string; isBold?: 
 }
 
 export function GrossProfitSection({ outletId, startDate, endDate }: GrossProfitSectionProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['report', 'financial', outletId, startDate, endDate],
     queryFn: () => reportsApi.financial({ outletId, dateRange: 'custom', startDate, endDate }),
     enabled: !!outletId,
@@ -32,6 +33,16 @@ export function GrossProfitSection({ outletId, startDate, endDate }: GrossProfit
           <Skeleton key={i} className="h-8" />
         ))}
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ReportErrorState
+        description="Terjadi kesalahan saat mengambil data laporan."
+        error={error as Error}
+        onRetry={() => void refetch()}
+      />
     );
   }
 

@@ -12,6 +12,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { DateRangePicker } from '@/components/shared/date-range-picker';
+import { useCan } from '@/features/auth/use-permission';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
 import { MobileNavSpacer } from '@/components/shared/mobile-nav';
 import { Calendar, ChevronDown } from 'lucide-react';
@@ -47,6 +48,8 @@ export function ReportsPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
+  // GET /reports/financial is owner/manager only (supervisor gets 403)
+  const canViewFinancial = useCan('reports.financial');
 
   // Get label for current date range
   const currentDateRangeLabel =
@@ -134,16 +137,18 @@ export function ReportsPage() {
 
           {/* Report Type Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full grid grid-cols-4 h-auto">
+            <TabsList className={`w-full grid h-auto ${canViewFinancial ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <TabsTrigger value="sales" className="text-xs py-2">
                 Penjualan
               </TabsTrigger>
               <TabsTrigger value="products" className="text-xs py-2">
                 Produk
               </TabsTrigger>
-              <TabsTrigger value="financial" className="text-xs py-2">
-                Keuangan
-              </TabsTrigger>
+              {canViewFinancial && (
+                <TabsTrigger value="financial" className="text-xs py-2">
+                  Keuangan
+                </TabsTrigger>
+              )}
               <TabsTrigger value="payment" className="text-xs py-2">
                 Pembayaran
               </TabsTrigger>
@@ -171,13 +176,15 @@ export function ReportsPage() {
             />
           </TabsContent>
 
-          <TabsContent value="financial" className="mt-0">
-            <FinancialReport
-              outletId={outletId}
-              dateRange={dateRange}
-              customDateRange={customDateRange}
-            />
-          </TabsContent>
+          {canViewFinancial && (
+            <TabsContent value="financial" className="mt-0">
+              <FinancialReport
+                outletId={outletId}
+                dateRange={dateRange}
+                customDateRange={customDateRange}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="payment" className="mt-0">
             <PaymentReport

@@ -27,13 +27,13 @@ import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { Plus, MoreHorizontal, Pencil, Trash2, Loader2, Save } from 'lucide-react';
-import type { ModifierGroup, CreateModifierGroupRequest } from '@/types/settings.types';
+import type { ModifierGroup, CreateModifierGroupRequest, UpdateModifierGroupRequest } from '@/types/settings.types';
 
 interface ModifierFormItem {
+  /** Set for existing modifiers (updated in place); new ones have no id. */
+  id?: string;
   name: string;
   price: number;
-  isActive: boolean;
-  sortOrder: number;
 }
 
 export function ModifierGroupsPage() {
@@ -52,8 +52,8 @@ export function ModifierGroupsPage() {
   const [newModName, setNewModName] = useState('');
   const [newModPrice, setNewModPrice] = useState(0);
 
-  const { data: modifierGroups, isLoading } = useQuery({
-    queryKey: ['modifierGroups', search],
+  const { data: modifierGroups, isLoading, error, refetch } = useQuery({
+    queryKey: ['modifierGroups'],
     queryFn: settingsApi.listModifierGroups,
   });
 
@@ -72,7 +72,7 @@ export function ModifierGroupsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateModifierGroupRequest> }) =>
+    mutationFn: ({ id, data }: { id: string; data: UpdateModifierGroupRequest }) =>
       settingsApi.updateModifierGroup(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modifierGroups'] });
@@ -118,13 +118,12 @@ export function ModifierGroupsPage() {
     setGroupName(group.name);
     setIsRequired(group.isRequired);
     setMinSelections(group.minSelections);
-    setMaxSelections(group.maxSelections);
+    setMaxSelections(group.maxSelections ?? 1);
     setModifierItems(
       (group.modifiers ?? []).map((m) => ({
+        id: m.id,
         name: m.name,
         price: m.price,
-        isActive: m.isActive,
-        sortOrder: m.sortOrder,
       })),
     );
     setDialogOpen(true);
@@ -134,7 +133,7 @@ export function ModifierGroupsPage() {
     if (!newModName.trim()) return;
     setModifierItems([
       ...modifierItems,
-      { name: newModName.trim(), price: newModPrice, isActive: true, sortOrder: modifierItems.length },
+      { name: newModName.trim(), price: newModPrice },
     ]);
     setNewModName('');
     setNewModPrice(0);
@@ -142,12 +141,6 @@ export function ModifierGroupsPage() {
 
   const handleRemoveModifier = (index: number) => {
     setModifierItems(modifierItems.filter((_, i) => i !== index));
-  };
-
-  const handleToggleModifier = (index: number) => {
-    setModifierItems(
-      modifierItems.map((m, i) => (i === index ? { ...m, isActive: !m.isActive } : m)),
-    );
   };
 
   const handleSubmitDialog = (e: React.FormEvent) => {
@@ -160,7 +153,13 @@ export function ModifierGroupsPage() {
       modifiers: modifierItems,
     };
 
+    if (minSelections > maxSelections) {
+      toast.error({ title: 'Min pilihan tidak boleh lebih besar dari maks pilihan' });
+      return;
+    }
+
     if (editingGroup) {
+      // Full update: removed modifiers are deactivated by the backend
       updateMutation.mutate({ id: editingGroup.id, data: payload });
     } else {
       createMutation.mutate(payload);
@@ -190,7 +189,7 @@ export function ModifierGroupsPage() {
       header: 'Min / Maks Pilihan',
       cell: (row) => (
         <span className="text-sm text-muted-foreground">
-          {row.minSelections} / {row.maxSelections}
+          {row.minSelections} / {row.maxSelections ?? '∞'}
         </span>
       ),
     },
@@ -241,6 +240,8 @@ export function ModifierGroupsPage() {
         columns={columns}
         data={filteredGroups}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
         searchPlaceholder="Cari modifier..."
         onSearch={setSearch}
         emptyTitle="Belum ada grup modifier"
@@ -312,13 +313,7 @@ export function ModifierGroupsPage() {
                       key={index}
                       className="flex items-center justify-between rounded border px-3 py-2"
                     >
-                      <div className="flex items-center gap-3">
-                        <Switch
-                          checked={mod.isActive}
-                          onCheckedChange={() => handleToggleModifier(index)}
-                        />
-                        <span className="text-sm">{mod.name}</span>
-                      </div>
+                      <span className="text-sm">{mod.name}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-muted-foreground">
                           {formatCurrency(mod.price)}
@@ -329,6 +324,7 @@ export function ModifierGroupsPage() {
                           size="icon"
                           className="h-7 w-7 text-destructive"
                           onClick={() => handleRemoveModifier(index)}
+                          aria-label={`Hapus modifier ${mod.name}`}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -369,7 +365,7 @@ export function ModifierGroupsPage() {
                 type="submit"
                 disabled={isSaving}
                 aria-busy={isSaving}
-                aria-label={isSaving ? (editingGroup ? 'Updating modifier group...' : 'Saving modifier group...') : undefined}
+                aria-label={isSaving ? (editingGroup ? 'Memperbarui grup modifier...' : 'Menyimpan grup modifier...') : undefined}
               >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -387,7 +383,7 @@ export function ModifierGroupsPage() {
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title="Hapus Grup Modifier"
-        description={`Apakah Anda yakin ingin menghapus grup modifier "${deleteTarget?.name}"? Tindakan ini tidak dapat dibatalkan.`}
+        description={`Grup modifier "${deleteTarget?.name}" akan dinonaktifkan dan tidak lagi muncul di produk. Lanjutkan?`}
         confirmLabel="Hapus"
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         isLoading={deleteMutation.isPending}

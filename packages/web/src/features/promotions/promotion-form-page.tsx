@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { promotionsApi } from '@/api/endpoints/promotions.api';
+import {
+  promotionsApi,
+  businessDayStartIso,
+  businessDayEndIso,
+  toBusinessDateInput,
+} from '@/api/endpoints/promotions.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +24,11 @@ import {
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, ArrowLeft } from 'lucide-react';
-import type { CreatePromotionRequest, DiscountType } from '@/types/promotion.types';
+import type {
+  CreatePromotionRequest,
+  UpdatePromotionRequest,
+  DiscountType,
+} from '@/types/promotion.types';
 
 export function PromotionFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,7 +46,13 @@ export function PromotionFormPage() {
   const [validUntil, setValidUntil] = useState('');
   const [usageLimit, setUsageLimit] = useState('');
 
-  const { data: promotion } = useQuery({
+  const {
+    data: promotion,
+    isLoading: isLoadingPromotion,
+    isError: isPromotionError,
+    error: promotionError,
+    refetch: refetchPromotion,
+  } = useQuery({
     queryKey: ['promotions', id],
     queryFn: () => promotionsApi.get(id!),
     enabled: isEdit,
@@ -50,8 +66,8 @@ export function PromotionFormPage() {
       setDiscountValue(String(promotion.discountValue));
       setMinPurchase(promotion.minPurchase !== null ? String(promotion.minPurchase) : '');
       setMaxDiscount(promotion.maxDiscount !== null ? String(promotion.maxDiscount) : '');
-      setValidFrom(promotion.validFrom.slice(0, 10));
-      setValidUntil(promotion.validUntil.slice(0, 10));
+      setValidFrom(toBusinessDateInput(promotion.validFrom));
+      setValidUntil(toBusinessDateInput(promotion.validUntil));
       setUsageLimit(promotion.usageLimit !== null ? String(promotion.usageLimit) : '');
     }
   }, [promotion]);
@@ -63,41 +79,86 @@ export function PromotionFormPage() {
       toast.success({ title: 'Promosi berhasil dibuat' });
       navigate('/app/promotions');
     },
-    onError: (error) => handleMutationError(error, 'Gagal'),
+    onError: (error) => handleMutationError(error, 'Gagal membuat promosi'),
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<CreatePromotionRequest>) => promotionsApi.update(id!, data),
+    mutationFn: (data: UpdatePromotionRequest) => promotionsApi.update(id!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promotions'] });
       toast.success({ title: 'Promosi berhasil diperbarui' });
       navigate('/app/promotions');
     },
-    onError: (error) => handleMutationError(error, 'Gagal'),
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui promosi'),
   });
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const data: CreatePromotionRequest = {
-      name,
-      description: description || undefined,
-      discountType,
-      discountValue: Number(discountValue),
-      minPurchase: minPurchase ? Number(minPurchase) : undefined,
-      maxDiscount: maxDiscount ? Number(maxDiscount) : undefined,
-      validFrom,
-      validUntil,
-      usageLimit: usageLimit ? Number(usageLimit) : undefined,
-    };
+    if (validUntil < validFrom) {
+      toast.error({ title: 'Tanggal berakhir harus setelah tanggal mulai' });
+      return;
+    }
+    if (discountType === 'percentage' && Number(discountValue) > 100) {
+      toast.error({ title: 'Diskon persentase maksimal 100%' });
+      return;
+    }
+    // Dates are business days (Asia/Jakarta): valid from 00:00 WIB until 23:59:59 WIB.
+    const from = businessDayStartIso(validFrom);
+    const until = businessDayEndIso(validUntil);
+    const effectiveMaxDiscount =
+      discountType === 'percentage' && maxDiscount ? Number(maxDiscount) : null;
 
     if (isEdit) {
-      updateMutation.mutate(data);
+      // null clears optional fields on the server; undefined would keep the old value
+      updateMutation.mutate({
+        name,
+        description: description || null,
+        discountType,
+        discountValue: Number(discountValue),
+        minPurchase: minPurchase ? Number(minPurchase) : null,
+        maxDiscount: effectiveMaxDiscount,
+        validFrom: from,
+        validUntil: until,
+        usageLimit: usageLimit ? Number(usageLimit) : null,
+      });
     } else {
+      const data: CreatePromotionRequest = {
+        name,
+        description: description || undefined,
+        discountType,
+        discountValue: Number(discountValue),
+        minPurchase: minPurchase ? Number(minPurchase) : undefined,
+        maxDiscount: effectiveMaxDiscount ?? undefined,
+        validFrom: from,
+        validUntil: until,
+        usageLimit: usageLimit ? Number(usageLimit) : undefined,
+      };
       createMutation.mutate(data);
     }
   };
+
+  if (isEdit && isPromotionError) {
+    return (
+      <div>
+        <PageHeader title="Edit Promosi">
+          <Button variant="outline" onClick={() => navigate('/app/promotions')}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+          </Button>
+        </PageHeader>
+        <ErrorState error={promotionError} onRetry={() => refetchPromotion()} />
+      </div>
+    );
+  }
+
+  if (isEdit && isLoadingPromotion) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Memuat data promosi" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -142,7 +203,7 @@ export function PromotionFormPage() {
                   value={discountType}
                   onValueChange={(v) => setDiscountType(v as DiscountType)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="discountType">
                     <SelectValue placeholder="Pilih tipe diskon" />
                   </SelectTrigger>
                   <SelectContent>
@@ -244,7 +305,7 @@ export function PromotionFormPage() {
             type="submit"
             disabled={isPending}
             aria-busy={isPending}
-            aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Creating promotion...') : undefined}
+            aria-label={isPending ? (isEdit ? 'Menyimpan perubahan...' : 'Membuat promosi...') : undefined}
           >
             {isPending && <Loader2 className="animate-spin" />}
             {isEdit ? 'Simpan Perubahan' : 'Buat Promosi'}

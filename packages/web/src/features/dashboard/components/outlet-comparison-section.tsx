@@ -43,29 +43,30 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
 
   // Summary rows for the table
   const summaryRows = [
-    { label: 'Gross Sales', key: 'grossSales', format: 'currency' },
-    { label: 'Net Sales', key: 'netSales', format: 'currency' },
-    { label: 'Gross Profit', key: 'grossProfit', format: 'currency' },
-    { label: 'Transaction', key: 'transactions', format: 'number' },
-    { label: 'Avg Sale / Transaction', key: 'averageSale', format: 'currency' },
-    { label: 'Gross Margin', key: 'grossMargin', format: 'percent' },
+    { label: 'Penjualan Kotor', key: 'grossSales', format: 'currency' },
+    { label: 'Penjualan Bersih', key: 'netSales', format: 'currency' },
+    { label: 'Laba Kotor', key: 'grossProfit', format: 'currency' },
+    { label: 'Transaksi', key: 'transactions', format: 'number' },
+    { label: 'Rata-rata per Transaksi', key: 'averageSale', format: 'currency' },
+    { label: 'Margin Kotor', key: 'grossMargin', format: 'percent' },
   ] as const;
 
-  // Chart comparison metrics
+  // Chart comparison metrics — only Rupiah metrics share one axis; counts and
+  // percentages are shown in the table above.
+  // grossProfit/grossMargin are null for roles without cost access
+  const hasProfit = outlets.every((o) => o.grossProfit !== null);
   const chartMetrics = [
-    { label: 'Gross Sales', key: 'grossSales' },
-    { label: 'Net Sales', key: 'netSales' },
-    { label: 'Gross Profit', key: 'grossProfit' },
-    { label: 'Transaction', key: 'transactions' },
-    { label: 'Avg Sale / Txn', key: 'averageSale' },
-    { label: 'Gross Margin', key: 'grossMargin' },
+    { label: 'Penjualan Kotor', key: 'grossSales' },
+    { label: 'Penjualan Bersih', key: 'netSales' },
+    ...(hasProfit ? [{ label: 'Laba Kotor', key: 'grossProfit' } as const] : []),
+    { label: 'Rata-rata / Transaksi', key: 'averageSale' },
   ] as const;
 
   // Build chart data: one bar per metric, grouped by outlet
   const comparisonChartData = chartMetrics.map((m) => {
     const entry: Record<string, string | number> = { metric: m.label };
     for (const o of outlets) {
-      entry[o.outletName] = Number((o[m.key] as number).toFixed(2));
+      entry[o.outletName] = Number(((o[m.key] as number | null) ?? 0).toFixed(2));
     }
     return entry;
   });
@@ -76,7 +77,8 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
     grossSales: o.grossSales,
   }));
 
-  const formatValue = (val: number, fmt: string) => {
+  const formatValue = (val: number | null, fmt: string) => {
+    if (val === null) return '-';
     if (fmt === 'currency') return formatCurrency(val);
     if (fmt === 'percent') return `${val.toFixed(1)}%`;
     return formatNumber(val);
@@ -86,7 +88,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
     <div className={`space-y-4 ${className ?? ''}`}>
       {/* TABLE SUMMARY — columns per outlet */}
       <div className="rounded-2xl border border-border/50 bg-white/80 dark:bg-card/80 backdrop-blur-sm shadow-sm p-5">
-        <h3 className="text-sm font-semibold mb-4">Table Summary</h3>
+        <h3 className="text-sm font-semibold mb-4">Ringkasan Tabel</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -106,7 +108,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
               {/* Sales Summary */}
               <tr>
                 <td colSpan={outlets.length + 1} className="pt-4 pb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  Sales Summary
+                  Ringkasan Penjualan
                 </td>
               </tr>
               {summaryRows.map((row) => (
@@ -114,7 +116,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
                   <td className="py-2.5 pr-6 text-xs text-muted-foreground">{row.label}</td>
                   {outlets.map((o) => (
                     <td key={o.outletId} className="py-2.5 px-4 text-center text-sm font-medium tabular-nums">
-                      {formatValue(o[row.key] as number, row.format)}
+                      {formatValue(o[row.key] as number | null, row.format)}
                     </td>
                   ))}
                 </tr>
@@ -123,11 +125,11 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
               {/* Items — Top 3 */}
               <tr>
                 <td colSpan={outlets.length + 1} className="pt-5 pb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  Items
+                  Item
                 </td>
               </tr>
               <tr className="border-b border-border/20">
-                <td className="py-2.5 pr-6 text-xs text-muted-foreground">Top 3 Items</td>
+                <td className="py-2.5 pr-6 text-xs text-muted-foreground">3 Item Teratas</td>
                 {outlets.map((o) => (
                   <td key={o.outletId} className="py-2.5 px-4">
                     {o.topItems && o.topItems.length > 0 ? (
@@ -155,7 +157,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
 
       {/* GRAPH COMPARISON — grouped bar chart */}
       <div className="rounded-2xl border border-border/50 bg-white/80 dark:bg-card/80 backdrop-blur-sm shadow-sm p-5">
-        <h3 className="text-sm font-semibold mb-4">Graph Comparison</h3>
+        <h3 className="text-sm font-semibold mb-4">Grafik Perbandingan (Rupiah)</h3>
         <ResponsiveContainer width="100%" height={320}>
           <BarChart data={comparisonChartData} layout="vertical" barCategoryGap="18%">
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" horizontal={false} />
@@ -202,7 +204,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
 
       {/* GROSS SALES AMOUNT — vertical bar chart */}
       <div className="rounded-2xl border border-border/50 bg-white/80 dark:bg-card/80 backdrop-blur-sm shadow-sm p-5">
-        <h3 className="text-sm font-semibold mb-4">Gross Sales Amount</h3>
+        <h3 className="text-sm font-semibold mb-4">Nilai Penjualan Kotor</h3>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={grossSalesChartData} barCategoryGap="25%">
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" vertical={false} />
@@ -230,7 +232,7 @@ export function OutletComparisonSection({ data, isLoading, className }: OutletCo
                 borderRadius: '8px',
                 fontSize: '12px',
               }}
-              formatter={(value: number) => [formatCurrency(value), 'Gross Sales']}
+              formatter={(value: number) => [formatCurrency(value), 'Penjualan Kotor']}
             />
             <Bar dataKey="grossSales" radius={[4, 4, 0, 0]}>
               {grossSalesChartData.map((_, i) => (

@@ -42,7 +42,7 @@ export function autoMapColumns(
 
   // Alias map for common column name variations
   const aliases: Record<string, string[]> = {
-    name: ['nama', 'namaproduct', 'namaproduk', 'productname', 'namacustomer', 'customername', 'namabarang'],
+    name: ['nama', 'namaproduct', 'namaproduk', 'productname', 'namacustomer', 'namapelanggan', 'customername', 'namabarang'],
     sku: ['sku', 'kode', 'kodebarang', 'kodeproduk', 'productcode', 'itemcode'],
     price: ['harga', 'hargajual', 'baseprice', 'sellingprice', 'hargadasar'],
     basePrice: ['harga', 'hargajual', 'baseprice', 'sellingprice', 'hargadasar'],

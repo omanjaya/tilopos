@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatNumber, formatPercentage } from '@/lib/format';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
 
 interface PaymentMethodsSectionProps {
   outletId: string;
@@ -9,18 +11,8 @@ interface PaymentMethodsSectionProps {
   endDate: string;
 }
 
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Tunai',
-  debit: 'Kartu Debit',
-  credit: 'Kartu Kredit',
-  qris: 'QRIS',
-  transfer: 'Transfer Bank',
-  ewallet: 'E-Wallet',
-  other: 'Lainnya',
-};
-
 export function PaymentMethodsSection({ outletId, startDate, endDate }: PaymentMethodsSectionProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['report', 'payment-methods', outletId, startDate, endDate],
     queryFn: () => reportsApi.paymentMethods({ outletId, dateRange: 'custom', startDate, endDate }),
     enabled: !!outletId,
@@ -33,6 +25,16 @@ export function PaymentMethodsSection({ outletId, startDate, endDate }: PaymentM
           <Skeleton key={i} className="h-10" />
         ))}
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ReportErrorState
+        description="Terjadi kesalahan saat mengambil data laporan."
+        error={error as Error}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -64,7 +66,7 @@ export function PaymentMethodsSection({ outletId, startDate, endDate }: PaymentM
         </div>
         {data.methods.map((m) => (
           <div key={m.method} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b px-4 py-2.5 last:border-0">
-            <span className="text-sm">{METHOD_LABELS[m.method] || m.method}</span>
+            <span className="text-sm">{paymentMethodLabel(m.method)}</span>
             <span className="text-right text-sm tabular-nums text-muted-foreground">{formatNumber(m.count)}</span>
             <span className="text-right text-sm tabular-nums">{formatCurrency(m.amount)}</span>
             <span className="text-right text-sm tabular-nums text-muted-foreground">{formatPercentage(m.percentage)}</span>

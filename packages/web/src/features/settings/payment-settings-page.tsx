@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ import {
   Smartphone,
   QrCode,
   Building2,
+  Info,
 } from 'lucide-react';
 import type { PaymentMethod, PaymentMethodType, CreatePaymentMethodRequest } from '@/types/settings.types';
 
@@ -59,7 +61,7 @@ export function PaymentSettingsPage() {
   const [form, setForm] = useState<CreatePaymentMethodRequest>(EMPTY_FORM);
   const [deleteConfirm, setDeleteConfirm] = useState<PaymentMethod | null>(null);
 
-  const { data: methods, isLoading } = useQuery({
+  const { data: methods, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['payment-methods'],
     queryFn: settingsApi.listPaymentMethods,
   });
@@ -157,10 +159,20 @@ export function PaymentSettingsPage() {
         </Button>
       </PageHeader>
 
+      <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          Daftar ini belum dipakai oleh layar kasir (POS): menonaktifkan metode atau mengatur biaya
+          pemrosesan di sini belum mengubah pilihan pembayaran saat checkout.
+        </p>
+      </div>
+
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : isError ? (
+        <ErrorState title="Gagal memuat metode pembayaran" error={error} onRetry={() => void refetch()} />
       ) : !methods?.length ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <Banknote className="mx-auto h-10 w-10 text-muted-foreground/50" />
@@ -201,7 +213,7 @@ export function PaymentSettingsPage() {
                         </div>
                         {method.processingFee > 0 && (
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Fee: {method.processingFee}%
+                            Biaya: {method.processingFee}%
                           </p>
                         )}
                       </div>
@@ -211,9 +223,15 @@ export function PaymentSettingsPage() {
                           onCheckedChange={(checked) =>
                             toggleMutation.mutate({ id: method.id, isActive: checked })
                           }
-                          aria-label={`Toggle ${method.name}`}
+                          aria-label={`Aktifkan ${method.name}`}
                         />
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(method)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEdit(method)}
+                          aria-label={`Edit ${method.name}`}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button
@@ -221,6 +239,7 @@ export function PaymentSettingsPage() {
                           size="icon"
                           className="h-8 w-8 text-destructive"
                           onClick={() => setDeleteConfirm(method)}
+                          aria-label={`Hapus ${method.name}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -274,7 +293,7 @@ export function PaymentSettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Processing Fee (%)</Label>
+              <Label>Biaya Pemrosesan (%)</Label>
               <Input
                 type="number"
                 min="0"

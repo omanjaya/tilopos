@@ -1,12 +1,12 @@
-import { Fragment, useCallback, useState } from 'react';
+import { Fragment, useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { useOnboarding } from './onboarding-provider';
 import { useOnboardingSetupStore } from './onboarding-setup.store';
-import { templatesApi } from '@/api/endpoints/templates.api';
-import { useUIStore } from '@/stores/ui.store';
+import { onboardingApi } from '@/api/endpoints/onboarding.api';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
 import { WelcomeStep } from './steps/welcome-step';
 import { BusinessTypeStep } from './steps/business-type-step';
 import { TemplateStep } from './steps/template-step';
@@ -30,18 +30,18 @@ const steps = [
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { state, closeOnboarding, nextStep, prevStep, skipOnboarding, goToStep, completeOnboarding } = useOnboarding();
   const setupStore = useOnboardingSetupStore();
-  const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const queryClient = useQueryClient();
-  const [isApplying, setIsApplying] = useState(false);
 
-  const applyMutation = useMutation({
-    mutationFn: (params: { outletId: string; typeCode: string; sections: typeof setupStore.templateSections }) =>
-      templatesApi.apply({
-        outletId: params.outletId,
-        typeCode: params.typeCode,
-        sections: params.sections,
-      }),
-  });
+  // Everything the wizard collected is applied in one call to POST /onboarding/setup
+  // (business type + features, template, payment methods, tax rate, first cashier).
+  const setupMutation = useMutation({ mutationFn: onboardingApi.setup });
+  const isApplying = setupMutation.isPending;
+
+  const handleClose = useCallback(() => {
+    // Never keep the cashier PIN around after the wizard closes
+    setupStore.setEmployee(null);
+    closeOnboarding();
+  }, [closeOnboarding, setupStore]);
 
   const handleSkip = useCallback(() => {
     setupStore.reset();
@@ -49,39 +49,42 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   }, [skipOnboarding, setupStore]);
 
   const handleComplete = useCallback(async () => {
-    setIsApplying(true);
     try {
-      // Apply template if business type selected and outlet exists
-      if (setupStore.businessType && selectedOutletId) {
-        const result = await applyMutation.mutateAsync({
-          outletId: selectedOutletId,
-          typeCode: setupStore.businessType,
-          sections: setupStore.templateSections,
-        });
+      const result = await setupMutation.mutateAsync({
+        businessType: setupStore.businessType ?? undefined,
+        template: setupStore.businessType ? { sections: setupStore.templateSections } : undefined,
+        paymentMethods: setupStore.paymentMethods,
+        taxRate: setupStore.taxRate,
+        employee: setupStore.employee ?? undefined,
+      });
 
-        toast.success({
-          title: 'Template berhasil diterapkan',
-          description: `${result.categories} kategori, ${result.products} produk berhasil dibuat.`,
-        });
-
-        // Invalidate relevant queries
-        queryClient.invalidateQueries({ queryKey: ['products'] });
-        queryClient.invalidateQueries({ queryKey: ['categories'] });
-        queryClient.invalidateQueries({ queryKey: ['tables'] });
+      const parts: string[] = [];
+      if (result.template.applied) {
+        parts.push(`${result.template.categories} kategori, ${result.template.products} produk dibuat`);
       }
+      if (result.paymentMethods.configured) {
+        parts.push(`${result.paymentMethods.count} metode pembayaran diatur`);
+      }
+      if (result.employee.created) parts.push('kasir pertama ditambahkan');
+      toast.success({
+        title: 'Pengaturan awal selesai',
+        description: parts.length > 0 ? parts.join(', ') : undefined,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
+      queryClient.invalidateQueries({ queryKey: ['business-type'] });
 
       setupStore.reset();
       completeOnboarding();
       onComplete?.();
-    } catch {
-      toast.error({
-        title: 'Gagal menerapkan template',
-        description: 'Silakan coba lagi atau lewati langkah ini.',
-      });
-    } finally {
-      setIsApplying(false);
+    } catch (err) {
+      handleMutationError(err, 'Gagal menyimpan pengaturan awal');
     }
-  }, [setupStore, selectedOutletId, applyMutation, queryClient, completeOnboarding, onComplete]);
+  }, [setupStore, setupMutation, queryClient, completeOnboarding, onComplete]);
 
   if (!state.isOpen) {
     return null;
@@ -96,11 +99,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-background p-6 shadow-lg">
         {/* Close Button */}
         <button
-          onClick={closeOnboarding}
+          type="button"
+          onClick={handleClose}
           className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
           <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">Tutup</span>
         </button>
 
         {/* Progress Indicator (hidden on welcome step) */}

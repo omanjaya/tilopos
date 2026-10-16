@@ -15,8 +15,7 @@ export function CTASection() {
                 <p className="text-lg opacity-90 mb-8">
                     Daftar gratis sekarang. Tanpa kartu kredit.
                 </p>
-                <Link to="/register">
-                    <Button
+                <Button asChild
                         size="lg"
                         className="h-13 px-8 font-semibold text-lg"
                         style={{
@@ -25,10 +24,11 @@ export function CTASection() {
                             borderRadius: 'var(--brand-button-radius)'
                         }}
                     >
+                  <Link to="/register">
                         Daftar Gratis
                         <ArrowRight className="ml-2 w-5 h-5" />
-                    </Button>
-                </Link>
+                    </Link>
+                </Button>
             </div>
         </section>
     );

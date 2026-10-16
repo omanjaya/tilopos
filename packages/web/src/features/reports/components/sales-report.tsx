@@ -50,18 +50,10 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
-  const { data: customerReport, isLoading: customerLoading, error: customerError, refetch: refetchCustomers } = useQuery({
-    queryKey: ['reports', 'customers', outletId, dateRange, startDate, endDate],
-    queryFn: () => reportsApi.customers({ outletId, dateRange, startDate, endDate }),
-    enabled: !!outletId && (dateRange !== 'custom' || (!!startDate && !!endDate)),
-    refetchOnWindowFocus: false,
-    staleTime: 5 * 60 * 1000,
-  });
-
   // Note: Previous period comparison removed in favor of calculation help tooltips
 
-  const isLoading = salesLoading || customerLoading;
-  const hasError = salesError || customerError;
+  const isLoading = salesLoading;
+  const hasError = !!salesError;
 
   // Prepare export data
   const exportData = salesReport
@@ -79,11 +71,8 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
         <ReportErrorState
           title="Gagal memuat laporan penjualan"
           description="Terjadi kesalahan saat mengambil data laporan penjualan."
-          error={(salesError || customerError) as Error}
-          onRetry={() => {
-            refetchSales();
-            refetchCustomers();
-          }}
+          error={salesError as Error}
+          onRetry={() => void refetchSales()}
         />
       )}
 
@@ -113,7 +102,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
               </CardContent>
             </Card>
           ))
-        ) : !hasData && !isLoading ? (
+        ) : hasError ? null : !hasData ? (
           <div className="col-span-full">
             <ReportEmptyState
               title="Belum ada penjualan"
@@ -190,7 +179,7 @@ export function SalesReport({ outletId, dateRange, customDateRange }: SalesRepor
                       description="Jumlah pelanggan unik yang melakukan transaksi pada periode ini."
                     />
                   </div>
-                  <p className="text-lg font-bold sm:text-2xl">{String(customerReport?.totalCustomers ?? 0)}</p>
+                  <p className="text-lg font-bold sm:text-2xl">{String(salesReport?.totalCustomers ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>

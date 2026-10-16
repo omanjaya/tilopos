@@ -34,7 +34,9 @@ import {
   Download,
 } from 'lucide-react';
 import { ColumnMapper, autoMapColumns, type TargetField } from './components/column-mapper';
-import { downloadCSVTemplate } from '@/lib/csv-template';
+import { downloadImportTemplate } from '@/lib/import-template';
+import { useCan } from '@/features/auth/use-permission';
+import { toast } from '@/lib/toast-utils';
 
 type ImportType = 'products' | 'customers';
 
@@ -58,23 +60,37 @@ const PRODUCT_FIELDS: TargetField[] = [
   { key: 'costPrice', label: 'Harga Modal', required: false },
   { key: 'description', label: 'Deskripsi', required: false },
   { key: 'unit', label: 'Satuan', required: false },
+  // Resolved by name on the backend; missing categories are created.
   { key: 'category', label: 'Kategori', required: false },
 ];
 
 const CUSTOMER_FIELDS: TargetField[] = [
-  { key: 'name', label: 'Nama Customer', required: true },
+  { key: 'name', label: 'Nama Pelanggan', required: true },
   { key: 'phone', label: 'No. Telepon', required: false },
   { key: 'email', label: 'Email', required: false },
   { key: 'address', label: 'Alamat', required: false },
   { key: 'notes', label: 'Catatan', required: false },
 ];
 
+function serverMessage(err: unknown): string | undefined {
+  const message = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  return Array.isArray(message) ? message.join(', ') : message;
+}
+
 export function ExcelImportPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { hasExcelImport } = useBusinessFeatures();
 
-  const initialType = (searchParams.get('type') as ImportType) || 'products';
+  // Backend @Roles: product import = manager/owner/inventory, customer import = owner/manager.
+  const canImportProducts = useCan('products.write');
+  const canImportCustomers = useCan('customers.import');
+
+  const requestedType = searchParams.get('type');
+  const initialType: ImportType =
+    (requestedType === 'customers' && canImportCustomers) || !canImportProducts
+      ? 'customers'
+      : 'products';
   const [importType, setImportType] = useState<ImportType>(initialType);
   const [step, setStep] = useState(0);
 
@@ -184,7 +200,7 @@ export function ExcelImportPage() {
       }
       setStep(1);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      const msg = serverMessage(err);
       setUploadError(msg || 'Gagal membaca file Excel');
     } finally {
       setIsUploading(false);
@@ -230,7 +246,7 @@ export function ExcelImportPage() {
       setImportResult(res.data);
       setStep(3);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      const msg = serverMessage(err);
       setImportResult({
         imported: 0,
         errors: [msg || 'Import gagal. Silakan coba lagi.'],
@@ -256,6 +272,31 @@ export function ExcelImportPage() {
     .filter((f) => f.required)
     .every((f) => mappings[f.key]);
 
+  const handleDownloadTemplate = async () => {
+    try {
+      await downloadImportTemplate(importType);
+    } catch (error) {
+      console.error('Template download failed', error);
+      toast.error({ title: 'Gagal mengunduh template', description: 'Silakan coba lagi.' });
+    }
+  };
+
+  if (!canImportProducts && !canImportCustomers) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Akses Ditolak</h3>
+            <p className="text-sm text-muted-foreground">
+              Peran Anda tidak memiliki izin untuk mengimpor data.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!hasExcelImport) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -279,39 +320,45 @@ export function ExcelImportPage() {
       <div>
         <h1 className="text-2xl font-bold">Import dari Excel</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Import data produk atau customer dari file Excel (.xlsx)
+          Import data produk atau pelanggan dari file Excel (.xlsx)
         </p>
       </div>
 
       {/* Import Type Selector */}
       {step === 0 && (
         <div className="flex items-center justify-between">
-          <div className="flex gap-3">
-            <Button
-              variant={importType === 'products' ? 'default' : 'outline'}
-              className="flex items-center gap-2"
-              onClick={() => setImportType('products')}
-            >
-              <Package className="h-4 w-4" />
-              Produk
-            </Button>
-            <Button
-              variant={importType === 'customers' ? 'default' : 'outline'}
-              className="flex items-center gap-2"
-              onClick={() => setImportType('customers')}
-            >
-              <Users className="h-4 w-4" />
-              Customer
-            </Button>
+          <div className="flex gap-3" role="group" aria-label="Jenis data">
+            {canImportProducts && (
+              <Button
+                variant={importType === 'products' ? 'default' : 'outline'}
+                className="flex items-center gap-2"
+                aria-pressed={importType === 'products'}
+                onClick={() => setImportType('products')}
+              >
+                <Package className="h-4 w-4" aria-hidden="true" />
+                Produk
+              </Button>
+            )}
+            {canImportCustomers && (
+              <Button
+                variant={importType === 'customers' ? 'default' : 'outline'}
+                className="flex items-center gap-2"
+                aria-pressed={importType === 'customers'}
+                onClick={() => setImportType('customers')}
+              >
+                <Users className="h-4 w-4" aria-hidden="true" />
+                Pelanggan
+              </Button>
+            )}
           </div>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => downloadCSVTemplate(importType, true)}
+            onClick={() => void handleDownloadTemplate()}
             className="flex items-center gap-2"
           >
-            <Download className="h-4 w-4" />
-            Download Template CSV
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Unduh Template Excel
           </Button>
         </div>
       )}
@@ -352,7 +399,7 @@ export function ExcelImportPage() {
               Upload File Excel
             </CardTitle>
             <CardDescription>
-              Pilih file .xlsx yang berisi data {importType === 'products' ? 'produk' : 'customer'} untuk diimport
+              Pilih file .xlsx yang berisi data {importType === 'products' ? 'produk' : 'pelanggan'} untuk diimport
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -368,6 +415,16 @@ export function ExcelImportPage() {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => document.getElementById('xlsx-file-input')?.click()}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  document.getElementById('xlsx-file-input')?.click();
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={file ? `File terpilih: ${file.name}. Tekan untuk mengganti file` : 'Pilih file Excel untuk diimport'}
             >
               {file ? (
                 <div className="space-y-2">
@@ -407,6 +464,8 @@ export function ExcelImportPage() {
                 className="hidden"
                 accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={handleInputChange}
+                tabIndex={-1}
+                aria-hidden="true"
               />
             </div>
 
@@ -515,7 +574,7 @@ export function ExcelImportPage() {
           <CardHeader>
             <CardTitle>Mapping Kolom</CardTitle>
             <CardDescription>
-              Hubungkan kolom Excel dengan field {importType === 'products' ? 'produk' : 'customer'} di TiloPOS.
+              Hubungkan kolom Excel dengan field {importType === 'products' ? 'produk' : 'pelanggan'} di TiloPOS.
               Kolom yang cocok sudah otomatis dipilih.
             </CardDescription>
           </CardHeader>
@@ -629,7 +688,7 @@ export function ExcelImportPage() {
                   )
                 }
               >
-                Lihat {importType === 'products' ? 'Produk' : 'Customer'}
+                Lihat {importType === 'products' ? 'Produk' : 'Pelanggan'}
                 <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>

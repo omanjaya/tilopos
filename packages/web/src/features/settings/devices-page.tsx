@@ -20,20 +20,19 @@ import { MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react';
 import { DeviceStatusIndicator, type DeviceSyncStatus } from './components/device-status-indicator';
 import type { Device } from '@/types/settings.types';
 
+// Keys match the backend register DTO (tablet | phone | desktop | kds_display)
 const DEVICE_TYPE_LABELS: Record<string, string> = {
-  pos_terminal: 'POS Terminal',
-  kds_display: 'KDS Display',
-  mobile: 'Mobile',
-  desktop: 'Desktop',
   tablet: 'Tablet',
+  phone: 'Ponsel',
+  desktop: 'Desktop',
+  kds_display: 'Layar KDS',
 };
 
 const DEVICE_TYPE_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
-  pos_terminal: 'default',
-  kds_display: 'secondary',
-  mobile: 'outline',
+  tablet: 'default',
+  phone: 'outline',
   desktop: 'secondary',
-  tablet: 'outline',
+  kds_display: 'secondary',
 };
 
 function resolveDeviceSyncStatus(
@@ -58,16 +57,23 @@ export function DevicesPage() {
 
   const { deviceStatuses } = useRealtimeDeviceSync();
 
-  const { data: devices, isLoading } = useQuery({
+  const { data: devices, isLoading, error, refetch } = useQuery({
     queryKey: ['devices'],
     queryFn: settingsApi.listDevices,
   });
+
+  const { data: outlets } = useQuery({
+    queryKey: ['outlets'],
+    queryFn: settingsApi.getOutlets,
+  });
+  const outletName = (id: string | null) =>
+    id ? (outlets?.find((o) => o.id === id)?.name ?? '-') : '-';
 
   const syncMutation = useMutation({
     mutationFn: (id: string) => settingsApi.syncDevice(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success({ title: 'Sinkronisasi perangkat berhasil' });
+      toast.success({ title: 'Perangkat ditandai tersinkron' });
     },
     onError: (error) => handleMutationError(error, 'Gagal sinkronisasi'),
   });
@@ -76,7 +82,7 @@ export function DevicesPage() {
     mutationFn: (id: string) => settingsApi.removeDevice(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success({ title: 'Perangkat berhasil dihapus' });
+      toast.success({ title: 'Perangkat berhasil dinonaktifkan' });
       setDeleteTarget(null);
     },
     onError: (error) => handleMutationError(error, 'Gagal menghapus perangkat'),
@@ -108,7 +114,7 @@ export function DevicesPage() {
       key: 'outletId',
       header: 'Outlet',
       cell: (row) => (
-        <span className="text-muted-foreground">{row.outletId ?? '-'}</span>
+        <span className="text-muted-foreground">{outletName(row.outletId)}</span>
       ),
     },
     {
@@ -143,13 +149,13 @@ export function DevicesPage() {
               onClick={() => syncMutation.mutate(row.id)}
               disabled={syncMutation.isPending}
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> Sync
+              <RefreshCw className="mr-2 h-4 w-4" /> Tandai tersinkron
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setDeleteTarget(row)}
               className="text-destructive"
             >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
+              <Trash2 className="mr-2 h-4 w-4" /> Nonaktifkan
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -165,6 +171,8 @@ export function DevicesPage() {
         columns={columns}
         data={devices ?? []}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
         emptyTitle="Belum ada perangkat"
         emptyDescription="Belum ada perangkat yang terdaftar."
       />
@@ -172,9 +180,9 @@ export function DevicesPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Hapus Perangkat"
-        description={`Apakah Anda yakin ingin menghapus perangkat "${deleteTarget?.deviceName}"? Tindakan ini tidak dapat dibatalkan.`}
-        confirmLabel="Hapus"
+        title="Nonaktifkan Perangkat"
+        description={`Perangkat "${deleteTarget?.deviceName}" akan dinonaktifkan dan tidak dapat lagi tersinkron. Lanjutkan?`}
+        confirmLabel="Nonaktifkan"
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         isLoading={deleteMutation.isPending}
       />

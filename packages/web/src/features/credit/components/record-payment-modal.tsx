@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { creditApi } from '@/api/endpoints/credit.api';
-import type { CreditSale } from '@/api/endpoints/credit.api';
+import type { CreditSale, CreditPaymentMethod } from '@/api/endpoints/credit.api';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
@@ -39,7 +39,7 @@ export function RecordPaymentModal({
   const queryClient = useQueryClient();
 
   const [amount, setAmount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState<CreditPaymentMethod>('cash');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -123,7 +123,7 @@ export function RecordPaymentModal({
           {/* Amount */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-sm">Jumlah Bayar</Label>
+              <Label htmlFor="credit-payment-amount" className="text-sm">Jumlah Bayar</Label>
               <Button
                 variant="outline"
                 size="sm"
@@ -134,6 +134,7 @@ export function RecordPaymentModal({
               </Button>
             </div>
             <Input
+              id="credit-payment-amount"
               type="number"
               min={1}
               max={outstanding}
@@ -148,9 +149,9 @@ export function RecordPaymentModal({
 
           {/* Payment Method */}
           <div className="space-y-1.5">
-            <Label className="text-sm">Metode Pembayaran</Label>
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger>
+            <Label htmlFor="credit-payment-method" className="text-sm">Metode Pembayaran</Label>
+            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as CreditPaymentMethod)}>
+              <SelectTrigger id="credit-payment-method">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -165,11 +166,12 @@ export function RecordPaymentModal({
           {/* Reference Number */}
           {paymentMethod !== 'cash' && (
             <div className="space-y-1.5">
-              <Label className="text-sm">
+              <Label htmlFor="credit-payment-reference" className="text-sm">
                 No. Referensi{' '}
                 <span className="text-xs text-muted-foreground">(opsional)</span>
               </Label>
               <Input
+                id="credit-payment-reference"
                 value={referenceNumber}
                 onChange={(e) => setReferenceNumber(e.target.value)}
                 placeholder="No. approval / transfer"
@@ -179,11 +181,12 @@ export function RecordPaymentModal({
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <Label htmlFor="credit-payment-notes" className="text-sm">
               Catatan{' '}
               <span className="text-xs text-muted-foreground">(opsional)</span>
             </Label>
             <Input
+              id="credit-payment-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Catatan pembayaran"

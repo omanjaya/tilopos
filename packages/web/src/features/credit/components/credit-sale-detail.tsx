@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { creditApi } from '@/api/endpoints/credit.api';
+import { ErrorState } from '@/components/shared/error-state';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { RecordPaymentModal } from './record-payment-modal';
 
@@ -67,13 +68,25 @@ export function CreditSaleDetail({
 }: CreditSaleDetailProps) {
   const [showPayment, setShowPayment] = useState(false);
 
-  const { data: creditSale, isLoading: isLoadingSale } = useQuery({
+  const {
+    data: creditSale,
+    isLoading: isLoadingSale,
+    isError: isSaleError,
+    error: saleError,
+    refetch: refetchSale,
+  } = useQuery({
     queryKey: ['credit-sale-detail', creditSaleId],
     queryFn: () => creditApi.getById(creditSaleId!),
     enabled: open && !!creditSaleId,
   });
 
-  const { data: payments = [], isLoading: isLoadingPayments } = useQuery({
+  const {
+    data: payments = [],
+    isLoading: isLoadingPayments,
+    isError: isPaymentsError,
+    error: paymentsError,
+    refetch: refetchPayments,
+  } = useQuery({
     queryKey: ['credit-payments', creditSaleId],
     queryFn: () => creditApi.getPayments(creditSaleId!),
     enabled: open && !!creditSaleId,
@@ -105,9 +118,11 @@ export function CreditSaleDetail({
             </DialogDescription>
           </DialogHeader>
 
-          {isLoading ? (
+          {isSaleError ? (
+            <ErrorState error={saleError} onRetry={() => refetchSale()} />
+          ) : isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Memuat" />
             </div>
           ) : creditSale ? (
             <ScrollArea className="max-h-[60vh]">
@@ -206,7 +221,13 @@ export function CreditSaleDetail({
                     <Receipt className="h-4 w-4" />
                     Riwayat Pembayaran
                   </h4>
-                  {payments.length === 0 ? (
+                  {isPaymentsError ? (
+                    <ErrorState
+                      title="Gagal memuat riwayat pembayaran"
+                      error={paymentsError}
+                      onRetry={() => refetchPayments()}
+                    />
+                  ) : payments.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">
                       Belum ada pembayaran
                     </p>

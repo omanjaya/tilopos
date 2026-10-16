@@ -28,7 +28,8 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
-import { ROLE_OPTIONS } from '@/lib/constants';
+import { ROLE_OPTIONS, assignableRoleOptions } from '@/lib/constants';
+import { useAuthStore } from '@/stores/auth.store';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import type { CreateEmployeeRequest, AssignableRole } from '@/types/employee.types';
 
@@ -99,11 +100,11 @@ export function EmployeeFormPage() {
     if (employee) {
       form.reset({
         name: employee.name,
-        email: employee.email,
+        email: employee.email ?? '',
         phone: employee.phone ?? '',
         pin: '',
         role: employee.role as AssignableRole,
-        outletId: employee.outletId,
+        outletId: employee.outletId ?? '',
         hourlyRate: employee.hourlyRate ? String(employee.hourlyRate) : '',
         isActive: employee.isActive,
       });
@@ -133,6 +134,13 @@ export function EmployeeFormPage() {
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
+  // Backend Create/UpdateEmployeeDto never accept 'owner', and canManageRole
+  // only allows roles strictly below the caller.
+  const callerRole = useAuthStore((st) => st.user?.role);
+  const roleOptions = assignableRoleOptions(callerRole).filter((o) => o.value !== 'owner');
+  const originalRole = employee?.role;
+  const roleLocked = isEdit && !!originalRole && !roleOptions.some((o) => o.value === originalRole);
+
   const onSubmit = (data: EmployeeFormData) => {
     if (isEdit) {
       updateMutation.mutate({
@@ -140,7 +148,8 @@ export function EmployeeFormPage() {
         email: data.email,
         phone: data.phone || undefined,
         pin: data.pin || undefined,
-        role: data.role,
+        // Only send role when it changed (re-sending e.g. 'owner' is rejected)
+        role: data.role !== originalRole ? data.role : undefined,
         outletId: data.outletId,
         hourlyRate: data.hourlyRate ? Number(data.hourlyRate) : undefined,
         isActive: data.isActive,
@@ -260,6 +269,7 @@ export function EmployeeFormPage() {
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
+                        disabled={roleLocked}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -267,7 +277,10 @@ export function EmployeeFormPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {ROLE_OPTIONS.map((opt) => (
+                          {(roleLocked
+                            ? ROLE_OPTIONS.filter((o) => o.value === originalRole)
+                            : roleOptions
+                          ).map((opt) => (
                             <SelectItem key={opt.value} value={opt.value}>
                               {opt.label}
                             </SelectItem>
@@ -287,6 +300,7 @@ export function EmployeeFormPage() {
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
+                        disabled={roleLocked}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -353,7 +367,7 @@ export function EmployeeFormPage() {
               type="submit"
               disabled={isPending}
               aria-busy={isPending}
-              aria-label={isPending ? (isEdit ? 'Saving changes...' : 'Adding employee...') : undefined}
+              aria-label={isPending ? (isEdit ? 'Menyimpan perubahan...' : 'Menambahkan karyawan...') : undefined}
             >
               {isPending && <Loader2 className="animate-spin" />}
               {isEdit ? 'Simpan Perubahan' : 'Tambah Karyawan'}

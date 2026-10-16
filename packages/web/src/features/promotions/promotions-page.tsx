@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { promotionsApi } from '@/api/endpoints/promotions.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
+import { useCan } from '@/features/auth/use-permission';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -45,14 +47,12 @@ function getDiscountTypeBadgeVariant(type: string): 'default' | 'secondary' | 'o
   }
 }
 
+// GET /promotions only returns active promotions, so status is Aktif or Kedaluwarsa.
 function getPromotionStatus(promo: Promotion): { label: string; className: string } {
-  if (!promo.isActive) {
-    return { label: 'Nonaktif', className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' };
-  }
   const now = new Date();
   const validUntil = new Date(promo.validUntil);
   if (validUntil < now) {
-    return { label: 'Kadaluarsa', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' };
+    return { label: 'Kedaluwarsa', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' };
   }
   return { label: 'Aktif', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' };
 }
@@ -72,11 +72,21 @@ export function PromotionsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Promotion | null>(null);
+  const canWrite = useCan('promotions.write');
 
-  const { data: promotions, isLoading } = useQuery({
-    queryKey: ['promotions', search],
-    queryFn: () => promotionsApi.list({ search: search || undefined }),
+  // GET /promotions has no server-side search: fetch once, filter locally.
+  const { data: allPromotions, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['promotions'],
+    queryFn: () => promotionsApi.list(),
   });
+
+  const promotions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allPromotions ?? [];
+    return (allPromotions ?? []).filter(
+      (p) => p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q),
+    );
+  }, [allPromotions, search]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => promotionsApi.delete(id),
@@ -85,7 +95,7 @@ export function PromotionsPage() {
       toast.success({ title: 'Promosi dinonaktifkan' });
       setDeleteTarget(null);
     },
-    onError: (error) => handleMutationError(error, 'Gagal menghapus promosi'),
+    onError: (error) => handleMutationError(error, 'Gagal menonaktifkan promosi'),
   });
 
   const columns: Column<Promotion>[] = [
@@ -141,10 +151,10 @@ export function PromotionsPage() {
         );
       },
     },
-    {
+    ...(canWrite ? [{
       key: 'actions',
       header: '',
-      cell: (row) => (
+      cell: (row: Promotion) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi promosi">
@@ -159,43 +169,51 @@ export function PromotionsPage() {
               onClick={() => setDeleteTarget(row)}
               className="text-destructive"
             >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
+              <Trash2 className="mr-2 h-4 w-4" /> Nonaktifkan
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
       <PageHeader title="Promosi" description="Kelola promosi dan diskon">
-        <Button onClick={() => navigate('/app/promotions/new')} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Tambah Promosi
-        </Button>
+        {canWrite && (
+          <Button onClick={() => navigate('/app/promotions/new')} aria-keyshortcuts="N">
+            <Plus className="mr-2 h-4 w-4" /> Tambah Promosi
+          </Button>
+        )}
       </PageHeader>
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
-        data={promotions ?? []}
+        data={promotions}
         isLoading={isLoading}
         searchPlaceholder="Cari promosi..."
         onSearch={setSearch}
         emptyTitle="Belum ada promosi"
         emptyDescription="Buat promosi dan diskon untuk menarik pelanggan dan meningkatkan penjualan."
         emptyAction={
-          <Button onClick={() => navigate('/app/promotions/new')}>
-            <Plus className="mr-2 h-4 w-4" /> Tambah Promosi
-          </Button>
+          canWrite ? (
+            <Button onClick={() => navigate('/app/promotions/new')}>
+              <Plus className="mr-2 h-4 w-4" /> Tambah Promosi
+            </Button>
+          ) : undefined
         }
       />
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Hapus Promosi"
-        description={`Apakah Anda yakin ingin menonaktifkan promosi "${deleteTarget?.name}"? Tindakan ini tidak dapat dibatalkan.`}
-        confirmLabel="Hapus"
+        title="Nonaktifkan Promosi"
+        description={`Apakah Anda yakin ingin menonaktifkan promosi "${deleteTarget?.name}"? Promosi nonaktif tidak lagi muncul di daftar.`}
+        confirmLabel="Nonaktifkan"
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         isLoading={deleteMutation.isPending}
       />

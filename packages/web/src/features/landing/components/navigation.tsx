@@ -51,7 +51,10 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                         {/* Theme Picker */}
                         <div className="relative">
                             <button
+                                type="button"
                                 onClick={() => setShowThemePicker(!showThemePicker)}
+                                aria-label="Ganti tema"
+                                aria-expanded={showThemePicker}
                                 className="w-7 h-7 rounded-full border-2 border-white shadow-md"
                                 style={{ background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))` }}
                                 title="Ganti Tema"
@@ -63,7 +66,10 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                                         if (!t) return null;
                                         return (
                                             <button
+                                                type="button"
                                                 key={name}
+                                                aria-label={`Tema ${name}`}
+                                                aria-pressed={_currentTheme.gradientFrom === t.gradientFrom && _currentTheme.gradientTo === t.gradientTo}
                                                 onClick={() => { onThemeChange(name); setShowThemePicker(false); }}
                                                 className="w-7 h-7 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform"
                                                 style={{ background: `linear-gradient(135deg, ${t.gradientFrom}, ${t.gradientTo})` }}
@@ -74,18 +80,17 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                                 </div>
                             )}
                         </div>
-                        <Link to="/login">
-                            <Button
+                        <Button asChild
                                 variant="ghost"
                                 size="sm"
                                 className="font-medium"
                                 style={{ color: 'var(--brand-text)' }}
                             >
+                          <Link to="/login">
                                 Masuk
-                            </Button>
-                        </Link>
-                        <Link to="/register">
-                            <Button
+                            </Link>
+                        </Button>
+                        <Button asChild
                                 size="sm"
                                 className="text-white font-medium px-5"
                                 style={{
@@ -93,17 +98,21 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                                     borderRadius: 'var(--brand-button-radius)'
                                 }}
                             >
+                          <Link to="/register">
                                 Daftar Gratis
-                            </Button>
-                        </Link>
+                            </Link>
+                        </Button>
                     </div>
 
                     {/* Mobile Menu */}
                     <button
+                        type="button"
                         className="md:hidden p-2"
                         onClick={() => setIsMenuOpen(!isMenuOpen)}
+                        aria-label={isMenuOpen ? 'Tutup menu' : 'Buka menu'}
+                        aria-expanded={isMenuOpen}
                     >
-                        {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                        {isMenuOpen ? <X className="w-6 h-6" aria-hidden="true" /> : <Menu className="w-6 h-6" aria-hidden="true" />}
                     </button>
                 </div>
             </div>
@@ -126,17 +135,17 @@ export function Navigation({ currentTheme: _currentTheme, onThemeChange }: Navig
                         Harga
                     </Link>
                     <div className="flex gap-2 mt-4">
-                        <Link to="/login" className="flex-1">
-                            <Button variant="outline" className="w-full">Masuk</Button>
-                        </Link>
-                        <Link to="/register" className="flex-1">
-                            <Button
-                                className="w-full text-white"
+                        <Button asChild variant="outline" className="flex-1 w-full">
+                          <Link to="/login">Masuk</Link>
+                        </Button>
+                        <Button asChild
+                                className="flex-1 w-full text-white"
                                 style={{ background: `linear-gradient(135deg, var(--brand-gradient-from), var(--brand-gradient-to))` }}
                             >
+                          <Link to="/register">
                                 Daftar Gratis
-                            </Button>
-                        </Link>
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             )}

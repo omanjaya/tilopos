@@ -1,14 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/endpoints/auth.api';
 import { useAuthStore } from '@/stores/auth.store';
-
-export function useOnboardingStatus() {
-  return useQuery({
-    queryKey: ['auth', 'me'],
-    queryFn: () => authApi.getMe(),
-    select: (data) => data.onboardingCompleted ?? false,
-  });
-}
+import { meToAuthUser } from '@/features/auth/auth-user';
 
 export function useCompleteOnboarding() {
   const queryClient = useQueryClient();
@@ -17,12 +10,9 @@ export function useCompleteOnboarding() {
   const mutation = useMutation({
     mutationFn: () => authApi.completeOnboarding(),
     onSuccess: async () => {
-      // Invalidate and refetch user data to get updated onboardingCompleted status
       await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
-
-      // Update user in auth store
-      const updatedUser = await authApi.getMe();
-      updateUser(updatedUser);
+      const me = await authApi.getMe();
+      updateUser(meToAuthUser(me, useAuthStore.getState().user));
     },
   });
 

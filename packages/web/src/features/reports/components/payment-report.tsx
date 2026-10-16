@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
 import { DataTable } from '@/components/shared/data-table';
 import type { Column } from '@/components/shared/data-table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,7 +46,7 @@ const columns: Column<PaymentMethodBreakdown>[] = [
   {
     key: 'method',
     header: 'Metode Bayar',
-    cell: (row) => <span className="font-medium">{row.method}</span>,
+    cell: (row) => <span className="font-medium">{paymentMethodLabel(row.method)}</span>,
   },
   {
     key: 'count',
@@ -90,7 +91,7 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
   const exportData = paymentReport
     ? formatPaymentDataForExport({
         paymentBreakdown: methods.map((m) => ({
-          method: m.method,
+          method: paymentMethodLabel(m.method),
           amount: m.amount,
           count: m.count,
         })),
@@ -194,7 +195,7 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number, name: string) => [`${Number(value ?? 0).toFixed(1)}%`, name]}
+                  formatter={(value: number, name: string) => [`${Number(value ?? 0).toFixed(1)}%`, paymentMethodLabel(name)]}
                   contentStyle={{
                     backgroundColor: 'hsl(var(--card))',
                     border: '1px solid hsl(var(--border))',
@@ -202,7 +203,7 @@ export function PaymentReport({ outletId, dateRange, customDateRange }: PaymentR
                   }}
                 />
                 <Legend
-                  formatter={(value: string) => <span className="text-xs">{value}</span>}
+                  formatter={(value: string) => <span className="text-xs">{paymentMethodLabel(value)}</span>}
                 />
               </PieChart>
             </ResponsiveContainer>

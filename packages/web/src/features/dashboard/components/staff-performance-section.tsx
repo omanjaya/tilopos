@@ -5,6 +5,19 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import type { DateRange } from '@/types/report.types';
+import { ErrorState } from '@/components/shared/error-state';
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: 'Super Admin',
+  owner: 'Pemilik',
+  manager: 'Manajer',
+  supervisor: 'Supervisor',
+  cashier: 'Kasir',
+  kitchen: 'Dapur',
+  inventory: 'Gudang',
+};
+
+const roleLabel = (role: string) => ROLE_LABELS[role] ?? role;
 import {
   Trophy,
   TrendingUp,
@@ -21,12 +34,12 @@ interface StaffPerformanceSectionProps {
 }
 
 export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionProps) {
-  const { data: leaderboard, isLoading: leaderboardLoading } = useQuery({
+  const { data: leaderboard, isLoading: leaderboardLoading, error: leaderboardError, refetch: refetchLeaderboard } = useQuery({
     queryKey: ['staff-performance', 'leaderboard', dateRange],
     queryFn: () => staffPerformanceApi.getLeaderboard({ dateRange }),
   });
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useQuery({
     queryKey: ['staff-performance', 'summary', dateRange],
     queryFn: () => staffPerformanceApi.getSummary({ dateRange }),
   });
@@ -46,6 +59,20 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
     if (rank === 3) return <Badge className="bg-amber-600 hover:bg-amber-700">🥉 #3</Badge>;
     return <Badge variant="outline">#{rank}</Badge>;
   };
+
+  const queryError = leaderboardError || summaryError;
+  if (queryError) {
+    return (
+      <ErrorState
+        title="Gagal memuat performa karyawan"
+        error={queryError}
+        onRetry={() => {
+          void refetchLeaderboard();
+          void refetchSummary();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -133,7 +160,7 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
                 <Trophy className="h-6 w-6" />
               </div>
               <div>
-                <CardTitle className="text-lg">🏆 Top Performer</CardTitle>
+                <CardTitle className="text-lg">🏆 Karyawan Terbaik</CardTitle>
                 <CardDescription>Staff terbaik periode ini</CardDescription>
               </div>
             </div>
@@ -146,7 +173,7 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
                   {leaderboard.topPerformer.employeeName}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {leaderboard.topPerformer.role} • {leaderboard.topPerformer.outletName}
+                  {roleLabel(leaderboard.topPerformer.role)} • {leaderboard.topPerformer.outletName}
                 </p>
               </div>
               <div>
@@ -175,7 +202,7 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Star className="h-4 w-4" />
-            Sales Leaderboard
+            Peringkat Penjualan
           </CardTitle>
           <CardDescription>Ranking karyawan berdasarkan penjualan</CardDescription>
         </CardHeader>
@@ -219,7 +246,7 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
                           {getRankBadge(staff.rank)}
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {staff.role} • {staff.outletName}
+                          {roleLabel(staff.role)} • {staff.outletName}
                         </p>
                       </div>
                     </div>
@@ -230,8 +257,8 @@ export function StaffPerformanceSection({ dateRange }: StaffPerformanceSectionPr
                         {formatCurrency(staff.totalSales)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatNumber(staff.transactionCount)} trx •{' '}
-                        {formatCurrency(staff.avgTransactionValue)} avg
+                        {formatNumber(staff.transactionCount)} transaksi • rata-rata{' '}
+                        {formatCurrency(staff.avgTransactionValue)}
                       </p>
                     </div>
                   </div>

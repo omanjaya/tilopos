@@ -40,9 +40,12 @@ export function SalesSummaryGrid({ data, isLoading }: SalesSummaryGridProps) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       {kpis.map((kpi) => {
-        const raw = data?.[kpi.key] ?? 0;
+        const value = data?.[kpi.key];
+        // Profit/margin are null for roles without cost access
+        const raw = value ?? 0;
         let display: string;
-        if (kpi.format === 'currency') display = formatCurrency(raw);
+        if (data && value === null) display = '-';
+        else if (kpi.format === 'currency') display = formatCurrency(raw);
         else if (kpi.format === 'percent') display = `${raw.toFixed(1)}%`;
         else display = formatNumber(raw);
 

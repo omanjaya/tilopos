@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DateRangePicker } from '@/components/shared/date-range-picker';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { useCan } from '@/features/auth/use-permission';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
 import { SalesReport } from './components/sales-report';
 import { ProductReport } from './components/product-report';
@@ -23,6 +24,8 @@ export function ReportsPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
+  // GET /reports/financial is owner/manager only (supervisor gets 403)
+  const canViewFinancial = useCan('reports.financial');
 
   // Feature checks for dynamic report tabs
   const {
@@ -80,7 +83,7 @@ export function ReportsPage() {
           {/* Core Reports - Always visible */}
           <TabsTrigger value="sales">Penjualan</TabsTrigger>
           <TabsTrigger value="products">Produk</TabsTrigger>
-          <TabsTrigger value="financial">Keuangan</TabsTrigger>
+          {canViewFinancial && <TabsTrigger value="financial">Keuangan</TabsTrigger>}
           <TabsTrigger value="payment">Pembayaran</TabsTrigger>
 
           {/* Retail Reports */}
@@ -123,13 +126,15 @@ export function ReportsPage() {
             />
           </TabsContent>
 
-          <TabsContent value="financial">
-            <FinancialReport
-              outletId={outletId}
-              dateRange={dateRange}
-              customDateRange={customDateRange}
-            />
-          </TabsContent>
+          {canViewFinancial && (
+            <TabsContent value="financial">
+              <FinancialReport
+                outletId={outletId}
+                dateRange={dateRange}
+                customDateRange={customDateRange}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="payment">
             <PaymentReport
@@ -142,11 +147,7 @@ export function ReportsPage() {
           {/* Retail: Inventory Report */}
           {showInventoryTab && (
             <TabsContent value="inventory">
-              <InventoryReport
-                outletId={outletId}
-                dateRange={dateRange}
-                customDateRange={customDateRange}
-              />
+              <InventoryReport outletId={outletId} />
             </TabsContent>
           )}
 

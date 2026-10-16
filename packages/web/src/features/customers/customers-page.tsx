@@ -5,9 +5,9 @@ import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
 import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,7 @@ import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { useBusinessFeatures } from '@/hooks/use-business-features';
+import { useCan } from '@/features/auth/use-permission';
 import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileSpreadsheet } from 'lucide-react';
 import type { Customer } from '@/types/customer.types';
 
@@ -29,15 +30,19 @@ export function CustomersPage() {
 
   // Feature checks
   const { hasCustomerLoyalty } = useBusinessFeatures();
+  const canWrite = useCan('customers.write');
+  const canImport = useCan('customers.import');
+  // POST /customers also allows cashiers (edit/delete stay supervisor+)
+  const canCreate = useCan('customers.create');
 
-  const { data: customersData, isLoading, pagination, sort, setSearch } = usePaginatedList<Customer>({
+  const { data: customersData, isLoading, error, refetch, pagination, sort, setSearch } = usePaginatedList<Customer>({
     queryKey: ['customers'],
     queryFn: (params) => customersApi.listPaginated(params),
     defaultLimit: 15,
   });
 
   const deactivateMutation = useMutation({
-    mutationFn: (id: string) => customersApi.update(id, { isActive: false }),
+    mutationFn: (id: string) => customersApi.deactivate(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success({
@@ -50,11 +55,11 @@ export function CustomersPage() {
   });
 
   const columns: Column<Customer>[] = [
-    { key: 'name', header: 'Nama', sortable: true, cell: (row) => <span className="font-medium">{row.name}</span> },
+    { key: 'name', header: 'Nama', cell: (row) => <span className="font-medium">{row.name}</span> },
     { key: 'email', header: 'Email', cell: (row) => <span className="text-muted-foreground">{row.email ?? '-'}</span> },
     { key: 'phone', header: 'Telepon', cell: (row) => <span className="text-muted-foreground">{row.phone ?? '-'}</span> },
-    { key: 'totalSpent', header: 'Total Belanja', sortable: true, cell: (row) => formatCurrency(row.totalSpent) },
-    { key: 'visitCount', header: 'Kunjungan', sortable: true, cell: (row) => row.visitCount },
+    { key: 'totalSpent', header: 'Total Belanja', cell: (row) => formatCurrency(row.totalSpent) },
+    { key: 'visitCount', header: 'Kunjungan', cell: (row) => row.visitCount },
     // Loyalty points - only show if customer_loyalty is enabled
     ...(hasCustomerLoyalty ? [{
       key: 'loyaltyPoints',
@@ -69,20 +74,10 @@ export function CustomersPage() {
         </span>
       ),
     }] : []),
-    {
-      key: 'status',
-      header: 'Status',
-      cell: (row) =>
-        row.isActive ? (
-          <Badge variant="default">Aktif</Badge>
-        ) : (
-          <Badge variant="outline">Nonaktif</Badge>
-        ),
-    },
-    {
+    ...(canWrite ? [{
       key: 'actions',
       header: '',
-      cell: (row) => (
+      cell: (row: Customer) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Aksi pelanggan">
@@ -97,28 +92,35 @@ export function CustomersPage() {
               onClick={() => setDeleteTarget(row)}
               className="text-destructive"
             >
-              <Trash2 className="mr-2 h-4 w-4" /> Hapus
+              <Trash2 className="mr-2 h-4 w-4" /> Nonaktifkan
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
       <PageHeader title="Pelanggan" description="Kelola data pelanggan Anda">
         <HelpSidebar page="customers" />
-        <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
-        </Button>
-        <Button onClick={() => navigate('/app/customers/new')} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
-        </Button>
+        {canImport && (
+          <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+          </Button>
+        )}
+        {canCreate && (
+          <Button onClick={() => navigate('/app/customers/new')} aria-keyshortcuts="N">
+            <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
+          </Button>
+        )}
       </PageHeader>
 
       <InlineHelpCard page="customers" className="mb-4" />
 
+      {error ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={customersData}
@@ -130,23 +132,30 @@ export function CustomersPage() {
         emptyTitle="Belum ada pelanggan"
         emptyDescription="Mulai membangun database pelanggan Anda untuk tracking loyalitas dan riwayat pembelian."
         emptyAction={
-          <div className="flex gap-2">
-            <Button onClick={() => navigate('/app/customers/new')}>
-              <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
-              <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
-            </Button>
-          </div>
+          canCreate || canImport ? (
+            <div className="flex gap-2">
+              {canCreate && (
+                <Button onClick={() => navigate('/app/customers/new')}>
+                  <Plus className="mr-2 h-4 w-4" /> Tambah Pelanggan
+                </Button>
+              )}
+              {canImport && (
+                <Button variant="outline" onClick={() => navigate('/app/import?type=customers')}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Import Excel
+                </Button>
+              )}
+            </div>
+          ) : undefined
         }
       />
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Hapus Pelanggan"
-        description={`Apakah Anda yakin ingin menonaktifkan "${deleteTarget?.name}"? Pelanggan akan ditandai sebagai nonaktif.`}
-        confirmLabel="Hapus"
+        title="Nonaktifkan Pelanggan"
+        description={`Apakah Anda yakin ingin menonaktifkan "${deleteTarget?.name}"? Pelanggan nonaktif tidak lagi muncul di daftar.`}
+        confirmLabel="Nonaktifkan"
         onConfirm={() => deleteTarget && deactivateMutation.mutate(deleteTarget.id)}
         isLoading={deactivateMutation.isPending}
       />

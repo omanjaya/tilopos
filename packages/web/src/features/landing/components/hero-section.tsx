@@ -28,8 +28,7 @@ export function HeroSection() {
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Link to="/register">
-                        <Button
+                    <Button asChild
                             size="lg"
                             className="h-13 px-8 text-white font-semibold text-lg group"
                             style={{
@@ -37,12 +36,12 @@ export function HeroSection() {
                                 borderRadius: 'var(--brand-button-radius)'
                             }}
                         >
+                      <Link to="/register">
                             Daftar Gratis
                             <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                        </Button>
-                    </Link>
-                    <Link to="/login">
-                        <Button
+                        </Link>
+                    </Button>
+                    <Button asChild
                             size="lg"
                             variant="outline"
                             className="h-13 px-8 font-semibold text-lg"
@@ -52,9 +51,10 @@ export function HeroSection() {
                                 borderRadius: 'var(--brand-button-radius)'
                             }}
                         >
+                      <Link to="/login">
                             Masuk
-                        </Button>
-                    </Link>
+                        </Link>
+                    </Button>
                 </div>
             </div>
         </section>

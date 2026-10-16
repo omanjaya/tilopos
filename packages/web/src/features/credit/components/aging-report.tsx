@@ -16,16 +16,25 @@ interface AgingReportProps {
 interface AgingRow {
   customerId: string;
   customerName: string;
-  current: number; // 0-30 days
-  days30to60: number;
-  days60to90: number;
+  current: number; // not yet due (or no due date)
+  days1to30: number; // 1-30 days past due
+  days31to60: number;
+  days61to90: number;
   days90plus: number;
   total: number;
 }
 
+const BUSINESS_TZ = 'Asia/Jakarta';
+
+/** Calendar-day number of a date in the business timezone. */
+function businessDayNumber(date: Date): number {
+  const key = date.toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ }); // YYYY-MM-DD
+  return Math.floor(Date.parse(`${key}T00:00:00Z`) / 86_400_000);
+}
+
 export function AgingReport({ creditSales }: AgingReportProps) {
   const agingData = useMemo(() => {
-    const now = new Date();
+    const today = businessDayNumber(new Date());
     const customerMap = new Map<string, AgingRow>();
 
     const activeSales = creditSales.filter(
@@ -33,32 +42,33 @@ export function AgingReport({ creditSales }: AgingReportProps) {
     );
 
     for (const cs of activeSales) {
-      const created = new Date(cs.createdAt);
-      const diffDays = Math.floor(
-        (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      const outstanding = cs.outstandingAmount;
+      // Aging is measured in days past the due date (business days, WIB).
+      const daysPastDue = cs.dueDate ? today - businessDayNumber(new Date(cs.dueDate)) : 0;
+      const outstanding = Number(cs.outstandingAmount || 0);
 
       let row = customerMap.get(cs.customerId);
       if (!row) {
         row = {
           customerId: cs.customerId,
-          customerName: cs.customer?.name ?? 'Unknown',
+          customerName: cs.customer?.name ?? 'Tidak diketahui',
           current: 0,
-          days30to60: 0,
-          days60to90: 0,
+          days1to30: 0,
+          days31to60: 0,
+          days61to90: 0,
           days90plus: 0,
           total: 0,
         };
         customerMap.set(cs.customerId, row);
       }
 
-      if (diffDays <= 30) {
+      if (daysPastDue <= 0) {
         row.current += outstanding;
-      } else if (diffDays <= 60) {
-        row.days30to60 += outstanding;
-      } else if (diffDays <= 90) {
-        row.days60to90 += outstanding;
+      } else if (daysPastDue <= 30) {
+        row.days1to30 += outstanding;
+      } else if (daysPastDue <= 60) {
+        row.days31to60 += outstanding;
+      } else if (daysPastDue <= 90) {
+        row.days61to90 += outstanding;
       } else {
         row.days90plus += outstanding;
       }
@@ -74,12 +84,13 @@ export function AgingReport({ creditSales }: AgingReportProps) {
     return agingData.reduce(
       (acc, row) => ({
         current: acc.current + row.current,
-        days30to60: acc.days30to60 + row.days30to60,
-        days60to90: acc.days60to90 + row.days60to90,
+        days1to30: acc.days1to30 + row.days1to30,
+        days31to60: acc.days31to60 + row.days31to60,
+        days61to90: acc.days61to90 + row.days61to90,
         days90plus: acc.days90plus + row.days90plus,
         total: acc.total + row.total,
       }),
-      { current: 0, days30to60: 0, days60to90: 0, days90plus: 0, total: 0 },
+      { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, total: 0 },
     );
   }, [agingData]);
 
@@ -89,7 +100,7 @@ export function AgingReport({ creditSales }: AgingReportProps) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Aging Piutang
+            Umur Piutang
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -106,7 +117,7 @@ export function AgingReport({ creditSales }: AgingReportProps) {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Clock className="h-4 w-4" />
-          Aging Piutang
+          Umur Piutang (hari lewat jatuh tempo)
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -118,7 +129,10 @@ export function AgingReport({ creditSales }: AgingReportProps) {
                   Pelanggan
                 </th>
                 <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                  0-30 hari
+                  Belum jatuh tempo
+                </th>
+                <th className="text-right py-2 px-2 font-medium text-muted-foreground">
+                  1-30 hari
                 </th>
                 <th className="text-right py-2 px-2 font-medium text-muted-foreground">
                   31-60 hari
@@ -140,14 +154,13 @@ export function AgingReport({ creditSales }: AgingReportProps) {
                     {row.current > 0 ? formatCurrency(row.current) : '-'}
                   </td>
                   <td className="py-2 px-2 text-right">
-                    {row.days30to60 > 0
-                      ? formatCurrency(row.days30to60)
-                      : '-'}
+                    {row.days1to30 > 0 ? formatCurrency(row.days1to30) : '-'}
                   </td>
                   <td className="py-2 px-2 text-right">
-                    {row.days60to90 > 0
-                      ? formatCurrency(row.days60to90)
-                      : '-'}
+                    {row.days31to60 > 0 ? formatCurrency(row.days31to60) : '-'}
+                  </td>
+                  <td className="py-2 px-2 text-right">
+                    {row.days61to90 > 0 ? formatCurrency(row.days61to90) : '-'}
                   </td>
                   <td className="py-2 px-2 text-right text-red-600 font-medium">
                     {row.days90plus > 0
@@ -167,10 +180,13 @@ export function AgingReport({ creditSales }: AgingReportProps) {
                   {formatCurrency(totals.current)}
                 </td>
                 <td className="py-2 px-2 text-right">
-                  {formatCurrency(totals.days30to60)}
+                  {formatCurrency(totals.days1to30)}
                 </td>
                 <td className="py-2 px-2 text-right">
-                  {formatCurrency(totals.days60to90)}
+                  {formatCurrency(totals.days31to60)}
+                </td>
+                <td className="py-2 px-2 text-right">
+                  {formatCurrency(totals.days61to90)}
                 </td>
                 <td className="py-2 px-2 text-right text-red-600">
                   {formatCurrency(totals.days90plus)}

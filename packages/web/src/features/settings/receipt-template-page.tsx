@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
+import { useUIStore } from '@/stores/ui.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,34 +29,43 @@ export function ReceiptTemplatePage() {
   const [showLogo, setShowLogo] = useState(true);
   const [showAddress, setShowAddress] = useState(true);
   const [showTaxBreakdown, setShowTaxBreakdown] = useState(true);
-  const [showBarcode, setShowBarcode] = useState(false);
-  const [showQrCode, setShowQrCode] = useState(false);
+  const [showPhone, setShowPhone] = useState(true);
+  const [showPaymentMethod, setShowPaymentMethod] = useState(true);
   const [headerText, setHeaderText] = useState('');
   const [footerText, setFooterText] = useState('');
   const [paperSize, setPaperSize] = useState<'58mm' | '80mm'>('80mm');
 
-  const { data: template, isLoading } = useQuery({
-    queryKey: ['receiptTemplate'],
-    queryFn: settingsApi.getReceiptTemplate,
+  const outletId = useUIStore((s) => s.selectedOutletId);
+
+  const {
+    data: template,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['receiptTemplate', outletId],
+    queryFn: () => settingsApi.getReceiptTemplate(outletId),
   });
 
   useEffect(() => {
     if (template) {
-      setShowLogo(template.showLogo ?? true);
-      setShowAddress(template.showAddress ?? true);
-      setShowTaxBreakdown(template.showTaxBreakdown ?? true);
-      setShowBarcode(template.showBarcode ?? false);
-      setShowQrCode(template.showQrCode ?? false);
-      setHeaderText(template.headerText ?? '');
-      setFooterText(template.footerText ?? '');
-      setPaperSize(template.paperSize ?? '80mm');
+      setShowLogo(template.showLogo);
+      setShowAddress(template.showAddress);
+      setShowPhone(template.showPhone);
+      setShowTaxBreakdown(template.showTaxBreakdown);
+      setShowPaymentMethod(template.showPaymentMethod);
+      setHeaderText(template.headerText);
+      setFooterText(template.footerText);
+      setPaperSize(template.paperSize);
     }
   }, [template]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: UpdateReceiptTemplateRequest) => settingsApi.updateReceiptTemplate(data),
+    mutationFn: (data: UpdateReceiptTemplateRequest) =>
+      settingsApi.updateReceiptTemplate(outletId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['receiptTemplate'] });
+      queryClient.invalidateQueries({ queryKey: ['receiptTemplate', outletId] });
       toast.success({ title: 'Template struk berhasil disimpan' });
     },
     onError: (error) => handleMutationError(error, 'Gagal menyimpan'),
@@ -65,9 +76,9 @@ export function ReceiptTemplatePage() {
     updateMutation.mutate({
       showLogo,
       showAddress,
+      showPhone,
       showTaxBreakdown,
-      showBarcode,
-      showQrCode,
+      showPaymentMethod,
       headerText,
       footerText,
       paperSize,
@@ -80,7 +91,9 @@ export function ReceiptTemplatePage() {
         <PageHeader title="Template Struk" description="Kustomisasi tampilan struk penjualan" />
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
-            <CardHeader><Skeleton className="h-6 w-48" /></CardHeader>
+            <CardHeader>
+              <Skeleton className="h-6 w-48" />
+            </CardHeader>
             <CardContent className="space-y-4">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
@@ -88,10 +101,28 @@ export function ReceiptTemplatePage() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><Skeleton className="h-6 w-48" /></CardHeader>
-            <CardContent><Skeleton className="h-96 w-full" /></CardContent>
+            <CardHeader>
+              <Skeleton className="h-6 w-48" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-96 w-full" />
+            </CardContent>
           </Card>
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <PageHeader title="Template Struk" description="Kustomisasi tampilan struk penjualan" />
+        <ErrorState
+          title="Gagal memuat template struk"
+          description="Pastikan outlet sudah dipilih, lalu coba lagi."
+          error={error}
+          onRetry={() => void refetch()}
+        />
       </div>
     );
   }
@@ -121,17 +152,25 @@ export function ReceiptTemplatePage() {
                 <Separator />
                 <div className="flex items-center justify-between">
                   <Label htmlFor="showTaxBreakdown">Tampilkan Rincian Pajak</Label>
-                  <Switch id="showTaxBreakdown" checked={showTaxBreakdown} onCheckedChange={setShowTaxBreakdown} />
+                  <Switch
+                    id="showTaxBreakdown"
+                    checked={showTaxBreakdown}
+                    onCheckedChange={setShowTaxBreakdown}
+                  />
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="showBarcode">Tampilkan Barcode</Label>
-                  <Switch id="showBarcode" checked={showBarcode} onCheckedChange={setShowBarcode} />
+                  <Label htmlFor="showPhone">Tampilkan Telepon</Label>
+                  <Switch id="showPhone" checked={showPhone} onCheckedChange={setShowPhone} />
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="showQrCode">Tampilkan QR Code</Label>
-                  <Switch id="showQrCode" checked={showQrCode} onCheckedChange={setShowQrCode} />
+                  <Label htmlFor="showPaymentMethod">Tampilkan Metode Pembayaran</Label>
+                  <Switch
+                    id="showPaymentMethod"
+                    checked={showPaymentMethod}
+                    onCheckedChange={setShowPaymentMethod}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -163,7 +202,10 @@ export function ReceiptTemplatePage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="paperSize">Ukuran Kertas</Label>
-                  <Select value={paperSize} onValueChange={(v) => setPaperSize(v as '58mm' | '80mm')}>
+                  <Select
+                    value={paperSize}
+                    onValueChange={(v) => setPaperSize(v as '58mm' | '80mm')}
+                  >
                     <SelectTrigger id="paperSize">
                       <SelectValue placeholder="Pilih ukuran" />
                     </SelectTrigger>
@@ -201,7 +243,10 @@ export function ReceiptTemplatePage() {
             <CardContent>
               <div
                 className="mx-auto rounded border bg-white p-4 text-black"
-                style={{ maxWidth: paperSize === '58mm' ? '220px' : '300px', fontFamily: 'monospace' }}
+                style={{
+                  maxWidth: paperSize === '58mm' ? '220px' : '300px',
+                  fontFamily: 'monospace',
+                }}
               >
                 {showLogo && (
                   <div className="mb-2 text-center">
@@ -218,10 +263,11 @@ export function ReceiptTemplatePage() {
                     Jl. Contoh No. 123, Jakarta
                   </div>
                 )}
-
-                {headerText && (
-                  <div className="mb-2 text-center text-xs">{headerText}</div>
+                {showPhone && (
+                  <div className="mb-2 text-center text-xs text-gray-600">0812-0000-0000</div>
                 )}
+
+                {headerText && <div className="mb-2 text-center text-xs">{headerText}</div>}
 
                 <div className="my-2 border-t border-dashed border-gray-400" />
 
@@ -280,29 +326,15 @@ export function ReceiptTemplatePage() {
 
                 <div className="my-2 border-t border-dashed border-gray-400" />
 
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span>Tunai</span>
-                    <span>Rp50.000</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Kembalian</span>
-                    <span>Rp4.490</span>
-                  </div>
-                </div>
-
-                {showBarcode && (
-                  <div className="mt-3 flex justify-center">
-                    <div className="h-8 w-3/4 bg-gray-200 text-center text-[8px] leading-8 text-gray-500">
-                      BARCODE
+                {showPaymentMethod && (
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span>Tunai</span>
+                      <span>Rp50.000</span>
                     </div>
-                  </div>
-                )}
-
-                {showQrCode && (
-                  <div className="mt-3 flex justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center bg-gray-200 text-[8px] text-gray-500">
-                      QR
+                    <div className="flex justify-between">
+                      <span>Kembalian</span>
+                      <span>Rp4.490</span>
                     </div>
                   </div>
                 )}

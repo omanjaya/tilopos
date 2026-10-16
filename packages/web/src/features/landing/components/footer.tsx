@@ -12,7 +12,7 @@ export function Footer() {
                     <span className="font-semibold text-sm" style={{ color: 'var(--brand-heading)' }}>TiloPOS</span>
                 </div>
                 <p className="text-xs" style={{ color: 'var(--brand-muted)' }}>
-                    &copy; {new Date().getFullYear()} TiloPOS. All rights reserved.
+                    &copy; {new Date().getFullYear()} TiloPOS. Hak cipta dilindungi.
                 </p>
             </div>
         </footer>

@@ -4,6 +4,7 @@ import { promotionsApi } from '@/api/endpoints/promotions.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ErrorState } from '@/components/shared/error-state';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,12 +22,21 @@ import {
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
-import { Loader2, Plus, Star, Coins, RefreshCw, Clock } from 'lucide-react';
+import { Loader2, Plus, Star, Coins, RefreshCw, Clock, Pencil } from 'lucide-react';
 import type { LoyaltyTier } from '@/types/promotion.types';
+
+function formatBenefits(benefits: LoyaltyTier['benefits']): string {
+  if (!benefits) return '-';
+  if (typeof benefits === 'string') return benefits;
+  if (Array.isArray(benefits)) return benefits.length > 0 ? benefits.join(', ') : '-';
+  const discount = benefits.discount;
+  return typeof discount === 'number' && discount > 0 ? `Diskon ${discount}%` : '-';
+}
 
 export function LoyaltyPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const [programName, setProgramName] = useState('');
   const [amountPerPoint, setAmountPerPoint] = useState('');
@@ -37,13 +47,20 @@ export function LoyaltyPage() {
     data: loyaltyProgram,
     isLoading: isProgramLoading,
     isError: isProgramError,
+    error: programError,
+    refetch: refetchProgram,
   } = useQuery({
     queryKey: ['loyalty-program'],
     queryFn: promotionsApi.getLoyaltyProgram,
-    retry: false,
   });
 
-  const { data: tiers, isLoading: isTiersLoading } = useQuery({
+  const {
+    data: tiers,
+    isLoading: isTiersLoading,
+    isError: isTiersError,
+    error: tiersError,
+    refetch: refetchTiers,
+  } = useQuery({
     queryKey: ['loyalty-tiers'],
     queryFn: promotionsApi.getLoyaltyTiers,
     enabled: !!loyaltyProgram,
@@ -61,6 +78,39 @@ export function LoyaltyPage() {
     onError: (error) => handleMutationError(error, 'Gagal membuat program'),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: promotionsApi.updateLoyaltyProgram,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loyalty-program'] });
+      toast.success({ title: 'Program loyalti berhasil diperbarui' });
+      setDialogOpen(false);
+      resetForm();
+    },
+    onError: (error) => handleMutationError(error, 'Gagal memperbarui program'),
+  });
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const openCreate = () => {
+    resetForm();
+    setIsEditing(false);
+    setDialogOpen(true);
+  };
+
+  const openEdit = () => {
+    if (!loyaltyProgram) return;
+    setProgramName(loyaltyProgram.name);
+    setAmountPerPoint(String(loyaltyProgram.amountPerPoint));
+    setRedemptionRate(String(loyaltyProgram.redemptionRate));
+    setPointExpiryDays(
+      loyaltyProgram.pointExpiryDays !== null && loyaltyProgram.pointExpiryDays !== undefined
+        ? String(loyaltyProgram.pointExpiryDays)
+        : '',
+    );
+    setIsEditing(true);
+    setDialogOpen(true);
+  };
+
   const resetForm = () => {
     setProgramName('');
     setAmountPerPoint('');
@@ -68,9 +118,10 @@ export function LoyaltyPage() {
     setPointExpiryDays('');
   };
 
-  const handleCreateProgram = (e: React.FormEvent) => {
+  const handleSubmitProgram = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate({
+    const mutation = isEditing ? updateMutation : createMutation;
+    mutation.mutate({
       name: programName,
       amountPerPoint: Number(amountPerPoint),
       redemptionRate: Number(redemptionRate),
@@ -90,20 +141,14 @@ export function LoyaltyPage() {
       cell: (row) => row.minPoints.toLocaleString('id-ID'),
     },
     {
-      key: 'multiplier',
-      header: 'Multiplier',
-      cell: (row) => `${(row as unknown as Record<string, unknown>).pointMultiplier ?? row.multiplier ?? 1}x`,
+      key: 'pointMultiplier',
+      header: 'Pengali Poin',
+      cell: (row) => `${Number(row.pointMultiplier ?? 1)}x`,
     },
     {
       key: 'benefits',
-      header: 'Benefits',
-      cell: (row) => {
-        const b = row.benefits;
-        if (!b) return <span className="text-muted-foreground">-</span>;
-        if (typeof b === 'string') return <span className="text-muted-foreground">{b}</span>;
-        const discount = (b as Record<string, number>).discount;
-        return <span className="text-muted-foreground">{discount ? `Diskon ${discount}%` : '-'}</span>;
-      },
+      header: 'Keuntungan',
+      cell: (row) => <span className="text-muted-foreground">{formatBenefits(row.benefits)}</span>,
     },
   ];
 
@@ -122,19 +167,30 @@ export function LoyaltyPage() {
     );
   }
 
-  const hasProgramData = loyaltyProgram && !isProgramError;
+  if (isProgramError) {
+    return (
+      <div>
+        <PageHeader title="Program Loyalti" description="Kelola program loyalti pelanggan" />
+        <ErrorState error={programError} onRetry={() => refetchProgram()} />
+      </div>
+    );
+  }
 
   return (
     <div>
       <PageHeader title="Program Loyalti" description="Kelola program loyalti pelanggan">
-        {!hasProgramData && (
-          <Button onClick={() => setDialogOpen(true)}>
+        {loyaltyProgram ? (
+          <Button variant="outline" onClick={openEdit}>
+            <Pencil className="mr-2 h-4 w-4" /> Ubah Program
+          </Button>
+        ) : (
+          <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" /> Buat Program
           </Button>
         )}
       </PageHeader>
 
-      {!hasProgramData ? (
+      {!loyaltyProgram ? (
         <Card>
           <CardContent className="py-12">
             <EmptyState
@@ -142,7 +198,7 @@ export function LoyaltyPage() {
               title="Belum ada program loyalti"
               description="Buat program loyalti untuk meningkatkan retensi pelanggan."
               action={
-                <Button onClick={() => setDialogOpen(true)}>
+                <Button onClick={openCreate}>
                   <Plus className="mr-2 h-4 w-4" /> Buat Program
                 </Button>
               }
@@ -172,7 +228,7 @@ export function LoyaltyPage() {
             <MetricCard
               title="Masa Berlaku Poin"
               value={
-                loyaltyProgram.pointExpiryDays !== null
+                loyaltyProgram.pointExpiryDays
                   ? `${loyaltyProgram.pointExpiryDays} hari`
                   : 'Tidak ada batas'
               }
@@ -185,6 +241,9 @@ export function LoyaltyPage() {
               <CardTitle>Tier Loyalti</CardTitle>
             </CardHeader>
             <CardContent>
+              {isTiersError ? (
+                <ErrorState error={tiersError} onRetry={() => refetchTiers()} />
+              ) : (
               <DataTable
                 columns={tierColumns}
                 data={tiers ?? []}
@@ -192,6 +251,7 @@ export function LoyaltyPage() {
                 emptyTitle="Belum ada tier"
                 emptyDescription="Tier loyalti belum dikonfigurasi."
               />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -199,9 +259,9 @@ export function LoyaltyPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <form onSubmit={handleCreateProgram}>
+          <form onSubmit={handleSubmitProgram}>
             <DialogHeader>
-              <DialogTitle>Buat Program Loyalti</DialogTitle>
+              <DialogTitle>{isEditing ? 'Ubah Program Loyalti' : 'Buat Program Loyalti'}</DialogTitle>
               <DialogDescription>
                 Konfigurasikan program loyalti untuk pelanggan Anda.
               </DialogDescription>
@@ -263,13 +323,13 @@ export function LoyaltyPage() {
                 type="button"
                 variant="outline"
                 onClick={() => setDialogOpen(false)}
-                disabled={createMutation.isPending}
+                disabled={isSaving}
               >
                 Batal
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending && <Loader2 className="animate-spin" />}
-                Buat Program
+              <Button type="submit" disabled={isSaving}>
+                {isSaving && <Loader2 className="animate-spin" />}
+                {isEditing ? 'Simpan Perubahan' : 'Buat Program'}
               </Button>
             </DialogFooter>
           </form>

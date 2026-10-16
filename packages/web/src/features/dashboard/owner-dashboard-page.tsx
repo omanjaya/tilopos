@@ -12,6 +12,7 @@ import { formatCurrency, formatNumber } from '@/lib/format';
 import { FinancialCommandSection } from './components/financial-command-section';
 import { StaffPerformanceSection } from './components/staff-performance-section';
 import type { DateRange } from '@/types/report.types';
+import { ErrorState } from '@/components/shared/error-state';
 import {
   DollarSign,
   TrendingUp,
@@ -26,17 +27,32 @@ import {
   Wallet,
 } from 'lucide-react';
 
+const RANGE_LABELS: Partial<Record<DateRange, string>> = {
+  today: 'hari ini',
+  this_week: 'minggu ini',
+  this_month: 'bulan ini',
+};
+
+interface KpiView {
+  sales: number;
+  transactions: number;
+  averageOrderValue: number;
+  outletsCount: number;
+}
+
 export function OwnerDashboardPage() {
   const queryClient = useQueryClient();
   const [dateRange, setDateRange] = useState<DateRange>('today');
   const [isLive, setIsLive] = useState(true);
   const [mainTab, setMainTab] = useState<'dashboard' | 'financial' | 'staff'>('dashboard');
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
+  const effectiveRange: DateRange = isLive ? 'today' : dateRange;
 
   // WebSocket connection
   const { socket, isConnected } = useSocket();
 
   // Real-time metrics (updates every 30s when live mode enabled)
-  const { data: realTimeMetrics, isLoading: realTimeLoading } = useQuery({
+  const { data: realTimeMetrics, isLoading: realTimeLoading, error: realTimeError, refetch: refetchRealTime } = useQuery({
     queryKey: ['owner-analytics', 'real-time'],
     queryFn: ownerAnalyticsApi.getRealTimeMetrics,
     refetchInterval: isLive ? 30000 : false, // 30 seconds
@@ -44,20 +60,20 @@ export function OwnerDashboardPage() {
   });
 
   // Overview metrics
-  const { data: overview, isLoading: overviewLoading } = useQuery({
+  const { data: overview, isLoading: overviewLoading, error: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ['owner-analytics', 'overview', dateRange],
     queryFn: () => ownerAnalyticsApi.getOverview({ dateRange }),
     enabled: !isLive, // Only when not in live mode
   });
 
   // Outlets comparison
-  const { data: outletsComparison, isLoading: outletsLoading } = useQuery({
-    queryKey: ['owner-analytics', 'outlets-comparison', dateRange],
-    queryFn: () => ownerAnalyticsApi.getOutletsComparison({ dateRange }),
+  const { data: outletsComparison, isLoading: outletsLoading, error: outletsError, refetch: refetchOutlets } = useQuery({
+    queryKey: ['owner-analytics', 'outlets-comparison', effectiveRange],
+    queryFn: () => ownerAnalyticsApi.getOutletsComparison({ dateRange: effectiveRange }),
   });
 
   // Critical alerts
-  const { data: alertsData, isLoading: alertsLoading } = useQuery({
+  const { data: alertsData, isLoading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useQuery({
     queryKey: ['owner-analytics', 'critical-alerts'],
     queryFn: ownerAnalyticsApi.getCriticalAlerts,
     refetchInterval: 60000, // Refresh every minute
@@ -89,9 +105,30 @@ export function OwnerDashboardPage() {
     };
   }, [socket, isConnected, isLive, queryClient]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const displayData = (isLive ? realTimeMetrics : overview) as Record<string, any> | undefined;
+  // Map both response shapes to one view model (real-time metrics have no AOV field).
+  let displayData: KpiView | undefined;
+  if (isLive && realTimeMetrics) {
+    displayData = {
+      sales: realTimeMetrics.todaySales,
+      transactions: realTimeMetrics.todayTransactions,
+      averageOrderValue:
+        realTimeMetrics.todayTransactions > 0
+          ? realTimeMetrics.todaySales / realTimeMetrics.todayTransactions
+          : 0,
+      outletsCount: realTimeMetrics.outletsCount,
+    };
+  } else if (!isLive && overview) {
+    displayData = {
+      sales: overview.totalSales,
+      transactions: overview.totalTransactions,
+      averageOrderValue: overview.averageOrderValue,
+      outletsCount: overview.outletsCount,
+    };
+  }
   const isLoading = isLive ? realTimeLoading : overviewLoading;
+  const kpiError = isLive ? realTimeError : overviewError;
+  const refetchKpi = isLive ? refetchRealTime : refetchOverview;
+  const visibleAlerts = showAllAlerts ? alertsData?.alerts ?? [] : (alertsData?.alerts ?? []).slice(0, 3);
 
   const criticalAlertsCount = alertsData?.alerts.filter((a) => a.severity === 'critical').length || 0;
   const warningAlertsCount = alertsData?.alerts.filter((a) => a.severity === 'warning').length || 0;
@@ -100,7 +137,7 @@ export function OwnerDashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
-        title="Owner Dashboard"
+        title="Dasbor Pemilik"
         description="Monitoring performa bisnis secara real-time"
       >
         {isConnected && (
@@ -118,7 +155,7 @@ export function OwnerDashboardPage() {
           }}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
+          Muat Ulang
         </Button>
       </PageHeader>
 
@@ -131,11 +168,11 @@ export function OwnerDashboardPage() {
           </TabsTrigger>
           <TabsTrigger value="financial" className="gap-2">
             <Wallet className="h-4 w-4" />
-            Financial
+            Keuangan
           </TabsTrigger>
           <TabsTrigger value="staff" className="gap-2">
             <Users className="h-4 w-4" />
-            Staff
+            Karyawan
           </TabsTrigger>
         </TabsList>
 
@@ -168,12 +205,19 @@ export function OwnerDashboardPage() {
 
         {isLive && realTimeMetrics && (
           <p className="text-xs text-muted-foreground">
-            Last update: {new Date(realTimeMetrics.timestamp).toLocaleTimeString('id-ID')}
+            Diperbarui: {new Date(realTimeMetrics.timestamp).toLocaleTimeString('id-ID')}
           </p>
         )}
       </div>
 
       {/* Critical Alerts Banner */}
+      {alertsError && (
+        <ErrorState
+          title="Gagal memuat peringatan"
+          error={alertsError}
+          onRetry={() => void refetchAlerts()}
+        />
+      )}
       {!alertsLoading && alertsData && alertsData.alerts.length > 0 && (
         <Card className="border-yellow-200 bg-yellow-50">
           <CardHeader className="pb-3">
@@ -186,14 +230,23 @@ export function OwnerDashboardPage() {
                     : `⚠️ ${warningAlertsCount} Peringatan`}
                 </CardTitle>
               </div>
-              <Button variant="ghost" size="sm" className="text-yellow-900 hover:bg-yellow-100">
-                Lihat Semua <ChevronRight className="ml-1 h-4 w-4" />
-              </Button>
+              {alertsData.alerts.length > 3 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-yellow-900 hover:bg-yellow-100"
+                  onClick={() => setShowAllAlerts((v) => !v)}
+                  aria-expanded={showAllAlerts}
+                >
+                  {showAllAlerts ? 'Tampilkan Lebih Sedikit' : `Lihat Semua (${alertsData.alerts.length})`}
+                  <ChevronRight className={`ml-1 h-4 w-4 transition-transform ${showAllAlerts ? 'rotate-90' : ''}`} />
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {alertsData.alerts.slice(0, 3).map((alert, idx) => (
+              {visibleAlerts.map((alert, idx) => (
                 <div
                   key={idx}
                   className="flex items-start gap-3 bg-white rounded-lg p-3 text-sm"
@@ -218,7 +271,13 @@ export function OwnerDashboardPage() {
       )}
 
       {/* KPI Cards */}
-      {isLoading ? (
+      {kpiError ? (
+        <ErrorState
+          title="Gagal memuat ringkasan bisnis"
+          error={kpiError}
+          onRetry={() => void refetchKpi()}
+        />
+      ) : isLoading ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {[...Array(isLive ? 4 : 6)].map((_, i) => (
             <Skeleton key={i} className="h-32" />
@@ -236,11 +295,11 @@ export function OwnerDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-emerald-600">
-                {formatCurrency(displayData?.totalSales || displayData?.todaySales || 0)}
+                {formatCurrency(displayData?.sales ?? 0)}
               </div>
               {isLive && realTimeMetrics && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Last hour: {formatCurrency(realTimeMetrics.lastHourSales)}
+                  Satu jam terakhir: {formatCurrency(realTimeMetrics.lastHourSales)}
                 </p>
               )}
             </CardContent>
@@ -251,7 +310,7 @@ export function OwnerDashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total Profit
+                  Total Laba
                 </CardTitle>
                 <TrendingUp className="h-4 w-4 text-green-600" />
               </CardHeader>
@@ -280,11 +339,11 @@ export function OwnerDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-blue-600">
-                {formatNumber(displayData?.totalTransactions || displayData?.todayTransactions || 0)}
+                {formatNumber(displayData?.transactions ?? 0)}
               </div>
               {isLive && realTimeMetrics && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Last hour: {formatNumber(realTimeMetrics.lastHourTransactions)}
+                  Satu jam terakhir: {formatNumber(realTimeMetrics.lastHourTransactions)}
                 </p>
               )}
             </CardContent>
@@ -318,7 +377,7 @@ export function OwnerDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-amber-600">
-                {formatCurrency(displayData?.averageOrderValue || 0)}
+                {formatCurrency(displayData?.averageOrderValue ?? 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Per transaksi</p>
             </CardContent>
@@ -352,7 +411,7 @@ export function OwnerDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-slate-600">
-                {formatNumber(displayData?.outletsCount || 0)}
+                {formatNumber(displayData?.outletsCount ?? 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Cabang aktif</p>
             </CardContent>
@@ -368,11 +427,17 @@ export function OwnerDashboardPage() {
             Perbandingan Performa Outlet
           </CardTitle>
           <CardDescription>
-            {isLive ? 'Data hari ini' : `Data periode ${dateRange}`}
+            {`Data ${RANGE_LABELS[effectiveRange] ?? 'periode terpilih'}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {outletsLoading ? (
+          {outletsError ? (
+            <ErrorState
+              title="Gagal memuat perbandingan outlet"
+              error={outletsError}
+              onRetry={() => void refetchOutlets()}
+            />
+          ) : outletsLoading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
                 <Skeleton key={i} className="h-20" />
@@ -395,7 +460,7 @@ export function OwnerDashboardPage() {
                           <p className="font-medium">{outlet.outletName}</p>
                           <p className="text-xs text-muted-foreground">
                             {formatNumber(outlet.transactions)} transaksi •{' '}
-                            {formatCurrency(outlet.avgOrderValue)} avg
+                            rata-rata {formatCurrency(outlet.avgOrderValue)}
                           </p>
                         </div>
                       </div>
@@ -404,7 +469,7 @@ export function OwnerDashboardPage() {
                         {index === 0 && (
                           <Badge variant="default" className="text-xs">
                             <TrendingUp className="h-3 w-3 mr-1" />
-                            Top Performer
+                            Terbaik
                           </Badge>
                         )}
                       </div>

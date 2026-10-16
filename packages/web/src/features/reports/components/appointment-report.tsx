@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import { formatRupiah, formatNumber } from '@/lib/format';
-import { Calendar, CheckCircle, XCircle, TrendingUp, Users } from 'lucide-react';
+import { Calendar, CheckCircle, XCircle, TrendingUp } from 'lucide-react';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
+import { reportDateParams } from '../report-date-params';
 import type { DateRange, AppointmentReport as AppointmentReportType } from '@/types/report.types';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
 
@@ -16,15 +17,11 @@ interface AppointmentReportProps {
 }
 
 export function AppointmentReport({ outletId, dateRange, customDateRange }: AppointmentReportProps) {
-    const { data: reportData, isLoading } = useQuery<AppointmentReportType>({
-        queryKey: ['report', 'appointment', outletId, dateRange, customDateRange],
-        queryFn: () => reportsApi.appointment({
-            outletId,
-            dateRange,
-            startDate: customDateRange?.from?.toISOString(),
-            endDate: customDateRange?.to?.toISOString(),
-        }),
-        enabled: !!outletId,
+    const { startDate, endDate, ready } = reportDateParams(dateRange, customDateRange);
+    const { data: reportData, isLoading, error, refetch } = useQuery<AppointmentReportType>({
+        queryKey: ['report', 'appointment', outletId, dateRange, startDate, endDate],
+        queryFn: () => reportsApi.appointment({ outletId, dateRange, startDate, endDate }),
+        enabled: !!outletId && ready,
     });
 
     if (isLoading) {
@@ -34,6 +31,16 @@ export function AppointmentReport({ outletId, dateRange, customDateRange }: Appo
                     <Skeleton key={i} className="h-32" />
                 ))}
             </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <ReportErrorState
+                description="Terjadi kesalahan saat mengambil data laporan."
+                error={error as Error}
+                onRetry={() => void refetch()}
+            />
         );
     }
 
@@ -91,7 +98,7 @@ export function AppointmentReport({ outletId, dateRange, customDateRange }: Appo
                             {formatNumber(reportData.cancelledBookings + reportData.noShowBookings)}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            {reportData.cancelledBookings} batal, {reportData.noShowBookings} no show
+                            {reportData.cancelledBookings} batal, {reportData.noShowBookings} tidak datang
                         </p>
                     </CardContent>
                 </Card>
@@ -108,8 +115,8 @@ export function AppointmentReport({ outletId, dateRange, customDateRange }: Appo
                 </Card>
             </div>
 
-            {/* Bookings by Day & Source */}
-            <div className="grid gap-4 md:grid-cols-2">
+            {/* Bookings by Day */}
+            <div className="grid gap-4">
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-base">
@@ -140,34 +147,6 @@ export function AppointmentReport({ outletId, dateRange, customDateRange }: Appo
                         )}
                     </CardContent>
                 </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-base">
-                            <Users className="h-4 w-4" />
-                            Sumber Booking
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {reportData.bookingsBySource.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Belum ada data</p>
-                        ) : (
-                            <div className="space-y-3">
-                                {reportData.bookingsBySource.map((source) => (
-                                    <div key={source.source} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
-                                        <span className="text-sm font-medium">{source.source}</span>
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="secondary">{source.count}</Badge>
-                                            <span className="text-sm text-muted-foreground w-12 text-right">
-                                                {source.percentage}%
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
             </div>
 
             {/* Popular Services */}
@@ -190,7 +169,7 @@ export function AppointmentReport({ outletId, dateRange, customDateRange }: Appo
                                     </span>
                                     <p className="font-medium text-sm">{service.name}</p>
                                     <p className="text-2xl font-bold text-primary mt-1">{service.bookings}</p>
-                                    <p className="text-xs text-muted-foreground">bookings</p>
+                                    <p className="text-xs text-muted-foreground">booking</p>
                                 </div>
                             ))}
                         </div>

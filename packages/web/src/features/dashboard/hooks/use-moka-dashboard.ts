@@ -4,6 +4,7 @@ import { reportsApi } from '@/api/endpoints/reports.api';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { format, startOfMonth } from 'date-fns';
+import { useHasRole } from '@/features/auth/use-permission';
 
 export type DashboardTab = 'dashboard' | 'outlet_comparison';
 
@@ -22,7 +23,8 @@ export function useMokaDashboard() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
-  const hasAccess = !!user?.role && ['owner', 'super_admin', 'manager', 'supervisor'].includes(user.role);
+  // /reports/dashboard/* is @Roles(owner, manager, supervisor)
+  const hasAccess = useHasRole('SUPERVISION');
   const enabled = !!outletId && hasAccess;
 
   const startDate = format(dateRange.from, 'yyyy-MM-dd');
@@ -68,11 +70,17 @@ export function useMokaDashboard() {
     // Dashboard tab
     summary: summary.data,
     summaryLoading: summary.isLoading,
+    summaryError: summary.error,
+    refetchSummary: summary.refetch,
     items: items.data,
     itemsLoading: items.isLoading,
+    itemsError: items.error,
+    refetchItems: items.refetch,
 
     // Outlet comparison tab
     outletComparison: outletComparison.data,
     outletComparisonLoading: outletComparison.isLoading,
+    outletComparisonError: outletComparison.error,
+    refetchOutletComparison: outletComparison.refetch,
   };
 }

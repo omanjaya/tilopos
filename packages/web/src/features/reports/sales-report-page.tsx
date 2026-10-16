@@ -8,6 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui.store';
 import { useAuthStore } from '@/stores/auth.store';
+import { useCan } from '@/features/auth/use-permission';
 import { DashboardDatePicker } from '@/features/dashboard/components/dashboard-date-picker';
 import type { SalesReportTab } from '@/types/report.types';
 
@@ -47,6 +48,9 @@ export function SalesReportPage() {
   const selectedOutletId = useUIStore((s) => s.selectedOutletId);
   const user = useAuthStore((s) => s.user);
   const outletId = selectedOutletId ?? user?.outletId ?? '';
+  // Laba Kotor reads GET /reports/financial (owner/manager only; supervisor gets 403)
+  const canViewFinancial = useCan('reports.financial');
+  const tabs = canViewFinancial ? TABS : TABS.filter((t) => t.id !== 'gross-profit');
 
   const startDate = format(dateRange.from, 'yyyy-MM-dd');
   const endDate = format(dateRange.to, 'yyyy-MM-dd');
@@ -61,12 +65,33 @@ export function SalesReportPage() {
         <DashboardDatePicker dateRange={dateRange} onChange={setDateRange} />
       </div>
 
+      {/* Horizontal tabs below lg (tablets get this desktop page too) */}
+      <nav className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:hidden" aria-label="Bagian laporan">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+              activeTab === tab.id
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            )}
+          >
+            <tab.icon className="h-4 w-4 shrink-0" />
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+
       {/* Content with sidebar */}
       <div className="flex gap-6">
         {/* Sidebar tabs */}
         <nav className="hidden w-48 shrink-0 lg:block">
           <div className="space-y-0.5">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -87,7 +112,7 @@ export function SalesReportPage() {
         {/* Content area */}
         <div className="min-w-0 flex-1">
           {activeTab === 'summary' && <SummarySection {...sectionProps} />}
-          {activeTab === 'gross-profit' && <GrossProfitSection {...sectionProps} />}
+          {canViewFinancial && activeTab === 'gross-profit' && <GrossProfitSection {...sectionProps} />}
           {activeTab === 'payment-methods' && <PaymentMethodsSection {...sectionProps} />}
           {activeTab === 'item-sales' && <ItemSalesSection {...sectionProps} />}
           {activeTab === 'category-sales' && <CategorySalesSection {...sectionProps} />}

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import type { PrinterConfig, PrinterType, PrinterConnection } from '@/types/settings.types';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -33,7 +34,7 @@ import {
   Wifi,
   Usb,
   Bluetooth,
-  TestTube,
+  Info,
 } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
 
@@ -83,14 +84,13 @@ export function PrinterSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PrinterForm>(EMPTY_FORM);
   const [deleteConfirm, setDeleteConfirm] = useState<PrinterConfig | null>(null);
-  const [testingId, setTestingId] = useState<string | null>(null);
 
   const { data: outlets } = useQuery({
     queryKey: ['outlets'],
     queryFn: settingsApi.getOutlets,
   });
 
-  const { data: printers, isLoading } = useQuery({
+  const { data: printers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['printer-configs'],
     queryFn: settingsApi.listPrinters,
   });
@@ -151,6 +151,7 @@ export function PrinterSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['printer-configs'] });
     },
+    onError: (err) => handleMutationError(err, 'Gagal mengubah status printer'),
   });
 
   function closeForm() {
@@ -189,17 +190,6 @@ export function PrinterSettingsPage() {
     }
   }
 
-  async function handleTestPrint(printer: PrinterConfig) {
-    setTestingId(printer.id);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    if (printer.connection === 'network' && !printer.ipAddress) {
-      toast.error({ title: 'Test gagal', description: 'IP address belum diisi' });
-    } else {
-      toast.success({ title: 'Test print berhasil', description: `Printer: ${printer.name}` });
-    }
-    setTestingId(null);
-  }
-
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const activeOutlets = outlets?.filter((o) => o.isActive) ?? [];
 
@@ -211,10 +201,20 @@ export function PrinterSettingsPage() {
         </Button>
       </PageHeader>
 
+      <div className="mb-4 flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          Konfigurasi printer disimpan sebagai catatan. Tes cetak dan cetak otomatis ke printer
+          ini belum didukung; struk dicetak melalui dialog cetak perangkat kasir.
+        </p>
+      </div>
+
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : isError ? (
+        <ErrorState title="Gagal memuat printer" error={error} onRetry={() => void refetch()} />
       ) : !printers?.length ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <Printer className="mx-auto h-10 w-10 text-muted-foreground/50" />
@@ -253,7 +253,7 @@ export function PrinterSettingsPage() {
                   <Switch
                     checked={printer.isActive}
                     onCheckedChange={(checked) => toggleMutation.mutate({ id: printer.id, isActive: checked })}
-                    aria-label={`Toggle ${printer.name}`}
+                    aria-label={`Aktifkan ${printer.name}`}
                   />
                 </div>
 
@@ -263,25 +263,12 @@ export function PrinterSettingsPage() {
                     <p>IP: {printer.ipAddress || '-'}:{printer.port}</p>
                   )}
                   <p>
-                    Auto-print: {printer.autoPrint ? 'Ya' : 'Tidak'} |
-                    Copies: {printer.copies}x
+                    Cetak otomatis: {printer.autoPrint ? 'Ya' : 'Tidak'} |
+                    Salinan: {printer.copies}x
                   </p>
                 </div>
 
                 <div className="mt-3 flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTestPrint(printer)}
-                    disabled={testingId === printer.id}
-                  >
-                    {testingId === printer.id ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <TestTube className="mr-1 h-3.5 w-3.5" />
-                    )}
-                    Test Print
-                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => openEdit(printer)}>
                     <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                   </Button>
@@ -290,6 +277,7 @@ export function PrinterSettingsPage() {
                     size="sm"
                     className="text-destructive"
                     onClick={() => setDeleteConfirm(printer)}
+                    aria-label={`Hapus printer ${printer.name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -381,7 +369,7 @@ export function PrinterSettingsPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex items-center justify-between rounded-lg border p-3">
-                <Label className="cursor-pointer">Auto-print setelah transaksi</Label>
+                <Label className="cursor-pointer">Cetak otomatis setelah transaksi</Label>
                 <Switch
                   checked={form.autoPrint}
                   onCheckedChange={(checked) => setForm({ ...form, autoPrint: checked })}

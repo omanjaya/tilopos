@@ -1,7 +1,12 @@
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { auditApi, AUDIT_PAGE_SIZE, type AuditLogRecord } from '@/api/endpoints/audit.api';
+import { employeesApi } from '@/api/endpoints/employees.api';
+import { formatDateTime } from '@/lib/format';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Shield,
   RotateCcw,
@@ -10,17 +15,13 @@ import {
   Tag,
   UserCog,
   Trash2,
-  Construction,
 } from 'lucide-react';
 
-interface AuditLogRow {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: string;
-  detail: string;
-  oldValue: string;
-  newValue: string;
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string') return value;
+  const text = JSON.stringify(value);
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
 const TRACKED_ACTIVITIES = [
@@ -32,16 +33,35 @@ const TRACKED_ACTIVITIES = [
   { icon: Trash2, label: 'Hapus Data', description: 'Penghapusan produk, pelanggan, atau data lainnya' },
 ];
 
-const auditColumns: Column<AuditLogRow>[] = [
-  { key: 'timestamp', header: 'Waktu', cell: (row) => row.timestamp },
-  { key: 'user', header: 'Pengguna', cell: (row) => row.user },
-  { key: 'action', header: 'Aksi', cell: (row) => row.action },
-  { key: 'detail', header: 'Detail', cell: (row) => row.detail },
-  { key: 'oldValue', header: 'Nilai Lama', cell: (row) => row.oldValue },
-  { key: 'newValue', header: 'Nilai Baru', cell: (row) => row.newValue },
-];
-
 export function AuditPage() {
+  const [page, setPage] = useState(1);
+  const { data: logs, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ['audit-logs', page],
+    queryFn: () => auditApi.list({ page, limit: AUDIT_PAGE_SIZE }),
+    placeholderData: keepPreviousData,
+  });
+  // The backend returns a plain array per page; a full page means there may be more.
+  const hasNextPage = (logs?.length ?? 0) === AUDIT_PAGE_SIZE;
+  const { data: employees } = useQuery({
+    queryKey: ['employees', 'audit-lookup'],
+    queryFn: () => employeesApi.list(),
+  });
+  const employeeName = (id: string | null) =>
+    id ? (employees?.find((e) => e.id === id)?.name ?? 'Karyawan nonaktif') : 'Sistem';
+
+  const auditColumns: Column<AuditLogRecord>[] = [
+    { key: 'createdAt', header: 'Waktu', cell: (row) => formatDateTime(row.createdAt) },
+    { key: 'employeeId', header: 'Pengguna', cell: (row) => employeeName(row.employeeId) },
+    { key: 'action', header: 'Aksi', cell: (row) => row.action },
+    {
+      key: 'entity',
+      header: 'Data',
+      cell: (row) => `${row.entityType}${row.entityId ? ` #${row.entityId.slice(0, 8)}` : ''}`,
+    },
+    { key: 'oldValue', header: 'Nilai Lama', cell: (row) => formatValue(row.oldValue) },
+    { key: 'newValue', header: 'Nilai Baru', cell: (row) => formatValue(row.newValue) },
+  ];
+
   return (
     <div>
       <PageHeader title="Audit Trail" description="Log aktivitas sensitif" />
@@ -78,25 +98,41 @@ export function AuditPage() {
         </CardContent>
       </Card>
 
-      {/* Placeholder Table */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Log Audit</CardTitle>
-            <Badge variant="outline" className="gap-1">
-              <Construction className="h-3 w-3" />
-              Dalam Pengembangan
-            </Badge>
-          </div>
+          <CardTitle className="text-base">Log Audit (30 hari terakhir)</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable<AuditLogRow>
+          <DataTable<AuditLogRecord>
             columns={auditColumns}
-            data={[]}
-            isLoading={false}
-            emptyTitle="Fitur audit trail viewer sedang dalam pengembangan"
-            emptyDescription="Log audit dicatat secara otomatis di server. Viewer akan segera tersedia."
+            data={logs ?? []}
+            isLoading={isLoading}
+            error={error}
+            onRetry={() => void refetch()}
+            emptyTitle="Belum ada log audit"
+            emptyDescription="Belum ada aktivitas sensitif yang tercatat dalam 30 hari terakhir."
           />
+          {(page > 1 || hasNextPage) && (
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <span className="text-sm text-muted-foreground">Halaman {page}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1 || isFetching}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Sebelumnya
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasNextPage || isFetching}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Berikutnya
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

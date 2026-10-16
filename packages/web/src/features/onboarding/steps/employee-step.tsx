@@ -17,7 +17,7 @@ import {
 const employeeSchema = z.object({
   name: z.string().min(2, 'Nama minimal 2 karakter'),
   email: z.string().email('Format email tidak valid').optional().or(z.literal('')),
-  pin: z.string().min(4, 'PIN minimal 4 digit').max(6, 'PIN maksimal 6 digit').regex(/^\d+$/, 'PIN harus berupa angka'),
+  pin: z.string().regex(/^\d{6}$/, 'PIN harus tepat 6 digit angka'),
 });
 
 type EmployeeFormData = z.infer<typeof employeeSchema>;
@@ -98,7 +98,7 @@ export function EmployeeStep({ onNext, onBack, onSkip, defaultValues }: Employee
                     type="password"
                     inputMode="numeric"
                     maxLength={6}
-                    placeholder="4-6 digit angka"
+                    placeholder="6 digit angka"
                     {...field}
                   />
                 </FormControl>

@@ -5,8 +5,10 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { formatRupiah, formatNumber } from '@/lib/format';
-import { Users, Star, Clock, Trophy, TrendingUp } from 'lucide-react';
+import { Users, Clock, Trophy, TrendingUp } from 'lucide-react';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
+import { reportDateParams } from '../report-date-params';
 import type { DateRange, StaffReport as StaffReportType } from '@/types/report.types';
 import type { DateRange as DateRangeValue } from '@/components/shared/date-range-picker';
 
@@ -17,24 +19,30 @@ interface StaffReportProps {
 }
 
 export function StaffReport({ outletId, dateRange, customDateRange }: StaffReportProps) {
-    const { data: reportData, isLoading } = useQuery<StaffReportType>({
-        queryKey: ['report', 'staff', outletId, dateRange, customDateRange],
-        queryFn: () => reportsApi.staff({
-            outletId,
-            dateRange,
-            startDate: customDateRange?.from?.toISOString(),
-            endDate: customDateRange?.to?.toISOString(),
-        }),
-        enabled: !!outletId,
+    const { startDate, endDate, ready } = reportDateParams(dateRange, customDateRange);
+    const { data: reportData, isLoading, error, refetch } = useQuery<StaffReportType>({
+        queryKey: ['report', 'staff', outletId, dateRange, startDate, endDate],
+        queryFn: () => reportsApi.staff({ outletId, dateRange, startDate, endDate }),
+        enabled: !!outletId && ready,
     });
 
     if (isLoading) {
         return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
                 {[1, 2, 3, 4].map((i) => (
                     <Skeleton key={i} className="h-32" />
                 ))}
             </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <ReportErrorState
+                description="Terjadi kesalahan saat mengambil data laporan."
+                error={error as Error}
+                onRetry={() => void refetch()}
+            />
         );
     }
 
@@ -74,25 +82,11 @@ export function StaffReport({ outletId, dateRange, customDateRange }: StaffRepor
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Rating Rata-rata</CardTitle>
-                        <Star className="h-4 w-4 text-amber-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center gap-1">
-                            <span className="text-2xl font-bold">{reportData.avgRating.toFixed(1)}</span>
-                            <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
-                        </div>
-                        <p className="text-xs text-muted-foreground">Dari pelanggan</p>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Waktu Layanan</CardTitle>
                         <Clock className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{reportData.avgServiceTime} min</div>
+                        <div className="text-2xl font-bold">{reportData.avgServiceTime} menit</div>
                         <p className="text-xs text-muted-foreground">Rata-rata</p>
                     </CardContent>
                 </Card>
@@ -129,18 +123,15 @@ export function StaffReport({ outletId, dateRange, customDateRange }: StaffRepor
                                             <p className="font-medium text-sm">{staff.name}</p>
                                             <div className="flex items-center gap-2 mt-0.5">
                                                 <span className="text-xs text-muted-foreground">{staff.services} layanan</span>
-                                                <span className="text-xs text-muted-foreground">•</span>
-                                                <div className="flex items-center gap-0.5">
-                                                    <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                                                    <span className="text-xs text-muted-foreground">{staff.rating.toFixed(1)}</span>
-                                                </div>
                                             </div>
                                         </div>
                                         <div className="text-right">
                                             <p className="font-semibold text-sm">{formatRupiah(staff.revenue)}</p>
-                                            <p className="text-xs text-green-600 dark:text-green-400">
-                                                +{formatRupiah(staff.commission)} komisi
-                                            </p>
+                                            {staff.commission !== null && (
+                                                <p className="text-xs text-green-600 dark:text-green-400">
+                                                    +{formatRupiah(staff.commission)} komisi
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -170,7 +161,7 @@ export function StaffReport({ outletId, dateRange, customDateRange }: StaffRepor
                                         <Progress value={(service.count / reportData.totalServices) * 100} className="h-2" />
                                     </div>
                                     <Badge variant="outline" className="ml-3 text-[10px]">
-                                        ~{service.avgTime}m
+                                        ~{service.avgTime} menit
                                     </Badge>
                                 </div>
                             ))}

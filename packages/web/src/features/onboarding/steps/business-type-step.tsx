@@ -28,7 +28,7 @@ interface BusinessTypeStepProps {
 }
 
 export function BusinessTypeStep({ selectedType, onSelect, onNext, onBack, onSkip }: BusinessTypeStepProps) {
-  const { data: templates, isLoading } = useQuery({
+  const { data: templates, isLoading, isError, refetch } = useQuery({
     queryKey: ['templates'],
     queryFn: () => templatesApi.list(),
   });
@@ -51,6 +51,13 @@ export function BusinessTypeStep({ selectedType, onSelect, onNext, onBack, onSki
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <p className="text-sm text-destructive">Gagal memuat daftar tipe bisnis.</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Coba Lagi
+          </Button>
         </div>
       ) : (
         <div className="mx-auto grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-3">

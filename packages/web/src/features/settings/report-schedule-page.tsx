@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import type { ReportSchedule, ReportType, ReportFrequency } from '@/types/settings.types';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ import {
   BarChart3,
   Package,
   DollarSign,
+  Info,
 } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
 
@@ -77,7 +79,7 @@ export function ReportSchedulePage() {
     queryFn: settingsApi.getBusiness,
   });
 
-  const { data: schedules, isLoading } = useQuery({
+  const { data: schedules, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['report-schedules'],
     queryFn: settingsApi.listReportSchedules,
   });
@@ -120,6 +122,7 @@ export function ReportSchedulePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
     },
+    onError: (err) => handleMutationError(err, 'Gagal mengubah status jadwal'),
   });
 
   function closeForm() {
@@ -156,6 +159,11 @@ export function ReportSchedulePage() {
       return;
     }
 
+    if (recipients.length > 10) {
+      toast.error({ title: 'Maksimal 10 email penerima' });
+      return;
+    }
+
     const invalidEmails = recipients.filter((e) => !EMAIL_REGEX.test(e));
     if (invalidEmails.length > 0) {
       toast.error({ title: 'Format email tidak valid', description: invalidEmails.join(', ') });
@@ -180,22 +188,32 @@ export function ReportSchedulePage() {
 
   return (
     <div>
-      <PageHeader title="Jadwal Laporan" description="Atur pengiriman laporan otomatis ke email">
+      <PageHeader title="Jadwal Laporan" description="Simpan jadwal dan penerima laporan email">
         <Button onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" /> Tambah Jadwal
         </Button>
       </PageHeader>
 
+      <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          Pengiriman laporan otomatis ke email belum aktif. Jadwal yang Anda simpan di sini belum
+          akan mengirim email; unduh laporan secara manual dari menu Laporan.
+        </p>
+      </div>
+
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : isError ? (
+        <ErrorState title="Gagal memuat jadwal laporan" error={error} onRetry={() => void refetch()} />
       ) : !schedules?.length ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <CalendarClock className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm font-medium">Belum ada jadwal laporan</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Jadwalkan laporan otomatis untuk dikirim ke email Anda.
+            Simpan jadwal dan penerima laporan email.
           </p>
           <Button onClick={openCreate} className="mt-4" size="sm">
             <Plus className="mr-2 h-4 w-4" /> Tambah Jadwal
@@ -226,7 +244,7 @@ export function ReportSchedulePage() {
                   <Switch
                     checked={schedule.isActive}
                     onCheckedChange={(checked) => toggleMutation.mutate({ id: schedule.id, isActive: checked })}
-                    aria-label={`Toggle jadwal ${typeConfig.label}`}
+                    aria-label={`Aktifkan jadwal ${typeConfig.label}`}
                   />
                 </div>
 
@@ -246,6 +264,7 @@ export function ReportSchedulePage() {
                     size="sm"
                     className="text-destructive"
                     onClick={() => setDeleteConfirm(schedule)}
+                    aria-label={`Hapus jadwal laporan ${typeConfig.label}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -262,7 +281,7 @@ export function ReportSchedulePage() {
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Jadwal' : 'Tambah Jadwal Laporan'}</DialogTitle>
             <DialogDescription>
-              Laporan akan dikirim otomatis ke email sesuai jadwal.
+              Pengiriman email otomatis belum aktif; jadwal ini disimpan untuk digunakan nanti.
             </DialogDescription>
           </DialogHeader>
 

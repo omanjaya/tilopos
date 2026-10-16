@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { reportsApi } from '@/api/endpoints/reports.api';
+import { ReportErrorState } from '@/components/shared/report-error-state';
 
 interface DiscountSectionProps {
   outletId: string;
@@ -19,7 +20,7 @@ function Row({ label, value, isBold }: { label: string; value: string; isBold?: 
 }
 
 export function DiscountSection({ outletId, startDate, endDate }: DiscountSectionProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['report', 'discount-breakdown', outletId, startDate, endDate],
     queryFn: () => reportsApi.discountBreakdown({ outletId, startDate, endDate }),
     enabled: !!outletId,
@@ -32,6 +33,16 @@ export function DiscountSection({ outletId, startDate, endDate }: DiscountSectio
           <Skeleton key={i} className="h-8" />
         ))}
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ReportErrorState
+        description="Terjadi kesalahan saat mengambil data laporan."
+        error={error as Error}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -65,7 +76,7 @@ export function DiscountSection({ outletId, startDate, endDate }: DiscountSectio
               <div key={p.promotionId} className="grid grid-cols-[1fr_auto_auto] gap-x-4 border-b px-4 py-2.5 last:border-0">
                 <span className="text-sm">{p.name}</span>
                 <span className="text-right text-sm tabular-nums text-muted-foreground">{formatNumber(p.usedCount)}x</span>
-                <span className="text-right text-sm tabular-nums">{formatCurrency(p.totalDiscount)}</span>
+                <span className="text-right text-sm tabular-nums">{p.totalDiscount === null ? '-' : formatCurrency(p.totalDiscount)}</span>
               </div>
             ))}
           </div>

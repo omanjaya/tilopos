@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast-utils';
+import { useCan } from '@/features/auth/use-permission';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { cn } from '@/lib/utils';
 import {
@@ -66,8 +67,10 @@ export function OutletsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Outlet | null>(null);
   const [form, setForm] = useState<OutletFormData>(defaultForm);
+  // Create/delete outlet are owner-only; managers can edit only their own outlet
+  const canManageOutlets = useCan('outlets.manage');
 
-  const { data: outlets, isLoading } = useQuery({
+  const { data: outlets, isLoading, error, refetch } = useQuery({
     queryKey: ['outlets'],
     queryFn: settingsApi.listOutlets,
   });
@@ -100,10 +103,13 @@ export function OutletsPage() {
             title: 'Outlet berhasil ditambahkan',
             description: `Template diterapkan: ${result.categories} kategori, ${result.products} produk.`,
           });
-        } catch {
-          toast.success({
-            title: 'Outlet berhasil ditambahkan',
-            description: 'Namun template gagal diterapkan. Anda bisa apply template nanti.',
+        } catch (err: unknown) {
+          const reason =
+            (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (err instanceof Error ? err.message : 'Kesalahan tidak diketahui');
+          toast.warning({
+            title: 'Outlet ditambahkan, tetapi template gagal diterapkan',
+            description: `${reason}. Anda bisa menerapkan template nanti.`,
           });
         }
       } else {
@@ -242,7 +248,7 @@ export function OutletsPage() {
             <DropdownMenuItem onClick={() => openEdit(row)}>
               <Pencil className="mr-2 h-4 w-4" /> Edit
             </DropdownMenuItem>
-            {row.isActive && (
+            {canManageOutlets && row.isActive && (
               <DropdownMenuItem
                 onClick={() => deactivateMutation.mutate(row.id)}
                 className="text-destructive"
@@ -259,15 +265,19 @@ export function OutletsPage() {
   return (
     <div>
       <PageHeader title="Kelola Outlet" description="Daftar outlet bisnis Anda">
-        <Button onClick={openCreate} aria-keyshortcuts="N">
-          <Plus className="mr-2 h-4 w-4" /> Tambah Outlet
-        </Button>
+        {canManageOutlets && (
+          <Button onClick={openCreate} aria-keyshortcuts="N">
+            <Plus className="mr-2 h-4 w-4" /> Tambah Outlet
+          </Button>
+        )}
       </PageHeader>
 
       <DataTable
         columns={columns}
         data={outlets ?? []}
         isLoading={isLoading}
+        error={error}
+        onRetry={() => void refetch()}
         emptyTitle="Belum ada outlet"
         emptyDescription="Tambahkan outlet pertama Anda."
       />
@@ -410,7 +420,7 @@ export function OutletsPage() {
                 type="submit"
                 disabled={isSaving}
                 aria-busy={isSaving}
-                aria-label={isSaving ? (editTarget ? 'Saving outlet...' : 'Adding outlet...') : undefined}
+                aria-label={isSaving ? (editTarget ? 'Menyimpan outlet...' : 'Menambahkan outlet...') : undefined}
               >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {editTarget ? 'Simpan' : 'Tambah'}

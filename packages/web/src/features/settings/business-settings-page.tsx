@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { settingsApi } from '@/api/endpoints/settings.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InlineHelpCard, HelpSidebar } from '@/components/shared/help-sidebar';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { toast } from '@/lib/toast-utils';
+import { useCan } from '@/features/auth/use-permission';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { Loader2, Save } from 'lucide-react';
 import type { UpdateBusinessRequest } from '@/types/settings.types';
@@ -47,7 +49,7 @@ export function BusinessSettingsPage() {
     },
   });
 
-  const { data: business, isLoading } = useQuery({
+  const { data: business, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['business'],
     queryFn: settingsApi.getBusiness,
   });
@@ -62,6 +64,9 @@ export function BusinessSettingsPage() {
       });
     }
   }, [business, form]);
+
+  // PUT /settings/business is owner-only; managers get a read-only view
+  const canEdit = useCan('business.edit');
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateBusinessRequest) => settingsApi.updateBusiness(data),
@@ -96,6 +101,15 @@ export function BusinessSettingsPage() {
       </div>
     );
   }
+  if (isError) {
+    return (
+      <div>
+        <PageHeader title="Pengaturan Bisnis" description="Kelola informasi bisnis Anda" />
+        <ErrorState title="Gagal memuat data bisnis" error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
 
   return (
     <div>
@@ -112,6 +126,12 @@ export function BusinessSettingsPage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {!canEdit && (
+                <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                  Hanya pemilik bisnis yang dapat mengubah informasi bisnis.
+                </p>
+              )}
+              <fieldset disabled={!canEdit} className="space-y-4">
               <FormField
                 control={form.control}
                 name="name"
@@ -168,6 +188,9 @@ export function BusinessSettingsPage() {
                 )}
               />
 
+              </fieldset>
+
+              {canEdit && (
               <div className="flex justify-end pt-2">
                 <Button
                   type="submit"
@@ -183,6 +206,7 @@ export function BusinessSettingsPage() {
                   Simpan
                 </Button>
               </div>
+              )}
             </form>
           </Form>
         </CardContent>

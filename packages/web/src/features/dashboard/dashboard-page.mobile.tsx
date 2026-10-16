@@ -23,6 +23,8 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import { useMokaDashboard } from './hooks/use-moka-dashboard';
+import { DashboardNoAccess } from './components/dashboard-no-access';
+import { ErrorState } from '@/components/shared/error-state';
 import type { DashboardTab, DateRangeValue } from './hooks/use-moka-dashboard';
 
 // ── Quick Date Presets ──
@@ -108,6 +110,15 @@ function KpiCard({ label, value, icon: Icon, color, bg }: {
 export function DashboardPage() {
   const dashboard = useMokaDashboard();
 
+  if (!dashboard.hasAccess) {
+    return (
+      <div className="px-4 py-4">
+        <DashboardNoAccess />
+        <MobileNavSpacer />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-muted/30">
       {/* Header */}
@@ -137,7 +148,13 @@ export function DashboardPage() {
           {dashboard.activeTab === 'dashboard' && (
             <>
               {/* 2-column KPI Grid */}
-              {dashboard.summaryLoading ? (
+              {dashboard.summaryError ? (
+                <ErrorState
+                  title="Gagal memuat ringkasan penjualan"
+                  error={dashboard.summaryError}
+                  onRetry={() => void dashboard.refetchSummary()}
+                />
+              ) : dashboard.summaryLoading ? (
                 <div className="grid grid-cols-2 gap-2">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="rounded-xl border bg-white/80 dark:bg-card/80 p-3">
@@ -149,10 +166,10 @@ export function DashboardPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <KpiCard label="Penjualan Kotor" value={formatCurrency(dashboard.summary?.grossSales ?? 0)} icon={DollarSign} color="text-emerald-600" bg="bg-emerald-100 dark:bg-emerald-900/40" />
                   <KpiCard label="Penjualan Bersih" value={formatCurrency(dashboard.summary?.netSales ?? 0)} icon={Receipt} color="text-blue-600" bg="bg-blue-100 dark:bg-blue-900/40" />
-                  <KpiCard label="Laba Kotor" value={formatCurrency(dashboard.summary?.grossProfit ?? 0)} icon={TrendingUp} color="text-violet-600" bg="bg-violet-100 dark:bg-violet-900/40" />
+                  <KpiCard label="Laba Kotor" value={dashboard.summary?.grossProfit == null ? '-' : formatCurrency(dashboard.summary.grossProfit)} icon={TrendingUp} color="text-violet-600" bg="bg-violet-100 dark:bg-violet-900/40" />
                   <KpiCard label="Transaksi" value={formatNumber(dashboard.summary?.transactions ?? 0)} icon={ShoppingCart} color="text-amber-600" bg="bg-amber-100 dark:bg-amber-900/40" />
                   <KpiCard label="Rata-rata / Txn" value={formatCurrency(dashboard.summary?.averageSalePerTransaction ?? 0)} icon={Calculator} color="text-cyan-600" bg="bg-cyan-100 dark:bg-cyan-900/40" />
-                  <KpiCard label="Margin Kotor" value={`${(dashboard.summary?.grossMargin ?? 0).toFixed(1)}%`} icon={Percent} color="text-rose-600" bg="bg-rose-100 dark:bg-rose-900/40" />
+                  <KpiCard label="Margin Kotor" value={dashboard.summary?.grossMargin == null ? '-' : `${dashboard.summary.grossMargin.toFixed(1)}%`} icon={Percent} color="text-rose-600" bg="bg-rose-100 dark:bg-rose-900/40" />
                 </div>
               )}
 
@@ -192,7 +209,13 @@ export function DashboardPage() {
 
               {/* Top Items */}
               <Section title="Produk Terlaris" icon={Trophy} iconColor="text-amber-600" iconBg="bg-amber-100 dark:bg-amber-900/40">
-                {dashboard.items?.topItems && dashboard.items.topItems.length > 0 ? (
+                {dashboard.itemsError ? (
+                  <ErrorState
+                    title="Gagal memuat produk terlaris"
+                    error={dashboard.itemsError}
+                    onRetry={() => void dashboard.refetchItems()}
+                  />
+                ) : dashboard.items?.topItems && dashboard.items.topItems.length > 0 ? (
                   <div className="space-y-2">
                     {dashboard.items.topItems.slice(0, 10).map((item, i) => (
                       <div key={item.productId} className="flex items-center gap-2">
@@ -215,7 +238,13 @@ export function DashboardPage() {
           {/* TAB: Outlet Comparison */}
           {dashboard.activeTab === 'outlet_comparison' && (
             <>
-              {dashboard.outletComparisonLoading ? (
+              {dashboard.outletComparisonError ? (
+                <ErrorState
+                  title="Gagal memuat perbandingan outlet"
+                  error={dashboard.outletComparisonError}
+                  onRetry={() => void dashboard.refetchOutletComparison()}
+                />
+              ) : dashboard.outletComparisonLoading ? (
                 <div className="rounded-2xl border bg-white/80 dark:bg-card/80 p-4">
                   <Skeleton className="h-[200px] rounded-xl" />
                 </div>
@@ -238,16 +267,16 @@ export function DashboardPage() {
                         </div>
                         <div className="p-2 bg-muted/30 rounded-lg">
                           <span className="text-muted-foreground">Laba Kotor</span>
-                          <p className="font-semibold">{formatCurrency(outlet.grossProfit)}</p>
+                          <p className="font-semibold">{outlet.grossProfit === null ? '-' : formatCurrency(outlet.grossProfit)}</p>
                         </div>
                         <div className="p-2 bg-muted/30 rounded-lg">
                           <span className="text-muted-foreground">Margin</span>
-                          <p className="font-semibold">{outlet.grossMargin.toFixed(1)}%</p>
+                          <p className="font-semibold">{outlet.grossMargin === null ? '-' : `${outlet.grossMargin.toFixed(1)}%`}</p>
                         </div>
                       </div>
                       {outlet.topItems && outlet.topItems.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-border/30">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Top Items</p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Item Teratas</p>
                           {outlet.topItems.map((item, idx) => (
                             <div key={idx} className="flex items-center justify-between text-xs py-0.5">
                               <span className="truncate"><span className="text-muted-foreground">{idx + 1}.</span> {item.name}</span>
@@ -268,7 +297,7 @@ export function DashboardPage() {
                           <p className="font-semibold">{formatCurrency(dashboard.outletComparison.totals.grossSales)}</p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Net Sales</span>
+                          <span className="text-muted-foreground">Penjualan Bersih</span>
                           <p className="font-semibold">{formatCurrency(dashboard.outletComparison.totals.netSales)}</p>
                         </div>
                         <div>

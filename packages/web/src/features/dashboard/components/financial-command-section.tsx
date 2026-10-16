@@ -6,6 +6,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/format';
 import type { DateRange } from '@/types/report.types';
+import { ErrorState } from '@/components/shared/error-state';
+import { paymentMethodLabel } from '@/lib/payment-method-labels';
 import {
   TrendingUp,
   TrendingDown,
@@ -38,65 +40,87 @@ interface FinancialCommandSectionProps {
   dateRange: DateRange;
 }
 
+const CONTRA_REVENUE_LABELS: Record<string, string> = {
+  Refunds: 'Refund',
+  Discounts: 'Diskon',
+};
+
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 export function FinancialCommandSection({ dateRange }: FinancialCommandSectionProps) {
   const [selectedView, setSelectedView] = useState<'overview' | 'outlets' | 'cash-flow'>('overview');
 
   // Revenue & Expense
-  const { data: revenueExpense, isLoading: revenueLoading } = useQuery({
+  const { data: revenueExpense, isLoading: revenueLoading, error: revenueError, refetch: refetchRevenue } = useQuery({
     queryKey: ['financial-command', 'revenue-expense', dateRange],
     queryFn: () => financialCommandApi.getRevenueExpense({ dateRange }),
   });
 
   // Profit by Outlet
-  const { data: profitByOutlet, isLoading: outletLoading } = useQuery({
+  const { data: profitByOutlet, isLoading: outletLoading, error: outletError, refetch: refetchOutlet } = useQuery({
     queryKey: ['financial-command', 'profit-by-outlet', dateRange],
     queryFn: () => financialCommandApi.getProfitByOutlet({ dateRange }),
   });
 
   // Cash Flow
-  const { data: cashFlow, isLoading: cashFlowLoading } = useQuery({
+  const { data: cashFlow, isLoading: cashFlowLoading, error: cashFlowError, refetch: refetchCashFlow } = useQuery({
     queryKey: ['financial-command', 'cash-flow', dateRange],
     queryFn: () => financialCommandApi.getCashFlow({ dateRange }),
   });
 
   // Payment Methods
-  const { data: paymentMethods, isLoading: paymentLoading } = useQuery({
+  const { data: paymentMethods, isLoading: paymentLoading, error: paymentError, refetch: refetchPayment } = useQuery({
     queryKey: ['financial-command', 'payment-methods', dateRange],
     queryFn: () => financialCommandApi.getPaymentMethodsAnalysis({ dateRange }),
   });
 
   // Expense Categories
-  const { data: expenseCategories, isLoading: expenseLoading } = useQuery({
+  const { data: expenseCategories, isLoading: expenseLoading, error: expenseError, refetch: refetchExpense } = useQuery({
     queryKey: ['financial-command', 'expense-categories', dateRange],
     queryFn: () => financialCommandApi.getExpenseCategories({ dateRange }),
   });
 
   const isLoading = revenueLoading || outletLoading || cashFlowLoading;
+  const queryError = revenueError || outletError || cashFlowError || paymentError || expenseError;
 
   // Prepare chart data
   const revenueExpenseChartData = revenueExpense?.revenueByDate.map((rev) => {
     const expense = revenueExpense.expensesByDate.find((exp) => exp.date === rev.date);
     return {
       date: new Date(rev.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-      Revenue: rev.revenue,
-      Expenses: expense?.expenses || 0,
-      Profit: rev.revenue - (expense?.expenses || 0),
+      Pendapatan: rev.revenue,
+      Pengeluaran: expense?.expenses || 0,
+      Laba: rev.revenue - (expense?.expenses || 0),
     };
   }) || [];
 
   const cashFlowChartData = cashFlow?.cashFlowByDate.map((cf) => ({
     date: new Date(cf.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-    'Cash In': cf.cashIn,
-    'Cash Out': cf.cashOut,
-    'Net Flow': cf.netCashFlow,
+    'Kas Masuk': cf.cashIn,
+    'Kas Keluar': cf.cashOut,
+    'Arus Bersih': cf.netCashFlow,
   })) || [];
 
   const paymentMethodsPieData = paymentMethods?.methods.map((m) => ({
-    name: m.method.toUpperCase(),
+    name: paymentMethodLabel(m.method),
     value: m.totalAmount,
   })) || [];
+
+  if (queryError) {
+    return (
+      <ErrorState
+        title="Gagal memuat data keuangan"
+        error={queryError}
+        onRetry={() => {
+          void refetchRevenue();
+          void refetchOutlet();
+          void refetchCashFlow();
+          void refetchPayment();
+          void refetchExpense();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -113,7 +137,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Net Profit
+                Laba Bersih
               </CardTitle>
               {revenueExpense && revenueExpense.netProfit >= 0 ? (
                 <TrendingUp className="h-4 w-4 text-green-600" />
@@ -132,7 +156,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                 {formatCurrency(revenueExpense?.netProfit || 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Margin: {revenueExpense?.profitMargin.toFixed(1)}%
+                Margin: {(revenueExpense?.profitMargin ?? 0).toFixed(1)}%
               </p>
             </CardContent>
           </Card>
@@ -141,7 +165,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Revenue
+                Total Pendapatan
               </CardTitle>
               <DollarSign className="h-4 w-4 text-emerald-600" />
             </CardHeader>
@@ -157,7 +181,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Expenses
+                Total Pengeluaran
               </CardTitle>
               <Receipt className="h-4 w-4 text-red-600" />
             </CardHeader>
@@ -165,7 +189,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
               <div className="text-3xl font-bold text-red-600">
                 {formatCurrency(revenueExpense?.totalExpenses || 0)}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Pengeluaran periode ini</p>
+              <p className="text-xs text-muted-foreground mt-1">Harga pokok penjualan (HPP) periode ini</p>
             </CardContent>
           </Card>
 
@@ -173,7 +197,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Net Cash Flow
+                Arus Kas Bersih
               </CardTitle>
               <Wallet className="h-4 w-4 text-blue-600" />
             </CardHeader>
@@ -194,9 +218,9 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
       {/* View Tabs */}
       <Tabs value={selectedView} onValueChange={(v) => setSelectedView(v as typeof selectedView)}>
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="outlets">By Outlet</TabsTrigger>
-          <TabsTrigger value="cash-flow">Cash Flow</TabsTrigger>
+          <TabsTrigger value="overview">Ringkasan</TabsTrigger>
+          <TabsTrigger value="outlets">Per Outlet</TabsTrigger>
+          <TabsTrigger value="cash-flow">Arus Kas</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -206,7 +230,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           {/* Revenue vs Expenses Chart */}
           <Card className="md:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Revenue vs Expenses</CardTitle>
+              <CardTitle className="text-base">Pendapatan vs Pengeluaran</CardTitle>
               <CardDescription>Trend penjualan dan pengeluaran</CardDescription>
             </CardHeader>
             <CardContent>
@@ -222,21 +246,21 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                     <Legend />
                     <Line
                       type="monotone"
-                      dataKey="Revenue"
+                      dataKey="Pendapatan"
                       stroke="#10b981"
                       strokeWidth={2}
                       dot={{ r: 4 }}
                     />
                     <Line
                       type="monotone"
-                      dataKey="Expenses"
+                      dataKey="Pengeluaran"
                       stroke="#ef4444"
                       strokeWidth={2}
                       dot={{ r: 4 }}
                     />
                     <Line
                       type="monotone"
-                      dataKey="Profit"
+                      dataKey="Laba"
                       stroke="#3b82f6"
                       strokeWidth={2}
                       dot={{ r: 4 }}
@@ -252,7 +276,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <CreditCard className="h-4 w-4" />
-                Payment Methods
+                Metode Pembayaran
               </CardTitle>
               <CardDescription>Distribusi metode pembayaran</CardDescription>
             </CardHeader>
@@ -288,9 +312,9 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <PieChart className="h-4 w-4" />
-                Expense Categories
+                Kategori Pengeluaran
               </CardTitle>
-              <CardDescription>Breakdown kategori pengeluaran</CardDescription>
+              <CardDescription>Beban (HPP), pengurang pendapatan, dan pembelian</CardDescription>
             </CardHeader>
             <CardContent>
               {expenseLoading ? (
@@ -327,6 +351,33 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                       </div>
                     );
                   })}
+
+                  {/* Refunds/discounts reduce revenue; they are not expenses */}
+                  {expenseCategories && expenseCategories.contraRevenue.length > 0 && (
+                    <div className="space-y-2 border-t pt-3">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Pengurang Pendapatan</p>
+                      {expenseCategories.contraRevenue.map((item) => (
+                        <div key={item.category}>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium">{CONTRA_REVENUE_LABELS[item.category] ?? item.category}</span>
+                            <span className="font-bold">{formatCurrency(item.amount)}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{item.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Supplier purchases: cash out, informational only */}
+                  {expenseCategories && (
+                    <div className="border-t pt-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">Pembelian Supplier</span>
+                        <span className="font-bold">{formatCurrency(expenseCategories.purchases.amount)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{expenseCategories.purchases.description}</p>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -338,7 +389,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
       {selectedView === 'outlets' && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Profit by Outlet</CardTitle>
+            <CardTitle className="text-base">Laba per Outlet</CardTitle>
             <CardDescription>Analisis profitabilitas per cabang</CardDescription>
           </CardHeader>
           <CardContent>
@@ -381,7 +432,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                           ) : (
                             <ArrowDownRight className="h-3 w-3 text-red-600" />
                           )}
-                          <span>Net Profit</span>
+                          <span>Laba Bersih</span>
                         </div>
                       </div>
                     </div>
@@ -390,22 +441,22 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                       <div className="flex items-center gap-2">
                         <DollarSign className="h-3 w-3 text-emerald-600" />
                         <div>
-                          <p className="text-xs text-muted-foreground">Revenue</p>
+                          <p className="text-xs text-muted-foreground">Pendapatan</p>
                           <p className="font-semibold">{formatCurrency(outlet.revenue)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Receipt className="h-3 w-3 text-red-600" />
                         <div>
-                          <p className="text-xs text-muted-foreground">Expenses</p>
+                          <p className="text-xs text-muted-foreground">Pengeluaran</p>
                           <p className="font-semibold">{formatCurrency(outlet.expenses)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <ShoppingBag className="h-3 w-3 text-blue-600" />
                         <div>
-                          <p className="text-xs text-muted-foreground">COGS</p>
-                          <p className="font-semibold">{formatCurrency(outlet.breakdown.cogs)}</p>
+                          <p className="text-xs text-muted-foreground">HPP</p>
+                          <p className="font-semibold">{formatCurrency(outlet.breakdown?.cogs ?? 0)}</p>
                         </div>
                       </div>
                     </div>
@@ -425,7 +476,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           {/* Cash Flow Chart */}
           <Card className="md:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Cash Flow Trend</CardTitle>
+              <CardTitle className="text-base">Tren Arus Kas</CardTitle>
               <CardDescription>Aliran kas masuk dan keluar</CardDescription>
             </CardHeader>
             <CardContent>
@@ -439,9 +490,9 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                     <YAxis />
                     <Tooltip formatter={(value) => formatCurrency(Number(value))} />
                     <Legend />
-                    <Bar dataKey="Cash In" fill="#10b981" />
-                    <Bar dataKey="Cash Out" fill="#ef4444" />
-                    <Bar dataKey="Net Flow" fill="#3b82f6" />
+                    <Bar dataKey="Kas Masuk" fill="#10b981" />
+                    <Bar dataKey="Kas Keluar" fill="#ef4444" />
+                    <Bar dataKey="Arus Bersih" fill="#3b82f6" />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -451,7 +502,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           {/* Cash In by Method */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Cash In by Method</CardTitle>
+              <CardTitle className="text-base">Kas Masuk per Metode</CardTitle>
               <CardDescription>Penerimaan per metode pembayaran</CardDescription>
             </CardHeader>
             <CardContent>
@@ -471,7 +522,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                     return (
                       <div key={method.method} className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">{method.method.toUpperCase()}</span>
+                          <span className="font-medium">{paymentMethodLabel(method.method)}</span>
                           <span className="font-bold text-green-600">
                             {formatCurrency(method.amount)}
                           </span>
@@ -493,7 +544,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
           {/* Summary */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Cash Flow Summary</CardTitle>
+              <CardTitle className="text-base">Ringkasan Arus Kas</CardTitle>
               <CardDescription>Ringkasan aliran kas</CardDescription>
             </CardHeader>
             <CardContent>
@@ -501,7 +552,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                   <div className="flex items-center gap-2">
                     <ArrowUpRight className="h-5 w-5 text-green-600" />
-                    <span className="font-medium">Total Cash In</span>
+                    <span className="font-medium">Total Kas Masuk</span>
                   </div>
                   <span className="text-lg font-bold text-green-600">
                     {formatCurrency(cashFlow?.totalCashIn || 0)}
@@ -511,7 +562,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                 <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
                   <div className="flex items-center gap-2">
                     <ArrowDownRight className="h-5 w-5 text-red-600" />
-                    <span className="font-medium">Total Cash Out</span>
+                    <span className="font-medium">Total Kas Keluar</span>
                   </div>
                   <span className="text-lg font-bold text-red-600">
                     {formatCurrency(cashFlow?.totalCashOut || 0)}
@@ -533,7 +584,7 @@ export function FinancialCommandSection({ dateRange }: FinancialCommandSectionPr
                           : 'text-yellow-600'
                       }`}
                     />
-                    <span className="font-medium">Net Cash Flow</span>
+                    <span className="font-medium">Arus Kas Bersih</span>
                   </div>
                   <span
                     className={`text-xl font-bold ${

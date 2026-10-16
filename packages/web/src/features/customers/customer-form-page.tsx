@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { customersApi } from '@/api/endpoints/customers.api';
 import { PageHeader } from '@/components/shared/page-header';
+import { ErrorState } from '@/components/shared/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,7 +17,7 @@ import { handleMutationError } from '@/lib/api-error-handler';
 import { formatCurrency } from '@/lib/format';
 import { FeatureGate, FEATURES } from '@/components/shared/feature-gate';
 import { Loader2, ArrowLeft, Wallet, Footprints, Trophy } from 'lucide-react';
-import type { CreateCustomerRequest } from '@/types/customer.types';
+import type { CreateCustomerRequest, UpdateCustomerRequest } from '@/types/customer.types';
 
 const customerSchema = z.object({
   name: z
@@ -31,9 +32,13 @@ const customerSchema = z.object({
       { message: 'Format email tidak valid' }
     ),
   phone: z.string().optional(),
-  dateOfBirth: z.string().optional(),
-  address: z.string().optional(),
-  notes: z.string().optional(),
+  address: z.string().max(1000, 'Alamat maksimal 1000 karakter').optional(),
+  // Backend expects YYYY-MM-DD (native date input value)
+  dateOfBirth: z
+    .string()
+    .optional()
+    .refine((val) => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), { message: 'Format tanggal tidak valid' }),
+  notes: z.string().max(2000, 'Catatan maksimal 2000 karakter').optional(),
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -50,13 +55,19 @@ export function CustomerFormPage() {
       name: '',
       email: '',
       phone: '',
-      dateOfBirth: '',
       address: '',
+      dateOfBirth: '',
       notes: '',
     },
   });
 
-  const { data: customer } = useQuery({
+  const {
+    data: customer,
+    isLoading: isLoadingCustomer,
+    isError: isCustomerError,
+    error: customerError,
+    refetch: refetchCustomer,
+  } = useQuery({
     queryKey: ['customers', id],
     queryFn: () => customersApi.get(id!),
     enabled: isEdit,
@@ -86,7 +97,7 @@ export function CustomerFormPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: CreateCustomerRequest) => customersApi.update(id!, data),
+    mutationFn: (data: UpdateCustomerRequest) => customersApi.update(id!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success({ title: 'Pelanggan berhasil diperbarui' });
@@ -98,21 +109,48 @@ export function CustomerFormPage() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   const onSubmit = (data: CustomerFormData) => {
-    const payload: CreateCustomerRequest = {
-      name: data.name,
-      email: data.email || undefined,
-      phone: data.phone || undefined,
-      address: data.address || undefined,
-      dateOfBirth: data.dateOfBirth || undefined,
-      notes: data.notes || undefined,
-    };
-
     if (isEdit) {
-      updateMutation.mutate(payload);
+      // null clears the field on the server; undefined would keep the old value
+      updateMutation.mutate({
+        name: data.name,
+        email: data.email || null,
+        phone: data.phone || null,
+        address: data.address || null,
+        dateOfBirth: data.dateOfBirth || null,
+        notes: data.notes || null,
+      });
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate({
+        name: data.name,
+        email: data.email || undefined,
+        phone: data.phone || undefined,
+        address: data.address || undefined,
+        dateOfBirth: data.dateOfBirth || undefined,
+        notes: data.notes || undefined,
+      });
     }
   };
+
+  if (isEdit && isCustomerError) {
+    return (
+      <div>
+        <PageHeader title="Edit Pelanggan">
+          <Button variant="outline" onClick={() => navigate('/app/customers')}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+          </Button>
+        </PageHeader>
+        <ErrorState error={customerError} onRetry={() => refetchCustomer()} />
+      </div>
+    );
+  }
+
+  if (isEdit && isLoadingCustomer) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Memuat data pelanggan" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -234,7 +272,7 @@ export function CustomerFormPage() {
                   <FormItem>
                     <FormLabel>Alamat</FormLabel>
                     <FormControl>
-                      <Textarea rows={3} {...field} />
+                      <Textarea rows={2} maxLength={1000} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -248,12 +286,13 @@ export function CustomerFormPage() {
                   <FormItem>
                     <FormLabel>Catatan</FormLabel>
                     <FormControl>
-                      <Textarea rows={3} {...field} />
+                      <Textarea rows={3} maxLength={2000} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
             </CardContent>
           </Card>
 

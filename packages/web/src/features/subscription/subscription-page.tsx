@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from '@/lib/toast-utils';
+import { handleMutationError } from '@/lib/api-error-handler';
+import { useCan } from '@/features/auth/use-permission';
 import { formatCurrency } from '@/lib/format';
 import {
   Crown, Check, Zap, CreditCard, Clock, Receipt,
@@ -44,6 +46,8 @@ const FREE_FEATURES = [
 
 export function SubscriptionPage() {
   const queryClient = useQueryClient();
+  // POST /subscription/upgrade and /cancel are @Roles(OWNER)
+  const canManage = useCan('subscription.manage');
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
@@ -64,30 +68,27 @@ export function SubscriptionPage() {
   const upgradeMutation = useMutation({
     mutationFn: subscriptionApi.upgrade,
     onSuccess: (result) => {
-      if (result.paymentUrl) {
-        try {
-          const url = new URL(result.paymentUrl);
-          const allowedHosts = ['app.midtrans.com', 'payment.midtrans.com', 'app.xendit.co', 'checkout.xendit.co', 'app.sandbox.midtrans.com', 'checkout-staging.xendit.co'];
-          if (!allowedHosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) {
-            toast.error({ title: 'URL pembayaran tidak valid' });
-            return;
-          }
-        } catch {
-          toast.error({ title: 'URL pembayaran tidak valid' });
-          return;
-        }
-        window.open(result.paymentUrl, '_blank');
-        toast.success({ title: 'Invoice dibuat!', description: 'Silakan selesaikan pembayaran.' });
-      } else {
-        toast.info({ title: 'Invoice dibuat', description: `${result.invoiceNumber} — menunggu pembayaran.` });
+      // A successful upgrade always carries a gateway paymentUrl (502 otherwise).
+      const allowedHosts = ['app.midtrans.com', 'payment.midtrans.com', 'app.xendit.co', 'checkout.xendit.co', 'app.sandbox.midtrans.com', 'checkout-staging.xendit.co'];
+      let hostAllowed = false;
+      try {
+        const url = new URL(result.paymentUrl);
+        hostAllowed = allowedHosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
+      } catch {
+        hostAllowed = false; // malformed URL
       }
+      if (!hostAllowed) {
+        toast.error({ title: 'URL pembayaran tidak valid' });
+        return;
+      }
+      window.open(result.paymentUrl, '_blank', 'noopener,noreferrer');
+      toast.success({ title: 'Invoice dibuat!', description: 'Silakan selesaikan pembayaran.' });
       setUpgradeOpen(false);
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
       queryClient.invalidateQueries({ queryKey: ['subscription-invoices'] });
     },
-    onError: () => {
-      toast.error({ title: 'Gagal membuat invoice', description: 'Silakan coba lagi.' });
-    },
+    // 502 = gateway failed, 501 = provider unavailable: show the server message
+    onError: (error) => handleMutationError(error, 'Gagal membuat invoice'),
   });
 
   const cancelMutation = useMutation({
@@ -223,6 +224,12 @@ export function SubscriptionPage() {
             )}
 
             {/* CTA Buttons */}
+            {!canManage && (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Hanya pemilik bisnis yang dapat mengubah atau membatalkan langganan.
+              </p>
+            )}
+            {canManage && (
             <div className="flex gap-2 pt-1">
               {!isPremium && (
                 <Button onClick={() => setUpgradeOpen(true)} className="gap-1.5">
@@ -236,12 +243,20 @@ export function SubscriptionPage() {
                   Bayar Sekarang
                 </Button>
               )}
+              {/* Upgrade on an active/cancelled Premium appends the paid period */}
+              {isPremium && !subscription?.isTrialActive && subscription?.status !== 'expired' && (
+                <Button onClick={() => setUpgradeOpen(true)} className="gap-1.5">
+                  <Zap className="h-4 w-4" />
+                  Perpanjang Langganan
+                </Button>
+              )}
               {isPremium && isActive && subscription?.status !== 'cancelled' && !subscription?.isTrialActive && (
                 <Button variant="outline" size="sm" onClick={() => setCancelOpen(true)}>
                   Batalkan Langganan
                 </Button>
               )}
             </div>
+            )}
           </CardContent>
         </Card>
 
@@ -364,7 +379,7 @@ export function SubscriptionPage() {
                 ))}
               </div>
 
-              {!isPremium && (
+              {!isPremium && canManage && (
                 <Button className="mt-5 w-full gap-1.5" onClick={() => { setBillingCycle(pricingToggle); setUpgradeOpen(true); }}>
                   <Zap className="h-4 w-4" />
                   Upgrade Sekarang

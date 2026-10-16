@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { promotionsApi } from '@/api/endpoints/promotions.api';
+import {
+  promotionsApi,
+  businessDayStartIso,
+  businessDayEndIso,
+} from '@/api/endpoints/promotions.api';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
+import { ErrorState } from '@/components/shared/error-state';
+import { useCan } from '@/features/auth/use-permission';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,13 +31,14 @@ function getVoucherStatusBadge(voucher: GeneratedVoucher): { label: string; vari
   if (!voucher.isActive) {
     return { label: 'Nonaktif', variant: 'outline' };
   }
-  if (voucher.usageCount >= voucher.usageLimit) {
-    return { label: 'Habis', variant: 'secondary' };
+  // Each voucher code is single-use (usageCount is 0 or 1).
+  if (voucher.usageCount > 0) {
+    return { label: 'Terpakai', variant: 'secondary' };
   }
   const now = new Date();
   const validTo = new Date(voucher.validTo);
   if (validTo < now) {
-    return { label: 'Kadaluarsa', variant: 'destructive' };
+    return { label: 'Kedaluwarsa', variant: 'destructive' };
   }
   return { label: 'Aktif', variant: 'default' };
 }
@@ -60,9 +67,9 @@ export function VoucherGeneratorPage() {
   const [discountValue, setDiscountValue] = useState(0);
   const [validFrom, setValidFrom] = useState('');
   const [validTo, setValidTo] = useState('');
-  const [usageLimit, setUsageLimit] = useState(1);
+  const canGenerate = useCan('vouchers.generate');
 
-  const { data: vouchers, isLoading } = useQuery({
+  const { data: vouchers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['vouchers', search],
     queryFn: () => promotionsApi.listVouchers({ search: search || undefined }),
   });
@@ -74,9 +81,11 @@ export function VoucherGeneratorPage() {
         quantity,
         discountType,
         discountValue,
-        validFrom,
-        validTo,
-        usageLimit,
+        // Business days (Asia/Jakarta): from 00:00 WIB until 23:59:59 WIB.
+        validFrom: businessDayStartIso(validFrom),
+        validTo: businessDayEndIso(validTo),
+        // Every code is single-use; the shared promotion allows one use per code.
+        usageLimit: quantity,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['vouchers'] });
@@ -86,7 +95,6 @@ export function VoucherGeneratorPage() {
       setDiscountValue(0);
       setValidFrom('');
       setValidTo('');
-      setUsageLimit(1);
     },
     onError: (error) => handleMutationError(error, 'Gagal membuat voucher'),
   });
@@ -101,7 +109,8 @@ export function VoucherGeneratorPage() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success({ title: 'Voucher berhasil diekspor' });
-    } catch {
+    } catch (err) {
+      console.warn('Voucher export failed', err);
       toast.error({
         title: 'Gagal mengekspor',
         description: 'Terjadi kesalahan saat mengekspor voucher',
@@ -111,12 +120,20 @@ export function VoucherGeneratorPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prefix.trim()) {
-      toast.error({ title: 'Prefix wajib diisi' });
+    if (!/^[A-Z0-9]{2,10}$/.test(prefix)) {
+      toast.error({ title: 'Prefix harus 2-10 huruf kapital/angka' });
+      return;
+    }
+    if (quantity < 1 || quantity > 1000) {
+      toast.error({ title: 'Jumlah voucher harus 1-1000' });
       return;
     }
     if (!validFrom || !validTo) {
       toast.error({ title: 'Periode berlaku wajib diisi' });
+      return;
+    }
+    if (validTo < validFrom) {
+      toast.error({ title: 'Tanggal berakhir harus setelah tanggal mulai' });
       return;
     }
     if (discountValue <= 0) {
@@ -158,11 +175,9 @@ export function VoucherGeneratorPage() {
     },
     {
       key: 'usage',
-      header: 'Penggunaan',
+      header: 'Terpakai',
       cell: (row) => (
-        <span className="text-sm">
-          {row.usageCount} / {row.usageLimit}
-        </span>
+        <span className="text-sm">{row.usageCount > 0 ? 'Ya' : 'Belum'}</span>
       ),
     },
     {
@@ -188,6 +203,7 @@ export function VoucherGeneratorPage() {
         </Button>
       </PageHeader>
 
+      {canGenerate && (
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="text-lg">Buat Voucher Baru</CardTitle>
@@ -259,16 +275,6 @@ export function VoucherGeneratorPage() {
                   onChange={(e) => setValidTo(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="usageLimit">Batas Penggunaan per Voucher</Label>
-                <Input
-                  id="usageLimit"
-                  type="number"
-                  min={1}
-                  value={usageLimit}
-                  onChange={(e) => setUsageLimit(parseInt(e.target.value) || 1)}
-                />
-              </div>
             </div>
             <div className="flex justify-end">
               <Button type="submit" disabled={generateMutation.isPending}>
@@ -281,9 +287,16 @@ export function VoucherGeneratorPage() {
               </Button>
             </div>
           </form>
+            <p className="text-xs text-muted-foreground">
+              Setiap kode voucher hanya dapat digunakan satu kali.
+            </p>
         </CardContent>
       </Card>
+      )}
 
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : (
       <DataTable
         columns={columns}
         data={vouchers ?? []}
@@ -293,6 +306,7 @@ export function VoucherGeneratorPage() {
         emptyTitle="Belum ada voucher"
         emptyDescription="Buat voucher pertama Anda menggunakan form di atas."
       />
+      )}
     </div>
   );
 }

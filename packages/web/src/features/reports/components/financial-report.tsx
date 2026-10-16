@@ -85,7 +85,7 @@ export function FinancialReport({ outletId, dateRange, customDateRange }: Financ
       )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {isLoading ? (
+        {error ? null : isLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
               <CardContent className="p-6">

@@ -6,48 +6,77 @@ import { DataTable, type Column } from '@/components/shared/data-table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ErrorState } from '@/components/shared/error-state';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
 import { formatDateTime } from '@/lib/format';
-import { CheckCheck, Search } from 'lucide-react';
+import { useCan } from '@/features/auth/use-permission';
+import { CheckCheck, Plus } from 'lucide-react';
 import type { NotificationSetting, NotificationLog } from '@/types/settings.types';
 
+// Keys match notifications.controller.ts (notificationType / channel enums)
 const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   low_stock: 'Stok Rendah',
-  new_order: 'Pesanan Baru',
-  order_completed: 'Pesanan Selesai',
-  payment_received: 'Pembayaran Diterima',
-  shift_started: 'Shift Dimulai',
-  shift_ended: 'Shift Berakhir',
-  refund_requested: 'Permintaan Refund',
-  stock_transfer: 'Transfer Stok',
+  large_transaction: 'Transaksi Besar',
+  refund: 'Refund',
+  online_order: 'Pesanan Online',
+  shift_reminder: 'Pengingat Shift',
+  system_error: 'Gangguan Sistem',
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
+  push: 'Notifikasi Push',
   email: 'Email',
-  push: 'Push Notification',
   sms: 'SMS',
-  in_app: 'Dalam Aplikasi',
+  whatsapp: 'WhatsApp',
 };
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
-  const [recipientId, setRecipientId] = useState('');
-  const [searchRecipient, setSearchRecipient] = useState('');
+  const [newType, setNewType] = useState('low_stock');
+  const [newChannel, setNewChannel] = useState('push');
+  // POST/PUT /notifications/settings are owner/manager only; other roles only see their own settings
+  const canManage = useCan('notifications.manage');
 
-  const { data: settings, isLoading: isLoadingSettings } = useQuery({
+  const {
+    data: settings,
+    isLoading: isLoadingSettings,
+    isError: isSettingsError,
+    error: settingsError,
+    refetch: refetchSettings,
+  } = useQuery({
     queryKey: ['notification-settings'],
     queryFn: settingsApi.listNotificationSettings,
   });
 
-  const { data: logs, isLoading: isLoadingLogs } = useQuery({
-    queryKey: ['notification-logs', searchRecipient],
-    queryFn: () => settingsApi.getNotificationLogs(searchRecipient),
-    enabled: !!searchRecipient,
+  // GET /notifications/logs returns the current user's own notifications
+  const {
+    data: logs,
+    isLoading: isLoadingLogs,
+    error: logsError,
+    refetch: refetchLogs,
+  } = useQuery({
+    queryKey: ['notification-logs'],
+    queryFn: () => settingsApi.getNotificationLogs(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      settingsApi.createNotificationSetting({ type: newType, channel: newChannel, isEnabled: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
+      toast.success({ title: 'Pengaturan notifikasi ditambahkan' });
+    },
+    onError: (err) => handleMutationError(err, 'Gagal menambahkan pengaturan'),
   });
 
   const toggleMutation = useMutation({
@@ -68,13 +97,6 @@ export function NotificationsPage() {
     },
     onError: (error) => handleMutationError(error, 'Gagal memperbarui notifikasi'),
   });
-
-  const handleSearchLogs = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (recipientId.trim()) {
-      setSearchRecipient(recipientId.trim());
-    }
-  };
 
   const logColumns: Column<NotificationLog>[] = [
     {
@@ -145,7 +167,13 @@ export function NotificationsPage() {
                   </div>
                 ))}
               </div>
-            ) : settings && (settings ?? []).length > 0 ? (
+            ) : isSettingsError ? (
+              <ErrorState
+                title="Gagal memuat pengaturan notifikasi"
+                error={settingsError}
+                onRetry={() => void refetchSettings()}
+              />
+            ) : settings && settings.length > 0 ? (
               <div className="space-y-4">
                 {settings.map((setting: NotificationSetting) => (
                   <div
@@ -165,7 +193,8 @@ export function NotificationsPage() {
                       onCheckedChange={(checked) =>
                         toggleMutation.mutate({ id: setting.id, isEnabled: checked })
                       }
-                      disabled={toggleMutation.isPending}
+                      disabled={!canManage || toggleMutation.isPending}
+                      aria-label={`${NOTIFICATION_TYPE_LABELS[setting.type] ?? setting.type} via ${CHANNEL_LABELS[setting.channel] ?? setting.channel}`}
                     />
                   </div>
                 ))}
@@ -175,43 +204,66 @@ export function NotificationsPage() {
                 Belum ada pengaturan notifikasi.
               </p>
             )}
+            {!isSettingsError && canManage && (
+              <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border p-4">
+                <div className="min-w-40 flex-1 space-y-1">
+                  <span className="text-xs text-muted-foreground">Jenis</span>
+                  <Select value={newType} onValueChange={setNewType}>
+                    <SelectTrigger aria-label="Jenis notifikasi">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(NOTIFICATION_TYPE_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-40 flex-1 space-y-1">
+                  <span className="text-xs text-muted-foreground">Saluran</span>
+                  <Select value={newChannel} onValueChange={setNewChannel}>
+                    <SelectTrigger aria-label="Saluran notifikasi">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CHANNEL_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => createMutation.mutate()}
+                  disabled={createMutation.isPending}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Tambah
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Notification Logs */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Log Notifikasi</CardTitle>
+            <CardTitle className="text-lg">Notifikasi Saya</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSearchLogs} className="mb-4 flex items-end gap-3">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="recipient-id">ID Penerima</Label>
-                <Input
-                  id="recipient-id"
-                  value={recipientId}
-                  onChange={(e) => setRecipientId(e.target.value)}
-                  placeholder="Masukkan ID penerima untuk melihat log"
-                />
-              </div>
-              <Button type="submit" variant="secondary" disabled={!recipientId.trim()}>
-                <Search className="mr-2 h-4 w-4" /> Cari
-              </Button>
-            </form>
-
-            {searchRecipient ? (
-              <DataTable
-                columns={logColumns}
-                data={logs ?? []}
-                isLoading={isLoadingLogs}
-                emptyTitle="Tidak ada log notifikasi"
-                emptyDescription="Tidak ditemukan log notifikasi untuk penerima ini."
-              />
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                Masukkan ID penerima untuk melihat log notifikasi.
-              </p>
-            )}
+            <DataTable
+              columns={logColumns}
+              data={logs ?? []}
+              isLoading={isLoadingLogs}
+              error={logsError}
+              onRetry={() => void refetchLogs()}
+              emptyTitle="Tidak ada log notifikasi"
+              emptyDescription="Belum ada notifikasi untuk akun Anda."
+            />
           </CardContent>
         </Card>
       </div>

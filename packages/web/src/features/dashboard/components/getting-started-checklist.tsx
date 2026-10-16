@@ -15,6 +15,7 @@ import { SuccessCheckmark } from '@/components/shared/success-checkmark';
 import { toast } from '@/lib/toast-utils';
 import { apiClient } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { useCan } from '@/features/auth/use-permission';
 import {
   CheckCircle2,
   Circle,
@@ -86,12 +87,15 @@ export function GettingStartedChecklist({ className }: GettingStartedChecklistPr
   const queryClient = useQueryClient();
   const [showCelebration, setShowCelebration] = useState(false);
   const celebrationShownRef = useRef(false);
+  // Business setup is an owner/manager task; staff must not see or dismiss it.
+  const canManage = useCan('onboarding.manage');
 
   // Fetch onboarding progress
   const { data: progress, isLoading } = useQuery({
     queryKey: ['onboarding', 'progress'],
     queryFn: () => onboardingApi.getProgress(),
     retry: false,
+    enabled: canManage,
   });
 
   // Hide if dismissed, completed, or error occurred
@@ -133,6 +137,10 @@ export function GettingStartedChecklist({ className }: GettingStartedChecklistPr
   const handleCtaClick = (path: string) => {
     navigate(path);
   };
+
+  if (!canManage) {
+    return null;
+  }
 
   if (isLoading) {
     return (
@@ -186,7 +194,7 @@ export function GettingStartedChecklist({ className }: GettingStartedChecklistPr
       completed: progress?.steps.setupPayments ?? false,
       icon: CreditCard,
       ctaLabel: 'Atur Pembayaran',
-      ctaPath: '/app/settings?tab=payments',
+      ctaPath: '/app/settings/payments',
     },
     {
       id: 'addEmployees',
@@ -210,7 +218,7 @@ export function GettingStartedChecklist({ className }: GettingStartedChecklistPr
       completed: progress?.steps.setupPrinter ?? false,
       icon: Printer,
       ctaLabel: 'Atur Printer',
-      ctaPath: '/app/settings?tab=devices',
+      ctaPath: '/app/settings/printers',
       optional: true,
     },
   ];

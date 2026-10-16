@@ -27,11 +27,27 @@ interface TemplateStepProps {
 export function TemplateStep({ typeCode, sections, onToggleSection, onNext, onBack, onSkip }: TemplateStepProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const { data: template, isLoading } = useQuery({
+  const { data: template, isLoading, isError, refetch } = useQuery({
     queryKey: ['templates', typeCode],
     queryFn: () => templatesApi.get(typeCode),
     enabled: !!typeCode,
   });
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+        <p className="text-sm text-destructive">Gagal memuat template untuk tipe bisnis ini.</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Coba Lagi
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onNext}>
+            Lewati Template
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !template) {
     return (
@@ -63,6 +79,7 @@ export function TemplateStep({ typeCode, sections, onToggleSection, onNext, onBa
           <div key={item.key} className="rounded-lg border">
             <div className="flex items-center gap-3 p-4">
               <Checkbox
+                aria-label={item.label}
                 checked={item.checked}
                 onCheckedChange={() => onToggleSection(item.key as keyof TemplateSections)}
                 disabled={item.count === 0}
@@ -76,6 +93,10 @@ export function TemplateStep({ typeCode, sections, onToggleSection, onNext, onBa
                   variant="ghost"
                   size="sm"
                   onClick={() => setExpanded(expanded === item.key ? null : item.key)}
+                  aria-label={
+                    expanded === item.key ? `Sembunyikan detail ${item.label}` : `Lihat detail ${item.label}`
+                  }
+                  aria-expanded={expanded === item.key}
                 >
                   {expanded === item.key ? (
                     <ChevronUp className="h-4 w-4" />

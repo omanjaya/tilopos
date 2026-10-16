@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { creditApi } from '@/api/endpoints/credit.api';
+import { ErrorState } from '@/components/shared/error-state';
 import type { CreditSale } from '@/api/endpoints/credit.api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
@@ -73,47 +74,48 @@ export function CreditSalesPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  // Fetch credit sales list
-  const { data: creditSales = [], isLoading: isLoadingSales } = useQuery({
-    queryKey: ['credit-sales', outletId, statusFilter],
-    queryFn: () =>
-      creditApi.list({
-        outletId: outletId || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-      }),
+  // Fetch all credit sales once (every status). The summary cards and the aging
+  // report need the unfiltered list; the status filter is applied locally.
+  // Totals are computed from this list (includes overdue) instead of the
+  // manager-only /credit-sales/reports/outstanding endpoint.
+  const {
+    data: allCreditSales = [],
+    isLoading: isLoadingSales,
+    isError: isSalesError,
+    error: salesError,
+    refetch: refetchSales,
+  } = useQuery({
+    queryKey: ['credit-sales', outletId, 'all'],
+    queryFn: () => creditApi.list({ outletId: outletId || undefined }),
   });
 
-  // Fetch outstanding report
-  const { data: outstandingReport = [], isLoading: isLoadingReport } =
-    useQuery({
-      queryKey: ['credit-outstanding', outletId],
-      queryFn: () => creditApi.getOutstandingReport(outletId || undefined),
-    });
-
-  // Summary stats
+  // Summary stats (all unsettled credit sales, including overdue)
   const stats = useMemo(() => {
-    const totalOutstanding = outstandingReport.reduce(
-      (sum, r) => sum + r.totalOutstanding,
+    const unsettled = allCreditSales.filter((cs) => cs.status !== 'settled');
+    const totalOutstanding = unsettled.reduce(
+      (sum, cs) => sum + Number(cs.outstandingAmount || 0),
       0,
     );
-    const customerCount = outstandingReport.length;
-    const overdueCount = creditSales.filter(
-      (cs) => cs.status === 'overdue',
-    ).length;
+    const customerCount = new Set(unsettled.map((cs) => cs.customerId)).size;
+    const overdueCount = allCreditSales.filter((cs) => cs.status === 'overdue').length;
 
     return { totalOutstanding, customerCount, overdueCount };
-  }, [outstandingReport, creditSales]);
+  }, [allCreditSales]);
 
-  // Filtered sales
+  // Filtered sales (status + search)
   const filteredSales = useMemo(() => {
-    if (!searchQuery) return creditSales;
+    const byStatus =
+      statusFilter === 'all'
+        ? allCreditSales
+        : allCreditSales.filter((cs) => cs.status === statusFilter);
+    if (!searchQuery) return byStatus;
     const q = searchQuery.toLowerCase();
-    return creditSales.filter(
+    return byStatus.filter(
       (cs) =>
         cs.customer?.name?.toLowerCase().includes(q) ||
         cs.transaction?.receiptNumber?.toLowerCase().includes(q),
     );
-  }, [creditSales, searchQuery]);
+  }, [allCreditSales, statusFilter, searchQuery]);
 
   const handlePayClick = (creditSale: CreditSale) => {
     setSelectedCreditSale(creditSale);
@@ -125,7 +127,7 @@ export function CreditSalesPage() {
     setShowDetailModal(true);
   };
 
-  const isLoading = isLoadingSales || isLoadingReport;
+  const isLoading = isLoadingSales;
 
   return (
     <div className="space-y-6">
@@ -140,7 +142,10 @@ export function CreditSalesPage() {
         </p>
       </div>
 
+      {isSalesError && <ErrorState error={salesError} onRetry={() => refetchSales()} />}
+
       {/* Summary Cards */}
+      {!isSalesError && (
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -193,10 +198,14 @@ export function CreditSalesPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b">
+      <div className="flex items-center gap-2 border-b" role="tablist">
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'list'}
           onClick={() => setActiveTab('list')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'list'
@@ -208,6 +217,9 @@ export function CreditSalesPage() {
           Daftar Piutang
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'aging'}
           onClick={() => setActiveTab('aging')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'aging'
@@ -216,7 +228,7 @@ export function CreditSalesPage() {
           }`}
         >
           <Clock className="h-4 w-4 inline mr-1.5" />
-          Aging Report
+          Umur Piutang
         </button>
       </div>
 
@@ -228,13 +240,14 @@ export function CreditSalesPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Cari pelanggan atau no. bon..."
+                aria-label="Cari pelanggan atau no. bon"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter status">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
@@ -251,7 +264,11 @@ export function CreditSalesPage() {
           {/* Credit Sales Table */}
           <Card>
             <CardContent className="p-0">
-              {isLoadingSales ? (
+              {isSalesError ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  Data piutang gagal dimuat.
+                </div>
+              ) : isLoadingSales ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                 </div>
@@ -388,7 +405,7 @@ export function CreditSalesPage() {
           </Card>
         </>
       ) : (
-        <AgingReport creditSales={creditSales} />
+        <AgingReport creditSales={allCreditSales} />
       )}
 
       {/* Modals */}

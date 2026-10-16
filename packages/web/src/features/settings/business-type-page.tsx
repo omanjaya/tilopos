@@ -4,12 +4,14 @@ import { featuresApi, type BusinessTypePreset } from '@/api/endpoints/features.a
 import { useFeatureStore } from '@/stores/feature.store';
 import { PageHeader } from '@/components/shared/page-header';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { ErrorState } from '@/components/shared/error-state';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/lib/toast-utils';
 import { handleMutationError } from '@/lib/api-error-handler';
+import { useCan } from '@/features/auth/use-permission';
 import { cn } from '@/lib/utils';
 import {
   CheckCircle2, Loader2, Utensils, Coffee, Beef, ShoppingCart, Shirt,
@@ -88,18 +90,34 @@ export function BusinessTypePage() {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
-  const { data: presetsData, isLoading: presetsLoading } = useQuery({
+  const {
+    data: presetsData,
+    isLoading: presetsLoading,
+    isError: presetsError,
+    error: presetsErrorObj,
+    refetch: refetchPresets,
+  } = useQuery({
     queryKey: ['business-type-presets'],
     queryFn: featuresApi.getTypePresets,
   });
 
-  const { data: typeInfo, isLoading: typeLoading } = useQuery({
+  const {
+    data: typeInfo,
+    isLoading: typeLoading,
+    isError: typeError,
+    error: typeErrorObj,
+    refetch: refetchType,
+  } = useQuery({
     queryKey: ['business-type'],
     queryFn: featuresApi.getBusinessType,
   });
 
+  // PUT /business/type is owner-only (destructive)
+  const canChangeType = useCan('businessType.migrate');
+
   const changeMutation = useMutation({
-    mutationFn: (businessType: string) => featuresApi.changeBusinessType(businessType),
+    mutationFn: (businessType: string) =>
+      featuresApi.changeBusinessType(businessType, currentOutletId ?? undefined),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['business-type'] });
       queryClient.invalidateQueries({ queryKey: ['business-features-by-category'] });
@@ -111,13 +129,12 @@ export function BusinessTypePage() {
       setBusinessType(result.newType);
       setOutletType(result.newType);
       // Refresh enabled features — outlet-level for POS, fallback to business-level
-      if (currentOutletId) {
-        featuresApi.getOutletEnabledFeatures(currentOutletId).then(setEnabledFeatures).catch(() => {
-          featuresApi.getEnabledFeatures().then(setEnabledFeatures);
-        });
-      } else {
-        featuresApi.getEnabledFeatures().then(setEnabledFeatures);
-      }
+      const refresh = currentOutletId
+        ? featuresApi.getOutletEnabledFeatures(currentOutletId)
+        : featuresApi.getEnabledFeatures();
+      refresh
+        .then(setEnabledFeatures)
+        .catch((err: unknown) => handleMutationError(err, 'Gagal memuat ulang daftar fitur'));
 
       const parts: string[] = [`${result.featuresEnabled} fitur telah diaktifkan`];
       if (result.templateApplied && result.templateData) {
@@ -154,6 +171,22 @@ export function BusinessTypePage() {
     );
   }
 
+  if (presetsError || typeError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Tipe Bisnis" description="Pilih tipe bisnis untuk mengatur fitur" />
+        <ErrorState
+          title="Gagal memuat tipe bisnis"
+          error={presetsErrorObj ?? typeErrorObj}
+          onRetry={() => {
+            void refetchPresets();
+            void refetchType();
+          }}
+        />
+      </div>
+    );
+  }
+
   const grouped = presetsData?.grouped ?? {};
 
   return (
@@ -180,6 +213,12 @@ export function BusinessTypePage() {
         </Card>
       )}
 
+      {!canChangeType && (
+        <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+          Hanya pemilik bisnis yang dapat mengubah tipe bisnis.
+        </p>
+      )}
+
       {Object.entries(grouped).map(([category, presets]) => (
         <div key={category}>
           <h2 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -191,14 +230,14 @@ export function BusinessTypePage() {
                 key={preset.code}
                 preset={preset}
                 isSelected={effectiveType === preset.code}
-                onSelect={() => setSelectedType(preset.code)}
+                onSelect={() => canChangeType && setSelectedType(preset.code)}
               />
             ))}
           </div>
         </div>
       ))}
 
-      {selectedType && selectedType !== currentType && (
+      {canChangeType && selectedType && selectedType !== currentType && (
         <div className="sticky bottom-4 flex justify-end">
           <Card className="shadow-lg">
             <CardContent className="flex items-center gap-4 pt-4">
