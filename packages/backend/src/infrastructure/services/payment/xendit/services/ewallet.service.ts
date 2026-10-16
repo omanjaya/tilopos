@@ -1,121 +1,125 @@
 /**
- * Xendit E-Wallet Service
+ * Xendit E-Wallet Service (GoPay via partners, OVO, DANA, ShopeePay, LinkAja).
  *
- * Handles E-Wallet payments for Indonesian digital wallets:
- * - GoPay, OVO, Dana, ShopeePay, LinkAja
+ * NOTE: uses the E-Wallet Charges API (POST/GET /ewallets/charges) per the
+ * public API reference; not verified against a sandbox in this codebase.
  */
 
 import type { PaymentInput, PaymentResult, PaymentStatus } from '@domain/interfaces/services';
 import { XenditBaseService } from './base.service';
-import type { XenditEwalletRequest, XenditEwalletResponse, XenditConfig } from '../types';
-import { XENDIT_ENDPOINTS } from '../types';
+import type {
+  XenditEwalletChargeRequest,
+  XenditEwalletChargeResponse,
+  XenditConfig,
+} from '../types';
+import { XENDIT_ENDPOINTS, formatXenditRef } from '../types';
+
+const CHANNEL_CODES: Record<string, string> = {
+  OVO: 'ID_OVO',
+  DANA: 'ID_DANA',
+  SHOPEEPAY: 'ID_SHOPEEPAY',
+  LINKAJA: 'ID_LINKAJA',
+  GOPAY: 'ID_GOPAY',
+};
 
 export class XenditEwalletService extends XenditBaseService {
-  private readonly supportedWallets = ['GOPAY', 'OVO', 'DANA', 'SHOPEEPAY', 'LINKAJA'] as const;
-
   constructor(config: XenditConfig) {
     super(config, 'XenditEwalletService');
   }
 
-  /**
-   * Create an E-Wallet payment
-   */
   async createPayment(
     input: PaymentInput,
-    externalId: string,
+    referenceId: string,
     ewalletType: string,
   ): Promise<PaymentResult> {
-    if (!this.isSupportedWallet(ewalletType)) {
+    const channelCode = CHANNEL_CODES[ewalletType.toUpperCase()];
+    if (!channelCode) {
       return {
         success: false,
         transactionRef: '',
-        message: `Unsupported e-wallet: ${ewalletType}. Supported: ${this.supportedWallets.join(', ')}`,
+        message: `Unsupported e-wallet: ${ewalletType}. Supported: ${Object.keys(CHANNEL_CODES).join(', ')}`,
+        paymentData: { paymentStatus: 'failed' },
       };
     }
 
-    if (!input.customer?.phone) {
+    if (channelCode === 'ID_OVO' && !input.customer?.phone) {
       return {
         success: false,
         transactionRef: '',
-        message: 'Phone number is required for e-wallet payments',
+        message: 'Phone number is required for OVO payments',
+        paymentData: { paymentStatus: 'failed' },
       };
     }
 
-    const payload: XenditEwalletRequest = {
-      external_id: externalId,
-      amount: input.amount,
-      phone: this.normalizePhoneNumber(input.customer.phone),
-      ewallet_type: ewalletType as XenditEwalletRequest['ewallet_type'],
-      callback_url: this.config.webhookUrl,
-      description: input.description || 'Payment',
+    const payload: XenditEwalletChargeRequest = {
+      reference_id: referenceId,
       currency: 'IDR',
+      amount: input.amount,
+      checkout_method: 'ONE_TIME_PAYMENT',
+      channel_code: channelCode,
+      channel_properties: {
+        ...(input.customer?.phone
+          ? { mobile_number: this.normalizePhoneNumber(input.customer.phone) }
+          : {}),
+        ...(this.config.webhookUrl ? { success_redirect_url: this.config.webhookUrl } : {}),
+      },
     };
 
-    const response = await this.post<XenditEwalletResponse>(
+    const response = await this.post<XenditEwalletChargeResponse>(
       this.buildUrl(XENDIT_ENDPOINTS.ewallet),
       payload,
     );
 
-    if (!response) {
-      return {
-        success: false,
-        transactionRef: '',
-        message: 'Failed to create e-wallet payment',
-      };
-    }
-
-    this.logger.log(`E-wallet payment created: ${response.external_id} (${ewalletType})`);
+    this.logger.log(`E-wallet charge created: ${response.id} (${ewalletType})`);
 
     return {
       success: true,
-      transactionRef: response.external_id,
+      transactionRef: formatXenditRef('ewallet', response.id),
       paymentData: {
-        checkoutUrl: response.checkout_url,
-        amount: response.amount,
-        status: response.status,
-        ewalletType: response.ewallet_type,
+        paymentStatus: this.mapStatus(response.status),
+        checkoutUrl:
+          response.actions?.mobile_web_checkout_url ??
+          response.actions?.desktop_web_checkout_url ??
+          response.actions?.mobile_deeplink_checkout_url ??
+          null,
+        qrString: response.actions?.qr_checkout_string ?? null,
+        amount: response.charge_amount,
+        ewalletType,
         type: 'EWALLET',
       },
-      message: `Redirect to ${ewalletType} to complete payment`,
+      message: `Complete the payment in ${ewalletType}`,
     };
   }
 
-  /**
-   * Get E-Wallet payment status
-   *
-   * Note: Xendit doesn't provide a direct status endpoint for e-wallets.
-   * Status updates are received via webhooks.
-   */
-  async getStatus(_externalId: string): Promise<PaymentStatus> {
-    // E-wallet status is typically received via webhook callbacks
-    // Return pending and rely on webhook updates
-    return 'pending';
+  async getStatus(chargeId: string): Promise<PaymentStatus> {
+    const response = await this.get<XenditEwalletChargeResponse>(
+      this.buildUrl(`${XENDIT_ENDPOINTS.ewallet}/${chargeId}`),
+    );
+    return this.mapStatus(response.status);
   }
 
-  /**
-   * Check if e-wallet type is supported
-   */
-  private isSupportedWallet(ewalletType: string): boolean {
-    const upperType = ewalletType.toUpperCase();
-    return this.supportedWallets.some((wallet) => wallet === upperType);
+  private mapStatus(status: XenditEwalletChargeResponse['status']): PaymentStatus {
+    switch (status) {
+      case 'SUCCEEDED':
+        return 'completed';
+      case 'FAILED':
+      case 'VOIDED':
+        return 'failed';
+      case 'REFUNDED':
+        return 'refunded';
+      default:
+        return 'pending';
+    }
   }
 
-  /**
-   * Normalize phone number to Indonesian format
-   */
   private normalizePhoneNumber(phone: string): string {
-    // Remove all non-digit characters
     let normalized = phone.replace(/\D/g, '');
-
-    // Add +62 prefix if needed
     if (normalized.startsWith('0')) {
       normalized = '62' + normalized.substring(1);
     }
-
     if (!normalized.startsWith('62')) {
       normalized = '62' + normalized;
     }
-
     return '+' + normalized;
   }
 }

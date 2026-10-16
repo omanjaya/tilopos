@@ -3,6 +3,10 @@
  *
  * Exchanges use topic type to allow flexible routing patterns.
  * Dead letter exchange (DLX) handles messages that fail processing.
+ *
+ * Only queues that have a registered consumer are declared and bound: a bound queue without
+ * a consumer accumulates every message forever (audit F1222). Routing keys are the
+ * DomainEvent.eventName values published by the event bridge.
  */
 
 export const EXCHANGES = {
@@ -14,18 +18,8 @@ export const EXCHANGES = {
   DLX: 'tilo.dlx',
 } as const;
 
-export const QUEUES = {
-  /** POS transaction processing */
-  POS_TRANSACTIONS: 'pos.transactions',
-  /** Inventory stock level updates */
-  INVENTORY_STOCK: 'inventory.stock',
-  /** KDS order routing and display */
-  KDS_ORDERS: 'kds.orders',
-  /** Customer loyalty point processing */
-  CUSTOMERS_LOYALTY: 'customers.loyalty',
-  /** Notification delivery */
-  NOTIFICATIONS_SEND: 'notifications.send',
-} as const;
+/** Work queues. Empty: declare a queue only together with its consumer (see QUEUE_BINDINGS). */
+export const QUEUES = {} as const;
 
 export const ROUTING_KEYS = {
   /** Transaction lifecycle events */
@@ -33,19 +27,29 @@ export const ROUTING_KEYS = {
   TRANSACTION_VOIDED: 'transaction.voided',
   /** Payment events */
   PAYMENT_RECEIVED: 'payment.received',
-  /** Stock events */
-  STOCK_CHANGED: 'stock.level_changed',
-  STOCK_TRANSFER_COMPLETED: 'stock.transfer_completed',
-  /** Order events */
-  ORDER_CREATED: 'order.created',
-  ORDER_STATUS_CHANGED: 'order.status_changed',
-  /** Notification events */
-  NOTIFICATION_SEND: 'notification.send',
 } as const;
 
 export type ExchangeName = (typeof EXCHANGES)[keyof typeof EXCHANGES];
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 export type RoutingKey = (typeof ROUTING_KEYS)[keyof typeof ROUTING_KEYS];
+
+/** Upper bounds so a stalled consumer can never exhaust broker memory/disk. */
+export const QUEUE_MAX_LENGTH = 100_000;
+export const DEAD_LETTER_MAX_LENGTH = 100_000;
+export const DEAD_LETTER_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Arguments for work queues: failed messages go to the DLX, length is capped. */
+export function queueArguments(): Record<string, unknown> {
+  return {
+    'x-dead-letter-exchange': EXCHANGES.DLX,
+    'x-max-length': QUEUE_MAX_LENGTH,
+  };
+}
+
+export const DEAD_LETTER_QUEUE_ARGS: Record<string, unknown> = {
+  'x-max-length': DEAD_LETTER_MAX_LENGTH,
+  'x-message-ttl': DEAD_LETTER_TTL_MS,
+};
 
 /**
  * Queue-to-routing-key bindings.
@@ -57,34 +61,10 @@ export interface QueueBinding {
   readonly routingKeys: readonly RoutingKey[];
 }
 
-export const QUEUE_BINDINGS: readonly QueueBinding[] = [
-  {
-    queue: QUEUES.POS_TRANSACTIONS,
-    exchange: EXCHANGES.EVENTS,
-    routingKeys: [
-      ROUTING_KEYS.TRANSACTION_CREATED,
-      ROUTING_KEYS.TRANSACTION_VOIDED,
-      ROUTING_KEYS.PAYMENT_RECEIVED,
-    ],
-  },
-  {
-    queue: QUEUES.INVENTORY_STOCK,
-    exchange: EXCHANGES.EVENTS,
-    routingKeys: [ROUTING_KEYS.STOCK_CHANGED, ROUTING_KEYS.STOCK_TRANSFER_COMPLETED],
-  },
-  {
-    queue: QUEUES.KDS_ORDERS,
-    exchange: EXCHANGES.EVENTS,
-    routingKeys: [ROUTING_KEYS.ORDER_CREATED, ROUTING_KEYS.ORDER_STATUS_CHANGED],
-  },
-  {
-    queue: QUEUES.CUSTOMERS_LOYALTY,
-    exchange: EXCHANGES.EVENTS,
-    routingKeys: [ROUTING_KEYS.TRANSACTION_CREATED, ROUTING_KEYS.TRANSACTION_VOIDED],
-  },
-  {
-    queue: QUEUES.NOTIFICATIONS_SEND,
-    exchange: EXCHANGES.EVENTS,
-    routingKeys: [ROUTING_KEYS.NOTIFICATION_SEND, ROUTING_KEYS.STOCK_CHANGED],
-  },
-] as const;
+/**
+ * No queue is bound at the moment: every side effect of the domain events runs in-process
+ * (TransactionEventListener etc.), and the former POS mirror queue only had a drain-only
+ * consumer (handoff 211). Events are still published to the topic exchange for future
+ * cross-service consumers; add a binding together with a real consumer.
+ */
+export const QUEUE_BINDINGS: readonly QueueBinding[] = [];

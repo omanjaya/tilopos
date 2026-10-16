@@ -16,15 +16,16 @@ export type {
   XenditQRCodeResponse,
   XenditVARequest,
   XenditVAResponse,
-  XenditEwalletRequest,
-  XenditEwalletResponse,
+  XenditEwalletChargeRequest,
+  XenditEwalletChargeResponse,
   XenditRetailRequest,
   XenditRetailResponse,
   XenditRefundRequest,
   XenditRefundResponse,
-  XenditWebhookPayload,
   XenditConfig,
 } from './types';
+export { formatXenditRef, parseXenditRef } from './types';
+export { XenditApiError } from './services/base.service';
 
 // Export services for testing or advanced usage
 export { XenditQRISService } from './services/qris.service';
@@ -34,5 +35,4 @@ export { XenditRetailService } from './services/retail.service';
 export { XenditInvoiceService } from './services/invoice.service';
 export { XenditRefundService } from './services/refund.service';
 export { XenditStatusService } from './services/status.service';
-export { XenditWebhookService } from './services/webhook.service';
 export { XenditUtilsService } from './services/utils.service';

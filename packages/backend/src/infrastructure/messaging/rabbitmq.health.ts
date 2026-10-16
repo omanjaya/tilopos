@@ -8,7 +8,7 @@ import { RabbitMqService } from './rabbitmq.service';
  * Reports:
  * - healthy if connected
  * - healthy with "not_configured" detail if RABBITMQ_URL is not set
- * - unhealthy if configured but disconnected or in error state
+ * - unhealthy if configured but disconnected, in error state, or a consumer is not running
  */
 @Injectable()
 export class RabbitMqHealthIndicator extends HealthIndicator {
@@ -29,10 +29,12 @@ export class RabbitMqHealthIndicator extends HealthIndicator {
     }
 
     const status = this.rabbitMqService.getStatus();
-    const isHealthy = status === 'connected';
+    const failedConsumers = this.rabbitMqService.getFailedSubscriptions();
+    const isHealthy = status === 'connected' && failedConsumers.length === 0;
 
     const result = this.getStatus(key, isHealthy, {
       status,
+      ...(failedConsumers.length ? { failedConsumers } : {}),
     });
 
     if (!isHealthy) {

@@ -108,22 +108,50 @@ export interface MarketplaceSettlement {
  */
 export interface IMarketplaceGateway {
   platform: MarketplacePlatform;
+  /** False while the gateway is a stub; the aggregator refuses to use unconfigured gateways. */
+  readonly isConfigured: boolean;
 
   // Authentication
   authenticate(credentials: MarketplaceCredentials): Promise<MarketplaceCredentials>;
   refreshToken(credentials: MarketplaceCredentials): Promise<MarketplaceCredentials>;
 
+  // Every call carries the outlet's own credentials: gateways are singletons and must never
+  // share one merchant context across outlets/tenants.
+
   // Menu Management
-  syncMenu(items: MarketplaceMenuItem[]): Promise<void>;
-  updateItemAvailability(itemId: string, isAvailable: boolean): Promise<void>;
-  updateItemPrice(itemId: string, price: number): Promise<void>;
+  syncMenu(credentials: MarketplaceCredentials, items: MarketplaceMenuItem[]): Promise<void>;
+  updateItemAvailability(
+    credentials: MarketplaceCredentials,
+    itemId: string,
+    isAvailable: boolean,
+  ): Promise<void>;
+  updateItemPrice(
+    credentials: MarketplaceCredentials,
+    itemId: string,
+    price: number,
+  ): Promise<void>;
 
   // Order Management
-  fetchNewOrders(): Promise<MarketplaceOrder[]>;
-  acceptOrder(orderId: string): Promise<void>;
-  rejectOrder(orderId: string, reason: string): Promise<void>;
-  updateOrderStatus(orderId: string, status: MarketplaceOrderStatus): Promise<void>;
+  fetchNewOrders(credentials: MarketplaceCredentials): Promise<MarketplaceOrder[]>;
+  acceptOrder(credentials: MarketplaceCredentials, orderId: string): Promise<void>;
+  rejectOrder(credentials: MarketplaceCredentials, orderId: string, reason: string): Promise<void>;
+  updateOrderStatus(
+    credentials: MarketplaceCredentials,
+    orderId: string,
+    status: MarketplaceOrderStatus,
+  ): Promise<void>;
 
   // Settlements
-  fetchSettlements(startDate: Date, endDate: Date): Promise<MarketplaceSettlement[]>;
+  fetchSettlements(
+    credentials: MarketplaceCredentials,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<MarketplaceSettlement[]>;
+}
+
+/** Outcome of a fan-out call to every connected platform of an outlet. */
+export interface MarketplacePlatformResult {
+  platform: MarketplacePlatform;
+  success: boolean;
+  error?: string;
 }

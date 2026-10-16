@@ -9,6 +9,8 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../database/prisma.service';
 import { RabbitMqHealthIndicator } from '../messaging/rabbitmq.health';
+import { RedisHealthIndicator } from './redis.health';
+import { Public } from '@shared/decorators/public.decorator';
 
 @ApiTags('Health')
 @Controller('health')
@@ -20,13 +22,16 @@ export class HealthController {
     private readonly memory: MemoryHealthIndicator,
     private readonly prisma: PrismaService,
     private readonly rabbitMqHealth: RabbitMqHealthIndicator,
+    private readonly redisHealth: RedisHealthIndicator,
   ) {}
 
+  @Public()
   @Get()
   @HealthCheck()
   check() {
     return this.health.check([
       () => this.prismaHealth.pingCheck('database', this.prisma),
+      () => this.redisHealth.pingCheck('redis'),
       () =>
         this.disk.checkStorage('disk', {
           path: '/',
@@ -38,12 +43,17 @@ export class HealthController {
     ]);
   }
 
+  @Public()
   @Get('ready')
   @HealthCheck()
   readiness() {
-    return this.health.check([() => this.prismaHealth.pingCheck('database', this.prisma)]);
+    return this.health.check([
+      () => this.prismaHealth.pingCheck('database', this.prisma),
+      () => this.redisHealth.pingCheck('redis'),
+    ]);
   }
 
+  @Public()
   @Get('live')
   @HealthCheck()
   liveness() {

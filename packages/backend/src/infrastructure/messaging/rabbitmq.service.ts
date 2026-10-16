@@ -1,7 +1,12 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RABBITMQ_ENV, RABBITMQ_DEFAULTS } from './rabbitmq.constants';
-import { EXCHANGES, QUEUE_BINDINGS } from './rabbitmq.config';
+import {
+  DEAD_LETTER_QUEUE_ARGS,
+  EXCHANGES,
+  QUEUE_BINDINGS,
+  queueArguments,
+} from './rabbitmq.config';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
 import type {
   AmqpConnection,
@@ -22,6 +27,8 @@ import type {
  * - Health check support via connection status
  * - Graceful degradation when amqplib is not installed
  */
+const MAX_RECONNECT_DELAY_MS = 60_000;
+
 @Injectable()
 export class RabbitMqService implements OnModuleDestroy {
   private readonly logger = new Logger(RabbitMqService.name);
@@ -32,6 +39,11 @@ export class RabbitMqService implements OnModuleDestroy {
   private connectionStatus: ConnectionStatus = 'disconnected';
   private isShuttingDown = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  /** Active subscriptions, re-established after every reconnect. */
+  private readonly subscriptions = new Map<string, (message: AmqpMessage) => Promise<void>>();
+  /** Queues whose consumer could not be started (reported by the health indicator). */
+  private readonly failedSubscriptions = new Set<string>();
 
   private readonly url: string | undefined;
   private readonly retryAttempts: number;
@@ -40,13 +52,18 @@ export class RabbitMqService implements OnModuleDestroy {
 
   constructor(private readonly configService: ConfigService) {
     this.url = this.configService.get<string>(RABBITMQ_ENV.URL);
-    this.retryAttempts = this.configService.get<number>(
-      RABBITMQ_ENV.RETRY_ATTEMPTS,
-      RABBITMQ_DEFAULTS.RETRY_ATTEMPTS,
+    // Env values arrive as strings; coerce explicitly.
+    this.retryAttempts = Number(
+      this.configService.get<string | number>(
+        RABBITMQ_ENV.RETRY_ATTEMPTS,
+        RABBITMQ_DEFAULTS.RETRY_ATTEMPTS,
+      ),
     );
-    this.retryDelay = this.configService.get<number>(
-      RABBITMQ_ENV.RETRY_DELAY,
-      RABBITMQ_DEFAULTS.RETRY_DELAY,
+    this.retryDelay = Number(
+      this.configService.get<string | number>(
+        RABBITMQ_ENV.RETRY_DELAY,
+        RABBITMQ_DEFAULTS.RETRY_DELAY,
+      ),
     );
     this.queuePrefix = this.configService.get<string>(
       RABBITMQ_ENV.QUEUE_PREFIX,
@@ -98,7 +115,9 @@ export class RabbitMqService implements OnModuleDestroy {
         await this.establishConnection();
         await this.setupTopology();
         this.connectionStatus = 'connected';
+        this.reconnectAttempt = 0;
         this.logger.log('RabbitMQ connection established successfully');
+        await this.resubscribeAll();
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -116,6 +135,8 @@ export class RabbitMqService implements OnModuleDestroy {
     this.logger.error(
       `Failed to connect to RabbitMQ after ${this.retryAttempts} attempts — falling back to RxJS event bus`,
     );
+    // Keep trying in the background (capped backoff) instead of giving up for the process lifetime.
+    this.scheduleReconnect();
   }
 
   /**
@@ -160,36 +181,35 @@ export class RabbitMqService implements OnModuleDestroy {
    * @param handler - Callback invoked for each message
    */
   async subscribe(queue: string, handler: (message: AmqpMessage) => Promise<void>): Promise<void> {
+    // Remember the subscription so it is restored after a reconnect.
+    this.subscriptions.set(queue, handler);
+
     if (!this.channel) {
-      this.logger.warn(`Cannot subscribe to ${queue}: RabbitMQ not connected`);
+      // Not connected yet: the consumer starts from resubscribeAll() once (re)connected.
+      this.failedSubscriptions.add(queue);
+      this.logger.warn(`RabbitMQ not connected — ${queue} will be consumed after reconnect`);
       return;
     }
 
-    const prefixedQueue = this.getPrefixedQueueName(queue);
+    await this.consumeQueue(queue, handler);
+  }
 
-    try {
-      // Assert queue exists before consuming (auto-creates if missing)
-      await this.channel.assertQueue(prefixedQueue, {
-        durable: true,
-        arguments: { 'x-dead-letter-exchange': 'tilo.dlx' },
-      });
-      await this.channel.prefetch(10);
-      await this.channel.consume(
-        prefixedQueue,
-        (msg: AmqpMessage | null) => {
-          if (!msg) return;
-          handler(msg).catch((error) => {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Error processing message from ${prefixedQueue}: ${errorMessage}`);
-          });
-        },
-        { noAck: false },
-      );
-      this.logger.log(`Subscribed to queue: ${prefixedQueue}`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to subscribe to ${prefixedQueue}: ${errorMessage}`);
-    }
+  /** Queues whose consumer is not running (non-empty => unhealthy). */
+  getFailedSubscriptions(): string[] {
+    return [...this.failedSubscriptions];
+  }
+
+  /**
+   * Re-publishes a message straight to a queue (default exchange), e.g. to retry it with an
+   * incremented retry header. Returns false when not connected or the write buffer is full.
+   */
+  republishToQueue(queue: string, message: AmqpMessage, headers: Record<string, unknown>): boolean {
+    if (!this.channel) return false;
+    return this.channel.publish('', this.getPrefixedQueueName(queue), message.content, {
+      ...message.properties,
+      persistent: true,
+      headers: { ...(message.properties.headers ?? {}), ...headers },
+    });
   }
 
   /**
@@ -285,7 +305,7 @@ export class RabbitMqService implements OnModuleDestroy {
         this.connectionStatus = 'disconnected';
         this.channel = null;
         this.connection = null;
-        void this.scheduleReconnect();
+        this.scheduleReconnect();
       }
     });
 
@@ -319,7 +339,7 @@ export class RabbitMqService implements OnModuleDestroy {
 
     // Assert dead letter queue
     const dlqName = `${this.queuePrefix}.dead-letter`;
-    await this.channel.assertQueue(dlqName, { durable: true });
+    await this.channel.assertQueue(dlqName, { durable: true, arguments: DEAD_LETTER_QUEUE_ARGS });
     await this.channel.bindQueue(dlqName, EXCHANGES.DLX, '');
 
     // Assert queues and bind routing keys
@@ -328,9 +348,7 @@ export class RabbitMqService implements OnModuleDestroy {
 
       await this.channel.assertQueue(prefixedQueue, {
         durable: true,
-        arguments: {
-          'x-dead-letter-exchange': EXCHANGES.DLX,
-        },
+        arguments: queueArguments(),
       });
 
       for (const routingKey of binding.routingKeys) {
@@ -343,13 +361,62 @@ export class RabbitMqService implements OnModuleDestroy {
     }
   }
 
-  private async scheduleReconnect(): Promise<void> {
-    if (this.isShuttingDown) return;
+  private async consumeQueue(
+    queue: string,
+    handler: (message: AmqpMessage) => Promise<void>,
+  ): Promise<void> {
+    if (!this.channel) throw new Error('RabbitMQ channel not available');
+    const prefixedQueue = this.getPrefixedQueueName(queue);
 
+    try {
+      // Assert queue exists before consuming (auto-creates if missing)
+      await this.channel.assertQueue(prefixedQueue, {
+        durable: true,
+        arguments: queueArguments(),
+      });
+      await this.channel.prefetch(10);
+      await this.channel.consume(
+        prefixedQueue,
+        (msg: AmqpMessage | null) => {
+          if (!msg) return;
+          handler(msg).catch((error) => {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Error processing message from ${prefixedQueue}: ${errorMessage}`);
+          });
+        },
+        { noAck: false },
+      );
+      this.failedSubscriptions.delete(queue);
+      this.logger.log(`Subscribed to queue: ${prefixedQueue}`);
+    } catch (error) {
+      this.failedSubscriptions.add(queue);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to subscribe to ${prefixedQueue}: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async resubscribeAll(): Promise<void> {
+    for (const [queue, handler] of this.subscriptions) {
+      try {
+        await this.consumeQueue(queue, handler);
+      } catch {
+        // intentionally ignored: consumeQueue already logged it and flagged the queue as failed
+        // (health check turns unhealthy); remaining queues are still attempted.
+      }
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.isShuttingDown || this.reconnectTimer) return;
+
+    this.reconnectAttempt += 1;
+    const delayMs = Math.min(this.retryDelay * this.reconnectAttempt, MAX_RECONNECT_DELAY_MS);
     this.reconnectTimer = setTimeout(() => {
-      this.logger.log('Attempting RabbitMQ reconnection...');
+      this.reconnectTimer = null;
+      this.logger.log(`Attempting RabbitMQ reconnection (#${this.reconnectAttempt})...`);
       void this.connect();
-    }, this.retryDelay);
+    }, delayMs);
   }
 
   private delay(ms: number): Promise<void> {

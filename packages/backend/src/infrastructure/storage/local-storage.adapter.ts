@@ -1,13 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
 import type { StorageAdapter } from './storage.service';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
-@Injectable()
+/** Constructed by StorageModule; cdnUrl comes from ConfigService (CDN_URL). */
 export class LocalStorageAdapter implements StorageAdapter {
   private readonly logger = new Logger(LocalStorageAdapter.name);
   private readonly uploadDir = join(process.cwd(), 'uploads');
+
+  constructor(private readonly cdnUrl?: string) {}
 
   async upload(filename: string, buffer: Buffer): Promise<string> {
     // Prevent path traversal
@@ -32,14 +34,15 @@ export class LocalStorageAdapter implements StorageAdapter {
     try {
       await unlink(safePath);
     } catch (error) {
+      // Only a missing file is fine to ignore; permission/IO errors must surface.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       this.logger.warn(`File not found for deletion: ${filepath}`);
     }
   }
 
   getUrl(filepath: string): string {
-    const cdnUrl = process.env.CDN_URL;
-    if (cdnUrl) {
-      return `${cdnUrl}/uploads/${filepath}`;
+    if (this.cdnUrl) {
+      return `${this.cdnUrl}/uploads/${filepath}`;
     }
     return `/uploads/${filepath}`;
   }

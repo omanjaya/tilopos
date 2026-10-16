@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { DeliveryResult } from '../notification-utils';
 
 export interface PushNotification {
   token: string;
@@ -7,18 +8,25 @@ export interface PushNotification {
   data?: Record<string, string>;
 }
 
+/**
+ * Push delivery is not implemented: there is no FCM HTTP v1 integration and no
+ * device-token registry. Every send reports NOT_CONFIGURED instead of pretending
+ * the message was delivered (Docs/ENGINEERING-RULES.md R10).
+ */
 @Injectable()
 export class PushService {
   private readonly logger = new Logger(PushService.name);
 
-  async send(notification: PushNotification): Promise<boolean> {
-    this.logger.log(`[Mock Push] Token: ${notification.token} | Title: ${notification.title}`);
-    return true;
+  isConfigured(): boolean {
+    return false;
   }
 
-  async sendMultiple(notifications: PushNotification[]): Promise<void> {
-    for (const n of notifications) {
-      await this.send(n);
-    }
+  async send(notification: PushNotification): Promise<DeliveryResult> {
+    this.logger.warn(`Push not delivered (provider not configured): "${notification.title}"`);
+    return { success: false, reason: 'NOT_CONFIGURED' };
+  }
+
+  async sendMultiple(notifications: PushNotification[]): Promise<DeliveryResult[]> {
+    return Promise.all(notifications.map((n) => this.send(n)));
   }
 }

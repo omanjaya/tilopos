@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from './event-bus.service';
 import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
 import { PrismaService } from '../database/prisma.service';
+import { withRetry } from './retry';
 
 @Injectable()
 export class OrderEventListener implements OnModuleInit {
@@ -18,21 +19,20 @@ export class OrderEventListener implements OnModuleInit {
     });
   }
 
-  private async handleOrderStatusChanged(event: OrderStatusChangedEvent): Promise<void> {
-    try {
-      await this.logAudit(event);
-
-      if (event.newStatus === 'completed') {
-        await this.handleOrderCompleted(event);
-      }
-    } catch (error) {
-      this.logger.error(`Failed to process OrderStatusChangedEvent for ${event.orderId}`, error);
+  async handleOrderStatusChanged(event: OrderStatusChangedEvent): Promise<void> {
+    await withRetry(this.logger, `OrderStatusChangedEvent audit for ${event.orderId}`, () =>
+      this.logAudit(event),
+    );
+    if (event.newStatus === 'completed') {
+      await withRetry(this.logger, `Table release for order ${event.orderId}`, () =>
+        this.handleOrderCompleted(event),
+      );
     }
   }
 
   private async logAudit(event: OrderStatusChangedEvent): Promise<void> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: event.orderId },
+    const order = await this.prisma.order.findFirst({
+      where: { id: event.orderId, outletId: event.outletId },
       include: { outlet: { select: { businessId: true } } },
     });
 
@@ -52,29 +52,23 @@ export class OrderEventListener implements OnModuleInit {
   }
 
   private async handleOrderCompleted(event: OrderStatusChangedEvent): Promise<void> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: event.orderId },
+    const order = await this.prisma.order.findFirst({
+      where: { id: event.orderId, outletId: event.outletId },
       select: { tableId: true },
     });
+    if (!order?.tableId) return;
 
-    if (order?.tableId) {
-      const activeOrders = await this.prisma.order.count({
-        where: {
-          tableId: order.tableId,
-          status: { notIn: ['completed', 'cancelled'] },
-        },
-      });
-
-      // Use updateMany with additional condition to prevent race
-      if (activeOrders === 0) {
-        await this.prisma.table.updateMany({
-          where: {
-            id: order.tableId,
-            status: { not: 'available' },
-          },
-          data: { status: 'available' },
-        });
-      }
-    }
+    // Single statement: the "no active orders left" check and the release happen atomically, so
+    // an order opened on the table concurrently keeps it occupied.
+    await this.prisma.$executeRaw`
+      UPDATE tables
+         SET status = 'available', updated_at = now()
+       WHERE id = ${order.tableId}::uuid
+         AND status <> 'available'
+         AND NOT EXISTS (
+           SELECT 1 FROM orders
+            WHERE table_id = ${order.tableId}::uuid
+              AND status NOT IN ('completed', 'cancelled')
+         )`;
   }
 }

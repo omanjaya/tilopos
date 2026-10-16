@@ -20,6 +20,8 @@ import {
 @Injectable()
 export class GrabFoodGateway implements IMarketplaceGateway {
   readonly platform = 'grabfood' as const;
+  /** Stub gateway: no real API client exists yet, so the aggregator never polls it. */
+  readonly isConfigured = false;
   private readonly logger = new Logger(GrabFoodGateway.name);
 
   constructor() {
@@ -52,7 +54,10 @@ export class GrabFoodGateway implements IMarketplaceGateway {
     return this.authenticate(credentials);
   }
 
-  async syncMenu(items: MarketplaceMenuItem[]): Promise<void> {
+  async syncMenu(
+    _credentials: MarketplaceCredentials,
+    items: MarketplaceMenuItem[],
+  ): Promise<void> {
     this.logger.log(`Syncing ${items.length} items to GrabFood`);
 
     const menuData = {
@@ -65,38 +70,54 @@ export class GrabFoodGateway implements IMarketplaceGateway {
     });
   }
 
-  async updateItemAvailability(itemId: string, isAvailable: boolean): Promise<void> {
+  async updateItemAvailability(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    isAvailable: boolean,
+  ): Promise<void> {
     await this.request(`/merchant/menu/items/${itemId}`, {
       method: 'PATCH',
       body: JSON.stringify({ availableStatus: isAvailable ? 'AVAILABLE' : 'UNAVAILABLE' }),
     });
   }
 
-  async updateItemPrice(itemId: string, price: number): Promise<void> {
+  async updateItemPrice(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    price: number,
+  ): Promise<void> {
     await this.request(`/merchant/menu/items/${itemId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ price: price * 100 }), // GrabFood uses cents
+      body: JSON.stringify({ price: Math.round(price * 100) }), // GrabFood uses cents
     });
   }
 
-  async fetchNewOrders(): Promise<MarketplaceOrder[]> {
+  async fetchNewOrders(_credentials: MarketplaceCredentials): Promise<MarketplaceOrder[]> {
     const response = await this.request('/merchant/orders?status=PENDING');
     const orders = response.orders as Array<Record<string, unknown>>;
     return orders.map(this.mapOrder.bind(this));
   }
 
-  async acceptOrder(orderId: string): Promise<void> {
+  async acceptOrder(_credentials: MarketplaceCredentials, orderId: string): Promise<void> {
     await this.request(`/merchant/orders/${orderId}/accept`, { method: 'POST' });
   }
 
-  async rejectOrder(orderId: string, reason: string): Promise<void> {
+  async rejectOrder(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    reason: string,
+  ): Promise<void> {
     await this.request(`/merchant/orders/${orderId}/reject`, {
       method: 'POST',
       body: JSON.stringify({ rejectCode: reason }),
     });
   }
 
-  async updateOrderStatus(orderId: string, status: MarketplaceOrderStatus): Promise<void> {
+  async updateOrderStatus(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    status: MarketplaceOrderStatus,
+  ): Promise<void> {
     const statusMap: Record<string, string> = {
       preparing: 'PREPARING',
       ready: 'READY',
@@ -111,7 +132,11 @@ export class GrabFoodGateway implements IMarketplaceGateway {
     }
   }
 
-  async fetchSettlements(startDate: Date, endDate: Date): Promise<MarketplaceSettlement[]> {
+  async fetchSettlements(
+    _credentials: MarketplaceCredentials,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<MarketplaceSettlement[]> {
     const response = await this.request(
       `/merchant/finance/settlements?from=${startDate.toISOString()}&to=${endDate.toISOString()}`,
     );
@@ -154,7 +179,7 @@ export class GrabFoodGateway implements IMarketplaceGateway {
         id: item.id,
         name: item.name,
         description: item.description,
-        price: item.price * 100, // cents
+        price: Math.round(item.price * 100), // cents
         photoURL: item.imageUrl,
         availableStatus: item.isAvailable ? 'AVAILABLE' : 'UNAVAILABLE',
       })),
@@ -185,7 +210,7 @@ export class GrabFoodGateway implements IMarketplaceGateway {
       discount: (order.discount as number) / 100,
       total: (order.total as number) / 100,
       paymentMethod: order.paymentMethod as string,
-      isPaid: true,
+      isPaid: false /* unknown until the real API reports payment status */,
       createdAt: new Date(order.createdAt as string),
     };
   }

@@ -17,7 +17,7 @@ import type {
   XenditRefundRequest,
   XenditRefundResponse,
 } from '../types';
-import { XENDIT_ENDPOINTS } from '../types';
+import { XENDIT_ENDPOINTS, formatXenditRef } from '../types';
 
 export class XenditInvoiceService extends XenditBaseService {
   constructor(config: XenditConfig) {
@@ -66,20 +66,13 @@ export class XenditInvoiceService extends XenditBaseService {
       payload,
     );
 
-    if (!response) {
-      return {
-        success: false,
-        transactionRef: '',
-        message: 'Failed to create invoice',
-      };
-    }
-
     this.logger.log(`Invoice created: ${response.id} (${externalId})`);
 
     return {
       success: true,
-      transactionRef: response.id,
+      transactionRef: formatXenditRef('invoice', response.id),
       paymentData: {
+        paymentStatus: 'pending',
         invoiceUrl: response.invoice_url,
         amount: response.amount,
         expiresAt: response.expiry_date,
@@ -98,10 +91,6 @@ export class XenditInvoiceService extends XenditBaseService {
       this.buildUrl(`${XENDIT_ENDPOINTS.invoice}/${invoiceId}`),
     );
 
-    if (!response) {
-      return 'pending';
-    }
-
     const statusMap: Record<string, PaymentStatus> = {
       PAID: 'completed',
       SETTLED: 'completed',
@@ -114,29 +103,35 @@ export class XenditInvoiceService extends XenditBaseService {
   }
 
   /**
-   * Refund an invoice payment
+   * Refund an invoice payment via the Refunds API (POST /refunds).
+   * NOTE: payload per the public API reference; not verified against a sandbox.
    */
-  async refund(invoiceId: string, amount: number, reason?: string): Promise<boolean> {
-    const payload: XenditRefundRequest = { amount, reason };
-
+  async refund(
+    invoiceId: string,
+    amount: number,
+    referenceId: string,
+  ): Promise<XenditRefundResponse> {
+    const payload: XenditRefundRequest = {
+      invoice_id: invoiceId,
+      reference_id: referenceId,
+      amount,
+      currency: 'IDR',
+      reason: 'REQUESTED_BY_CUSTOMER',
+    };
     const response = await this.post<XenditRefundResponse>(
-      this.buildUrl(`${XENDIT_ENDPOINTS.invoice}/${invoiceId}/refunds`),
+      this.buildUrl(XENDIT_ENDPOINTS.refunds),
       payload,
     );
-
-    if (!response) {
-      this.logger.error(`Failed to refund invoice: ${invoiceId}`);
-      return false;
-    }
-
-    this.logger.log(`Invoice refunded: ${response.id} (${invoiceId})`);
-    return true;
+    this.logger.log(
+      `Invoice refund requested: ${response.id} (${invoiceId}) status=${response.status}`,
+    );
+    return response;
   }
 
   /**
    * Get invoice details
    */
-  async getInvoiceDetails(invoiceId: string): Promise<XenditInvoiceResponse | null> {
+  async getInvoiceDetails(invoiceId: string): Promise<XenditInvoiceResponse> {
     return this.get<XenditInvoiceResponse>(
       this.buildUrl(`${XENDIT_ENDPOINTS.invoice}/${invoiceId}`),
     );

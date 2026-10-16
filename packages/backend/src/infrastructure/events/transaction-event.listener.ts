@@ -1,382 +1,487 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import { Queue, Worker, type Job } from 'bullmq';
 import { EventBusService } from './event-bus.service';
 import { TransactionCreatedEvent } from '../../domain/events/transaction-created.event';
 import { TransactionVoidedEvent } from '../../domain/events/transaction-voided.event';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../cache/redis.service';
+import { redisConnectionOptions } from '../cache/redis-connection';
+import { money } from '@shared/utils/money';
+import { AUDIT_ACTIONS } from '@modules/audit/audit-actions';
+import { addBusinessDays } from '@shared/utils/business-time';
+import { computeLoyaltyPoints, tierForPoints } from '@application/services/loyalty-points';
+import {
+  DeductIngredientsOnSaleUseCase,
+  type DeductIngredientsOutput,
+} from '@application/use-cases/ingredients/deduct-ingredients-on-sale.use-case';
 
+export const TRANSACTION_EFFECTS_QUEUE = 'transaction-effects';
+
+type EffectJob =
+  | { kind: 'created'; transactionId: string; outletId: string }
+  | { kind: 'voided'; transactionId: string; outletId: string; reason: string };
+
+/** Audit-log actions double as idempotency markers for the side effects. */
+const CREATED_MARKER = AUDIT_ACTIONS.TRANSACTION_CREATED;
+const VOID_MARKER = 'transaction_void_reversed';
+
+/** Unpaid (credit) sales earn no loyalty points until they are paid. */
+const NO_POINTS_STATUSES = new Set(['credit', 'partially_paid', 'pending']);
+
+/**
+ * Applies the side effects of sales and voids (ingredient stock, customer
+ * stats, loyalty points, audit log) — R9/R11:
+ * - every effect set runs in ONE $transaction under a per-transaction advisory
+ *   lock and is recorded with an audit-log marker, so redelivery is a no-op;
+ * - ingredient stock goes through DeductIngredientsOnSaleUseCase (the single, idempotent
+ *   implementation; guarded decrements, shortfalls flagged on the movement) in the same tx;
+ * - loyalty points are credited once per sale: the customer row is locked and an existing
+ *   'earned' ledger row (e.g. from POST /loyalty/earn) makes the credit a no-op;
+ * - customers are only touched when they belong to the sale's business;
+ * - work goes through a BullMQ queue with retries/backoff, and permanently
+ *   failed jobs stay in the queue's failed set (dead-letter) for inspection.
+ */
 @Injectable()
-export class TransactionEventListener implements OnModuleInit {
+export class TransactionEventListener implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TransactionEventListener.name);
+  private queue?: Queue<EffectJob>;
+  private worker?: Worker<EffectJob>;
 
   constructor(
     private readonly eventBus: EventBusService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly config: ConfigService,
+    private readonly ingredients: DeductIngredientsOnSaleUseCase,
   ) {}
 
   onModuleInit() {
-    this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
-      void this.handleTransactionCreated(event);
-    });
-
-    this.eventBus.ofType(TransactionVoidedEvent).subscribe((event) => {
-      void this.handleTransactionVoided(event);
-    });
-  }
-
-  private async handleTransactionCreated(event: TransactionCreatedEvent): Promise<void> {
-    // Handle each independently so one failure doesn't block others
-    const results = await Promise.allSettled([
-      this.deductIngredients(event),
-      this.addLoyaltyPoints(event),
-      this.logAudit(event),
-      this.invalidateReportCache(event.outletId),
-    ]);
-
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        const error =
-          result.reason instanceof Error ? result.reason : new Error(String(result.reason));
-        this.logger.error(
-          `Event handler failed for transaction ${event.transactionId}: ${error.message}`,
-          error.stack,
-        );
-        // TODO(reliability): Add failed event to a dead letter queue (e.g. BullMQ)
-        // for automatic retry with exponential backoff. Currently, failed side-effects
-        // (ingredient deduction, loyalty points, audit logging, cache invalidation) are
-        // logged but silently dropped. A DLQ would allow:
-        //   1. Automatic retries with configurable delay/backoff
-        //   2. Manual inspection of permanently failed events
-        //   3. Alerting when failure rate exceeds threshold
-        // See: https://docs.bullmq.io/ for BullMQ dead letter queue patterns
-      }
-    }
-  }
-
-  private async deductIngredients(event: TransactionCreatedEvent): Promise<void> {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id: event.transactionId },
-      include: { items: true },
-    });
-
-    if (!transaction || transaction.transactionType !== 'sale') return;
-
-    for (const item of transaction.items) {
-      if (!item.productId) continue;
-
-      const recipe = await this.prisma.recipe.findFirst({
-        where: { productId: item.productId, variantId: item.variantId ?? undefined },
-        include: { items: { include: { ingredient: true } } },
+    if (this.config.get<string>('NODE_ENV') !== 'test') {
+      const connection = redisConnectionOptions(this.config);
+      this.queue = new Queue<EffectJob>(TRANSACTION_EFFECTS_QUEUE, {
+        connection,
+        defaultJobOptions: {
+          attempts: 8,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: 1000,
+          removeOnFail: false, // failed jobs are the dead-letter set
+        },
       });
+      this.worker = new Worker<EffectJob>(
+        TRANSACTION_EFFECTS_QUEUE,
+        (job: Job<EffectJob>) => this.process(job.data),
+        { connection, concurrency: 5 },
+      );
+      this.worker.on('failed', (job, error) => {
+        const final = job && job.attemptsMade >= (job.opts.attempts ?? 1);
+        this.logger[final ? 'error' : 'warn'](
+          `${final ? 'DEAD-LETTER' : 'Retrying'} transaction effect ${job?.id}: ${error.message}`,
+        );
+      });
+    }
 
-      if (!recipe) continue;
+    this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
+      void this.dispatch({
+        kind: 'created',
+        transactionId: event.transactionId,
+        outletId: event.outletId,
+      });
+    });
+    this.eventBus.ofType(TransactionVoidedEvent).subscribe((event) => {
+      void this.dispatch({
+        kind: 'voided',
+        transactionId: event.transactionId,
+        outletId: event.outletId,
+        reason: event.reason,
+      });
+    });
+  }
 
-      for (const recipeItem of recipe.items) {
-        const qtyNeeded = recipeItem.quantity.toNumber() * Number(item.quantity);
+  async onModuleDestroy() {
+    await this.worker?.close();
+    await this.queue?.close();
+  }
 
-        const stockLevel = await this.prisma.ingredientStockLevel.findFirst({
-          where: { outletId: event.outletId, ingredientId: recipeItem.ingredientId },
-        });
-
-        if (!stockLevel) continue;
-
-        const newQty = stockLevel.quantity.toNumber() - qtyNeeded;
-
-        await this.prisma.ingredientStockLevel.update({
-          where: { id: stockLevel.id },
-          data: { quantity: Math.max(0, newQty) },
-        });
-
-        await this.prisma.ingredientStockMovement.create({
-          data: {
-            outletId: event.outletId,
-            ingredientId: recipeItem.ingredientId,
-            movementType: 'usage',
-            quantity: -qtyNeeded,
-            referenceId: event.transactionId,
-            referenceType: 'transaction',
-          },
-        });
-
-        if (newQty <= stockLevel.lowStockAlert.toNumber()) {
-          this.logger.warn(
-            `Low ingredient stock: ${recipeItem.ingredient.name} at ${Math.max(0, newQty)} (alert: ${stockLevel.lowStockAlert.toNumber()})`,
-          );
-        }
+  /** Enqueue (deduplicated by job id); if the queue is unavailable run inline. */
+  async dispatch(job: EffectJob): Promise<void> {
+    if (this.queue) {
+      try {
+        await this.queue.add(job.kind, job, { jobId: `${job.kind}:${job.transactionId}` });
+        return;
+      } catch (error) {
+        this.logger.error(
+          `Could not enqueue ${job.kind} effects for ${job.transactionId}, running inline: ${(error as Error).message}`,
+        );
       }
+    }
+    try {
+      await this.process(job);
+    } catch (error) {
+      this.logger.error(
+        `Transaction ${job.kind} effects failed for ${job.transactionId} (no queue to retry): ${(error as Error).message}`,
+        (error as Error).stack,
+      );
     }
   }
 
-  private async addLoyaltyPoints(event: TransactionCreatedEvent): Promise<void> {
-    if (!event.customerId) return;
+  async process(job: EffectJob): Promise<void> {
+    if (job.kind === 'created') {
+      await this.applyCreated(job.transactionId);
+    } else {
+      await this.applyVoided(job.transactionId, job.reason);
+    }
+    await this.invalidateReportCache(job.outletId);
+  }
 
-    const customer = await this.prisma.customer.findUnique({
-      where: { id: event.customerId },
+  // ---------------------------------------------------------------------------
+  // Sale created
+  // ---------------------------------------------------------------------------
+
+  async applyCreated(transactionId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, transactionId);
+
+      const txn = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        select: {
+          id: true,
+          outletId: true,
+          employeeId: true,
+          customerId: true,
+          status: true,
+          transactionType: true,
+          grandTotal: true,
+          outlet: { select: { businessId: true } },
+          items: { select: { productId: true, variantId: true, quantity: true } },
+        },
+      });
+      if (!txn || txn.transactionType !== 'sale') return;
+      if (await this.hasMarker(tx, transactionId, CREATED_MARKER)) return;
+      // Voided before its effects ran: nothing to apply (and nothing to reverse later).
+      if (txn.status === 'voided' || (await this.hasMarker(tx, transactionId, VOID_MARKER))) return;
+
+      const businessId = txn.outlet.businessId;
+      const usage = await this.ingredients.execute(
+        {
+          outletId: txn.outletId,
+          transactionId: txn.id,
+          employeeId: txn.employeeId,
+          items: txn.items
+            .filter((i): i is typeof i & { productId: string } => !!i.productId)
+            .map((i) => ({
+              productId: i.productId,
+              variantId: i.variantId,
+              quantity: Number(i.quantity),
+            })),
+        },
+        tx,
+      );
+      this.logLowIngredients(txn.outletId, usage);
+      const points = txn.customerId
+        ? await this.creditCustomer(
+            tx,
+            businessId,
+            txn.customerId,
+            txn.id,
+            txn.grandTotal,
+            txn.status,
+          )
+        : 0;
+
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          outletId: txn.outletId,
+          employeeId: txn.employeeId,
+          action: CREATED_MARKER,
+          entityType: 'transaction',
+          entityId: txn.id,
+          newValue: {
+            grandTotal: money(txn.grandTotal).toNumber(),
+            transactionType: txn.transactionType,
+            customerId: txn.customerId,
+            loyaltyPoints: points,
+          },
+        },
+      });
     });
+  }
 
-    if (!customer || !customer.isActive) return;
-
-    const loyaltyProgram = await this.prisma.loyaltyProgram.findFirst({
-      where: { businessId: customer.businessId, isActive: true },
+  /**
+   * Customer stats + loyalty points, only for a customer of the sale's business.
+   * Returns the points credited.
+   */
+  private async creditCustomer(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    customerId: string,
+    transactionId: string,
+    grandTotal: Prisma.Decimal,
+    status: string,
+  ): Promise<number> {
+    const customer = await tx.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { id: true, isActive: true, loyaltyTier: true },
     });
+    if (!customer) {
+      this.logger.warn(`Customer ${customerId} is not in business ${businessId}; skipped`);
+      return 0;
+    }
 
-    if (!loyaltyProgram) return;
-
-    const amountPerPoint = loyaltyProgram.amountPerPoint.toNumber();
-    const tiers = await this.prisma.loyaltyTier.findMany({
-      where: { businessId: customer.businessId, isActive: true },
-      orderBy: { sortOrder: 'asc' },
+    // Same lock as EarnLoyaltyPointsUseCase: a manual POST /loyalty/earn for this sale either
+    // ran before (its 'earned' row exists and it already counted spend/visit) or waits for us.
+    await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customer.id}::uuid FOR UPDATE`;
+    const alreadyEarned = await tx.loyaltyTransaction.findFirst({
+      where: { transactionId, type: 'earned' },
+      select: { id: true },
     });
+    if (alreadyEarned) {
+      this.logger.log(`Loyalty for transaction ${transactionId} was already credited; skipped`);
+      return 0;
+    }
 
-    const currentTier = tiers.find((t) => t.name === customer.loyaltyTier);
-    const multiplier = currentTier ? currentTier.pointMultiplier.toNumber() : 1;
-    const pointsEarned = Math.floor((event.grandTotal / amountPerPoint) * multiplier);
-
-    // Use atomic increment to prevent race conditions
-    const updatedCustomer = await this.prisma.customer.update({
-      where: { id: event.customerId },
+    // Stats are updated here and only here (credit sales included).
+    await tx.customer.update({
+      where: { id: customer.id },
       data: {
-        loyaltyPoints: { increment: pointsEarned },
-        totalSpent: { increment: event.grandTotal },
+        totalSpent: { increment: money(grandTotal) },
         visitCount: { increment: 1 },
+        lastVisitAt: new Date(),
       },
     });
 
-    const totalPoints = updatedCustomer.loyaltyPoints;
+    if (!customer.isActive || NO_POINTS_STATUSES.has(status)) return 0;
 
-    await this.prisma.loyaltyTransaction.create({
+    const program = await tx.loyaltyProgram.findFirst({
+      where: { businessId, isActive: true },
+      select: { amountPerPoint: true, pointExpiryDays: true },
+    });
+    if (!program) return 0;
+
+    const tiers = await tx.loyaltyTier.findMany({
+      where: { businessId, isActive: true },
+      select: { name: true, minPoints: true, pointMultiplier: true },
+    });
+    const current = tiers.find((t) => t.name === customer.loyaltyTier);
+    const points = computeLoyaltyPoints(
+      grandTotal,
+      program.amountPerPoint,
+      current?.pointMultiplier ?? 1,
+    );
+    if (points <= 0) return 0;
+
+    const updated = await tx.customer.update({
+      where: { id: customer.id },
+      data: { loyaltyPoints: { increment: points } },
+      select: { loyaltyPoints: true, loyaltyTier: true },
+    });
+    await tx.loyaltyTransaction.create({
       data: {
-        customerId: event.customerId,
-        transactionId: event.transactionId,
+        customerId: customer.id,
+        transactionId,
         type: 'earned',
-        points: pointsEarned,
-        balanceAfter: totalPoints,
+        points,
+        balanceAfter: updated.loyaltyPoints,
         description: 'Earned from transaction',
-        expiresAt: loyaltyProgram.pointExpiryDays
-          ? new Date(Date.now() + Number(loyaltyProgram.pointExpiryDays) * 24 * 60 * 60 * 1000)
+        expiresAt: program.pointExpiryDays
+          ? addBusinessDays(new Date(), program.pointExpiryDays)
           : null,
       },
     });
-
-    for (const tier of [...tiers].reverse()) {
-      if (totalPoints >= tier.minPoints && tier.name !== customer.loyaltyTier) {
-        await this.prisma.customer.update({
-          where: { id: event.customerId },
-          data: { loyaltyTier: tier.name },
-        });
-        this.logger.log(`Customer ${event.customerId} upgraded to tier: ${tier.name}`);
-        break;
-      }
-    }
+    await this.syncTier(tx, customer.id, updated.loyaltyPoints, updated.loyaltyTier, tiers);
+    return points;
   }
 
-  private async logAudit(event: TransactionCreatedEvent): Promise<void> {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id: event.transactionId },
-      include: { outlet: { select: { businessId: true } } },
-    });
+  // ---------------------------------------------------------------------------
+  // Sale voided
+  // ---------------------------------------------------------------------------
 
-    if (!transaction) return;
+  async applyVoided(transactionId: string, reason: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, transactionId);
 
-    await this.prisma.auditLog.create({
-      data: {
-        businessId: transaction.outlet.businessId,
-        outletId: event.outletId,
-        employeeId: transaction.employeeId,
-        action: 'transaction_created',
-        entityType: 'transaction',
-        entityId: event.transactionId,
-        newValue: {
-          grandTotal: event.grandTotal,
-          transactionType: transaction.transactionType,
-          customerId: event.customerId,
+      const txn = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        select: {
+          id: true,
+          outletId: true,
+          voidedBy: true,
+          customerId: true,
+          grandTotal: true,
+          transactionType: true,
+          outlet: { select: { businessId: true } },
         },
-      },
-    });
-  }
-
-  /**
-   * Handler for TransactionVoidedEvent
-   * Reverses side effects of the original transaction:
-   * - Restores ingredient stock (reverses deduction)
-   * - Reverses loyalty points earned
-   */
-  private async handleTransactionVoided(event: TransactionVoidedEvent): Promise<void> {
-    const results = await Promise.allSettled([
-      this.restoreIngredients(event),
-      this.reverseLoyaltyPoints(event),
-      this.invalidateReportCache(event.outletId),
-    ]);
-
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        this.logger.error(
-          `Event handler failed for voided transaction ${event.transactionId}:`,
-          result.reason,
-        );
-      }
-    }
-  }
-
-  /**
-   * Restores ingredient stock that was deducted when transaction was created
-   */
-  private async restoreIngredients(event: TransactionVoidedEvent): Promise<void> {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id: event.transactionId },
-      include: { items: true },
-    });
-
-    if (!transaction || transaction.transactionType !== 'sale') return;
-
-    for (const item of transaction.items) {
-      if (!item.productId) continue;
-
-      const recipe = await this.prisma.recipe.findFirst({
-        where: { productId: item.productId, variantId: item.variantId ?? undefined },
-        include: { items: { include: { ingredient: true } } },
       });
+      if (!txn || txn.transactionType !== 'sale') return;
+      if (await this.hasMarker(tx, transactionId, VOID_MARKER)) return;
 
-      if (!recipe) continue;
-
-      for (const recipeItem of recipe.items) {
-        const qtyUsed = recipeItem.quantity.toNumber() * Number(item.quantity);
-
-        const stockLevel = await this.prisma.ingredientStockLevel.findFirst({
-          where: { outletId: event.outletId, ingredientId: recipeItem.ingredientId },
-        });
-
-        if (!stockLevel) continue;
-
-        // Restore the ingredient stock
-        await this.prisma.ingredientStockLevel.update({
-          where: { id: stockLevel.id },
-          data: { quantity: { increment: qtyUsed } },
-        });
-
-        // Create movement record for audit trail
-        await this.prisma.ingredientStockMovement.create({
-          data: {
-            outletId: event.outletId,
-            ingredientId: recipeItem.ingredientId,
-            movementType: 'adjustment',
-            quantity: qtyUsed,
-            referenceId: event.transactionId,
-            referenceType: 'void',
-            notes: `Restored from voided transaction: ${event.reason}`,
+      const businessId = txn.outlet.businessId;
+      const applied = await this.hasMarker(tx, transactionId, CREATED_MARKER);
+      if (applied) {
+        // Reverses exactly the usage recorded for this sale (not today's recipe), once.
+        await this.ingredients.restore(
+          {
+            outletId: txn.outletId,
+            transactionId,
+            employeeId: txn.voidedBy,
+            reason,
           },
-        });
-
-        this.logger.log(
-          `Restored ${qtyUsed} ${recipeItem.ingredient.name} from voided transaction ${event.transactionId}`,
+          tx,
         );
-      }
-    }
-  }
 
-  /**
-   * Reverses loyalty points earned from the voided transaction
-   */
-  private async reverseLoyaltyPoints(event: TransactionVoidedEvent): Promise<void> {
-    // Find the original loyalty transaction
-    const loyaltyTransaction = await this.prisma.loyaltyTransaction.findFirst({
-      where: {
-        transactionId: event.transactionId,
-        type: 'earned',
-      },
-    });
-
-    if (!loyaltyTransaction) {
-      this.logger.debug(
-        `No loyalty transaction found for ${event.transactionId}, skipping reversal`,
-      );
-      return;
-    }
-
-    const customer = await this.prisma.customer.findUnique({
-      where: { id: loyaltyTransaction.customerId },
-    });
-
-    if (!customer || !customer.isActive) {
-      this.logger.warn(
-        `Customer ${loyaltyTransaction.customerId} not found or inactive, skipping loyalty reversal`,
-      );
-      return;
-    }
-
-    const pointsToDeduct = loyaltyTransaction.points;
-
-    // Atomically deduct loyalty points
-    const updatedCustomer = await this.prisma.customer.update({
-      where: { id: loyaltyTransaction.customerId },
-      data: {
-        loyaltyPoints: { decrement: pointsToDeduct },
-        totalSpent: { decrement: event.grandTotal },
-        visitCount: { decrement: 1 },
-      },
-    });
-
-    // Create reversal loyalty transaction
-    await this.prisma.loyaltyTransaction.create({
-      data: {
-        customerId: loyaltyTransaction.customerId,
-        transactionId: event.transactionId,
-        type: 'redeemed', // Using 'redeemed' type for point deduction
-        points: -pointsToDeduct,
-        balanceAfter: updatedCustomer.loyaltyPoints,
-        description: `Reversed from voided transaction: ${event.reason}`,
-      },
-    });
-
-    this.logger.log(
-      `Reversed ${pointsToDeduct} loyalty points from customer ${loyaltyTransaction.customerId} (voided transaction ${event.transactionId})`,
-    );
-
-    // Check if tier downgrade is needed
-    const tiers = await this.prisma.loyaltyTier.findMany({
-      where: { businessId: customer.businessId, isActive: true },
-      orderBy: { minPoints: 'desc' },
-    });
-
-    for (const tier of tiers) {
-      if (updatedCustomer.loyaltyPoints >= tier.minPoints) {
-        if (tier.name !== updatedCustomer.loyaltyTier) {
-          await this.prisma.customer.update({
-            where: { id: loyaltyTransaction.customerId },
-            data: { loyaltyTier: tier.name },
-          });
-          this.logger.log(
-            `Customer ${loyaltyTransaction.customerId} downgraded to tier: ${tier.name}`,
+        if (txn.customerId) {
+          await this.reverseCustomer(
+            tx,
+            businessId,
+            txn.customerId,
+            transactionId,
+            txn.grandTotal,
+            reason,
           );
         }
-        break;
+      }
+
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          outletId: txn.outletId,
+          employeeId: txn.voidedBy,
+          action: VOID_MARKER,
+          entityType: 'transaction',
+          entityId: transactionId,
+          newValue: { reason, effectsReversed: applied },
+        },
+      });
+    });
+  }
+
+  private async reverseCustomer(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    customerId: string,
+    transactionId: string,
+    grandTotal: Prisma.Decimal,
+    reason: string,
+  ): Promise<void> {
+    const customer = await tx.customer.findFirst({
+      where: { id: customerId, businessId },
+      select: { id: true, loyaltyPoints: true, totalSpent: true, visitCount: true },
+    });
+    if (!customer) return;
+
+    const earned = await tx.loyaltyTransaction.findFirst({
+      where: { transactionId, customerId, type: 'earned' },
+      select: { points: true },
+    });
+    // Never drive balances below zero.
+    const points = Math.min(earned?.points ?? 0, Math.max(customer.loyaltyPoints, 0));
+    const spent = Prisma.Decimal.min(money(grandTotal), money(customer.totalSpent));
+
+    const updated = await tx.customer.update({
+      where: { id: customer.id },
+      data: {
+        loyaltyPoints: { decrement: points },
+        totalSpent: { decrement: spent },
+        visitCount: { decrement: customer.visitCount > 0 ? 1 : 0 },
+      },
+      select: { loyaltyPoints: true, loyaltyTier: true },
+    });
+
+    if (points > 0) {
+      await tx.loyaltyTransaction.create({
+        data: {
+          customerId: customer.id,
+          transactionId,
+          type: 'reversed',
+          points: -points,
+          balanceAfter: updated.loyaltyPoints,
+          description: `Reversed: transaction voided (${reason})`,
+        },
+      });
+    }
+
+    const tiers = await tx.loyaltyTier.findMany({
+      where: { businessId, isActive: true },
+      select: { name: true, minPoints: true },
+    });
+    await this.syncTier(tx, customer.id, updated.loyaltyPoints, updated.loyaltyTier, tiers);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  /** Serialises all effect processing of one transaction (created vs voided, retries). */
+  private async lock(tx: Prisma.TransactionClient, transactionId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`txn-effects:${transactionId}`}))`;
+  }
+
+  private async hasMarker(
+    tx: Prisma.TransactionClient,
+    transactionId: string,
+    action: string,
+  ): Promise<boolean> {
+    const count = await tx.auditLog.count({
+      where: { entityType: 'transaction', entityId: transactionId, action },
+    });
+    return count > 0;
+  }
+
+  private logLowIngredients(outletId: string, usage: DeductIngredientsOutput): void {
+    for (const d of usage.deductions) {
+      if (d.insufficientStock) {
+        this.logger.warn(
+          `Insufficient ingredient ${d.ingredientId} at outlet ${outletId}: deducted ${d.quantityDeducted}, stock now ${d.remainingStock}`,
+        );
+      } else if (d.isBelowAlert) {
+        this.logger.warn(
+          `Low ingredient stock ${d.ingredientId} at outlet ${outletId}: ${d.remainingStock}`,
+        );
       }
     }
   }
 
-  /**
-   * Invalidate all report caches for the outlet (and business-level reports).
-   * This ensures dashboards and reports reflect the latest transaction data.
-   */
-  private async invalidateReportCache(outletId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true },
-    });
-    const businessId = outlet?.businessId;
+  private async syncTier(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    points: number,
+    currentTier: string,
+    tiers: Array<{ name: string; minPoints: number }>,
+  ): Promise<void> {
+    const target = tierForPoints(tiers, points);
+    if (target && target.name !== currentTier) {
+      await tx.customer.update({ where: { id: customerId }, data: { loyaltyTier: target.name } });
+      this.logger.log(`Customer ${customerId} moved to tier ${target.name}`);
+    }
+  }
 
-    await Promise.all([
-      this.redis.invalidatePattern(`report:*:${outletId}:*`),
-      this.redis.invalidatePattern(`report:dashboard:*:${outletId}:*`),
-      this.redis.invalidatePattern(`staff:leaderboard:*`),
-      ...(businessId
-        ? [
-            this.redis.invalidatePattern(`report:dashboard:outlet-comparison:${businessId}:*`),
-            this.redis.invalidatePattern(`owner:analytics:*:${businessId}:*`),
-            this.redis.invalidatePattern(`financial:*:${businessId}:*`),
-          ]
-        : []),
-    ]);
+  /** Best effort: stale caches expire on their own TTL. */
+  private async invalidateReportCache(outletId: string): Promise<void> {
+    try {
+      const outlet = await this.prisma.outlet.findUnique({
+        where: { id: outletId },
+        select: { businessId: true },
+      });
+      const businessId = outlet?.businessId;
+      await Promise.all([
+        this.redis.invalidatePattern(`report:*:${outletId}:*`),
+        this.redis.invalidatePattern(`report:dashboard:*:${outletId}:*`),
+        ...(businessId
+          ? [
+              this.redis.invalidatePattern(`staff:leaderboard:${businessId}:*`),
+              this.redis.invalidatePattern(`report:dashboard:outlet-comparison:${businessId}:*`),
+              this.redis.invalidatePattern(`owner:analytics:*:${businessId}:*`),
+              this.redis.invalidatePattern(`financial:*:${businessId}:*`),
+            ]
+          : []),
+      ]);
+    } catch (error) {
+      // intentionally ignored: cache entries expire by TTL; the effects themselves are committed.
+      this.logger.warn(
+        `Report cache invalidation failed for outlet ${outletId}: ${(error as Error).message}`,
+      );
+    }
   }
 }

@@ -20,6 +20,8 @@ import {
 @Injectable()
 export class GoFoodGateway implements IMarketplaceGateway {
   readonly platform = 'gofood' as const;
+  /** Stub gateway: no real API client exists yet, so the aggregator never polls it. */
+  readonly isConfigured = false;
   private readonly logger = new Logger(GoFoodGateway.name);
 
   constructor() {
@@ -67,7 +69,10 @@ export class GoFoodGateway implements IMarketplaceGateway {
     };
   }
 
-  async syncMenu(items: MarketplaceMenuItem[]): Promise<void> {
+  async syncMenu(
+    _credentials: MarketplaceCredentials,
+    items: MarketplaceMenuItem[],
+  ): Promise<void> {
     this.logger.log(`Syncing ${items.length} items to GoFood`);
 
     const menuData = items.map((item) => ({
@@ -92,39 +97,55 @@ export class GoFoodGateway implements IMarketplaceGateway {
     });
   }
 
-  async updateItemAvailability(itemId: string, isAvailable: boolean): Promise<void> {
+  async updateItemAvailability(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    isAvailable: boolean,
+  ): Promise<void> {
     await this.request(`/menu/items/${itemId}/availability`, {
       method: 'PUT',
       body: JSON.stringify({ is_available: isAvailable }),
     });
   }
 
-  async updateItemPrice(itemId: string, price: number): Promise<void> {
+  async updateItemPrice(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    price: number,
+  ): Promise<void> {
     await this.request(`/menu/items/${itemId}/price`, {
       method: 'PUT',
       body: JSON.stringify({ price }),
     });
   }
 
-  async fetchNewOrders(): Promise<MarketplaceOrder[]> {
+  async fetchNewOrders(_credentials: MarketplaceCredentials): Promise<MarketplaceOrder[]> {
     const response = (await this.request('/orders?status=new')) as {
       orders: Array<Record<string, unknown>>;
     };
     return (response.orders || []).map(this.mapOrder.bind(this));
   }
 
-  async acceptOrder(orderId: string): Promise<void> {
+  async acceptOrder(_credentials: MarketplaceCredentials, orderId: string): Promise<void> {
     await this.request(`/orders/${orderId}/accept`, { method: 'POST' });
   }
 
-  async rejectOrder(orderId: string, reason: string): Promise<void> {
+  async rejectOrder(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    reason: string,
+  ): Promise<void> {
     await this.request(`/orders/${orderId}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
   }
 
-  async updateOrderStatus(orderId: string, status: MarketplaceOrderStatus): Promise<void> {
+  async updateOrderStatus(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    status: MarketplaceOrderStatus,
+  ): Promise<void> {
     const statusMap: Record<MarketplaceOrderStatus, string> = {
       new: 'NEW',
       accepted: 'ACCEPTED',
@@ -141,7 +162,11 @@ export class GoFoodGateway implements IMarketplaceGateway {
     });
   }
 
-  async fetchSettlements(startDate: Date, endDate: Date): Promise<MarketplaceSettlement[]> {
+  async fetchSettlements(
+    _credentials: MarketplaceCredentials,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<MarketplaceSettlement[]> {
     const response = (await this.request(
       `/settlements?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`,
     )) as { settlements: Array<Record<string, unknown>> };
@@ -195,7 +220,7 @@ export class GoFoodGateway implements IMarketplaceGateway {
       discount: order.discount as number,
       total: order.total as number,
       paymentMethod: order.payment_method as string,
-      isPaid: true, // GoFood orders are prepaid
+      isPaid: false /* unknown until the real API reports payment status */,
       createdAt: new Date(order.created_at as string),
     };
   }

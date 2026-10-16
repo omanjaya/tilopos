@@ -1,6 +1,7 @@
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as winston from 'winston';
-import { ElasticsearchTransport } from './elasticsearch-transport';
+import { ElasticsearchTransport, type ElasticsearchAuth } from './elasticsearch-transport';
 import { RequestContextService } from './request-context.middleware';
 
 interface BusinessLogFields {
@@ -44,13 +45,43 @@ interface SecurityEventData extends BusinessLogFields {
   details?: string;
 }
 
+/**
+ * Elasticsearch credentials (R16): when ELASTICSEARCH_URL is set, either ELASTICSEARCH_API_KEY or
+ * ELASTICSEARCH_USERNAME + ELASTICSEARCH_PASSWORD is required in production (the ELK compose
+ * stack runs with security enabled). Unauthenticated shipping is allowed only outside production.
+ */
+export function resolveElasticsearchAuth(config: ConfigService): ElasticsearchAuth | undefined {
+  const apiKey = config.get<string>('ELASTICSEARCH_API_KEY');
+  const username = config.get<string>('ELASTICSEARCH_USERNAME');
+  const password = config.get<string>('ELASTICSEARCH_PASSWORD');
+  if (apiKey) return { apiKey };
+  if (username || password) {
+    if (!username || !password) {
+      throw new Error('ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD must be set together');
+    }
+    return { username, password };
+  }
+  const url = config.get<string>('ELASTICSEARCH_URL');
+  const fromUrl = url ? ElasticsearchTransport.authFromUrl(url) : undefined;
+  if (fromUrl) return fromUrl;
+  if (config.get<string>('NODE_ENV') === 'production') {
+    throw new Error(
+      'ELASTICSEARCH_URL is set but no credentials (ELASTICSEARCH_API_KEY or USERNAME/PASSWORD)',
+    );
+  }
+  return undefined;
+}
+
 @Injectable()
 export class ElkLoggerService implements NestLoggerService {
   private readonly logger: winston.Logger;
   private readonly serviceName: string;
 
-  constructor(private readonly requestContext: RequestContextService) {
-    this.serviceName = process.env['SERVICE_NAME'] ?? 'tilo-backend';
+  constructor(
+    private readonly requestContext: RequestContextService,
+    config: ConfigService,
+  ) {
+    this.serviceName = config.get<string>('SERVICE_NAME') || 'tilo-backend';
 
     const transports: winston.transport[] = [
       new winston.transports.Console({
@@ -71,21 +102,20 @@ export class ElkLoggerService implements NestLoggerService {
       }),
     ];
 
-    const esUrl = process.env['ELASTICSEARCH_URL'];
-    const esIndexPrefix = process.env['ELASTICSEARCH_INDEX_PREFIX'] ?? 'tilo-logs';
-
+    const esUrl = config.get<string>('ELASTICSEARCH_URL');
     if (esUrl) {
       transports.push(
         new ElasticsearchTransport({
           elasticsearchUrl: esUrl,
-          indexPrefix: esIndexPrefix,
+          indexPrefix: config.get<string>('ELASTICSEARCH_INDEX_PREFIX') || 'tilo-logs',
+          auth: resolveElasticsearchAuth(config),
           level: 'info',
         }),
       );
     }
 
     this.logger = winston.createLogger({
-      level: process.env['LOG_LEVEL'] ?? 'info',
+      level: config.get<string>('LOG_LEVEL') || 'info',
       defaultMeta: { service: this.serviceName },
       transports,
     });

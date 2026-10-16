@@ -1,17 +1,14 @@
 /**
- * Xendit Retail Outlet Service
+ * Xendit Retail Outlet Service (Alfamart, Indomaret).
  *
- * Handles retail outlet payments for Indonesian retail chains:
- * - Alfamart
- * - Indomaret
- *
- * Customers receive a payment code to pay at physical retail locations
+ * NOTE: uses the Fixed Payment Code API (POST/GET /fixed_payment_code) per the
+ * public API reference; not verified against a sandbox in this codebase.
  */
 
 import type { PaymentInput, PaymentResult, PaymentStatus } from '@domain/interfaces/services';
 import { XenditBaseService } from './base.service';
 import type { XenditRetailRequest, XenditRetailResponse, XenditConfig } from '../types';
-import { XENDIT_ENDPOINTS } from '../types';
+import { XENDIT_ENDPOINTS, formatXenditRef } from '../types';
 
 export class XenditRetailService extends XenditBaseService {
   private readonly supportedOutlets = ['ALFAMART', 'INDOMARET'] as const;
@@ -20,9 +17,6 @@ export class XenditRetailService extends XenditBaseService {
     super(config, 'XenditRetailService');
   }
 
-  /**
-   * Create a retail outlet payment
-   */
   async createPayment(
     input: PaymentInput,
     externalId: string,
@@ -33,22 +27,19 @@ export class XenditRetailService extends XenditBaseService {
         success: false,
         transactionRef: '',
         message: `Unsupported retail outlet: ${retailOutlet}. Supported: ${this.supportedOutlets.join(', ')}`,
+        paymentData: { paymentStatus: 'failed' },
       };
     }
 
     const payload: XenditRetailRequest = {
       external_id: externalId,
-      retail_outlet_name: retailOutlet as XenditRetailRequest['retail_outlet_name'],
+      retail_outlet_name: retailOutlet.toUpperCase() as XenditRetailRequest['retail_outlet_name'],
       name: input.customer?.name || 'Customer',
       expected_amount: input.amount,
-      payment_code: externalId,
-      currency: 'IDR',
+      is_single_use: true,
     };
-
-    // Add expiration date if provided (default 24 hours)
     if (input.expirySeconds) {
-      const expiryDate = new Date(Date.now() + input.expirySeconds * 1000);
-      payload.expiration_date = expiryDate.toISOString();
+      payload.expiration_date = new Date(Date.now() + input.expirySeconds * 1000).toISOString();
     }
 
     const response = await this.post<XenditRetailResponse>(
@@ -56,23 +47,16 @@ export class XenditRetailService extends XenditBaseService {
       payload,
     );
 
-    if (!response) {
-      return {
-        success: false,
-        transactionRef: '',
-        message: 'Failed to create retail outlet payment',
-      };
-    }
-
-    this.logger.log(`Retail payment created: ${response.external_id} (${retailOutlet})`);
+    this.logger.log(`Retail payment code created: ${response.id} (${retailOutlet})`);
 
     return {
       success: true,
-      transactionRef: response.external_id,
+      transactionRef: formatXenditRef('retail', response.id),
       paymentData: {
+        paymentStatus: 'pending',
         paymentCode: response.payment_code,
         outlet: response.retail_outlet_name,
-        amount: response.amount,
+        amount: response.expected_amount,
         expiresAt: response.expiration_date,
         type: 'RETAIL',
       },
@@ -81,25 +65,17 @@ export class XenditRetailService extends XenditBaseService {
   }
 
   /**
-   * Get retail payment status.
-   *
-   * NOTE: Xendit does not provide a direct status-check endpoint for retail
-   * outlet payments. The actual payment status is delivered asynchronously via
-   * webhooks (fixed_payment_code.paid). This method always returns 'pending'
-   * as a safe default; the real status lives in the webhook-updated database
-   * record.
+   * A single-use payment code turns INACTIVE both when paid and when expired,
+   * so the code object alone cannot confirm a payment; the paid state comes from
+   * the retail payment callback. The lookup still runs so API/auth errors surface.
    */
-  async getStatus(externalId: string): Promise<PaymentStatus> {
-    this.logger.warn(
-      `Retail payment status check not implemented \u2014 relying on webhook updates. ` +
-        `Status returned as pending for externalId=${externalId}.`,
+  async getStatus(paymentCodeId: string): Promise<PaymentStatus> {
+    await this.get<XenditRetailResponse>(
+      this.buildUrl(`${XENDIT_ENDPOINTS.retail}/${paymentCodeId}`),
     );
     return 'pending';
   }
 
-  /**
-   * Check if retail outlet is supported
-   */
   private isSupportedOutlet(outlet: string): boolean {
     const upperOutlet = outlet.toUpperCase();
     return this.supportedOutlets.some((o) => o === upperOutlet);

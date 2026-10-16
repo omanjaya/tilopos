@@ -3,7 +3,11 @@ import { EventBusService } from './event-bus.service';
 import { StockLevelChangedEvent } from '../../domain/events/stock-level-changed.event';
 import { PrismaService } from '../database/prisma.service';
 import { SERVICE_TOKENS } from '../services/service.tokens';
-import type { INotificationService } from '../../domain/interfaces/services/notification.service';
+import type {
+  INotificationService,
+  NotificationPayload,
+} from '../../domain/interfaces/services/notification.service';
+import { withRetry } from './retry';
 
 @Injectable()
 export class StockEventListener implements OnModuleInit {
@@ -18,90 +22,72 @@ export class StockEventListener implements OnModuleInit {
 
   onModuleInit() {
     this.eventBus.ofType(StockLevelChangedEvent).subscribe((event) => {
-      void this.handleStockLevelChanged(event);
+      void withRetry(this.logger, `StockLevelChangedEvent for product ${event.productId}`, () =>
+        this.handleStockLevelChanged(event),
+      );
     });
   }
 
-  private async handleStockLevelChanged(event: StockLevelChangedEvent): Promise<void> {
-    try {
-      const stockLevel = await this.prisma.stockLevel.findFirst({
-        where: {
-          outletId: event.outletId,
-          productId: event.productId,
-          variantId: event.variantId,
-        },
-        include: {
-          product: { select: { name: true, businessId: true } },
-          variant: { select: { name: true } },
-        },
-      });
+  async handleStockLevelChanged(event: StockLevelChangedEvent): Promise<void> {
+    const stockLevel = await this.prisma.stockLevel.findFirst({
+      where: {
+        outletId: event.outletId,
+        productId: event.productId,
+        variantId: event.variantId,
+      },
+      include: {
+        product: { select: { name: true, businessId: true } },
+        variant: { select: { name: true } },
+        outlet: { select: { name: true } },
+      },
+    });
 
-      if (!stockLevel) return;
+    if (!stockLevel?.product) return;
 
-      const alertThreshold = stockLevel.lowStockAlert;
-      if (event.newQuantity > alertThreshold) return;
+    // Alert only when the level crosses the threshold, not on every sale below it.
+    const threshold = stockLevel.lowStockAlert;
+    if (!(event.previousQuantity > threshold && event.newQuantity <= threshold)) return;
 
-      if (!stockLevel.product) return;
+    const businessId = stockLevel.product.businessId;
+    const productName = stockLevel.variant
+      ? `${stockLevel.product.name} (${stockLevel.variant.name})`
+      : stockLevel.product.name;
 
-      const productName = stockLevel.variant
-        ? `${stockLevel.product.name} (${stockLevel.variant.name})`
-        : stockLevel.product.name;
+    this.logger.warn(
+      `Low stock alert: ${productName} at ${event.newQuantity} units (threshold: ${threshold})`,
+    );
 
-      this.logger.warn(
-        `Low stock alert: ${productName} at ${event.newQuantity} units (threshold: ${alertThreshold})`,
-      );
+    const managers = await this.prisma.employee.findMany({
+      where: {
+        businessId,
+        role: { in: ['owner', 'manager'] },
+        isActive: true,
+        OR: [{ outletId: event.outletId }, { outletId: null }, { role: 'owner' }],
+      },
+      select: { id: true, email: true },
+    });
 
-      const outlet = await this.prisma.outlet.findUnique({
-        where: { id: event.outletId },
-        select: { name: true, businessId: true },
-      });
+    // No push tokens are stored for employees, so alerts go by e-mail. The dispatcher records
+    // the real delivery outcome (sent / failed NOT_CONFIGURED / NO_RECIPIENT) in notification_logs.
+    const notifications: NotificationPayload[] = managers.map((manager) => ({
+      recipientId: manager.id,
+      channel: 'email',
+      title: 'Low Stock Alert',
+      body: `${productName} at ${stockLevel.outlet.name} is low on stock (${event.newQuantity} remaining)`,
+      metadata: {
+        businessId,
+        notificationType: 'low_stock',
+        email: manager.email ?? undefined,
+        productId: event.productId,
+        variantId: event.variantId,
+        outletId: event.outletId,
+        currentQuantity: event.newQuantity,
+        threshold,
+      },
+    }));
 
-      const managers = await this.prisma.employee.findMany({
-        where: {
-          businessId: stockLevel.product.businessId,
-          role: { in: ['owner', 'manager'] },
-          isActive: true,
-        },
-        select: { id: true },
-      });
-
-      for (const manager of managers) {
-        await this.notificationService.send({
-          recipientId: manager.id,
-          channel: 'push',
-          title: 'Low Stock Alert',
-          body: `${productName} at ${outlet?.name || 'outlet'} is low on stock (${event.newQuantity} remaining)`,
-          metadata: {
-            type: 'low_stock',
-            productId: event.productId,
-            variantId: event.variantId,
-            outletId: event.outletId,
-            currentQuantity: event.newQuantity,
-            threshold: alertThreshold,
-          },
-        });
-      }
-
-      await this.prisma.notificationLog.create({
-        data: {
-          businessId: stockLevel.product.businessId,
-          notificationType: 'low_stock',
-          channel: 'push',
-          title: 'Low Stock Alert',
-          body: `${productName} is low on stock (${event.newQuantity} remaining)`,
-          metadata: {
-            productId: event.productId,
-            variantId: event.variantId,
-            outletId: event.outletId,
-          },
-          status: 'sent',
-        },
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to process StockLevelChangedEvent for product ${event.productId}`,
-        error,
-      );
+    if (notifications.length > 0) {
+      await this.notificationService.sendBulk(notifications);
     }
   }
 }

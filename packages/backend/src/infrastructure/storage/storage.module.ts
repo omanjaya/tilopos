@@ -4,6 +4,7 @@ import { StorageService } from './storage.service';
 import { LocalStorageAdapter } from './local-storage.adapter';
 import { S3StorageAdapter } from './s3-storage.adapter';
 import { ImageProcessorService } from './image-processor.service';
+import { resolveS3Settings, resolveStorageDriver } from './storage.config';
 
 @Module({
   providers: [
@@ -11,17 +12,15 @@ import { ImageProcessorService } from './image-processor.service';
     {
       provide: 'STORAGE_ADAPTER',
       useFactory: (configService: ConfigService) => {
-        const s3AccessKey = configService.get<string>('S3_ACCESS_KEY_ID');
-        if (s3AccessKey) {
-          return new S3StorageAdapter(configService);
+        if (resolveStorageDriver(configService) === 's3') {
+          return new S3StorageAdapter(resolveS3Settings(configService));
         }
-        return new LocalStorageAdapter();
+        return new LocalStorageAdapter(configService.get<string>('CDN_URL'));
       },
       inject: [ConfigService],
     },
-    S3StorageAdapter,
     ImageProcessorService,
   ],
-  exports: [StorageService, S3StorageAdapter, ImageProcessorService],
+  exports: [StorageService, ImageProcessorService],
 })
 export class StorageModule {}

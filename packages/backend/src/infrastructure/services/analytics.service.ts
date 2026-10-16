@@ -8,6 +8,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../cache/redis.service';
+import { AnalyticsQueriesService, type SalesScope } from './analytics-queries.service';
+import {
+  addBusinessDays,
+  parseBusinessDate,
+  startOfBusinessDay,
+} from '@shared/utils/business-time';
 
 // Types
 export interface DateRange {
@@ -38,7 +44,8 @@ export interface ProductPerformance {
   productName: string;
   quantity: number;
   revenue: number;
-  profit: number;
+  /** null when the caller may not see cost data (supervisor). */
+  profit: number | null;
   percentOfTotal: number;
   trend: 'up' | 'down' | 'stable';
   trendValue: number;
@@ -191,9 +198,10 @@ export interface ShiftStats {
   duration: number;
   sales: number;
   transactions: number;
-  openingCash: number;
-  closingCash: number;
-  variance: number;
+  /** Cash fields are null when the caller may not see cash data (supervisor). */
+  openingCash: number | null;
+  closingCash: number | null;
+  variance: number | null;
 }
 
 export interface PredictiveInsights {
@@ -260,13 +268,23 @@ export type WidgetType =
   | 'gauge'
   | 'funnel';
 
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+/** Distinct products considered per analytics request (R13). */
+const MAX_ANALYTICS_PRODUCTS = 5000;
+
+/**
+ * Analytics for one outlet. The caller (AnalyticsController) has already
+ * verified the outlet belongs to the user's business (R3). All bucketing is in
+ * Asia/Jakarta (R14) and aggregation runs in SQL via AnalyticsQueriesService (R13).
+ */
 @Injectable()
 export class AnalyticsService {
-  private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly CACHE_TTL = 60; // short: no invalidation on sale/void/refund
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly queries: AnalyticsQueriesService,
   ) {}
 
   private saleWhereClause(outletId: string, dateRange: DateRange) {
@@ -275,6 +293,18 @@ export class AnalyticsService {
       transactionType: 'sale' as const,
       status: 'completed' as const,
       createdAt: { gte: dateRange.start, lte: dateRange.end },
+    };
+  }
+
+  private scope(outletId: string, dateRange: DateRange): SalesScope {
+    return { outletIds: [outletId], start: dateRange.start, end: dateRange.end };
+  }
+
+  private previousRange(dateRange: DateRange): DateRange {
+    const periodMs = dateRange.end.getTime() - dateRange.start.getTime();
+    return {
+      start: new Date(dateRange.start.getTime() - periodMs),
+      end: new Date(dateRange.start.getTime() - 1),
     };
   }
 
@@ -307,14 +337,8 @@ export class AnalyticsService {
     const taxCollected = aggregate._sum.taxAmount?.toNumber() || 0;
     const averageOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-    // Calculate growth vs previous period
-    const periodMs = dateRange.end.getTime() - dateRange.start.getTime();
-    const prevStart = new Date(dateRange.start.getTime() - periodMs);
-    const prevEnd = new Date(dateRange.start.getTime() - 1);
-    const prevWhere = this.saleWhereClause(outletId, { start: prevStart, end: prevEnd });
-
     const prevAgg = await this.prisma.transaction.aggregate({
-      where: prevWhere,
+      where: this.saleWhereClause(outletId, this.previousRange(dateRange)),
       _sum: { grandTotal: true },
       _count: true,
     });
@@ -342,156 +366,73 @@ export class AnalyticsService {
   }
 
   /**
-   * Get product analytics — top/low performers, category breakdown, product mix
+   * Get product analytics — top/low performers, category breakdown, product mix.
+   * `includeCost` = false hides the cost-derived profit (supervisor, R12).
    */
   async getProductAnalytics(
     outletId: string,
     dateRange: DateRange,
     limit = 10,
+    includeCost = true,
   ): Promise<ProductAnalytics> {
-    const cacheKey = `analytics:products:${outletId}:${dateRange.start.toISOString()}:${dateRange.end.toISOString()}:${limit}`;
+    const cacheKey = `analytics:products:${outletId}:${dateRange.start.toISOString()}:${dateRange.end.toISOString()}:${limit}:${includeCost ? 'c' : 'n'}`;
     const cached = await this.redis.get<ProductAnalytics>(cacheKey);
     if (cached) return cached;
 
-    const where = this.saleWhereClause(outletId, dateRange);
+    const scope = this.scope(outletId, dateRange);
+    const [rows, prevRows] = await Promise.all([
+      this.queries.itemSales(scope, { limit: MAX_ANALYTICS_PRODUCTS }),
+      this.queries.itemSales(this.scope(outletId, this.previousRange(dateRange)), {
+        limit: MAX_ANALYTICS_PRODUCTS,
+      }),
+    ]);
 
-    // Fetch current period items
-    const items = await this.prisma.transactionItem.findMany({
-      where: { transaction: where },
-      select: {
-        transactionId: true,
-        productId: true,
-        productName: true,
-        quantity: true,
-        subtotal: true,
-        product: {
-          select: {
-            id: true,
-            costPrice: true,
-            category: { select: { id: true, name: true } },
-          },
-        },
-        transaction: { select: { createdAt: true } },
-      },
-    });
+    const keyOf = (r: { productId: string | null; productName: string }) =>
+      r.productId ?? r.productName;
+    const prevProductMap = new Map(prevRows.map((r) => [keyOf(r), r.revenue]));
+    const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
 
-    // Previous period for trend comparison
-    const periodMs = dateRange.end.getTime() - dateRange.start.getTime();
-    const prevStart = new Date(dateRange.start.getTime() - periodMs);
-    const prevEnd = new Date(dateRange.start.getTime() - 1);
-    const prevItems = await this.prisma.transactionItem.findMany({
-      where: { transaction: this.saleWhereClause(outletId, { start: prevStart, end: prevEnd }) },
-      select: { productId: true, productName: true, quantity: true, subtotal: true },
-    });
-
-    // Aggregate previous period by product
-    const prevProductMap = new Map<string, { qty: number; revenue: number }>();
-    for (const item of prevItems) {
-      const key = item.productId ?? item.productName;
-      const existing = prevProductMap.get(key);
-      const qty = item.quantity.toNumber();
-      const rev = item.subtotal?.toNumber() || 0;
-      if (existing) {
-        existing.qty += qty;
-        existing.revenue += rev;
-      } else {
-        prevProductMap.set(key, { qty, revenue: rev });
-      }
-    }
-
-    // Aggregate current period by product
-    const productMap = new Map<
-      string,
-      {
-        productId: string;
-        productName: string;
-        quantity: number;
-        revenue: number;
-        cost: number;
-        categoryId: string;
-        categoryName: string;
-        txIds: Set<string>;
-        hours: number[];
-      }
-    >();
-
-    let totalRevenue = 0;
-
-    for (const item of items) {
-      const key = item.productId ?? item.productName;
-      const qty = item.quantity.toNumber();
-      const rev = item.subtotal?.toNumber() || 0;
-      const cost = (item.product?.costPrice?.toNumber() || 0) * qty;
-      const catId = item.product?.category?.id ?? '';
-      const catName = item.product?.category?.name ?? 'Tanpa Kategori';
-      const hour = item.transaction.createdAt.getHours();
-      totalRevenue += rev;
-
-      const existing = productMap.get(key);
-      if (existing) {
-        existing.quantity += qty;
-        existing.revenue += rev;
-        existing.cost += cost;
-        existing.txIds.add(item.transactionId);
-        existing.hours.push(hour);
-      } else {
-        productMap.set(key, {
-          productId: item.productId ?? '',
-          productName: item.productName,
-          quantity: qty,
-          revenue: rev,
-          cost,
-          categoryId: catId,
-          categoryName: catName,
-          txIds: new Set([item.transactionId]),
-          hours: [hour],
-        });
-      }
-    }
-
-    // Build product performances with trend
-    const allProducts = Array.from(productMap.values());
-    const performances: ProductPerformance[] = allProducts.map((p) => {
-      const prev = prevProductMap.get(p.productId || p.productName);
-      const prevRev = prev?.revenue || 0;
+    const performances: ProductPerformance[] = rows.map((p) => {
+      const prevRev = prevProductMap.get(keyOf(p)) || 0;
       const trendValue = prevRev > 0 ? ((p.revenue - prevRev) / prevRev) * 100 : 0;
       const trend: 'up' | 'down' | 'stable' =
         trendValue > 5 ? 'up' : trendValue < -5 ? 'down' : 'stable';
 
       return {
-        productId: p.productId,
+        productId: p.productId ?? '',
         productName: p.productName,
         quantity: p.quantity,
         revenue: p.revenue,
-        profit: p.revenue - p.cost,
+        profit: includeCost ? p.revenue - p.cost : null,
         percentOfTotal: totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0,
         trend,
         trendValue,
       };
     });
 
-    const sortedByRevenue = [...performances].sort((a, b) => b.revenue - a.revenue);
-    const topSellingProducts = sortedByRevenue.slice(0, limit);
-    const lowPerformingProducts = sortedByRevenue.slice(-limit).reverse();
+    // rows are already sorted by revenue desc
+    const topSellingProducts = performances.slice(0, limit);
+    const lowPerformingProducts = performances.slice(-limit).reverse();
 
     // Category breakdown
     const catMap = new Map<
       string,
       { id: string; name: string; revenue: number; quantity: number; products: Set<string> }
     >();
-    for (const p of allProducts) {
-      const existing = catMap.get(p.categoryId);
+    for (const p of rows) {
+      const catId = p.categoryId ?? '';
+      const existing = catMap.get(catId);
       if (existing) {
         existing.revenue += p.revenue;
         existing.quantity += p.quantity;
-        existing.products.add(p.productId);
+        existing.products.add(keyOf(p));
       } else {
-        catMap.set(p.categoryId, {
-          id: p.categoryId,
-          name: p.categoryName,
+        catMap.set(catId, {
+          id: catId,
+          name: p.categoryName ?? 'Tanpa Kategori',
           revenue: p.revenue,
           quantity: p.quantity,
-          products: new Set([p.productId]),
+          products: new Set([keyOf(p)]),
         });
       }
     }
@@ -507,61 +448,23 @@ export class AnalyticsService {
       }))
       .sort((a, b) => b.revenue - a.revenue);
 
-    // Product mix — frequency, peak hour, common pairs
-    const txProductMap = new Map<string, string[]>();
-    for (const item of items) {
-      const txId = item.transactionId;
-      const key = item.productId ?? item.productName;
-      const list = txProductMap.get(txId) ?? [];
-      if (!list.includes(key)) list.push(key);
-      txProductMap.set(txId, list);
-    }
+    // Product mix for the top products: peak WIB hour and co-purchases in one query each
+    const mixRows = rows.slice(0, limit);
+    const mixKeys = mixRows.map(keyOf);
+    const [peakHours, pairs] = await Promise.all([
+      this.queries.peakHourByProduct(scope, mixKeys),
+      this.queries.commonPairs(scope, mixKeys, 3),
+    ]);
 
-    const productMixAnalysis: ProductMix[] = allProducts.slice(0, limit).map((p) => {
-      const key = p.productId || p.productName;
-      const frequency = p.txIds.size;
-      const averageQuantity = frequency > 0 ? p.quantity / frequency : 0;
-
-      // Peak hour
-      const hourCounts = new Map<number, number>();
-      for (const h of p.hours) {
-        hourCounts.set(h, (hourCounts.get(h) || 0) + 1);
-      }
-      let peakHour = 0;
-      let maxCount = 0;
-      for (const [h, c] of hourCounts) {
-        if (c > maxCount) {
-          peakHour = h;
-          maxCount = c;
-        }
-      }
-
-      // Common pairs
-      const pairCounts = new Map<string, number>();
-      for (const [, products] of txProductMap) {
-        if (products.includes(key)) {
-          for (const other of products) {
-            if (other !== key) {
-              pairCounts.set(other, (pairCounts.get(other) || 0) + 1);
-            }
-          }
-        }
-      }
-      const commonPairs = Array.from(pairCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([id]) => {
-          const found = allProducts.find((x) => (x.productId || x.productName) === id);
-          return found?.productName ?? id;
-        });
-
+    const productMixAnalysis: ProductMix[] = mixRows.map((p) => {
+      const frequency = p.transactionCount;
       return {
-        productId: p.productId,
+        productId: p.productId ?? '',
         productName: p.productName,
         frequency,
-        averageQuantity,
-        peakHour,
-        commonPairs,
+        averageQuantity: frequency > 0 ? p.quantity / frequency : 0,
+        peakHour: peakHours.get(keyOf(p)) ?? 0,
+        commonPairs: pairs.get(keyOf(p)) ?? [],
       };
     });
 
@@ -577,146 +480,97 @@ export class AnalyticsService {
   }
 
   /**
-   * Get time-based analytics — hourly, daily, weekly, monthly distribution
+   * Get time-based analytics — hourly, daily, weekly, monthly distribution (WIB)
    */
   async getTimeAnalytics(outletId: string, dateRange: DateRange): Promise<TimeAnalytics> {
     const cacheKey = `analytics:time:${outletId}:${dateRange.start.toISOString()}:${dateRange.end.toISOString()}`;
     const cached = await this.redis.get<TimeAnalytics>(cacheKey);
     if (cached) return cached;
 
-    const where = this.saleWhereClause(outletId, dateRange);
+    const scope = this.scope(outletId, dateRange);
+    const [byHour, byWeekday, byWeek, byMonth] = await Promise.all([
+      this.queries.salesByHour(scope),
+      this.queries.salesByWeekday(scope),
+      this.queries.salesByIsoWeek(scope),
+      this.queries.salesByMonth(scope),
+    ]);
 
-    const txns = await this.prisma.transaction.findMany({
-      where,
-      select: { createdAt: true, grandTotal: true },
+    const hourMap = new Map(byHour.map((r) => [Number(r.bucket), r]));
+    const hourlyDistribution: HourlyStat[] = Array.from({ length: 24 }, (_, hour) => {
+      const r = hourMap.get(hour);
+      const revenue = r?.amount ?? 0;
+      const transactions = r?.count ?? 0;
+      return {
+        hour,
+        revenue,
+        transactions,
+        averageOrderValue: transactions > 0 ? revenue / transactions : 0,
+      };
     });
 
-    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-
-    // Hourly
-    const hourlyMap = new Map<number, { revenue: number; count: number }>();
-    for (let h = 0; h < 24; h++) hourlyMap.set(h, { revenue: 0, count: 0 });
-
-    // Daily
-    const dailyMap = new Map<number, { revenue: number; count: number }>();
-    for (let d = 0; d < 7; d++) dailyMap.set(d, { revenue: 0, count: 0 });
-
-    // Weekly
-    const weeklyMap = new Map<
-      string,
-      { week: number; year: number; startDate: Date; revenue: number; count: number }
-    >();
-
-    // Monthly
-    const monthlyMap = new Map<
-      string,
-      { month: number; year: number; revenue: number; count: number }
-    >();
-
-    for (const tx of txns) {
-      const amount = tx.grandTotal?.toNumber() || 0;
-      const date = tx.createdAt;
-      const hour = date.getHours();
-      const day = date.getDay();
-      const month = date.getMonth();
-      const year = date.getFullYear();
-
-      // Hourly
-      const hEntry = hourlyMap.get(hour)!;
-      hEntry.revenue += amount;
-      hEntry.count += 1;
-
-      // Daily
-      const dEntry = dailyMap.get(day)!;
-      dEntry.revenue += amount;
-      dEntry.count += 1;
-
-      // Weekly (ISO week)
-      const weekStart = new Date(date);
-      weekStart.setDate(date.getDate() - date.getDay());
-      weekStart.setHours(0, 0, 0, 0);
-      const weekKey = `${year}-W${getISOWeek(date)}`;
-      const wEntry = weeklyMap.get(weekKey);
-      if (wEntry) {
-        wEntry.revenue += amount;
-        wEntry.count += 1;
-      } else {
-        weeklyMap.set(weekKey, {
-          week: getISOWeek(date),
-          year,
-          startDate: weekStart,
-          revenue: amount,
-          count: 1,
-        });
-      }
-
-      // Monthly
-      const mKey = `${year}-${month}`;
-      const mEntry = monthlyMap.get(mKey);
-      if (mEntry) {
-        mEntry.revenue += amount;
-        mEntry.count += 1;
-      } else {
-        monthlyMap.set(mKey, { month: month + 1, year, revenue: amount, count: 1 });
-      }
-    }
-
-    const hourlyDistribution: HourlyStat[] = Array.from(hourlyMap.entries()).map(
-      ([hour, data]) => ({
-        hour,
-        revenue: data.revenue,
-        transactions: data.count,
-        averageOrderValue: data.count > 0 ? data.revenue / data.count : 0,
-      }),
-    );
-
-    const dailyDistribution: DailyStat[] = Array.from(dailyMap.entries()).map(([day, data]) => ({
+    const dayMap = new Map(byWeekday.map((r) => [Number(r.bucket), r]));
+    const dailyDistribution: DailyStat[] = DAY_NAMES.map((dayName, day) => ({
       dayOfWeek: day,
-      dayName: dayNames[day],
-      revenue: data.revenue,
-      transactions: data.count,
+      dayName,
+      revenue: dayMap.get(day)?.amount ?? 0,
+      transactions: dayMap.get(day)?.count ?? 0,
     }));
 
-    // Weekly with growth
-    const weeklyArr = Array.from(weeklyMap.values()).sort((a, b) => {
-      if (a.year !== b.year) return a.year - b.year;
-      return a.week - b.week;
+    // ISO week-year + week, Monday start, all in WIB (bucket "IYYY-IW|YYYY-MM-DD")
+    const weeklyArr = byWeek.map((r) => {
+      const [isoKey, monday] = r.bucket.split('|');
+      const [year, week] = isoKey.split('-').map(Number);
+      return {
+        week,
+        year,
+        startDate: parseBusinessDate(monday).start,
+        revenue: r.amount,
+        count: r.count,
+      };
     });
     const weeklyTrend: WeeklyStat[] = weeklyArr.map((w, i) => {
       const prevRevenue = i > 0 ? weeklyArr[i - 1].revenue : 0;
       const growth = prevRevenue > 0 ? ((w.revenue - prevRevenue) / prevRevenue) * 100 : 0;
-      return { ...w, transactions: w.count, growth };
+      return {
+        week: w.week,
+        year: w.year,
+        startDate: w.startDate,
+        revenue: w.revenue,
+        transactions: w.count,
+        growth,
+      };
     });
 
-    // Monthly with growth
-    const monthlyArr = Array.from(monthlyMap.values()).sort((a, b) => {
-      if (a.year !== b.year) return a.year - b.year;
-      return a.month - b.month;
+    const monthlyArr = byMonth.map((r) => {
+      const [year, month] = r.bucket.split('-').map(Number);
+      return { year, month, revenue: r.amount, count: r.count };
     });
     const monthlyTrend: MonthlyStat[] = monthlyArr.map((m, i) => {
       const prevRevenue = i > 0 ? monthlyArr[i - 1].revenue : 0;
       const growth = prevRevenue > 0 ? ((m.revenue - prevRevenue) / prevRevenue) * 100 : 0;
-      return { ...m, transactions: m.count, growth };
+      return {
+        month: m.month,
+        year: m.year,
+        revenue: m.revenue,
+        transactions: m.count,
+        growth,
+      };
     });
 
-    // Peak/slow hours
-    const sortedByTx = [...hourlyDistribution].sort((a, b) => b.transactions - a.transactions);
-    const peakHours = sortedByTx
+    // Peak/slow hours from real data only — empty when there are no sales (R10)
+    const active = hourlyDistribution
       .filter((h) => h.transactions > 0)
-      .slice(0, 3)
-      .map((h) => h.hour);
-    const slowHours = sortedByTx
-      .filter((h) => h.transactions > 0)
-      .slice(-3)
-      .map((h) => h.hour);
+      .sort((a, b) => b.transactions - a.transactions);
+    const peakHours = active.slice(0, 3).map((h) => h.hour);
+    const slowHours = active.slice(-3).map((h) => h.hour);
 
     const result: TimeAnalytics = {
       hourlyDistribution,
       dailyDistribution,
       weeklyTrend,
       monthlyTrend,
-      peakHours: peakHours.length > 0 ? peakHours : [12, 13, 19],
-      slowHours: slowHours.length > 0 ? slowHours : [6, 7, 15],
+      peakHours,
+      slowHours,
     };
 
     await this.redis.set(cacheKey, result, this.CACHE_TTL);
@@ -731,12 +585,24 @@ export class AnalyticsService {
     const cached = await this.redis.get<CustomerAnalytics>(cacheKey);
     if (cached) return cached;
 
-    // Get businessId from outlet
+    // Get businessId from outlet (already verified by the controller)
     const outlet = await this.prisma.outlet.findUnique({
       where: { id: outletId },
       select: { businessId: true },
     });
-    const businessId = outlet?.businessId ?? '';
+    if (!outlet) {
+      return {
+        totalCustomers: 0,
+        newCustomers: 0,
+        returningCustomers: 0,
+        averageVisitFrequency: 0,
+        customerLifetimeValue: 0,
+        topCustomers: [],
+        churnRisk: [],
+        loyaltyTierDistribution: [],
+      };
+    }
+    const businessId = outlet.businessId;
 
     const now = new Date();
 
@@ -873,15 +739,20 @@ export class AnalyticsService {
 
     const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId },
-      include: {
-        product: { select: { id: true, name: true, costPrice: true, basePrice: true } },
+      select: {
+        productId: true,
+        variantId: true,
+        quantity: true,
+        lowStockAlert: true,
+        product: { select: { name: true, costPrice: true } },
+        variant: { select: { name: true, costPrice: true } },
       },
     });
 
-    // Calculate items sold in last 30 days for turnover
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const recentSales = await this.prisma.transactionItem.findMany({
+    // Units sold in the last 30 business days (WIB), per product+variant, in SQL
+    const thirtyDaysAgo = startOfBusinessDay(addBusinessDays(new Date(), -30));
+    const recentSales = await this.prisma.transactionItem.groupBy({
+      by: ['productId', 'variantId'],
       where: {
         transaction: {
           outletId,
@@ -890,17 +761,18 @@ export class AnalyticsService {
           createdAt: { gte: thirtyDaysAgo },
         },
       },
-      select: { productId: true, quantity: true },
+      _sum: { quantity: true },
     });
 
-    // Daily usage by product
+    const usageKey = (productId: string | null, variantId: string | null) =>
+      `${productId ?? ''}:${variantId ?? ''}`;
     const usageMap = new Map<string, number>();
+    const productUsage = new Map<string, number>();
     for (const sale of recentSales) {
+      const qty = sale._sum.quantity?.toNumber() || 0;
+      usageMap.set(usageKey(sale.productId, sale.variantId), qty);
       if (sale.productId) {
-        usageMap.set(
-          sale.productId,
-          (usageMap.get(sale.productId) || 0) + sale.quantity.toNumber(),
-        );
+        productUsage.set(sale.productId, (productUsage.get(sale.productId) || 0) + qty);
       }
     }
 
@@ -914,11 +786,15 @@ export class AnalyticsService {
 
     for (const sl of stockLevels) {
       const qty = sl.quantity.toNumber();
-      const costPrice = sl.product?.costPrice?.toNumber() || 0;
+      // Variant stock is valued at the variant cost, falling back to the product cost
+      const costPrice = sl.variant?.costPrice?.toNumber() ?? sl.product?.costPrice?.toNumber() ?? 0;
       stockValue += qty * costPrice;
       totalStock += qty;
 
-      const sold30d = usageMap.get(sl.productId ?? '') || 0;
+      // Variant stock uses its own usage; product-level stock uses all its sales
+      const sold30d = sl.variantId
+        ? usageMap.get(usageKey(sl.productId, sl.variantId)) || 0
+        : productUsage.get(sl.productId ?? '') || 0;
       totalSold30d += sold30d;
       const dailyUsage = sold30d / 30;
 
@@ -930,7 +806,6 @@ export class AnalyticsService {
         overStockItems++;
       }
 
-      // Reorder suggestions
       if (dailyUsage > 0 && sl.productId) {
         const daysRemaining = qty / dailyUsage;
         if (daysRemaining < 14) {
@@ -942,7 +817,7 @@ export class AnalyticsService {
 
           reorderSuggestions.push({
             productId: sl.productId,
-            productName: sl.product?.name ?? '',
+            productName: [sl.product?.name, sl.variant?.name].filter(Boolean).join(' - '),
             currentStock: qty,
             dailyUsage,
             daysRemaining: Math.max(0, daysRemaining),
@@ -975,28 +850,57 @@ export class AnalyticsService {
   }
 
   /**
-   * Get employee analytics — top performers, sales breakdown, shift analysis
+   * Get employee analytics — top performers, sales breakdown, shift analysis.
+   * `includeCash` = false hides shift cash/variance (supervisor, R12).
    */
-  async getEmployeeAnalytics(outletId: string, dateRange: DateRange): Promise<EmployeeAnalytics> {
-    const cacheKey = `analytics:employees:${outletId}:${dateRange.start.toISOString()}:${dateRange.end.toISOString()}`;
+  async getEmployeeAnalytics(
+    outletId: string,
+    dateRange: DateRange,
+    includeCash = true,
+  ): Promise<EmployeeAnalytics> {
+    const cacheKey = `analytics:employees:${outletId}:${dateRange.start.toISOString()}:${dateRange.end.toISOString()}:${includeCash ? 'c' : 'n'}`;
     const cached = await this.redis.get<EmployeeAnalytics>(cacheKey);
     if (cached) return cached;
 
     const where = this.saleWhereClause(outletId, dateRange);
 
-    // Sales by employee
-    const employeeSales = await this.prisma.transaction.groupBy({
-      by: ['employeeId'],
-      where,
-      _sum: { grandTotal: true },
-      _count: true,
-      _avg: { grandTotal: true },
-    });
+    const [employeeSales, itemsByEmployee, shifts] = await Promise.all([
+      this.prisma.transaction.groupBy({
+        by: ['employeeId'],
+        where,
+        _sum: { grandTotal: true },
+        _count: true,
+        _avg: { grandTotal: true },
+      }),
+      // Item lines per transaction per employee in one SQL aggregate (F1380)
+      this.queries.itemsPerEmployee(this.scope(outletId, dateRange)),
+      this.prisma.shift.findMany({
+        where: {
+          outletId,
+          startedAt: { gte: dateRange.start, lte: dateRange.end },
+          status: 'closed',
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          startedAt: true,
+          endedAt: true,
+          openingCash: true,
+          closingCash: true,
+          expectedCash: true,
+          cashDifference: true,
+        },
+        orderBy: { startedAt: 'desc' },
+        take: 500,
+      }),
+    ]);
 
-    // Get employee names
-    const employeeIds = employeeSales
-      .map((e) => e.employeeId)
-      .filter((id): id is string => id !== null);
+    const employeeIds = [
+      ...new Set([
+        ...employeeSales.map((e) => e.employeeId).filter((id): id is string => id !== null),
+        ...shifts.map((s) => s.employeeId),
+      ]),
+    ];
 
     const employees = await this.prisma.employee.findMany({
       where: { id: { in: employeeIds } },
@@ -1004,53 +908,23 @@ export class AnalyticsService {
     });
     const nameMap = new Map(employees.map((e) => [e.id, e.name]));
 
-    // Items per transaction per employee
-    const txItemCounts = await this.prisma.transactionItem.groupBy({
-      by: ['transactionId'],
-      where: { transaction: where },
-      _count: true,
-    });
-    const txEmployeeMap = new Map<string, string>();
-    const txList = await this.prisma.transaction.findMany({
-      where,
-      select: { id: true, employeeId: true },
-    });
-    for (const tx of txList) {
-      if (tx.employeeId) txEmployeeMap.set(tx.id, tx.employeeId);
-    }
-
-    const employeeItemsMap = new Map<string, { totalItems: number; txCount: number }>();
-    for (const tic of txItemCounts) {
-      const empId = txEmployeeMap.get(tic.transactionId);
-      if (empId) {
-        const existing = employeeItemsMap.get(empId);
-        if (existing) {
-          existing.totalItems += tic._count;
-          existing.txCount += 1;
-        } else {
-          employeeItemsMap.set(empId, { totalItems: tic._count, txCount: 1 });
-        }
-      }
-    }
-
-    // Shifts for hours worked
-    const shifts = await this.prisma.shift.findMany({
-      where: {
-        outletId,
-        startedAt: { gte: dateRange.start, lte: dateRange.end },
-        status: 'closed',
-      },
-      select: {
-        id: true,
-        employeeId: true,
-        startedAt: true,
-        endedAt: true,
-        openingCash: true,
-        closingCash: true,
-        expectedCash: true,
-        cashDifference: true,
-      },
-    });
+    // Real per-shift sales (F1381)
+    const shiftIds = shifts.map((s) => s.id);
+    const shiftSales =
+      shiftIds.length > 0
+        ? await this.prisma.transaction.groupBy({
+            by: ['shiftId'],
+            where: {
+              outletId,
+              shiftId: { in: shiftIds },
+              transactionType: 'sale',
+              status: 'completed',
+            },
+            _sum: { grandTotal: true },
+            _count: true,
+          })
+        : [];
+    const shiftSalesMap = new Map(shiftSales.map((s) => [s.shiftId, s]));
 
     const employeeHoursMap = new Map<string, number>();
     for (const shift of shifts) {
@@ -1086,9 +960,9 @@ export class AnalyticsService {
         const totalSales = e._sum.grandTotal?.toNumber() || 0;
         const txCount = e._count;
         const hoursWorked = employeeHoursMap.get(empId) || 0;
-        const itemsData = employeeItemsMap.get(empId);
+        const itemsData = itemsByEmployee.get(empId);
         const itemsPerTransaction =
-          itemsData && itemsData.txCount > 0 ? itemsData.totalItems / itemsData.txCount : 0;
+          itemsData && itemsData.transactions > 0 ? itemsData.lines / itemsData.transactions : 0;
 
         return {
           employeeId: empId,
@@ -1104,28 +978,25 @@ export class AnalyticsService {
       .sort((a, b) => b.totalSales - a.totalSales)
       .slice(0, 10);
 
-    // Shift analysis
     const shiftAnalysis: ShiftStats[] = shifts
       .filter((s) => s.endedAt)
+      .slice(0, 20)
       .map((s) => {
         const duration = (s.endedAt!.getTime() - s.startedAt.getTime()) / (1000 * 60 * 60);
-        const empName = nameMap.get(s.employeeId) ?? 'Unknown';
-
+        const sales = shiftSalesMap.get(s.id);
         return {
           shiftId: s.id,
-          employeeName: empName,
+          employeeName: nameMap.get(s.employeeId) ?? 'Unknown',
           startTime: s.startedAt,
           endTime: s.endedAt!,
           duration,
-          sales: 0,
-          transactions: 0,
-          openingCash: s.openingCash?.toNumber() || 0,
-          closingCash: s.closingCash?.toNumber() || 0,
-          variance: s.cashDifference?.toNumber() || 0,
+          sales: sales?._sum.grandTotal?.toNumber() || 0,
+          transactions: sales?._count ?? 0,
+          openingCash: includeCash ? s.openingCash?.toNumber() || 0 : null,
+          closingCash: includeCash ? s.closingCash?.toNumber() || 0 : null,
+          variance: includeCash ? s.cashDifference?.toNumber() || 0 : null,
         };
-      })
-      .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
-      .slice(0, 20);
+      });
 
     const result: EmployeeAnalytics = {
       topPerformers,
@@ -1145,54 +1016,35 @@ export class AnalyticsService {
     const cached = await this.redis.get<PredictiveInsights>(cacheKey);
     if (cached) return cached;
 
-    const where = this.saleWhereClause(outletId, dateRange);
-
-    // Demand forecast: compare current vs previous period per product
+    const scope = this.scope(outletId, dateRange);
     const periodMs = dateRange.end.getTime() - dateRange.start.getTime();
-    const prevStart = new Date(dateRange.start.getTime() - periodMs);
-    const prevEnd = new Date(dateRange.start.getTime() - 1);
 
-    const [currentItems, prevItems] = await Promise.all([
-      this.prisma.transactionItem.findMany({
-        where: { transaction: where },
-        select: { productId: true, productName: true, quantity: true },
+    // Demand per product for current vs previous period (SQL aggregates, F1382)
+    const [currentRows, prevRows, daily, byWeekday] = await Promise.all([
+      this.queries.itemSales(scope, { limit: MAX_ANALYTICS_PRODUCTS }),
+      this.queries.itemSales(this.scope(outletId, this.previousRange(dateRange)), {
+        limit: MAX_ANALYTICS_PRODUCTS,
       }),
-      this.prisma.transactionItem.findMany({
-        where: { transaction: this.saleWhereClause(outletId, { start: prevStart, end: prevEnd }) },
-        select: { productId: true, productName: true, quantity: true },
-      }),
+      this.queries.salesByDay(scope),
+      this.queries.salesByWeekday(scope),
     ]);
 
-    // Aggregate by product
-    const currentDemandMap = new Map<string, { name: string; qty: number }>();
-    for (const item of currentItems) {
-      const key = item.productId ?? item.productName;
-      const existing = currentDemandMap.get(key);
-      if (existing) {
-        existing.qty += item.quantity.toNumber();
-      } else {
-        currentDemandMap.set(key, { name: item.productName, qty: item.quantity.toNumber() });
-      }
-    }
+    const keyOf = (r: { productId: string | null; productName: string }) =>
+      r.productId ?? r.productName;
+    const prevDemandMap = new Map(prevRows.map((r) => [keyOf(r), r.quantity]));
 
-    const prevDemandMap = new Map<string, number>();
-    for (const item of prevItems) {
-      const key = item.productId ?? item.productName;
-      prevDemandMap.set(key, (prevDemandMap.get(key) || 0) + item.quantity.toNumber());
-    }
-
-    const demandForecast: DemandForecast[] = Array.from(currentDemandMap.entries())
-      .map(([id, data]) => {
-        const prevQty = prevDemandMap.get(id) || 0;
-        const growth = prevQty > 0 ? (data.qty - prevQty) / prevQty : 0;
-        const forecastedDemand = Math.round(data.qty * (1 + growth));
+    const demandForecast: DemandForecast[] = currentRows
+      .map((row) => {
+        const prevQty = prevDemandMap.get(keyOf(row)) || 0;
+        const growth = prevQty > 0 ? (row.quantity - prevQty) / prevQty : 0;
+        const forecastedDemand = Math.round(row.quantity * (1 + growth));
         const trend: 'rising' | 'falling' | 'stable' =
           growth > 0.1 ? 'rising' : growth < -0.1 ? 'falling' : 'stable';
 
         return {
-          productId: id,
-          productName: data.name,
-          currentDemand: data.qty,
+          productId: keyOf(row),
+          productName: row.productName,
+          currentDemand: row.quantity,
           forecastedDemand: Math.max(0, forecastedDemand),
           confidence: prevQty > 0 ? 0.7 : 0.4,
           trend,
@@ -1201,21 +1053,8 @@ export class AnalyticsService {
       .sort((a, b) => b.currentDemand - a.currentDemand)
       .slice(0, 15);
 
-    // Revenue projection: simple linear regression on daily revenue
-    const txns = await this.prisma.transaction.findMany({
-      where,
-      select: { createdAt: true, grandTotal: true },
-    });
-
-    const dailyRevenue = new Map<string, number>();
-    for (const tx of txns) {
-      const dateKey = tx.createdAt.toISOString().substring(0, 10);
-      dailyRevenue.set(
-        dateKey,
-        (dailyRevenue.get(dateKey) || 0) + (tx.grandTotal?.toNumber() || 0),
-      );
-    }
-
+    // Revenue projection from WIB daily revenue (F1383)
+    const dailyRevenue = new Map(daily.map((d) => [d.bucket, d.amount]));
     const dailyValues = Array.from(dailyRevenue.values());
     const avgDaily =
       dailyValues.length > 0 ? dailyValues.reduce((s, v) => s + v, 0) / dailyValues.length : 0;
@@ -1233,39 +1072,31 @@ export class AnalyticsService {
       lowerBound: Math.round(Math.max(0, projectedRevenue - stdDev * daysInPeriod * 0.5)),
       upperBound: Math.round(projectedRevenue + stdDev * daysInPeriod * 0.5),
       confidence: dailyValues.length >= 7 ? 0.75 : 0.5,
-      factors: ['Tren historis', 'Pola musiman', 'Tingkat pertumbuhan'],
+      // Describes what the projection is actually based on (no canned "insights")
+      factors: [`Rata-rata pendapatan harian dari ${dailyValues.length} hari penjualan`],
     };
 
-    // Seasonal patterns: day-of-week variance
-    const dayRevenue = new Map<number, number[]>();
-    for (const tx of txns) {
-      const day = tx.createdAt.getDay();
-      const list = dayRevenue.get(day) ?? [];
-      list.push(tx.grandTotal?.toNumber() || 0);
-      dayRevenue.set(day, list);
-    }
-
-    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    // Seasonal patterns: average transaction value per WIB weekday
+    let overallTotal = 0;
+    let overallCount = 0;
     const dayAvgs = new Map<number, number>();
-    let overallAvgPerTx = 0;
-    let totalTxForAvg = 0;
-    for (const [day, values] of dayRevenue) {
-      const avg = values.reduce((s, v) => s + v, 0) / values.length;
-      dayAvgs.set(day, avg);
-      overallAvgPerTx += values.reduce((s, v) => s + v, 0);
-      totalTxForAvg += values.length;
+    for (const r of byWeekday) {
+      if (r.count === 0) continue;
+      dayAvgs.set(Number(r.bucket), r.amount / r.count);
+      overallTotal += r.amount;
+      overallCount += r.count;
     }
-    overallAvgPerTx = totalTxForAvg > 0 ? overallAvgPerTx / totalTxForAvg : 0;
+    const overallAvgPerTx = overallCount > 0 ? overallTotal / overallCount : 0;
 
     const peakDays = Array.from(dayAvgs.entries())
       .filter(([, avg]) => overallAvgPerTx > 0 && avg > overallAvgPerTx * 1.1)
       .sort((a, b) => b[1] - a[1])
-      .map(([day]) => dayNames[day]);
+      .map(([day]) => DAY_NAMES[day]);
 
     const seasonalPatterns: SeasonalPattern[] = [];
     if (peakDays.length > 0) {
-      const peakImpact =
-        overallAvgPerTx > 0 ? Math.max(...Array.from(dayAvgs.values())) / overallAvgPerTx : 1;
+      const maxAvg = Array.from(dayAvgs.values()).reduce((a, b) => Math.max(a, b), 0);
+      const peakImpact = overallAvgPerTx > 0 ? maxAvg / overallAvgPerTx : 1;
       seasonalPatterns.push({
         pattern: 'weekly',
         description: `Penjualan lebih tinggi di hari ${peakDays.join(', ')}`,
@@ -1274,7 +1105,8 @@ export class AnalyticsService {
       });
     }
 
-    // Anomaly detection: find days > 2 stddev from mean
+    // Anomaly detection: days > 2 stddev from mean. Causes are unknown to the
+    // system, so none are invented (R10, F1014).
     const anomalyDetection: Anomaly[] = [];
     if (stdDev > 0) {
       for (const [dateKey, revenue] of dailyRevenue) {
@@ -1286,11 +1118,8 @@ export class AnalyticsService {
             expectedValue: Math.round(avgDaily),
             actualValue: Math.round(revenue),
             deviation: Math.round(deviation * 100) / 100,
-            timestamp: new Date(dateKey),
-            possibleCauses:
-              deviation > 0
-                ? ['Promosi aktif', 'Event/hari libur', 'Traffic tinggi']
-                : ['Hari libur/tutup', 'Masalah operasional', 'Cuaca buruk'],
+            timestamp: parseBusinessDate(dateKey).start,
+            possibleCauses: [],
           });
         }
       }
@@ -1310,11 +1139,13 @@ export class AnalyticsService {
   }
 
   /**
-   * Generate comprehensive report
+   * Generate comprehensive report. Sections run sequentially to bound the load
+   * one request can put on the database (F1382).
    */
   async generateReport(
     outletId: string,
     dateRange: DateRange,
+    includeCost = true,
   ): Promise<{
     sales: SalesMetrics;
     products: ProductAnalytics;
@@ -1324,17 +1155,13 @@ export class AnalyticsService {
     employees: EmployeeAnalytics;
     predictions: PredictiveInsights;
   }> {
-    const [sales, products, time, customers, inventory, employees, predictions] = await Promise.all(
-      [
-        this.getSalesMetrics(outletId, dateRange),
-        this.getProductAnalytics(outletId, dateRange),
-        this.getTimeAnalytics(outletId, dateRange),
-        this.getCustomerAnalytics(outletId, dateRange),
-        this.getInventoryAnalytics(outletId),
-        this.getEmployeeAnalytics(outletId, dateRange),
-        this.getPredictiveInsights(outletId, dateRange),
-      ],
-    );
+    const sales = await this.getSalesMetrics(outletId, dateRange);
+    const products = await this.getProductAnalytics(outletId, dateRange, 10, includeCost);
+    const time = await this.getTimeAnalytics(outletId, dateRange);
+    const customers = await this.getCustomerAnalytics(outletId, dateRange);
+    const inventory = await this.getInventoryAnalytics(outletId);
+    const employees = await this.getEmployeeAnalytics(outletId, dateRange, includeCost);
+    const predictions = await this.getPredictiveInsights(outletId, dateRange);
 
     return {
       sales,
@@ -1346,16 +1173,4 @@ export class AnalyticsService {
       predictions,
     };
   }
-}
-
-/** Get ISO week number */
-function getISOWeek(date: Date): number {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return (
-    1 +
-    Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
-  );
 }

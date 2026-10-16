@@ -24,7 +24,7 @@ export type XenditPaymentMethod =
   | 'INDOMARET'
   | 'CREDIT_CARD';
 
-export type PaymentMethodType = 'QRIS' | 'VA' | 'EWALLET' | 'RETAIL' | 'CREDIT_CARD';
+export type PaymentMethodType = 'QRIS' | 'VA' | 'EWALLET' | 'RETAIL' | 'CREDIT_CARD' | 'INVOICE';
 
 export interface NormalizedPaymentMethod {
   type: PaymentMethodType;
@@ -102,7 +102,9 @@ export interface XenditQRCodeResponse {
 }
 
 // ============================================================================
-// Virtual Account
+// Virtual Account (Fixed VA / Callback Virtual Accounts API)
+// NOTE: payloads follow the public Xendit API reference (POST
+// /callback_virtual_accounts); not verified against a sandbox here.
 // ============================================================================
 
 export interface XenditVARequest {
@@ -124,38 +126,49 @@ export interface XenditVAResponse {
   bank_code: string;
   merchant_code: string;
   account_number: string;
-  amount: number;
+  expected_amount?: number;
   is_closed: boolean;
   is_single_use: boolean;
-  status: 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'PAID';
+  status: 'PENDING' | 'ACTIVE' | 'INACTIVE';
   expiration_date: string;
 }
 
 // ============================================================================
-// E-Wallet
+// E-Wallet (E-Wallet Charges API: POST /ewallets/charges)
+// NOTE: not verified against a sandbox.
 // ============================================================================
 
-export interface XenditEwalletRequest {
-  external_id: string;
+export interface XenditEwalletChargeRequest {
+  reference_id: string;
+  currency: 'IDR';
   amount: number;
-  phone: string;
-  ewallet_type: 'GOPAY' | 'OVO' | 'DANA' | 'SHOPEEPAY' | 'LINKAJA';
-  callback_url: string;
-  description?: string;
-  currency?: 'IDR';
+  checkout_method: 'ONE_TIME_PAYMENT';
+  channel_code: string;
+  channel_properties: {
+    mobile_number?: string;
+    success_redirect_url?: string;
+  };
 }
 
-export interface XenditEwalletResponse {
-  external_id: string;
-  amount: number;
-  phone: string;
-  ewallet_type: string;
-  checkout_url: string;
-  status: 'PENDING' | 'PAID' | 'FAILED';
+export interface XenditEwalletChargeResponse {
+  id: string;
+  reference_id: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'VOIDED' | 'REFUNDED';
+  currency: string;
+  charge_amount: number;
+  capture_amount?: number | null;
+  channel_code: string;
+  actions?: {
+    desktop_web_checkout_url?: string | null;
+    mobile_web_checkout_url?: string | null;
+    mobile_deeplink_checkout_url?: string | null;
+    qr_checkout_string?: string | null;
+  } | null;
 }
 
 // ============================================================================
-// Retail Outlet
+// Retail Outlet (Fixed Payment Code API: POST /fixed_payment_code)
+// NOTE: not verified against a sandbox.
 // ============================================================================
 
 export interface XenditRetailRequest {
@@ -163,52 +176,39 @@ export interface XenditRetailRequest {
   retail_outlet_name: 'ALFAMART' | 'INDOMARET';
   name: string;
   expected_amount: number;
-  payment_code: string;
+  is_single_use?: boolean;
   expiration_date?: string;
-  currency?: 'IDR';
 }
 
 export interface XenditRetailResponse {
+  id: string;
   external_id: string;
   retail_outlet_name: string;
   payment_code: string;
   name: string;
   expected_amount: number;
-  amount: number;
-  status: 'PENDING' | 'PAID' | 'EXPIRED';
+  status: 'ACTIVE' | 'INACTIVE';
   expiration_date: string;
 }
 
 // ============================================================================
-// Refund
+// Refund (Refunds API: POST /refunds, used for invoices)
 // ============================================================================
 
 export interface XenditRefundRequest {
+  invoice_id: string;
+  reference_id: string;
   amount: number;
-  reason?: string;
-  external_id?: string;
+  currency: 'IDR';
+  reason: 'REQUESTED_BY_CUSTOMER' | 'CANCELLATION' | 'DUPLICATE' | 'FRAUDULENT' | 'OTHERS';
 }
 
 export interface XenditRefundResponse {
   id: string;
-  payment_id: string;
+  invoice_id?: string;
   amount: number;
   reason: string;
   status: 'PENDING' | 'SUCCEEDED' | 'FAILED';
-  created: string;
-}
-
-// ============================================================================
-// Webhook
-// ============================================================================
-
-export interface XenditWebhookPayload {
-  event: string;
-  id: string;
-  external_id: string;
-  status: string;
-  amount: number;
-  payment_method: string;
   created: string;
 }
 
@@ -223,10 +223,42 @@ export interface XenditConfig {
   baseUrl: string;
 }
 
+/**
+ * Xendit REST endpoints. NOTE: aligned with the public API reference
+ * (invoices v2, QR codes, callback VAs, e-wallet charges, fixed payment codes,
+ * refunds) but not verified against a sandbox in this codebase.
+ */
 export const XENDIT_ENDPOINTS = {
   invoice: '/v2/invoices',
   qrcode: '/qr_codes',
-  va: '/v2/payment_codes',
-  ewallet: '/v2/ewallets',
-  retail: '/v2/retail_outlets',
+  va: '/callback_virtual_accounts',
+  ewallet: '/ewallets/charges',
+  retail: '/fixed_payment_code',
+  refunds: '/refunds',
 } as const;
+
+/**
+ * Kind of Xendit object a gateway reference points to. The gateway returns
+ * references as `<kind>:<xenditId>` so status checks and refunds call the one
+ * correct API instead of guessing from the id shape (see parseXenditRef).
+ */
+export type XenditRefKind = 'invoice' | 'qris' | 'va' | 'ewallet' | 'retail';
+
+const REF_KINDS: readonly XenditRefKind[] = ['invoice', 'qris', 'va', 'ewallet', 'retail'];
+
+export function formatXenditRef(kind: XenditRefKind, id: string): string {
+  return `${kind}:${id}`;
+}
+
+/**
+ * Parses `<kind>:<id>`. References stored before kinds were introduced are
+ * treated as invoices (the only kind created by the legacy default path).
+ */
+export function parseXenditRef(ref: string): { kind: XenditRefKind; id: string } {
+  const idx = ref.indexOf(':');
+  if (idx > 0) {
+    const kind = ref.slice(0, idx) as XenditRefKind;
+    if (REF_KINDS.includes(kind)) return { kind, id: ref.slice(idx + 1) };
+  }
+  return { kind: 'invoice', id: ref };
+}

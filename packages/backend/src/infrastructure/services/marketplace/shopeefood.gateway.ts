@@ -20,6 +20,8 @@ import {
 @Injectable()
 export class ShopeeFoodGateway implements IMarketplaceGateway {
   readonly platform = 'shopeefood' as const;
+  /** Stub gateway: no real API client exists yet, so the aggregator never polls it. */
+  readonly isConfigured = false;
   private readonly logger = new Logger(ShopeeFoodGateway.name);
 
   constructor() {
@@ -50,7 +52,10 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
     return this.authenticate(credentials);
   }
 
-  async syncMenu(items: MarketplaceMenuItem[]): Promise<void> {
+  async syncMenu(
+    _credentials: MarketplaceCredentials,
+    items: MarketplaceMenuItem[],
+  ): Promise<void> {
     this.logger.log(`Syncing ${items.length} items to ShopeeFood`);
 
     for (const item of items) {
@@ -60,7 +65,7 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
           dish_id: item.id,
           name: item.name,
           description: item.description,
-          price: item.price * 100,
+          price: Math.round(item.price * 100),
           photo: item.imageUrl,
           is_available: item.isAvailable ? 1 : 0,
         }),
@@ -68,7 +73,11 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
     }
   }
 
-  async updateItemAvailability(itemId: string, isAvailable: boolean): Promise<void> {
+  async updateItemAvailability(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    isAvailable: boolean,
+  ): Promise<void> {
     await this.request('/dish/update_status', {
       method: 'POST',
       body: JSON.stringify({
@@ -78,17 +87,21 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
     });
   }
 
-  async updateItemPrice(itemId: string, price: number): Promise<void> {
+  async updateItemPrice(
+    _credentials: MarketplaceCredentials,
+    itemId: string,
+    price: number,
+  ): Promise<void> {
     await this.request('/dish/update_price', {
       method: 'POST',
       body: JSON.stringify({
         dish_id: itemId,
-        price: price * 100,
+        price: Math.round(price * 100),
       }),
     });
   }
 
-  async fetchNewOrders(): Promise<MarketplaceOrder[]> {
+  async fetchNewOrders(_credentials: MarketplaceCredentials): Promise<MarketplaceOrder[]> {
     const response = await this.request('/order/get_order_list', {
       method: 'POST',
       body: JSON.stringify({ status: 1 }), // 1 = new orders
@@ -98,21 +111,29 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
     return orders.map(this.mapOrder.bind(this));
   }
 
-  async acceptOrder(orderId: string): Promise<void> {
+  async acceptOrder(_credentials: MarketplaceCredentials, orderId: string): Promise<void> {
     await this.request('/order/accept', {
       method: 'POST',
       body: JSON.stringify({ order_id: orderId }),
     });
   }
 
-  async rejectOrder(orderId: string, reason: string): Promise<void> {
+  async rejectOrder(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    reason: string,
+  ): Promise<void> {
     await this.request('/order/reject', {
       method: 'POST',
       body: JSON.stringify({ order_id: orderId, reason }),
     });
   }
 
-  async updateOrderStatus(orderId: string, status: MarketplaceOrderStatus): Promise<void> {
+  async updateOrderStatus(
+    _credentials: MarketplaceCredentials,
+    orderId: string,
+    status: MarketplaceOrderStatus,
+  ): Promise<void> {
     const statusMap: Record<string, number> = {
       preparing: 2,
       ready: 3,
@@ -130,7 +151,11 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
     }
   }
 
-  async fetchSettlements(startDate: Date, endDate: Date): Promise<MarketplaceSettlement[]> {
+  async fetchSettlements(
+    _credentials: MarketplaceCredentials,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<MarketplaceSettlement[]> {
     const response = await this.request('/finance/get_settlements', {
       method: 'POST',
       body: JSON.stringify({
@@ -189,7 +214,7 @@ export class ShopeeFoodGateway implements IMarketplaceGateway {
       discount: (order.discount as number) / 100,
       total: (order.total_amount as number) / 100,
       paymentMethod: 'SHOPEEPAY',
-      isPaid: true,
+      isPaid: false /* unknown until the real API reports payment status */,
       createdAt: new Date((order.create_time as number) * 1000),
     };
   }

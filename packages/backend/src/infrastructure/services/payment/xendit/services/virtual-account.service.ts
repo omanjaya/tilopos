@@ -1,20 +1,14 @@
 /**
- * Xendit Virtual Account Service
+ * Xendit Virtual Account Service (BCA, BNI, BRI, Mandiri, Permata).
  *
- * Handles Virtual Account payments for Indonesian banks:
- * - BCA, BNI, BRI, Mandiri, Permata
+ * NOTE: POST /callback_virtual_accounts per the public API reference; not
+ * verified against a sandbox in this codebase.
  */
 
 import type { PaymentInput, PaymentResult, PaymentStatus } from '@domain/interfaces/services';
 import { XenditBaseService } from './base.service';
-import type {
-  XenditVARequest,
-  XenditVAResponse,
-  XenditConfig,
-  XenditRefundRequest,
-  XenditRefundResponse,
-} from '../types';
-import { XENDIT_ENDPOINTS } from '../types';
+import type { XenditVARequest, XenditVAResponse, XenditConfig } from '../types';
+import { XENDIT_ENDPOINTS, formatXenditRef } from '../types';
 
 export class XenditVirtualAccountService extends XenditBaseService {
   private readonly supportedBanks = ['BCA', 'BNI', 'BRI', 'MANDIRI', 'PERMATA'] as const;
@@ -23,9 +17,6 @@ export class XenditVirtualAccountService extends XenditBaseService {
     super(config, 'XenditVirtualAccountService');
   }
 
-  /**
-   * Create a Virtual Account payment
-   */
   async createPayment(
     input: PaymentInput,
     externalId: string,
@@ -36,12 +27,13 @@ export class XenditVirtualAccountService extends XenditBaseService {
         success: false,
         transactionRef: '',
         message: `Unsupported bank: ${bankCode}. Supported banks: ${this.supportedBanks.join(', ')}`,
+        paymentData: { paymentStatus: 'failed' },
       };
     }
 
     const payload: XenditVARequest = {
       external_id: externalId,
-      bank_code: bankCode as XenditVARequest['bank_code'],
+      bank_code: bankCode.toUpperCase() as XenditVARequest['bank_code'],
       name: input.customer?.name || 'Customer',
       is_single_use: true,
       is_closed: true,
@@ -52,24 +44,17 @@ export class XenditVirtualAccountService extends XenditBaseService {
 
     const response = await this.post<XenditVAResponse>(this.buildUrl(XENDIT_ENDPOINTS.va), payload);
 
-    if (!response) {
-      return {
-        success: false,
-        transactionRef: '',
-        message: 'Failed to create Virtual Account',
-      };
-    }
-
     this.logger.log(`Virtual Account created: ${response.id} (${bankCode})`);
 
     return {
       success: true,
-      transactionRef: response.id,
+      transactionRef: formatXenditRef('va', response.id),
       paymentData: {
+        paymentStatus: 'pending',
         bankCode: response.bank_code,
         accountNumber: response.account_number,
         merchantCode: response.merchant_code,
-        amount: response.amount,
+        amount: response.expected_amount ?? input.amount,
         expiresAt: response.expiration_date,
         type: 'VA',
       },
@@ -78,50 +63,15 @@ export class XenditVirtualAccountService extends XenditBaseService {
   }
 
   /**
-   * Get Virtual Account status
+   * A single-use closed VA turns INACTIVE both when paid and when expired, so
+   * the VA object alone cannot confirm a payment: the paid state is delivered by
+   * the VA payment callback. The lookup still runs so API/auth errors surface.
    */
-  async getStatus(paymentCodeId: string): Promise<PaymentStatus> {
-    const response = await this.get<XenditVAResponse>(
-      this.buildUrl(`${XENDIT_ENDPOINTS.va}/${paymentCodeId}`),
-    );
-
-    if (!response) {
-      return 'pending';
-    }
-
-    const statusMap: Record<string, PaymentStatus> = {
-      PAID: 'completed',
-      ACTIVE: 'pending',
-      INACTIVE: 'failed',
-      PENDING: 'pending',
-    };
-
-    return statusMap[response.status] || 'pending';
+  async getStatus(vaId: string): Promise<PaymentStatus> {
+    await this.get<XenditVAResponse>(this.buildUrl(`${XENDIT_ENDPOINTS.va}/${vaId}`));
+    return 'pending';
   }
 
-  /**
-   * Refund a Virtual Account payment
-   */
-  async refund(paymentCodeId: string, amount: number, reason?: string): Promise<boolean> {
-    const payload: XenditRefundRequest = { amount, reason };
-
-    const response = await this.post<XenditRefundResponse>(
-      this.buildUrl(`${XENDIT_ENDPOINTS.va}/${paymentCodeId}/refunds`),
-      payload,
-    );
-
-    if (!response) {
-      this.logger.error(`Failed to refund VA payment: ${paymentCodeId}`);
-      return false;
-    }
-
-    this.logger.log(`VA payment refunded: ${response.id} (${paymentCodeId})`);
-    return true;
-  }
-
-  /**
-   * Check if bank code is supported
-   */
   private isSupportedBank(bankCode: string): boolean {
     const upperCode = bankCode.toUpperCase();
     return this.supportedBanks.some((bank) => bank === upperCode);

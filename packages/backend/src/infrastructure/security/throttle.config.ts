@@ -17,8 +17,3 @@ export const throttleConfig: ThrottlerModuleOptions = [
     limit: 300,
   },
 ];
-
-export const authThrottleConfig = {
-  ttl: 60000,
-  limit: 5,
-};

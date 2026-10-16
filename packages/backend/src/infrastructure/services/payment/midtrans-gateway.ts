@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosError } from 'axios';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import type {
   IPaymentGateway,
   PaymentInput,
@@ -40,25 +40,58 @@ interface MidtransStatusResponse {
   payment_type?: string;
 }
 
+/** Banks for Midtrans Core API `bank_transfer` (VA number assigned by Midtrans). */
+const MIDTRANS_VA_BANKS = ['bca', 'bni', 'bri', 'permata', 'cimb'];
+
 @Injectable()
 export class MidtransGateway implements IPaymentGateway {
   private readonly logger = new Logger(MidtransGateway.name);
   private readonly serverKey: string;
   private readonly baseUrl: string;
   private readonly isProduction: boolean;
+  /** Why this gateway must not be used, or null when it is usable. */
+  private readonly configError: string | null;
 
   constructor(private readonly configService: ConfigService) {
-    this.serverKey = this.configService.get<string>('MIDTRANS_SERVER_KEY', '');
-    this.isProduction = this.configService.get<string>('MIDTRANS_ENV', 'sandbox') === 'production';
+    this.serverKey = this.configService.get<string>('MIDTRANS_SERVER_KEY') ?? '';
+    const midtransEnv = this.configService.get<string>('MIDTRANS_ENV');
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
+    this.isProduction = midtransEnv === 'production';
     this.baseUrl = this.isProduction
       ? 'https://api.midtrans.com/v2'
       : 'https://api.sandbox.midtrans.com/v2';
+
+    // A production deploy must say explicitly which Midtrans environment to use;
+    // never silently talk to the sandbox (also enforced at boot by env.validation).
+    if (!this.serverKey) {
+      this.configError = 'MIDTRANS_SERVER_KEY not configured';
+    } else if (nodeEnv === 'production' && midtransEnv !== 'production') {
+      this.configError = 'MIDTRANS_ENV must be "production" when NODE_ENV=production';
+    } else {
+      this.configError = null;
+    }
+    if (this.configError) {
+      this.logger.warn(`Midtrans gateway unavailable: ${this.configError}`);
+    }
   }
 
   async processPayment(input: PaymentInput): Promise<PaymentResult> {
-    try {
-      const chargePayload = this.buildChargePayload(input);
+    if (this.configError) {
+      return this.failure(this.configError);
+    }
+    if (!input.referenceNumber) {
+      // order_id must be our persisted Payment/Invoice id so notifications can be matched.
+      return this.failure('referenceNumber (payment id) is required as Midtrans order_id');
+    }
 
+    let chargePayload: Record<string, unknown>;
+    try {
+      chargePayload = this.buildChargePayload(input);
+    } catch (error) {
+      return this.failure(error instanceof Error ? error.message : String(error));
+    }
+
+    try {
       this.logger.log(`Processing Midtrans payment: ${input.method} - ${input.referenceNumber}`);
 
       const response = await axios.post<MidtransChargeResponse>(
@@ -77,11 +110,17 @@ export class MidtransGateway implements IPaymentGateway {
       return this.mapChargeResponse(response.data);
     } catch (error) {
       this.logger.error('Midtrans payment failed', this.extractError(error));
-      return {
-        success: false,
-        transactionRef: '',
-        message: this.extractErrorMessage(error),
-      };
+      if (this.isOutcomeUnknown(error)) {
+        // Timeout / 5xx: the charge may exist at Midtrans; the notification
+        // (matched by order_id) settles it.
+        return {
+          success: false,
+          transactionRef: '',
+          message: `Payment gateway did not answer: ${this.extractErrorMessage(error)}`,
+          paymentData: { paymentStatus: 'pending', outcomeUnknown: true },
+        };
+      }
+      return this.failure(this.extractErrorMessage(error));
     }
   }
 
@@ -90,6 +129,9 @@ export class MidtransGateway implements IPaymentGateway {
     amount: number,
     reason?: string,
   ): Promise<RefundResult> {
+    if (this.configError) {
+      return { success: false, refundRef: '', message: this.configError };
+    }
     try {
       this.logger.log(`Processing Midtrans refund: ${transactionRef} - ${amount}`);
 
@@ -124,7 +166,14 @@ export class MidtransGateway implements IPaymentGateway {
     }
   }
 
+  /**
+   * Throws when the status cannot be determined (not configured, auth error,
+   * unknown order, network) instead of reporting 'pending'.
+   */
   async checkStatus(transactionRef: string): Promise<PaymentStatus> {
+    if (this.configError) {
+      throw new Error(this.configError);
+    }
     try {
       const response = await axios.get<MidtransStatusResponse>(
         `${this.baseUrl}/${transactionRef}/status`,
@@ -135,10 +184,13 @@ export class MidtransGateway implements IPaymentGateway {
           timeout: 15000,
         },
       );
-
-      return this.mapPaymentStatus(response.data.transaction_status);
-    } catch {
-      return 'pending';
+      return this.mapPaymentStatus(response.data.transaction_status, response.data.fraud_status);
+    } catch (error) {
+      this.logger.error(
+        `Midtrans status check failed for ${transactionRef}`,
+        this.extractError(error),
+      );
+      throw new Error(`Midtrans status check failed: ${this.extractErrorMessage(error)}`);
     }
   }
 
@@ -159,7 +211,10 @@ export class MidtransGateway implements IPaymentGateway {
       const signatureKey = payload.signature_key as string;
 
       // Verify webhook signature
-      if (!this.verifyWebhookSignature(orderId, statusCode, grossAmount, signatureKey)) {
+      if (
+        !this.serverKey ||
+        !this.verifyWebhookSignature(orderId, statusCode, grossAmount, signatureKey)
+      ) {
         this.logger.warn(`Invalid webhook signature for order ${orderId}`);
         return {
           success: false,
@@ -169,7 +224,10 @@ export class MidtransGateway implements IPaymentGateway {
         };
       }
 
-      const transactionStatus = this.mapPaymentStatus(payload.transaction_status as string);
+      const transactionStatus = this.mapPaymentStatus(
+        payload.transaction_status as string,
+        payload.fraud_status as string | undefined,
+      );
 
       this.logger.log(`Webhook received for order ${orderId}: status=${transactionStatus}`);
 
@@ -196,7 +254,7 @@ export class MidtransGateway implements IPaymentGateway {
     const basePayload = {
       payment_type: paymentType,
       transaction_details: {
-        order_id: input.referenceNumber || `TXN-${Date.now()}`,
+        order_id: input.referenceNumber,
         gross_amount: input.amount,
       },
       customer_details: this.extractCustomerDetails(input.metadata),
@@ -248,26 +306,35 @@ export class MidtransGateway implements IPaymentGateway {
           },
         };
 
-      case 'credit_card':
+      case 'credit_card': {
+        // Core API card charges need a token created client-side (Midtrans.js).
+        const tokenId = input.metadata?.tokenId;
+        if (typeof tokenId !== 'string' || !tokenId) {
+          throw new Error('Card payments via Midtrans require a card token (metadata.tokenId)');
+        }
         return {
           ...basePayload,
           credit_card: {
-            secure: true,
-            channel_id: this.getConfigValue('MIDTRANS_CARD_CHANNEL_ID'),
-            callback_url: input.metadata?.callbackUrl as string,
+            token_id: tokenId,
+            authentication: true,
           },
         };
+      }
 
-      case 'bank_transfer':
-        return {
-          ...basePayload,
-          bank_transfer: {
-            va_info: this.getVaInfo(input.metadata?.bank as string),
-          },
-        };
+      case 'bank_transfer': {
+        // Midtrans assigns the VA number; we only choose the bank.
+        // NOTE: bank list per the public Core API docs; not verified against a sandbox.
+        const bank = String(input.metadata?.bank ?? '').toLowerCase();
+        if (!MIDTRANS_VA_BANKS.includes(bank)) {
+          throw new Error(
+            `bank_transfer via Midtrans requires metadata.bank (one of ${MIDTRANS_VA_BANKS.join(', ')})`,
+          );
+        }
+        return { ...basePayload, bank_transfer: { bank } };
+      }
 
       default:
-        return basePayload;
+        throw new Error(`Payment method "${input.method}" is not supported by Midtrans`);
     }
   }
 
@@ -310,75 +377,42 @@ export class MidtransGateway implements IPaymentGateway {
     return `${minutes || 60}m`;
   }
 
-  private getVaInfo(bank?: string): Array<{ bank: string; va_number: string }> {
-    // Get VA numbers from Midtrans API or use configured ones
-    const vaNumbers: Array<{ bank: string; va_number: string }> = [];
-
-    if (bank) {
-      vaNumbers.push({
-        bank,
-        va_number: this.getVaNumberForBank(bank),
-      });
-    }
-
-    return vaNumbers;
-  }
-
-  private getVaNumberForBank(bank: string): string {
-    // PLACEHOLDER: VA number generation is using a temporary implementation.
-    // In production, this should be fetched from the Midtrans API or use pre-configured VA numbers.
-    this.logger.warn(
-      `VA number generation for bank "${bank}" is using placeholder implementation. ` +
-        'This produces non-functional VA numbers. Integrate with Midtrans API for production use.',
-    );
-    return `VA-${bank.toUpperCase()}-${Date.now()}`;
-  }
-
+  /**
+   * `success` = Midtrans accepted the charge (201 = created/pending, 200 = done).
+   * Whether it is PAID is in `paymentData.paymentStatus`, never implied by success.
+   */
   private mapChargeResponse(data: MidtransChargeResponse): PaymentResult {
-    const success = data.status_code === '201' || data.status_code === '200';
+    const accepted = data.status_code === '201' || data.status_code === '200';
+    const paymentStatus: PaymentStatus | 'failed' = accepted
+      ? this.mapPaymentStatus(data.transaction_status, data.fraud_status)
+      : 'failed';
 
-    const result: PaymentResult & Record<string, unknown> = {
-      success,
+    const paymentData: Record<string, unknown> = {
+      paymentStatus: paymentStatus === 'refunded' ? 'completed' : paymentStatus,
+      transactionStatus: data.transaction_status ?? null,
+      paymentType: data.payment_type ?? null,
+    };
+    if (data.redirect_url) paymentData.redirectUrl = data.redirect_url;
+    if (data.actions?.[0]?.url) paymentData.actionUrl = data.actions[0].url;
+    if (data.qr_code) paymentData.qrCode = data.qr_code;
+    if (data.va_numbers?.[0]) {
+      paymentData.vaNumber = data.va_numbers[0].va_number;
+      paymentData.bank = data.va_numbers[0].bank;
+    }
+    if (data.bill_key) paymentData.billKey = data.bill_key;
+    if (data.expiry_time) paymentData.expiryTime = data.expiry_time;
+
+    return {
+      success: accepted && paymentStatus !== 'failed',
       transactionRef: data.transaction_id || data.order_id || '',
       message: data.status_message,
+      paymentData,
     };
-
-    // Add payment-specific response data
-    if (data.redirect_url) {
-      result.redirectUrl = data.redirect_url;
-    }
-
-    if (data.actions?.[0]?.url) {
-      result.actionUrl = data.actions[0].url;
-    }
-
-    if (data.qr_code) {
-      result.qrCode = data.qr_code;
-    }
-
-    if (data.va_numbers?.[0]) {
-      result.vaNumber = data.va_numbers[0].va_number;
-      result.bank = data.va_numbers[0].bank;
-    }
-
-    if (data.bill_key) {
-      result.billKey = data.bill_key;
-    }
-
-    if (data.expiry_time) {
-      result.expiryTime = data.expiry_time;
-    }
-
-    return result;
   }
 
+  /** Unsupported methods are rejected, never silently mapped to bank transfer. */
   private mapPaymentMethod(method: string): string {
     const methodMap: Record<string, string> = {
-      midtrans_qris: 'qris',
-      midtrans_gopay: 'gopay',
-      midtrans_ovo: 'ovo',
-      midtrans_dana: 'dana',
-      midtrans_shopeepay: 'shopeepay',
       qris: 'qris',
       gopay: 'gopay',
       ovo: 'ovo',
@@ -387,12 +421,23 @@ export class MidtransGateway implements IPaymentGateway {
       bank_transfer: 'bank_transfer',
       card: 'credit_card',
       credit_card: 'credit_card',
+      debit_card: 'credit_card',
     };
-
-    return methodMap[method] || 'bank_transfer';
+    const mapped = methodMap[method];
+    if (!mapped) {
+      throw new Error(`Payment method "${method}" is not supported by Midtrans`);
+    }
+    return mapped;
   }
 
-  private mapPaymentStatus(status?: string): PaymentStatus {
+  /**
+   * capture + fraud_status=challenge is held for review (pending), not paid.
+   * partial_refund leaves the payment captured (only a full refund is 'refunded').
+   */
+  private mapPaymentStatus(status?: string, fraudStatus?: string): PaymentStatus {
+    if (status === 'capture' && fraudStatus === 'challenge') return 'pending';
+    if ((status === 'capture' || status === 'settlement') && fraudStatus === 'deny')
+      return 'failed';
     const statusMap: Record<string, PaymentStatus> = {
       capture: 'completed',
       settlement: 'completed',
@@ -401,11 +446,27 @@ export class MidtransGateway implements IPaymentGateway {
       deny: 'failed',
       cancel: 'failed',
       expire: 'failed',
+      failure: 'failed',
       refund: 'refunded',
-      partial_refund: 'refunded',
+      partial_refund: 'completed',
     };
 
     return statusMap[status || ''] || 'pending';
+  }
+
+  private failure(message: string): PaymentResult {
+    return {
+      success: false,
+      transactionRef: '',
+      message,
+      paymentData: { paymentStatus: 'failed' },
+    };
+  }
+
+  private isOutcomeUnknown(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) return true;
+    const status = error.response?.status;
+    return status === undefined || status >= 500;
   }
 
   private generateAuthHeader(): string {
@@ -419,14 +480,13 @@ export class MidtransGateway implements IPaymentGateway {
     grossAmount: string,
     signatureKey: string,
   ): boolean {
-    const hash = createHash('sha512')
-      .update(`${orderId}${statusCode}${grossAmount}${this.serverKey}`)
-      .digest('hex');
-    return hash === signatureKey;
-  }
-
-  private getConfigValue(key: string): string {
-    return this.configService.get<string>(key, '');
+    const hash = Buffer.from(
+      createHash('sha512')
+        .update(`${orderId}${statusCode}${grossAmount}${this.serverKey}`)
+        .digest('hex'),
+    );
+    const given = Buffer.from(String(signatureKey ?? ''));
+    return given.length === hash.length && timingSafeEqual(given, hash);
   }
 
   private extractError(error: unknown): Record<string, unknown> {

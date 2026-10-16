@@ -3,6 +3,16 @@ import { RabbitMqService } from './rabbitmq.service';
 import type { AmqpMessage, MessageEnvelope, MessageHandler } from './rabbitmq.types';
 import { AppError, ErrorCode } from '../../shared/errors/app-error';
 
+export const RETRY_HEADER = 'x-retry-count';
+const RETRY_BASE_DELAY_MS = 1000;
+
+/** Number of retries already performed for this message (0 for the first delivery). */
+export function getRetryCount(rawMessage: AmqpMessage): number {
+  const value = rawMessage.properties.headers?.[RETRY_HEADER];
+  const count = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(count) && count > 0 ? count : 0;
+}
+
 /**
  * Registry entry for a queue handler.
  */
@@ -32,7 +42,7 @@ export class MessageConsumerService {
    *
    * @param queue - Queue name (without prefix — prefix is added automatically)
    * @param handler - Async handler that processes the deserialized message
-   * @param retryLimit - Max times a message can be redelivered before going to DLX
+   * @param retryLimit - Max processing attempts before the message goes to the DLX
    */
   registerHandler(queue: string, handler: MessageHandler, retryLimit = 3): void {
     this.handlers.push({ queue, handler, retryLimit });
@@ -49,22 +59,25 @@ export class MessageConsumerService {
       return;
     }
 
-    if (!this.rabbitMqService.isConnected()) {
-      this.logger.log(
-        'RabbitMQ not connected — message consumers will not start (using RxJS event bus)',
-      );
+    if (!this.rabbitMqService.isConfigured()) {
+      this.logger.log('RabbitMQ not configured — message consumers will not start');
       return;
     }
 
     this.consuming = true;
 
     for (const registration of this.handlers) {
-      await this.rabbitMqService.subscribe(registration.queue, (msg: AmqpMessage) =>
-        this.processMessage(registration, msg),
-      );
+      try {
+        await this.rabbitMqService.subscribe(registration.queue, (msg: AmqpMessage) =>
+          this.processMessage(registration, msg),
+        );
+      } catch (error) {
+        // RabbitMqService logged it and flags the queue as failed (health check reports it);
+        // keep starting the remaining consumers.
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Consumer for ${registration.queue} not started: ${errorMessage}`);
+      }
     }
-
-    this.logger.log(`Started consuming from ${this.handlers.length} queue(s)`);
   }
 
   /**
@@ -100,24 +113,42 @@ export class MessageConsumerService {
       this.rabbitMqService.ack(rawMessage);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const deliveryCount = this.getDeliveryCount(rawMessage);
+      const attempt = getRetryCount(rawMessage) + 1;
 
       this.logger.error(
         `Error processing "${envelope.eventType}" from ${queue} ` +
-          `(attempt ${deliveryCount}/${retryLimit}): ${errorMessage}`,
+          `(attempt ${attempt}/${retryLimit}): ${errorMessage}`,
       );
 
-      if (deliveryCount >= retryLimit) {
+      if (attempt >= retryLimit) {
         this.logger.warn(
           `Message "${envelope.eventType}" exceeded retry limit (${retryLimit}) — routing to DLX`,
         );
         // Reject without requeue: goes to dead-letter exchange
         this.rabbitMqService.nack(rawMessage, false);
+        return;
+      }
+
+      // nack(requeue) does not count deliveries, so a failing message would loop forever.
+      // Instead re-publish a copy with an incremented retry counter (after a backoff) and ack
+      // the original.
+      await this.delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+      const republished = this.rabbitMqService.republishToQueue(queue, rawMessage, {
+        [RETRY_HEADER]: attempt,
+      });
+      if (republished) {
+        this.rabbitMqService.ack(rawMessage);
       } else {
-        // Requeue for retry
-        this.rabbitMqService.nack(rawMessage, true);
+        this.logger.error(
+          `Could not re-publish "${envelope.eventType}" for retry — routing to DLX`,
+        );
+        this.rabbitMqService.nack(rawMessage, false);
       }
     }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private deserialize(rawMessage: AmqpMessage): MessageEnvelope {
@@ -137,19 +168,5 @@ export class MessageConsumerService {
     }
 
     return parsed as unknown as MessageEnvelope;
-  }
-
-  private getDeliveryCount(rawMessage: AmqpMessage): number {
-    const headers = rawMessage.properties.headers;
-    if (!headers) return 1;
-
-    const deathHeader = headers['x-death'] as Array<Record<string, unknown>> | undefined;
-    if (Array.isArray(deathHeader) && deathHeader.length > 0) {
-      const firstDeath = deathHeader[0];
-      const count = firstDeath?.['count'];
-      return typeof count === 'number' ? count : 1;
-    }
-
-    return rawMessage.fields.redelivered ? 2 : 1;
   }
 }

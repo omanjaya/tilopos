@@ -8,10 +8,12 @@ import { NotificationDispatcherService } from '../notifications/notification-dis
 import { EmailModule } from '../notifications/email/email.module';
 import { WhatsAppModule } from '../notifications/whatsapp/whatsapp.module';
 import { PushModule } from '../notifications/push/push.module';
+import { IngredientsModule } from '../../modules/ingredients/ingredients.module';
 
 @Global()
 @Module({
-  imports: [EmailModule, WhatsAppModule, PushModule],
+  // IngredientsModule: DeductIngredientsOnSaleUseCase for TransactionEventListener.
+  imports: [EmailModule, WhatsAppModule, PushModule, IngredientsModule],
   providers: [
     EventBusService,
     TransactionEventListener,

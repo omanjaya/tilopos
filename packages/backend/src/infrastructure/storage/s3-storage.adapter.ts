@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import {
   S3Client,
   PutObjectCommand,
@@ -10,23 +9,24 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
 import type { StorageAdapter } from './storage.service';
+import type { S3Settings } from './storage.config';
 
-@Injectable()
+/** Constructed by StorageModule with validated settings (see storage.config.ts). */
 export class S3StorageAdapter implements StorageAdapter {
   private readonly logger = new Logger(S3StorageAdapter.name);
   private readonly client: S3Client;
   private readonly bucket: string;
 
-  constructor(private readonly configService: ConfigService) {
-    this.bucket = this.configService.get<string>('S3_BUCKET', 'tilopos-uploads');
+  constructor(private readonly settings: S3Settings) {
+    this.bucket = settings.bucket;
     this.client = new S3Client({
-      region: this.configService.get<string>('S3_REGION', 'ap-southeast-1'),
+      region: settings.region,
       credentials: {
-        accessKeyId: this.configService.get<string>('S3_ACCESS_KEY_ID', ''),
-        secretAccessKey: this.configService.get<string>('S3_SECRET_ACCESS_KEY', ''),
+        accessKeyId: settings.accessKeyId,
+        secretAccessKey: settings.secretAccessKey,
       },
-      endpoint: this.configService.get<string>('S3_ENDPOINT'),
-      forcePathStyle: !!this.configService.get<string>('S3_ENDPOINT'),
+      endpoint: settings.endpoint,
+      forcePathStyle: !!settings.endpoint,
     });
   }
 
@@ -72,12 +72,9 @@ export class S3StorageAdapter implements StorageAdapter {
       Key: filepath,
     });
 
-    try {
-      await this.client.send(command);
-      this.logger.log(`File deleted from S3: ${filepath}`);
-    } catch (error) {
-      this.logger.warn(`Failed to delete file from S3: ${filepath}`);
-    }
+    // Errors propagate: callers must know when an object was not removed.
+    await this.client.send(command);
+    this.logger.log(`File deleted from S3: ${filepath}`);
   }
 
   async exists(key: string): Promise<boolean> {
@@ -89,18 +86,19 @@ export class S3StorageAdapter implements StorageAdapter {
     try {
       await this.client.send(command);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+        ?.httpStatusCode;
+      if (status === 404 || (error as { name?: string }).name === 'NotFound') return false;
+      throw error;
     }
   }
 
   getUrl(filepath: string): string {
-    const endpoint = this.configService.get<string>('S3_ENDPOINT');
-    if (endpoint) {
-      return `${endpoint}/${this.bucket}/${filepath}`;
+    if (this.settings.endpoint) {
+      return `${this.settings.endpoint}/${this.bucket}/${filepath}`;
     }
-    const region = this.configService.get<string>('S3_REGION', 'ap-southeast-1');
-    return `https://${this.bucket}.s3.${region}.amazonaws.com/${filepath}`;
+    return `https://${this.bucket}.s3.${this.settings.region}.amazonaws.com/${filepath}`;
   }
 
   private getContentType(filename: string): string {

@@ -1,6 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsGateway } from '../../modules/notifications/notifications.gateway';
+import { businessDayRange } from '../../shared/utils/business-time';
+import { money, roundRupiah, toNumber } from '../../shared/utils/money';
 
 export interface SalesMetrics {
   outletId: string;
@@ -23,7 +26,6 @@ export interface LiveDashboardUpdate {
 
 @Injectable()
 export class RealtimeMetricsService {
-  private readonly logger = new Logger(RealtimeMetricsService.name);
   private readonly metricsCache = new Map<string, SalesMetrics>();
 
   constructor(
@@ -32,144 +34,87 @@ export class RealtimeMetricsService {
   ) {}
 
   /**
-   * Calculate and broadcast sales metrics for an outlet
+   * Calculate and broadcast sales metrics for an outlet. Errors propagate to the caller.
    */
-  async broadcastSalesMetrics(outletId: string, businessId: string): Promise<SalesMetrics | null> {
-    try {
-      const metrics = await this.calculateSalesMetrics(outletId);
+  async broadcastSalesMetrics(outletId: string, businessId: string): Promise<SalesMetrics> {
+    const metrics = await this.calculateSalesMetrics(outletId);
+    const payload = { outletId, metrics, timestamp: new Date() };
 
-      if (!metrics) {
-        return null;
-      }
+    // Broadcast to business room for real-time dashboard, and to the outlet room
+    this.notificationsGateway.sendToBusiness(businessId, 'sales:metrics_update', payload);
+    this.notificationsGateway.sendToOutlet(outletId, 'sales:metrics_update', payload);
 
-      // Broadcast to business room for real-time dashboard
-      this.notificationsGateway.sendToBusiness(businessId, 'sales:metrics_update', {
-        outletId,
-        metrics,
-        timestamp: new Date(),
-      });
-
-      // Also broadcast to outlet room
-      this.notificationsGateway.sendToOutlet(outletId, 'sales:metrics_update', {
-        outletId,
-        metrics,
-        timestamp: new Date(),
-      });
-
-      return metrics;
-    } catch (error) {
-      this.logger.error(`Failed to broadcast sales metrics for outlet ${outletId}:`, error);
-      return null;
-    }
+    return metrics;
   }
 
   /**
-   * Calculate sales metrics for today
+   * Calculate sales metrics for the current business day (Asia/Jakarta).
+   * Only completed sales count; refunds are excluded. Aggregation happens in the database.
    */
-  async calculateSalesMetrics(outletId: string): Promise<SalesMetrics | null> {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const endOfToday = new Date(today);
-      endOfToday.setHours(23, 59, 59, 999);
+  async calculateSalesMetrics(outletId: string): Promise<SalesMetrics> {
+    const { start, end } = businessDayRange();
+    const txWhere: Prisma.TransactionWhereInput = {
+      outletId,
+      status: 'completed',
+      transactionType: 'sale',
+      createdAt: { gte: start, lte: end },
+    };
 
-      // Get all completed transactions for today
-      const transactions = await this.prisma.transaction.findMany({
-        where: {
-          outletId,
-          status: 'completed',
-          createdAt: {
-            gte: today,
-            lte: endOfToday,
-          },
-        },
-        include: {
-          items: {
-            include: {
-              product: true,
-            },
-          },
-          payments: true,
-        },
-      });
+    const [totals, productGroups, paymentGroups] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: txWhere,
+        _sum: { grandTotal: true },
+        _count: { _all: true },
+      }),
+      this.prisma.transactionItem.groupBy({
+        by: ['productName'],
+        where: { transaction: txWhere },
+        _sum: { quantity: true, subtotal: true },
+        orderBy: { _sum: { subtotal: 'desc' } },
+        take: 5,
+      }),
+      this.prisma.payment.groupBy({
+        by: ['paymentMethod'],
+        where: { transaction: txWhere },
+        _sum: { amount: true },
+      }),
+    ]);
 
-      if (transactions.length === 0) {
-        return this.getEmptyMetrics(outletId, today, endOfToday);
-      }
-
-      const totalSales = transactions.reduce((sum, tx) => {
-        const grandTotal = (tx as { grandTotal: { toNumber: () => number } }).grandTotal;
-        return sum + grandTotal.toNumber();
-      }, 0);
-
-      const transactionCount = transactions.length;
-      const averageOrderValue = totalSales / transactionCount;
-
-      // Calculate top products
-      const productSales = new Map<string, { quantity: number; revenue: number }>();
-
-      for (const tx of transactions) {
-        for (const item of tx.items) {
-          const productName = item.productName;
-          const quantity = (item as { quantity: { toNumber: () => number } }).quantity.toNumber();
-          const subtotal = (item as { subtotal: { toNumber: () => number } }).subtotal.toNumber();
-
-          const existing = productSales.get(productName) || { quantity: 0, revenue: 0 };
-          productSales.set(productName, {
-            quantity: existing.quantity + quantity,
-            revenue: existing.revenue + subtotal,
-          });
-        }
-      }
-
-      const topProducts = Array.from(productSales.entries())
-        .map(([productName, data]) => ({
-          productName,
-          quantity: data.quantity,
-          revenue: data.revenue,
-        }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 5);
-
-      // Calculate payment method distribution
-      const paymentMethodSales = new Map<string, number>();
-
-      for (const tx of transactions) {
-        for (const payment of tx.payments) {
-          const amount = (payment as { amount: { toNumber: () => number } }).amount.toNumber();
-          const method = payment.paymentMethod;
-          const existing = paymentMethodSales.get(method) || 0;
-          paymentMethodSales.set(method, existing + amount);
-        }
-      }
-
-      const paymentMethods = Array.from(paymentMethodSales.entries()).map(([method, amount]) => ({
-        method,
-        amount,
-        percentage: (amount / totalSales) * 100,
-      }));
-
-      const metrics: SalesMetrics = {
-        outletId,
-        totalSales,
-        transactionCount,
-        averageOrderValue,
-        topProducts,
-        paymentMethods,
-        period: {
-          start: today,
-          end: endOfToday,
-        },
-      };
-
-      // Cache the metrics
-      this.metricsCache.set(outletId, metrics);
-
-      return metrics;
-    } catch (error) {
-      this.logger.error(`Failed to calculate sales metrics for outlet ${outletId}:`, error);
-      return null;
+    const transactionCount = totals._count._all;
+    if (transactionCount === 0) {
+      return this.getEmptyMetrics(outletId, start, end);
     }
+
+    const totalSalesDec = money(totals._sum.grandTotal);
+    const totalSales = toNumber(totalSalesDec);
+
+    const metrics: SalesMetrics = {
+      outletId,
+      totalSales,
+      transactionCount,
+      averageOrderValue: toNumber(roundRupiah(totalSalesDec.dividedBy(transactionCount))),
+      topProducts: productGroups.map((g) => ({
+        productName: g.productName,
+        quantity: toNumber(g._sum.quantity),
+        revenue: toNumber(g._sum.subtotal),
+      })),
+      paymentMethods: paymentGroups.map((g) => {
+        const amount = money(g._sum.amount);
+        return {
+          method: g.paymentMethod,
+          amount: toNumber(amount),
+          percentage: totalSalesDec.isZero()
+            ? 0
+            : toNumber(amount.times(100).dividedBy(totalSalesDec).toDecimalPlaces(2)),
+        };
+      }),
+      period: { start, end },
+    };
+
+    // Cache the metrics
+    this.metricsCache.set(outletId, metrics);
+
+    return metrics;
   }
 
   /**
@@ -188,16 +133,12 @@ export class RealtimeMetricsService {
       select: { id: true },
     });
 
-    const metrics = new Map<string, SalesMetrics>();
-
-    for (const outlet of outlets) {
-      const outletMetrics = await this.calculateSalesMetrics(outlet.id);
-      if (outletMetrics) {
-        metrics.set(outlet.id, outletMetrics);
-      }
-    }
-
-    return metrics;
+    const results = await Promise.all(
+      outlets.map(
+        async (outlet) => [outlet.id, await this.calculateSalesMetrics(outlet.id)] as const,
+      ),
+    );
+    return new Map(results);
   }
 
   /**

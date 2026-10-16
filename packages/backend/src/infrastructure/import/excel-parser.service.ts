@@ -1,5 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
+
+/** Hard limits for uploaded workbooks (R13: no unbounded processing). */
+export const MAX_XLSX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_XLSX_ROWS = 5000;
+export const MAX_XLSX_SHEETS = 20;
+export const XLSX_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/octet-stream',
+];
 
 export interface ColumnMapping {
   excelColumn: string; // Column header from Excel
@@ -20,9 +29,27 @@ export interface SheetPreview {
 @Injectable()
 export class ExcelParserService {
   private async loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
+    if (buffer.length > MAX_XLSX_FILE_BYTES) {
+      throw new BadRequestException('File size must be under 10MB');
+    }
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+    try {
+      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+    } catch (err) {
+      throw new BadRequestException(
+        `Invalid XLSX file: ${err instanceof Error ? err.message : 'unreadable'}`,
+      );
+    }
+    if (workbook.worksheets.length > MAX_XLSX_SHEETS) {
+      throw new BadRequestException(`Workbook has more than ${MAX_XLSX_SHEETS} sheets`);
+    }
     return workbook;
+  }
+
+  private getSheet(workbook: ExcelJS.Workbook, sheetName: string): ExcelJS.Worksheet {
+    const sheet = workbook.getWorksheet(sheetName);
+    if (!sheet) throw new BadRequestException(`Sheet "${sheetName}" not found`);
+    return sheet;
   }
 
   async getSheetNames(buffer: Buffer): Promise<string[]> {
@@ -30,10 +57,19 @@ export class ExcelParserService {
     return workbook.worksheets.map((ws) => ws.name);
   }
 
+  /** Previews every sheet from a single workbook load. */
+  async previewAllSheets(buffer: Buffer, sampleCount = 5): Promise<SheetPreview[]> {
+    const workbook = await this.loadWorkbook(buffer);
+    return workbook.worksheets.map((sheet) => this.buildPreview(sheet, sampleCount));
+  }
+
   async previewSheet(buffer: Buffer, sheetName: string, sampleCount = 5): Promise<SheetPreview> {
     const workbook = await this.loadWorkbook(buffer);
-    const sheet = workbook.getWorksheet(sheetName);
-    if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
+    return this.buildPreview(this.getSheet(workbook, sheetName), sampleCount);
+  }
+
+  private buildPreview(sheet: ExcelJS.Worksheet, sampleCount: number): SheetPreview {
+    const sheetName = sheet.name;
 
     const headers: string[] = [];
     const headerRow = sheet.getRow(1);
@@ -61,8 +97,10 @@ export class ExcelParserService {
     mappings: ColumnMapping[],
   ): Promise<ParsedRow[]> {
     const workbook = await this.loadWorkbook(buffer);
-    const sheet = workbook.getWorksheet(sheetName);
-    if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
+    const sheet = this.getSheet(workbook, sheetName);
+    if (sheet.rowCount - 1 > MAX_XLSX_ROWS) {
+      throw new BadRequestException(`Sheet has more than ${MAX_XLSX_ROWS} data rows`);
+    }
 
     // Build header index
     const headers: string[] = [];
