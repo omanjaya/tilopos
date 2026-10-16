@@ -1,0 +1,5 @@
+# Default reviewers. Adjust when the team grows.
+*                       @omanjaya
+/k8s/                   @omanjaya
+/.github/               @omanjaya
+/packages/backend/prisma/ @omanjaya

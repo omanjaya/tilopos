@@ -1,0 +1,130 @@
+# Nightly logical backup of the TiloPOS database (and the local uploads PVC) to a
+# DEDICATED backup bucket - never the uploads bucket, so one leaked/deleted credential
+# cannot take out both the data and its backups.
+#
+# Needs Secret `tilopos-backup` with: BACKUP_S3_BUCKET, AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION and optionally BACKUP_S3_ENDPOINT
+# (S3-compatible storage). Use write-only credentials and an S3 lifecycle rule
+# for retention (e.g. 30 daily / 12 monthly). Restore: Docs/operations/backup-restore.md
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tilopos-db-backup
+  labels:
+    app: tilopos-backup
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Jakarta
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: tilopos-backup
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: dump
+              # pg_dump must be >= the server major version.
+              image: postgres:16.15-alpine3.24
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  # Prisma URLs carry params libpq rejects (schema, connection_limit...): keep only libpq ones.
+                  BASE="${DATABASE_URL%%\?*}"
+                  case "$DATABASE_URL" in *\?*) Q="${DATABASE_URL#*\?}" ;; *) Q="" ;; esac
+                  KEEP=$(printf '%s' "$Q" | tr '&' '\n' | grep -E '^(sslmode|sslrootcert|connect_timeout|application_name)=' | tr '\n' '&' | sed 's/&$//' || true)
+                  [ -n "$KEEP" ] && BASE="$BASE?$KEEP"
+                  pg_dump --format=custom --no-owner --no-privileges --dbname="$BASE" --file="/backup/tilopos-$TS.dump"
+                  pg_restore --list "/backup/tilopos-$TS.dump" > /dev/null
+                  tar -czf "/backup/uploads-$TS.tar.gz" -C /uploads .
+                  echo "$TS" > /backup/.ts
+                  ls -la /backup
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: tilopos-secrets
+                      key: DATABASE_URL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                - name: uploads
+                  mountPath: /uploads
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2.37.4
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  TS=$(cat /backup/.ts)
+                  aws ${BACKUP_S3_ENDPOINT:+--endpoint-url "$BACKUP_S3_ENDPOINT"} s3 cp /backup/ \
+                    "s3://$BACKUP_S3_BUCKET/tilopos/$TS/" --recursive --exclude ".ts" --only-show-errors
+                  echo "Uploaded backup $TS to s3://$BACKUP_S3_BUCKET/tilopos/$TS/"
+              env:
+                - name: HOME
+                  value: /tmp
+              envFrom:
+                - secretRef:
+                    name: tilopos-backup
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backup
+              emptyDir:
+                sizeLimit: 20Gi
+            - name: tmp
+              emptyDir: {}
+            - name: uploads
+              persistentVolumeClaim:
+                claimName: tilopos-uploads
+                readOnly: true

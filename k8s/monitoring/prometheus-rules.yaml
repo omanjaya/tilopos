@@ -1,4 +1,8 @@
-# Prometheus Monitoring Configuration for TiloPOS
+# Prometheus Monitoring Configuration for TiloPOS (requires the Prometheus Operator CRDs).
+# Apply once per environment namespace, e.g.
+#   kubectl -n tilopos-production apply -f k8s/monitoring/prometheus-rules.yaml
+# The ServiceMonitor scrapes Services in its own namespace, reading the bearer token
+# from that namespace's tilopos-secrets.
 
 # ServiceMonitor for Prometheus Operator
 apiVersion: monitoring.coreos.com/v1
@@ -13,14 +17,16 @@ spec:
     matchLabels:
       app: tilopos-backend
   endpoints:
+    # Backend exposes Prometheus text at /api/v1/metrics when METRICS_ENABLED=true,
+    # protected by the METRICS_TOKEN bearer token from Secret tilopos-secrets.
+    # (The ServiceMonitor must live in the same namespace as that Secret.)
     - port: http
-      path: /metrics
+      path: /api/v1/metrics
       interval: 30s
       scrapeTimeout: 10s
-  namespaceSelector:
-    matchNames:
-      - tilopos-production
-      - tilopos-staging
+      bearerTokenSecret:
+        name: tilopos-secrets
+        key: METRICS_TOKEN
 
 ---
 # PrometheusRule for alerts

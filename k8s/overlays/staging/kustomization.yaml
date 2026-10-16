@@ -1,4 +1,8 @@
 # Staging overlay for TiloPOS
+#   kubectl kustomize k8s/overlays/staging | kubectl apply -f -
+# Before the first apply: create Secrets `tilopos-secrets` and `tilopos-backup` in
+# namespace tilopos-staging (see k8s/README.md). Staging runs NODE_ENV=production
+# so the same env validation applies; use gateway sandbox keys via PAYMENT_GATEWAY=xendit.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -9,11 +13,11 @@ resources:
 
 namePrefix: staging-
 
-commonLabels:
-  environment: staging
+labels:
+  - pairs:
+      environment: staging
 
 patches:
-  # Ingress - staging hosts
   - target:
       kind: Ingress
       name: tilopos-ingress
@@ -29,24 +33,30 @@ patches:
       - op: replace
         path: /spec/rules/1/host
         value: api-staging.tilopos.id
+  # No nightly backups for staging
+  - target:
+      kind: CronJob
+      name: tilopos-db-backup
+    patch: |-
+      - op: add
+        path: /spec/suspend
+        value: true
 
 configMapGenerator:
   - name: tilopos-config
     behavior: merge
     literals:
-      - NODE_ENV=staging
       - LOG_LEVEL=debug
-      - ENABLE_SWAGGER=true
-      - API_URL=https://api-staging.tilopos.id
-      - WEB_URL=https://staging.tilopos.id
-
+      - CORS_ORIGIN=https://staging.tilopos.id
+      - FRONTEND_URL=https://staging.tilopos.id
+      - REDIS_HOST=staging-tilopos-redis
   - name: tilopos-web-config
     behavior: merge
     literals:
-      - VITE_API_URL=https://api-staging.tilopos.id
+      - BACKEND_UPSTREAM=http://staging-tilopos-backend
 
 images:
   - name: ghcr.io/tilopos/backend
-    newTag: develop
+    newTag: "0.1.0"
   - name: ghcr.io/tilopos/web
-    newTag: develop
+    newTag: "0.1.0"

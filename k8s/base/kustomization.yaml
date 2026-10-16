@@ -1,25 +1,42 @@
-# TiloPOS Kubernetes Base Configuration
-# Using Kustomize for environment overlays
-
+# TiloPOS Kubernetes base. Render with: kubectl kustomize k8s/overlays/<env>
+#
+# Secrets are NOT part of this kustomization. Create the Secret `tilopos-secrets`
+# (and `tilopos-backup` for the backup CronJob) in the target namespace before
+# applying, via External Secrets Operator / Sealed Secrets (preferred) or
+# `kubectl create secret generic ... --from-env-file`. See k8s/README.md and
+# secrets.yaml.example for the exact keys.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: tilopos
 
+labels:
+  - pairs:
+      app.kubernetes.io/name: tilopos
+      app.kubernetes.io/managed-by: kustomize
+
 resources:
   - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - backend/pvc.yaml
   - backend/deployment.yaml
   - backend/service.yaml
   - backend/hpa.yaml
+  - backend/pdb.yaml
   - web/deployment.yaml
   - web/service.yaml
   - web/hpa.yaml
-  - ingress.yaml
-  - configmap.yaml
-  - secrets.yaml
-  - redis/deployment.yaml
+  - web/pdb.yaml
+  - redis/statefulset.yaml
   - redis/service.yaml
+  - backup/cronjob.yaml
+  - networkpolicy.yaml
+  - ingress.yaml
 
-commonLabels:
-  app.kubernetes.io/name: tilopos
-  app.kubernetes.io/managed-by: kustomize
+images:
+  # Pin a release tag or digest; overlays / CD override with `kustomize edit set image`.
+  - name: ghcr.io/tilopos/backend
+    newTag: "0.1.0"
+  - name: ghcr.io/tilopos/web
+    newTag: "0.1.0"

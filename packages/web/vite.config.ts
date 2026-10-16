@@ -119,5 +119,7 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    // Playwright specs live in e2e/ and run via `npx playwright test`
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });

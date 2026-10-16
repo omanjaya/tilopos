@@ -1,0 +1,89 @@
+# Redis backs BullMQ queues, distributed cron locks and the cache.
+# - noeviction: queue jobs and locks must never be evicted (allkeys-lru would drop them)
+# - password from Secret tilopos-secrets/REDIS_PASSWORD
+# - AOF persistence on a PVC so queued jobs survive restarts
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tilopos-redis
+  labels:
+    app: tilopos-redis
+spec:
+  serviceName: tilopos-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tilopos-redis
+  template:
+    metadata:
+      labels:
+        app: tilopos-redis
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7.4.11-alpine3.21
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - >-
+              exec redis-server
+              --appendonly yes
+              --maxmemory 400mb
+              --maxmemory-policy noeviction
+              --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tilopos-secrets
+                  key: REDIS_PASSWORD
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: tilopos-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep -q PONG"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep -q PONG"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

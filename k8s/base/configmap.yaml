@@ -1,43 +1,67 @@
+# Non-secret backend configuration. Must stay in sync with
+# packages/backend/src/config/env.validation.ts and packages/backend/.env.example.
+# Secret values (DATABASE_URL, JWT_SECRET, gateway keys, ...) live in the Secret
+# `tilopos-secrets` - see secrets.yaml.example.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tilopos-config
 data:
   NODE_ENV: "production"
-  PORT: "3000"
+  PORT: "3001"
+  TZ: "Asia/Jakarta"
   LOG_LEVEL: "info"
-  
-  # Database (host only, credentials in secrets)
-  DB_HOST: "postgres-postgresql.database.svc.cluster.local"
-  DB_PORT: "5432"
-  DB_NAME: "tilopos"
-  
-  # Redis
+
+  # Auth
+  JWT_EXPIRES_IN: "7d"
+
+  # Required in production (env.validation.ts). Overlays set the real hosts.
+  CORS_ORIGIN: "https://app.tilopos.id"
+  FRONTEND_URL: "https://app.tilopos.id"
+
+  # Redis (in-cluster StatefulSet; overlays must add their namePrefix, e.g. prod-tilopos-redis)
   REDIS_HOST: "tilopos-redis"
   REDIS_PORT: "6379"
-  
-  # API URLs
-  API_URL: "https://api.tilopos.id"
-  WEB_URL: "https://app.tilopos.id"
-  
-  # Features
-  ENABLE_SWAGGER: "false"
-  ENABLE_METRICS: "true"
-  ENABLE_TRACING: "true"
-  
-  # Rate limiting
-  RATE_LIMIT_WINDOW: "60000"
-  RATE_LIMIT_MAX: "100"
-  
-  # Cache TTL
-  CACHE_TTL: "300"
+  REDIS_DB: "0"
+
+  # Behind ingress-nginx: trust one proxy hop for client IPs (rate limits, audit logs)
+  TRUST_PROXY: "1"
+  # Prometheus metrics at GET /api/v1/metrics (bearer METRICS_TOKEN from the Secret)
+  METRICS_ENABLED: "true"
+
+  # Payment gateway: midtrans | xendit ("mock" is rejected in production)
+  PAYMENT_GATEWAY: "xendit"
+  MIDTRANS_ENV: "production"
+
+  # Upload storage, required in production: "local" = the RWX PVC mounted at
+  # /app/packages/backend/uploads (shared by all replicas), "s3" = object storage
+  # (then S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY in the Secret are required).
+  STORAGE_DRIVER: "local"
+  S3_BUCKET: "tilopos-uploads"
+  S3_REGION: "ap-southeast-1"
+  # S3_ENDPOINT: "https://<s3-compatible-endpoint>"   # only for MinIO/R2/Spaces; omit for AWS
+
+  # Mail (credentials SMTP_USER / SMTP_PASS in the Secret)
+  SMTP_HOST: "smtp.example.com"
+  SMTP_PORT: "587"
+  SMTP_FROM: "noreply@tilopos.id"
+
+  # WhatsApp gateway endpoint; required when WHATSAPP_API_TOKEN (Secret) is set
+  # WHATSAPP_API_URL: "https://api.fonnte.com/send"
+
+  # Optional centralised logging (credentials in the Secret)
+  # ELASTICSEARCH_URL: "http://elasticsearch.logging.svc:9200"   # unset = console logs only
+  ELASTICSEARCH_INDEX_PREFIX: "tilo-logs"
 
 ---
+# Web (nginx) runtime configuration. VITE_* values are build-time only
+# (docker build --build-arg); they have no effect on a running pod.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tilopos-web-config
 data:
-  VITE_API_URL: "https://api.tilopos.id"
-  VITE_APP_NAME: "TILO"
-  VITE_ENABLE_PWA: "true"
+  # Backend Service used by the /api, /uploads and /socket.io proxy.
+  # Overlays must add their namePrefix (e.g. http://prod-tilopos-backend).
+  BACKEND_UPSTREAM: "http://tilopos-backend"
+  TZ: "Asia/Jakarta"

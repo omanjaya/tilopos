@@ -1,31 +1,39 @@
+# Local development stack.
+#   cp .env.example .env   # then set JWT_SECRET (>= 32 chars)
+#   npm run docker:dev
+# Images are built from the repository root so the workspace lockfile is used.
 services:
   backend:
     build:
-      context: ./packages/backend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: packages/backend/Dockerfile.dev
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=development
       - PORT=3001
+      - TZ=Asia/Jakarta
       - DATABASE_URL=postgresql://tilopos:${POSTGRES_PASSWORD:-tilopos_dev}@postgres:5432/tilopos?schema=public
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
-      - JWT_EXPIRES_IN=7d
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+      - PAYMENT_GATEWAY=${PAYMENT_GATEWAY:-mock}
       - RABBITMQ_URL=amqp://tilo:${RABBITMQ_PASSWORD:-tilopass_dev}@rabbitmq:5672
       - RABBITMQ_EXCHANGE=tilo.events
       - RABBITMQ_QUEUE_PREFIX=tilo
     volumes:
-      - ./packages/backend/src:/app/src
-      - ./packages/backend/prisma:/app/prisma
-      - ./packages/backend/test:/app/test
-      - ./packages/backend/nest-cli.json:/app/nest-cli.json
-      - ./packages/backend/tsconfig.json:/app/tsconfig.json
-      - ./packages/backend/tsconfig.build.json:/app/tsconfig.build.json
-      - ./packages/backend/.eslintrc.js:/app/.eslintrc.js
-      - backend_node_modules:/app/node_modules
-      - uploads_dev:/app/uploads
+      - ./packages/backend/src:/repo/packages/backend/src
+      - ./packages/backend/prisma:/repo/packages/backend/prisma
+      - ./packages/backend/test:/repo/packages/backend/test
+      - ./packages/backend/nest-cli.json:/repo/packages/backend/nest-cli.json
+      - ./packages/backend/tsconfig.json:/repo/packages/backend/tsconfig.json
+      - ./packages/backend/tsconfig.build.json:/repo/packages/backend/tsconfig.build.json
+      - ./packages/backend/.eslintrc.js:/repo/packages/backend/.eslintrc.js
+      - backend_node_modules:/repo/node_modules
+      - uploads_dev:/repo/packages/backend/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,28 +45,28 @@ services:
 
   web:
     build:
-      context: ./packages/web
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: packages/web/Dockerfile.dev
     ports:
       - "5173:5173"
     environment:
       - NODE_ENV=development
       - API_URL=http://backend:3001
     volumes:
-      - ./packages/web/src:/app/src
-      - ./packages/web/public:/app/public
-      - ./packages/web/index.html:/app/index.html
-      - ./packages/web/vite.config.ts:/app/vite.config.ts
-      - ./packages/web/tailwind.config.ts:/app/tailwind.config.ts
-      - ./packages/web/postcss.config.js:/app/postcss.config.js
-      - ./packages/web/tsconfig.json:/app/tsconfig.json
-      - web_node_modules:/app/node_modules
+      - ./packages/web/src:/repo/packages/web/src
+      - ./packages/web/public:/repo/packages/web/public
+      - ./packages/web/index.html:/repo/packages/web/index.html
+      - ./packages/web/vite.config.ts:/repo/packages/web/vite.config.ts
+      - ./packages/web/tailwind.config.ts:/repo/packages/web/tailwind.config.ts
+      - ./packages/web/postcss.config.js:/repo/packages/web/postcss.config.js
+      - ./packages/web/tsconfig.json:/repo/packages/web/tsconfig.json
+      - web_node_modules:/repo/node_modules
     depends_on:
       - backend
     restart: unless-stopped
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine3.24
     environment:
       POSTGRES_DB: tilopos
       POSTGRES_USER: tilopos
@@ -74,7 +82,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine3.21
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -84,10 +92,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: redis-server --appendonly yes
+    # noeviction: BullMQ jobs and distributed locks must never be evicted
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:4.1.8-management-alpine
     ports:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"

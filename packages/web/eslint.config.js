@@ -23,6 +23,24 @@ export default tseslint.config(
       'react-hooks/set-state-in-effect': 'off',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+
+      // --- Docs/ENGINEERING-RULES.md ---
+      'no-empty': ['error', { allowEmptyCatch: false }],
+      'no-restricted-syntax': [
+        'error',
+        {
+          // F6: icon-only buttons need an accessible name
+          selector:
+            "JSXOpeningElement[name.name='Button']:has(JSXAttribute[name.name='size'][value.value='icon']):not(:has(JSXAttribute[name.name=/^(aria-label|aria-labelledby|title)$/]))",
+          message: 'F6: <Button size="icon"> needs aria-label.',
+        },
+        {
+          // F4: never persist secrets/PIN in web storage
+          selector:
+            "CallExpression[callee.object.name=/^(localStorage|sessionStorage)$/][callee.property.name='setItem'][arguments.0.value=/pin|secret|password/i]",
+          message: 'F4: do not store PINs/secrets in web storage.',
+        },
+      ],
     },
   },
 );

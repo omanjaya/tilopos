@@ -1,36 +1,94 @@
+# Single-host production-like stack.
+#   cp .env.example .env   # fill every "required in production" value
+#   npm run docker:prod
+# Images are built from the repository root so the workspace lockfile is used.
+# Migrations run once in the `migrate` service before the backend starts
+# (the backend image no longer migrates on every start).
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  PORT: "3001"
+  TZ: Asia/Jakarta
+  DATABASE_URL: postgresql://tilopos:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/tilopos?schema=public
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (>= 32 chars)}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+  CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+  FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+  TRUST_PROXY: ${TRUST_PROXY:-1}
+  METRICS_ENABLED: ${METRICS_ENABLED:-false}
+  RABBITMQ_URL: amqp://tilo:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672
+  RABBITMQ_EXCHANGE: tilo.events
+  RABBITMQ_QUEUE_PREFIX: tilo
+  PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:?PAYMENT_GATEWAY is required (midtrans|xendit)}
+  MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
+  MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
+  XENDIT_API_KEY: ${XENDIT_API_KEY:-}
+  XENDIT_WEBHOOK_TOKEN: ${XENDIT_WEBHOOK_TOKEN:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  # Required in production: local (the `uploads` volume below) or s3 (+ S3_* values)
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_REGION: ${S3_REGION:-ap-southeast-1}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  WHATSAPP_API_URL: ${WHATSAPP_API_URL:-}
+  WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:-}
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
 services:
   web:
     build:
-      context: ./packages/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: packages/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+        VITE_CDN_URL: ${VITE_CDN_URL:-}
+        VITE_SUPPORT_EMAIL: ${VITE_SUPPORT_EMAIL:-}
+        VITE_SUPPORT_WHATSAPP: ${VITE_SUPPORT_WHATSAPP:-}
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "${WEB_PORT:-80}:8080"
+    environment:
+      BACKEND_UPSTREAM: http://backend:3001
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   backend:
     build:
-      context: ./packages/backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: packages/backend/Dockerfile
     ports:
-      - "${PORT:-3001}:3001"
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - DATABASE_URL=postgresql://tilopos:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/tilopos?schema=public
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
-      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
-      - CORS_ORIGIN=${CORS_ORIGIN:?CORS_ORIGIN is required}
-      - RABBITMQ_URL=amqp://tilo:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672
-      - RABBITMQ_EXCHANGE=tilo.events
-      - RABBITMQ_QUEUE_PREFIX=tilo
-      - XENDIT_WEBHOOK_TOKEN=${XENDIT_WEBHOOK_TOKEN:-}
-      - MIDTRANS_SERVER_KEY=${MIDTRANS_SERVER_KEY:-}
+      - "127.0.0.1:${PORT:-3001}:3001"
+    environment: *backend-env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -39,11 +97,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - uploads:/app/uploads
-      - logs:/app/logs
+      - uploads:/app/packages/backend/uploads
+      - logs:/app/packages/backend/logs
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine3.24
     environment:
       POSTGRES_DB: tilopos
       POSTGRES_USER: tilopos
@@ -60,21 +118,24 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine3.21
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     expose:
       - "6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
-    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    # noeviction: BullMQ jobs and distributed locks must never be evicted
+    command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:4.1.8-management-alpine
     expose:
       - "5672"
     ports:

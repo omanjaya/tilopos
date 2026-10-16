@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      nestjs:
+        patterns: ['@nestjs/*']
+      aws-sdk:
+        patterns: ['@aws-sdk/*']
+      radix:
+        patterns: ['@radix-ui/*']
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker
+    directories:
+      - /packages/backend
+      - /packages/web
+    schedule:
+      interval: monthly

@@ -4,6 +4,9 @@
   "private": true,
   "description": "TiloPOS - Point of Sale system for Indonesian SME/UMKM",
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.12 <23"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -19,6 +22,7 @@
     "build:backend": "npm run build --workspace=@tilo/backend",
     "build:web": "npm run build --workspace=@tilo/web",
     "lint": "npm run lint --workspaces --if-present",
+    "lint:check": "npm run lint:check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:backend": "npm run test --workspace=@tilo/backend",
     "test:web": "npm run test --workspace=@tilo/web",
@@ -35,10 +39,10 @@
   },
   "lint-staged": {
     "packages/backend/**/*.ts": [
-      "cd packages/backend && eslint --fix"
+      "npm exec --workspace=@tilo/backend -- eslint --fix"
     ],
     "packages/web/**/*.{ts,tsx}": [
-      "cd packages/web && eslint --fix"
+      "npm exec --workspace=@tilo/web -- eslint --fix"
     ]
   },
   "overrides": {

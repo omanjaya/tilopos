@@ -1,9 +1,21 @@
-version: '3.8'
+# Optional ELK stack for centralised logs.
+#
+# Start it next to the app stack so both share one network:
+#   docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d
+# (or -f docker-compose.dev.yml -f docker-compose.elk.yml for development)
+#
+# Required in .env: ELASTIC_PASSWORD, KIBANA_PASSWORD, LOGS_WRITER_PASSWORD.
+# The one-shot `elk-setup` service sets the kibana_system password and creates a
+# least-privilege `tilo_logs_writer` user that may only write tilo-logs-* indices.
+# Point the backend at it with:
+#   ELASTICSEARCH_URL=http://elasticsearch:9200
+#   ELASTICSEARCH_USERNAME=tilo_logs_writer
+#   ELASTICSEARCH_PASSWORD=${LOGS_WRITER_PASSWORD}
+#   ELASTICSEARCH_INDEX_PREFIX=tilo-logs
 
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
-    container_name: tilo-elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.22
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
@@ -14,40 +26,68 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs -u \"elastic:$$ELASTIC_PASSWORD\" http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 5
+      retries: 10
     restart: unless-stopped
 
+  elk-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.22
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:?KIBANA_PASSWORD is required}
+      - LOGS_WRITER_PASSWORD=${LOGS_WRITER_PASSWORD:?LOGS_WRITER_PASSWORD is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        ES=http://elasticsearch:9200
+        AUTH="elastic:$$ELASTIC_PASSWORD"
+        echo "Setting kibana_system password"
+        curl -fsS -u "$$AUTH" -H 'Content-Type: application/json' \
+          -X POST "$$ES/_security/user/kibana_system/_password" \
+          -d "{\"password\":\"$$KIBANA_PASSWORD\"}"
+        echo "Creating tilo_logs_writer role and user"
+        curl -fsS -u "$$AUTH" -H 'Content-Type: application/json' \
+          -X PUT "$$ES/_security/role/tilo_logs_writer" \
+          -d '{"cluster":["monitor"],"indices":[{"names":["tilo-logs-*"],"privileges":["create_doc","create_index","auto_configure"]}]}'
+        curl -fsS -u "$$AUTH" -H 'Content-Type: application/json' \
+          -X PUT "$$ES/_security/user/tilo_logs_writer" \
+          -d "{\"password\":\"$$LOGS_WRITER_PASSWORD\",\"roles\":[\"tilo_logs_writer\"]}"
+        echo "ELK setup done"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: "no"
+
   logstash:
-    image: docker.elastic.co/logstash/logstash:8.12.0
-    container_name: tilo-logstash
+    image: docker.elastic.co/logstash/logstash:8.19.22
     volumes:
       - ./packages/backend/config/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
     ports:
       - "127.0.0.1:5000:5000/tcp"
     environment:
       - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
+      - xpack.monitoring.enabled=false
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - LOGS_WRITER_PASSWORD=${LOGS_WRITER_PASSWORD:?LOGS_WRITER_PASSWORD is required}
     depends_on:
-      elasticsearch:
-        condition: service_healthy
+      elk-setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.12.0
-    container_name: tilo-kibana
+    image: docker.elastic.co/kibana/kibana:8.19.22
     ports:
       - "127.0.0.1:5601:5601"
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
       ELASTICSEARCH_USERNAME: kibana_system
-      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD:?KIBANA_PASSWORD is required}
     depends_on:
-      elasticsearch:
-        condition: service_healthy
+      elk-setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

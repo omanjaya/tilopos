@@ -1,0 +1,16 @@
+# Local upload storage, shared by every backend replica -> must be ReadWriteMany.
+# Set storageClassName to an RWX-capable class (NFS, EFS, Filestore, Longhorn RWX...).
+# Not needed when S3 is configured (S3_ACCESS_KEY_ID in the Secret); keep it small then.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tilopos-uploads
+  labels:
+    app: tilopos-backend
+spec:
+  accessModes:
+    - ReadWriteMany
+  # storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi

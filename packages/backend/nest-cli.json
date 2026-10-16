@@ -11,6 +11,11 @@
         "include": "infrastructure/database/templates/*.json",
         "outDir": "dist",
         "watchAssets": true
+      },
+      {
+        "include": "infrastructure/notifications/email/templates/*.hbs",
+        "outDir": "dist",
+        "watchAssets": true
       }
     ]
   }

@@ -4,40 +4,73 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: '0'
 
 jobs:
   lint:
+    name: Lint (no --fix)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '25'
-          cache: 'npm'
+          node-version-file: .nvmrc
+          cache: npm
       - run: npm ci
       - run: npm run db:generate
-      - run: npm run lint
+      - run: npm run lint:check
 
-  test:
+  backend-unit:
+    name: Backend typecheck + unit tests
     runs-on: ubuntu-latest
-    if: false  # Temporarily disabled - tests pass locally but fail in CI
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - name: Typecheck
+        working-directory: packages/backend
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Unit tests
+        working-directory: packages/backend
+        run: npm run test:ci
+
+  backend-integration:
+    name: Backend integration tests (Postgres + Redis)
+    runs-on: ubuntu-latest
+    # Non-blocking until the integration suite is proven stable in CI.
+    continue-on-error: true
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:15.19-alpine3.24
         env:
-          POSTGRES_DB: mokapos_test
-          POSTGRES_USER: mokapos
-          POSTGRES_PASSWORD: mokapos_secret
+          POSTGRES_DB: tilopos
+          POSTGRES_USER: tilopos
+          POSTGRES_PASSWORD: tilopos_dev
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U tilopos -d tilopos"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7-alpine
+        image: redis:7.4.11-alpine3.21
         ports:
           - 6379:6379
         options: >-
@@ -46,35 +79,94 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://mokapos:mokapos_secret@localhost:5432/mokapos_test?schema=public
-      REDIS_HOST: localhost
-      REDIS_PORT: 6379
-      JWT_SECRET: test-jwt-secret
       NODE_ENV: test
+      DATABASE_URL: postgresql://tilopos:tilopos_dev@localhost:5432/tilopos?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789
+      JWT_EXPIRES_IN: 1h
+      CORS_ORIGIN: http://localhost:5173
+      PAYMENT_GATEWAY: mock
+      ALLOW_DESTRUCTIVE_SEED: 'true'
+      SEED_DEFAULT_PIN: '1234'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '25'
-          cache: 'npm'
+          node-version-file: .nvmrc
+          cache: npm
       - run: npm ci
       - run: npm run db:generate
-      - run: npx prisma migrate deploy --schema=packages/backend/prisma/schema.prisma
-      - run: npm test -- --maxWorkers=2 --forceExit --passWithNoTests
-      - run: npm run test:e2e --workspace=@tilo/backend -- --maxWorkers=1 --forceExit --passWithNoTests
+      - name: Apply migrations
+        working-directory: packages/backend
+        run: npx prisma migrate deploy
+      - name: Seed demo data
+        run: npm run db:seed
+      - name: Integration tests
+        working-directory: packages/backend
+        run: npm run test:e2e -- --forceExit
 
-  build:
+  web:
+    name: Web typecheck, unit tests, build
     runs-on: ubuntu-latest
-    needs: [lint]  # test job temporarily disabled
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '25'
-          cache: 'npm'
-      - name: Clean install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Unit tests (vitest)
+        working-directory: packages/web
+        run: npm test
+      - name: Build (tsc -b + vite build)
+        run: npm run build:web
+
+  backend-build:
+    name: Backend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run db:generate
-      - run: npm run build
+      - run: npm run build:backend
+
+  docker:
+    name: Docker images build (no push)
+    runs-on: ubuntu-latest
+    needs: [lint, backend-unit, web, backend-build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/backend/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/web/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  audit:
+    name: npm audit (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm audit --omit=dev --audit-level=high

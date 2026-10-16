@@ -1,0 +1,24 @@
+# Docker build context is the repository root (Dockerfiles live in packages/*).
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+packages/backend/logs
+packages/backend/uploads
+**/*.log
+.git
+.github
+.husky
+.claude
+.agent
+Docs
+docs
+k8s
+UDSAYAN
+packages/web/e2e
+packages/web/playwright-report
+packages/web/test-results
+packages/backend/test
+**/*.md
