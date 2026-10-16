@@ -3,10 +3,26 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-const UDSAYAN_DIR = path.resolve(__dirname, '../../../../UDSAYAN');
+// Customer spreadsheets contain PII and must live outside the repository.
+const UDSAYAN_DIR = process.env.UDSAYAN_DIR
+  ? path.resolve(process.env.UDSAYAN_DIR)
+  : path.resolve(__dirname, '../../../../UDSAYAN');
+
+/** Initial owner/cashier PIN: SEED_INITIAL_PIN, otherwise a random 6-digit PIN printed once. */
+function resolveInitialPin(): string {
+  const fromEnv = process.env.SEED_INITIAL_PIN;
+  if (fromEnv) {
+    if (!/^\d{4,8}$/.test(fromEnv)) {
+      throw new Error('SEED_INITIAL_PIN must be 4-8 digits');
+    }
+    return fromEnv;
+  }
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+}
 
 const OUTLET_FILES = [
   { file: 'MITRA USAHA CANGGU 2025.xlsx', name: 'UD Sayan - Canggu', code: 'UDS-CGU' },
@@ -160,235 +176,246 @@ async function main() {
     return;
   }
 
-  // 1. Create Business
-  console.log('1. Creating business...');
-  const business = await prisma.business.create({
-    data: {
-      name: 'UD Sayan',
-      legalName: 'UD Sayan',
-      phone: '-',
-      email: 'udsayan@tilopos.id',
-      address: 'Bali, Indonesia',
-      subscriptionPlan: 'premium',
-      subscriptionExpiresAt: new Date('2027-12-31'),
-      businessType: 'retail',
-      settings: {
-        currency: 'IDR',
-        locale: 'id-ID',
-        timezone: 'Asia/Jakarta',
-      },
-    },
-  });
-  console.log(`   Business: ${business.name} (${business.id})`);
-
-  // 2. Create Outlets
-  console.log('\n2. Creating outlets...');
-  const outletMap: Record<string, string> = {};
-
-  for (const outletDef of OUTLET_FILES) {
-    const outlet = await prisma.outlet.create({
-      data: {
-        businessId: business.id,
-        name: outletDef.name,
-        code: outletDef.code,
-        address: `Bali, Indonesia`,
-        taxRate: 0,
-        serviceCharge: 0,
-        receiptHeader: `${outletDef.name}\nBatu Alam & Material`,
-        receiptFooter: 'Terima kasih atas kepercayaan Anda!',
-        settings: {},
-      },
-    });
-    outletMap[outletDef.code] = outlet.id;
-    console.log(`   Outlet: ${outlet.name} (${outlet.id})`);
-  }
-
-  // 3. Create Owner Employee
-  console.log('\n3. Creating owner employee...');
-  const hashedPin = await bcrypt.hash('1234', 12);
-  const owner = await prisma.employee.create({
-    data: {
-      businessId: business.id,
-      outletId: outletMap['UDS-SYN'],
-      name: 'Owner UD Sayan',
-      email: 'udsayan@tilopos.id',
-      phone: '-',
-      pin: hashedPin,
-      role: 'owner',
-      permissions: ['all'],
-      onboardingCompleted: true,
-    },
-  });
-  console.log(`   Owner: ${owner.name} (${owner.email}, PIN: 1234)`);
-
-  // Create cashiers per outlet
-  console.log('\n4. Creating cashier per outlet...');
-  for (const outletDef of OUTLET_FILES) {
-    const outletShortName = outletDef.name.replace('UD Sayan - ', '').toLowerCase();
-    const cashier = await prisma.employee.create({
-      data: {
-        businessId: business.id,
-        outletId: outletMap[outletDef.code],
-        name: `Kasir ${outletDef.name.replace('UD Sayan - ', '')}`,
-        email: `kasir.${outletShortName}@udsayan.id`,
-        pin: hashedPin,
-        role: 'cashier',
-        permissions: ['pos'],
-        onboardingCompleted: true,
-      },
-    });
-    console.log(`   Cashier: ${cashier.name} (${cashier.email})`);
-  }
-
-  // 5. Read products from Excel
-  console.log('\n5. Reading products from Excel...');
+  // Read all spreadsheet data before opening the transaction.
+  console.log('Reading products and customers from Excel...');
   const productData = await readProducts();
   console.log(`   Found ${productData.size} unique products`);
-
-  // 6. Create Categories
-  console.log('\n6. Creating categories...');
-  const categoryNames = new Set<string>();
-  for (const [, prod] of productData) {
-    categoryNames.add(categorizeProduct(prod.name));
-  }
-
-  const categoryMap: Record<string, string> = {};
-  let sortOrder = 1;
-  for (const catName of Array.from(categoryNames).sort()) {
-    const cat = await prisma.category.create({
-      data: {
-        businessId: business.id,
-        name: catName,
-        sortOrder: sortOrder++,
-      },
-    });
-    categoryMap[catName] = cat.id;
-    console.log(`   Category: ${catName} (${cat.id})`);
-  }
-
-  // 7. Create Products + OutletProduct + StockLevel
-  console.log('\n7. Creating products...');
-  let productCount = 0;
-  let outletProductCount = 0;
-
-  for (const [, prod] of productData) {
-    const catName = categorizeProduct(prod.name);
-    const categoryId = categoryMap[catName];
-
-    // Determine sell unit from product name
-    let sellUnit = 'm²';
-    const n = prod.name.toLowerCase();
-    if (
-      n.includes('kolam') ||
-      n.includes('koral') ||
-      n.includes('sikat') ||
-      n.includes('coating') ||
-      n.includes('nat semen') ||
-      n.includes('stepping') ||
-      n.includes('roster')
-    ) {
-      sellUnit = 'pcs';
-    }
-    if (n.includes('pae ') || n.includes('edging')) {
-      sellUnit = 'btg';
-    }
-
-    const product = await prisma.product.create({
-      data: {
-        businessId: business.id,
-        categoryId,
-        name: prod.name,
-        costPrice: prod.costPrice,
-        basePrice: prod.basePrice,
-        sellUnit,
-        trackStock: true,
-        isActive: true,
-      },
-    });
-    productCount++;
-
-    // Assign to all outlets (product available everywhere)
-    for (const outletDef of OUTLET_FILES) {
-      await prisma.outletProduct.create({
-        data: {
-          outletId: outletMap[outletDef.code],
-          productId: product.id,
-          isActive: prod.outlets.includes(outletDef.code),
-        },
-      });
-      outletProductCount++;
-
-      // Create StockLevel (start at 0)
-      await prisma.stockLevel.create({
-        data: {
-          outletId: outletMap[outletDef.code],
-          productId: product.id,
-          quantity: 0,
-          lowStockAlert: 10,
-        },
-      });
-    }
-  }
-  console.log(`   Created ${productCount} products`);
-  console.log(`   Created ${outletProductCount} outlet-product assignments`);
-
-  // 8. Read & Create Customers
-  console.log('\n8. Reading customers from Excel...');
   const customerData = await readCustomers();
   console.log(`   Found ${customerData.length} customer records`);
 
-  // Deduplicate customers: same name across outlets -> merge, sum creditBalance
-  const customerMerged = new Map<
-    string,
-    { name: string; creditBalance: number; outlets: string[] }
-  >();
-  for (const c of customerData) {
-    const key = c.name.toLowerCase().trim();
-    if (!customerMerged.has(key)) {
-      customerMerged.set(key, {
-        name: c.name,
-        creditBalance: c.creditBalance,
-        outlets: [c.outlet],
+  const initialPin = resolveInitialPin();
+  const hashedPin = await bcrypt.hash(initialPin, 12);
+
+  // The whole import runs in one transaction: a failure leaves nothing behind,
+  // so the "already exists" guard above never blocks a re-run.
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // 1. Create Business
+      console.log('1. Creating business...');
+      const business = await tx.business.create({
+        data: {
+          name: 'UD Sayan',
+          legalName: 'UD Sayan',
+          phone: '-',
+          email: 'udsayan@tilopos.id',
+          address: 'Bali, Indonesia',
+          subscriptionPlan: 'premium',
+          subscriptionExpiresAt: new Date('2027-12-31'),
+          businessType: 'retail',
+          settings: {
+            currency: 'IDR',
+            locale: 'id-ID',
+            timezone: 'Asia/Jakarta',
+          },
+        },
       });
-    } else {
-      const existing = customerMerged.get(key)!;
-      existing.creditBalance += c.creditBalance;
-      if (!existing.outlets.includes(c.outlet)) {
-        existing.outlets.push(c.outlet);
+      console.log(`   Business: ${business.name} (${business.id})`);
+
+      // 2. Create Outlets
+      console.log('\n2. Creating outlets...');
+      const outletMap: Record<string, string> = {};
+
+      for (const outletDef of OUTLET_FILES) {
+        const outlet = await tx.outlet.create({
+          data: {
+            businessId: business.id,
+            name: outletDef.name,
+            code: outletDef.code,
+            address: `Bali, Indonesia`,
+            taxRate: 0,
+            serviceCharge: 0,
+            receiptHeader: `${outletDef.name}\nBatu Alam & Material`,
+            receiptFooter: 'Terima kasih atas kepercayaan Anda!',
+            settings: {},
+          },
+        });
+        outletMap[outletDef.code] = outlet.id;
+        console.log(`   Outlet: ${outlet.name} (${outlet.id})`);
       }
-    }
-  }
 
-  console.log(`   Unique customers after dedup: ${customerMerged.size}`);
+      // 3. Create Owner Employee
+      console.log('\n3. Creating owner employee...');
+      const owner = await tx.employee.create({
+        data: {
+          businessId: business.id,
+          outletId: outletMap['UDS-SYN'],
+          name: 'Owner UD Sayan',
+          email: 'udsayan@tilopos.id',
+          phone: '-',
+          pin: hashedPin,
+          role: 'owner',
+          permissions: ['all'],
+          onboardingCompleted: true,
+        },
+      });
+      console.log(`   Owner: ${owner.name} (${owner.email})`);
 
-  console.log('\n9. Creating customers...');
-  let customerCount = 0;
-  for (const [, cust] of customerMerged) {
-    await prisma.customer.create({
-      data: {
-        businessId: business.id,
-        name: cust.name,
-        creditBalance: cust.creditBalance,
-        creditLimit: cust.creditBalance * 2,
-        notes: `Outlet: ${cust.outlets.join(', ')}. Piutang dari data Excel.`,
-        customerType:
-          cust.name.startsWith('CV ') || cust.name.startsWith('PT ') ? 'company' : 'individual',
-      },
-    });
-    customerCount++;
-  }
-  console.log(`   Created ${customerCount} customers`);
+      // Create cashiers per outlet
+      console.log('\n4. Creating cashier per outlet...');
+      for (const outletDef of OUTLET_FILES) {
+        const outletShortName = outletDef.name.replace('UD Sayan - ', '').toLowerCase();
+        const cashier = await tx.employee.create({
+          data: {
+            businessId: business.id,
+            outletId: outletMap[outletDef.code],
+            name: `Kasir ${outletDef.name.replace('UD Sayan - ', '')}`,
+            email: `kasir.${outletShortName}@udsayan.id`,
+            pin: hashedPin,
+            role: 'cashier',
+            permissions: ['pos'],
+            onboardingCompleted: true,
+          },
+        });
+        console.log(`   Cashier: ${cashier.name} (${cashier.email})`);
+      }
+
+      // 6. Create Categories
+      console.log('\n6. Creating categories...');
+      const categoryNames = new Set<string>();
+      for (const [, prod] of productData) {
+        categoryNames.add(categorizeProduct(prod.name));
+      }
+
+      const categoryMap: Record<string, string> = {};
+      let sortOrder = 1;
+      for (const catName of Array.from(categoryNames).sort()) {
+        const cat = await tx.category.create({
+          data: {
+            businessId: business.id,
+            name: catName,
+            sortOrder: sortOrder++,
+          },
+        });
+        categoryMap[catName] = cat.id;
+        console.log(`   Category: ${catName} (${cat.id})`);
+      }
+
+      // 7. Create Products + OutletProduct + StockLevel
+      console.log('\n7. Creating products...');
+      let productCount = 0;
+      let outletProductCount = 0;
+
+      for (const [, prod] of productData) {
+        const catName = categorizeProduct(prod.name);
+        const categoryId = categoryMap[catName];
+
+        // Determine sell unit from product name
+        let sellUnit = 'm²';
+        const n = prod.name.toLowerCase();
+        if (
+          n.includes('kolam') ||
+          n.includes('koral') ||
+          n.includes('sikat') ||
+          n.includes('coating') ||
+          n.includes('nat semen') ||
+          n.includes('stepping') ||
+          n.includes('roster')
+        ) {
+          sellUnit = 'pcs';
+        }
+        if (n.includes('pae ') || n.includes('edging')) {
+          sellUnit = 'btg';
+        }
+
+        const product = await tx.product.create({
+          data: {
+            businessId: business.id,
+            categoryId,
+            name: prod.name,
+            costPrice: prod.costPrice,
+            basePrice: prod.basePrice,
+            sellUnit,
+            trackStock: true,
+            isActive: true,
+          },
+        });
+        productCount++;
+
+        // Assign to all outlets (product available everywhere)
+        for (const outletDef of OUTLET_FILES) {
+          await tx.outletProduct.create({
+            data: {
+              outletId: outletMap[outletDef.code],
+              productId: product.id,
+              isActive: prod.outlets.includes(outletDef.code),
+            },
+          });
+          outletProductCount++;
+
+          // Create StockLevel (start at 0)
+          await tx.stockLevel.create({
+            data: {
+              outletId: outletMap[outletDef.code],
+              productId: product.id,
+              quantity: 0,
+              lowStockAlert: 10,
+            },
+          });
+        }
+      }
+      console.log(`   Created ${productCount} products`);
+      console.log(`   Created ${outletProductCount} outlet-product assignments`);
+
+      // 8. Merge customers
+      // Deduplicate customers: same name across outlets -> merge, sum creditBalance
+      const customerMerged = new Map<
+        string,
+        { name: string; creditBalance: number; outlets: string[] }
+      >();
+      for (const c of customerData) {
+        const key = c.name.toLowerCase().trim();
+        if (!customerMerged.has(key)) {
+          customerMerged.set(key, {
+            name: c.name,
+            creditBalance: c.creditBalance,
+            outlets: [c.outlet],
+          });
+        } else {
+          const existing = customerMerged.get(key)!;
+          existing.creditBalance += c.creditBalance;
+          if (!existing.outlets.includes(c.outlet)) {
+            existing.outlets.push(c.outlet);
+          }
+        }
+      }
+
+      console.log(`   Unique customers after dedup: ${customerMerged.size}`);
+
+      console.log('\n9. Creating customers...');
+      let customerCount = 0;
+      for (const [, cust] of customerMerged) {
+        await tx.customer.create({
+          data: {
+            businessId: business.id,
+            name: cust.name,
+            creditBalance: cust.creditBalance,
+            creditLimit: cust.creditBalance * 2,
+            notes: `Outlet: ${cust.outlets.join(', ')}. Piutang dari data Excel.`,
+            customerType:
+              cust.name.startsWith('CV ') || cust.name.startsWith('PT ') ? 'company' : 'individual',
+          },
+        });
+        customerCount++;
+      }
+      console.log(`   Created ${customerCount} customers`);
+
+      return { business, outletMap, productCount, categoryMap, customerCount };
+    },
+    { maxWait: 10_000, timeout: 10 * 60_000 },
+  );
+  const { business, outletMap, productCount, categoryMap, customerCount } = result;
 
   // Summary
   console.log('\n========================================');
   console.log('UD SAYAN SEED COMPLETED');
   console.log('========================================\n');
   console.log('Login credentials:');
-  console.log('┌──────────┬─────────────────────────┬──────┐');
-  console.log('│ Role     │ Email                   │ PIN  │');
-  console.log('├──────────┼─────────────────────────┼──────┤');
-  console.log('│ Owner    │ udsayan@tilopos.id      │ 1234 │');
-  console.log('└──────────┴─────────────────────────┴──────┘\n');
+  console.log('┌──────────┬─────────────────────────┬────────┐');
+  console.log('│ Role     │ Email                   │ PIN    │');
+  console.log('├──────────┼─────────────────────────┼────────┤');
+  console.log(`│ Owner    │ udsayan@tilopos.id      │ ${initialPin.padEnd(6)} │`);
+  console.log('└──────────┴─────────────────────────┴────────┘');
+  console.log('Cashiers use the same initial PIN. Change all PINs after first login.\n');
   console.log(`Business ID: ${business.id}`);
   console.log('Outlets:');
   for (const outletDef of OUTLET_FILES) {

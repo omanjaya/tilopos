@@ -219,6 +219,8 @@ enum LoyaltyTransactionType {
   redeemed
   adjusted
   expired
+  /// Reversal of points earned by a sale that was voided (TransactionEventListener).
+  reversed
 
   @@map("loyalty_transaction_type")
 }
@@ -390,6 +392,7 @@ model Business {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
+  authSessions         AuthSession[]
   outlets              Outlet[]
   employees            Employee[]
   categories           Category[]
@@ -414,6 +417,12 @@ model Business {
   bundlePackages       BundlePackage[]
   subscriptions        Subscription[]
   invoices             Invoice[]
+  documentSequences    DocumentSequence[]
+  transferTemplates    TransferTemplate[]
+  appointments         Appointment[]
+  workOrders           WorkOrder[]
+  serialNumbers        SerialNumber[]
+  serviceItems         ServiceItem[]
 
   @@map("businesses")
 }
@@ -448,7 +457,7 @@ model Outlet {
   id            String  @id @default(uuid()) @db.Uuid
   businessId    String  @map("business_id") @db.Uuid
   name          String  @db.VarChar(255)
-  code          String? @unique @db.VarChar(20)
+  code          String? @db.VarChar(20)
   address       String? @db.Text
   phone         String? @db.VarChar(20)
   email         String? @db.VarChar(255)
@@ -468,7 +477,7 @@ model Outlet {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business                 Business                  @relation(fields: [businessId], references: [id])
+  business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
   employees                Employee[]
   stockLevels              StockLevel[]
   stockMovements           StockMovement[]
@@ -502,7 +511,11 @@ model Outlet {
   outletProducts           OutletProduct[]
   bundlePackageOutlets     BundlePackageOutlet[]
   stockOpnames             StockOpname[]
+  sourceTemplates          TransferTemplate[]        @relation("TemplateSourceOutlet")
+  destinationTemplates     TransferTemplate[]        @relation("TemplateDestinationOutlet")
 
+  // Outlet codes are user-facing and unique per tenant (R15/R17), not globally.
+  @@unique([businessId, code], map: "uq_outlet_business_code")
   @@index([businessId], map: "idx_outlets_business")
   @@map("outlets")
 }
@@ -540,6 +553,7 @@ model OutletProduct {
   isActive  Boolean  @default(true) @map("is_active")
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
@@ -581,7 +595,8 @@ model Employee {
   updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business                 Business                  @relation(fields: [businessId], references: [id])
+  authSessions             AuthSession[]
+  business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
   outlet                   Outlet?                   @relation(fields: [outletId], references: [id], onDelete: SetNull)
   shifts                   Shift[]
   transactions             Transaction[]             @relation("TransactionEmployee")
@@ -627,7 +642,7 @@ model EmployeeSchedule {
 
   // Relations
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  outlet   Outlet   @relation(fields: [outletId], references: [id])
+  outlet   Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@index([employeeId], map: "idx_schedule_employee")
   @@index([outletId, date], map: "idx_schedule_outlet_date")
@@ -655,12 +670,15 @@ model EmployeeAttendance {
   hoursWorked  Decimal?         @map("hours_worked") @db.Decimal(5, 2)
   status       AttendanceStatus @default(present)
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  outlet   Outlet   @relation(fields: [outletId], references: [id])
+  outlet   Outlet   @relation(fields: [outletId], references: [id], onDelete: Restrict)
 
   @@index([employeeId], map: "idx_attendance_employee")
+  // 20260927100000_audit_2026_09_followups adds partial unique index "uq_attendance_open_per_employee"
+  // (employee_id) WHERE clock_out_time IS NULL: at most one open attendance per employee.
   @@index([outletId, clockInTime], map: "idx_attendance_outlet_date")
   @@map("employee_attendances")
 }
@@ -679,14 +697,16 @@ model Category {
   sortOrder   Int      @default(0) @map("sort_order")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business   @relation(fields: [businessId], references: [id])
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryParent")
   products Product[]
 
   @@index([businessId], map: "idx_categories_business")
+  @@index([parentId], map: "idx_categories_parent")
   @@map("categories")
 }
 
@@ -713,8 +733,8 @@ model Product {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business               @relation(fields: [businessId], references: [id])
-  category              Category?              @relation(fields: [categoryId], references: [id])
+  business              Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category              Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   variants              ProductVariant[]
   stockLevels           StockLevel[]
   stockMovements        StockMovement[]
@@ -734,6 +754,7 @@ model Product {
   bundlePackageItems    BundlePackageItem[]
   stockOpnameItems      StockOpnameItem[]
   costPriceHistory      CostPriceHistory[]
+  transferTemplateItems TransferTemplateItem[]
 
   @@unique([businessId, sku], map: "uq_products_business_sku")
   @@unique([businessId, barcode], map: "uq_products_business_barcode")
@@ -760,21 +781,23 @@ model ProductVariant {
   costPrice Decimal? @map("cost_price") @db.Decimal(15, 2)
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product            Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stockLevels        StockLevel[]
-  stockMovements     StockMovement[]
-  transactionItems   TransactionItem[]
-  orderItems         OrderItem[]
-  recipes            Recipe[]
-  purchaseOrderItems PurchaseOrderItem[]
-  stockTransferItems StockTransferItem[]
-  selfOrderItems     SelfOrderItem[]
-  storeOrderItems    StoreOrderItem[]
-  bundlePackageItems BundlePackageItem[]
-  stockOpnameItems   StockOpnameItem[]
-  costPriceHistory   CostPriceHistory[]
+  product               Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  transactionItems      TransactionItem[]
+  orderItems            OrderItem[]
+  recipes               Recipe[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  stockTransferItems    StockTransferItem[]
+  selfOrderItems        SelfOrderItem[]
+  storeOrderItems       StoreOrderItem[]
+  bundlePackageItems    BundlePackageItem[]
+  stockOpnameItems      StockOpnameItem[]
+  costPriceHistory      CostPriceHistory[]
+  transferTemplateItems TransferTemplateItem[]
 
   @@index([productId], map: "idx_variants_product")
   @@map("product_variants")
@@ -794,14 +817,21 @@ model StockLevel {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet  Outlet          @relation(fields: [outletId], references: [id])
+  outlet  Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
   product Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
   variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
+  // NOTE: variant_id is nullable and Postgres treats NULLs as distinct, so this key alone does
+  // NOT prevent duplicate rows for non-variant products. Migration
+  // 20260927000000_audit_2026_09_schema_hardening adds the partial unique index
+  // "uq_stock_outlet_product_no_variant" ON stock_levels(outlet_id, product_id) WHERE variant_id IS NULL
+  // (raw SQL; Prisma cannot express partial indexes and ignores them in `migrate diff`).
   @@unique([outletId, productId, variantId], map: "uq_stock_outlet_product_variant")
   @@index([outletId], map: "idx_stock_outlet")
   @@index([outletId, productId], map: "idx_stock_outlet_product")
   @@index([outletId, quantity])
+  @@index([productId], map: "idx_stock_product")
+  @@index([variantId], map: "idx_stock_variant")
   @@map("stock_levels")
 }
 
@@ -823,11 +853,14 @@ model StockMovement {
   createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet          @relation(fields: [outletId], references: [id])
-  product  Product?        @relation(fields: [productId], references: [id])
-  variant  ProductVariant? @relation(fields: [variantId], references: [id])
-  employee Employee?       @relation(fields: [createdBy], references: [id])
+  // Append-only ledger: no updatedAt by design.
+  outlet   Outlet          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  product  Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  employee Employee?       @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@index([variantId], map: "idx_stock_movements_variant")
+  @@index([createdBy], map: "idx_stock_movements_created_by")
   @@index([outletId], map: "idx_stock_movements_outlet")
   @@index([createdAt], map: "idx_stock_movements_date")
   @@index([outletId, productId, variantId], map: "idx_stock_movements_product")
@@ -840,35 +873,43 @@ model StockMovement {
 // ============================================================================
 
 model Transaction {
-  id              String            @id @default(uuid()) @db.Uuid
-  outletId        String            @map("outlet_id") @db.Uuid
-  employeeId      String?           @map("employee_id") @db.Uuid
-  customerId      String?           @map("customer_id") @db.Uuid
-  shiftId         String?           @map("shift_id") @db.Uuid
-  receiptNumber   String            @map("receipt_number") @db.VarChar(50)
-  transactionType TransactionType   @default(sale) @map("transaction_type")
-  orderType       OrderType         @default(dine_in) @map("order_type")
-  tableId         String?           @map("table_id") @db.Uuid
-  subtotal        Decimal           @db.Decimal(15, 2)
-  discountAmount  Decimal           @default(0) @map("discount_amount") @db.Decimal(15, 2)
-  taxAmount       Decimal           @default(0) @map("tax_amount") @db.Decimal(15, 2)
-  serviceCharge   Decimal           @default(0) @map("service_charge") @db.Decimal(15, 2)
-  grandTotal      Decimal           @map("grand_total") @db.Decimal(15, 2)
-  notes           String?           @db.Text
-  status          TransactionStatus @default(completed)
-  voidedAt        DateTime?         @map("voided_at") @db.Timestamptz()
-  voidedBy        String?           @map("voided_by") @db.Uuid
-  voidReason      String?           @map("void_reason") @db.Text
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                  String            @id @default(uuid()) @db.Uuid
+  outletId            String            @map("outlet_id") @db.Uuid
+  employeeId          String?           @map("employee_id") @db.Uuid
+  customerId          String?           @map("customer_id") @db.Uuid
+  shiftId             String?           @map("shift_id") @db.Uuid
+  receiptNumber       String            @map("receipt_number") @db.VarChar(50)
+  transactionType     TransactionType   @default(sale) @map("transaction_type")
+  orderType           OrderType         @default(dine_in) @map("order_type")
+  tableId             String?           @map("table_id") @db.Uuid
+  subtotal            Decimal           @db.Decimal(15, 2)
+  discountAmount      Decimal           @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  taxAmount           Decimal           @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  serviceCharge       Decimal           @default(0) @map("service_charge") @db.Decimal(15, 2)
+  /// Cash rounding applied to reach grandTotal (grandTotal = subtotal - discount + tax + service + rounding).
+  roundingAmount      Decimal           @default(0) @map("rounding_amount") @db.Decimal(15, 2)
+  grandTotal          Decimal           @map("grand_total") @db.Decimal(15, 2)
+  notes               String?           @db.Text
+  status              TransactionStatus @default(completed)
+  voidedAt            DateTime?         @map("voided_at") @db.Timestamptz()
+  voidedBy            String?           @map("voided_by") @db.Uuid
+  voidReason          String?           @map("void_reason") @db.Text
+  /// Idempotency key generated by the client (offline sync). Unique per outlet.
+  clientTransactionId String?           @map("client_transaction_id") @db.VarChar(64)
+  /// For transactionType = refund: the original sale this refund belongs to.
+  refundOfId          String?           @map("refund_of_id") @db.Uuid
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  outlet              Outlet               @relation(fields: [outletId], references: [id])
-  employee            Employee?            @relation("TransactionEmployee", fields: [employeeId], references: [id])
-  customer            Customer?            @relation(fields: [customerId], references: [id])
-  shift               Shift?               @relation(fields: [shiftId], references: [id])
-  table               Table?               @relation(fields: [tableId], references: [id])
-  voidedByEmployee    Employee?            @relation("TransactionVoidedBy", fields: [voidedBy], references: [id])
+  // Relations (financial record: never cascade-deleted; void instead)
+  outlet              Outlet               @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  employee            Employee?            @relation("TransactionEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  customer            Customer?            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  shift               Shift?               @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  table               Table?               @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  voidedByEmployee    Employee?            @relation("TransactionVoidedBy", fields: [voidedBy], references: [id], onDelete: Restrict)
+  refundOf            Transaction?         @relation("TransactionRefunds", fields: [refundOfId], references: [id], onDelete: Restrict)
+  refunds             Transaction[]        @relation("TransactionRefunds")
   items               TransactionItem[]
   payments            Payment[]
   onlineOrders        OnlineOrder[]
@@ -876,6 +917,13 @@ model Transaction {
   creditSales         CreditSale[]
 
   @@unique([outletId, receiptNumber], map: "uq_receipt_per_outlet")
+  @@unique([outletId, clientTransactionId], map: "uq_transaction_client_id")
+  @@index([customerId], map: "idx_transactions_customer")
+  @@index([shiftId], map: "idx_transactions_shift")
+  @@index([employeeId], map: "idx_transactions_employee")
+  @@index([tableId], map: "idx_transactions_table")
+  @@index([voidedBy], map: "idx_transactions_voided_by")
+  @@index([refundOfId], map: "idx_transactions_refund_of")
   @@index([outletId], map: "idx_transactions_outlet")
   @@index([createdAt], map: "idx_transactions_date")
   @@index([receiptNumber], map: "idx_transactions_receipt")
@@ -900,17 +948,26 @@ model TransactionItem {
   discountAmount Decimal  @default(0) @map("discount_amount") @db.Decimal(15, 2)
   subtotal       Decimal  @db.Decimal(15, 2)
   bundleId       String?  @map("bundle_id") @db.Uuid
+  /// On a refund line: the sold line it returns (Restrict: financial history).
+  refundOfItemId String?  @map("refund_of_item_id") @db.Uuid
   notes          String?  @db.Text
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  transaction Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  product     Product?                  @relation(fields: [productId], references: [id])
-  variant     ProductVariant?           @relation(fields: [variantId], references: [id])
-  bundle      BundlePackage?            @relation(fields: [bundleId], references: [id])
-  modifiers   TransactionItemModifier[]
+  // Relations (product/variant/bundle names are snapshotted, so references are SetNull)
+  transaction  Transaction               @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product      Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant      ProductVariant?           @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  bundle       BundlePackage?            @relation(fields: [bundleId], references: [id], onDelete: SetNull)
+  refundOfItem TransactionItem?          @relation("TransactionItemRefund", fields: [refundOfItemId], references: [id], onDelete: Restrict)
+  refundItems  TransactionItem[]         @relation("TransactionItemRefund")
+  modifiers    TransactionItemModifier[]
 
   @@index([transactionId], map: "idx_trans_items_transaction")
+  @@index([productId], map: "idx_trans_items_product")
+  @@index([variantId], map: "idx_trans_items_variant")
+  @@index([bundleId], map: "idx_trans_items_bundle")
+  @@index([refundOfItemId], map: "idx_trans_items_refund_of")
   @@map("transaction_items")
 }
 
@@ -927,9 +984,10 @@ model Payment {
   status          PaymentStatus @default(completed)
   metadata        Json          @default("{}") @db.JsonB
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  // Relations (financial: deleting a transaction must not silently erase its payments)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
 
   @@index([transactionId], map: "idx_payments_transaction")
   @@map("payments")
@@ -954,10 +1012,13 @@ model Shift {
   notes          String?     @db.Text
   status         ShiftStatus @default(open)
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  outlet       Outlet        @relation(fields: [outletId], references: [id])
-  employee     Employee      @relation(fields: [employeeId], references: [id])
+  // Relations (financial)
+  // NOTE: the migration adds partial unique index "uq_shift_open_per_employee"
+  // ON shifts(employee_id) WHERE status = 'open' (at most one open shift per employee; raw SQL).
+  outlet       Outlet        @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   transactions Transaction[]
 
   @@index([outletId], map: "idx_shifts_outlet")
@@ -992,7 +1053,7 @@ model Customer {
   updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business            Business             @relation(fields: [businessId], references: [id])
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
   transactions        Transaction[]
   orders              Order[]
   loyaltyTransactions LoyaltyTransaction[]
@@ -1004,7 +1065,7 @@ model Customer {
   creditSales         CreditSale[]
 
   @@index([businessId], map: "idx_customers_business")
-  @@index([phone], map: "idx_customers_phone")
+  @@index([businessId, phone], map: "idx_customers_business_phone")
   @@map("customers")
 }
 
@@ -1025,14 +1086,17 @@ model Table {
   occupiedAt     DateTime?   @map("occupied_at") @db.Timestamptz()
   isActive       Boolean     @default(true) @map("is_active")
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet            Outlet             @relation(fields: [outletId], references: [id])
+  outlet            Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
   transactions      Transaction[]
   orders            Order[]
   selfOrderSessions SelfOrderSession[]
   waitingList       WaitingList[]
 
+  // 20260927100000_audit_2026_09_followups adds partial unique index "uq_table_outlet_name_active"
+  // (outlet_id, name) WHERE is_active (raw SQL; Prisma cannot express partial indexes).
   @@index([outletId], map: "idx_tables_outlet")
   @@map("tables")
 }
@@ -1058,11 +1122,13 @@ model Order {
   updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet      @relation(fields: [outletId], references: [id])
-  table    Table?      @relation(fields: [tableId], references: [id])
-  customer Customer?   @relation(fields: [customerId], references: [id])
+  outlet   Outlet      @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  table    Table?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items    OrderItem[]
 
+  @@index([tableId], map: "idx_orders_table")
+  @@index([customerId], map: "idx_orders_customer")
   @@index([outletId], map: "idx_orders_outlet")
   @@index([status], map: "idx_orders_status")
   @@index([outletId, status, createdAt])
@@ -1086,13 +1152,15 @@ model OrderItem {
   startedAt   DateTime?       @map("started_at") @db.Timestamptz()
   completedAt DateTime?       @map("completed_at") @db.Timestamptz()
   createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product?        @relation(fields: [productId], references: [id])
-  variant ProductVariant? @relation(fields: [variantId], references: [id])
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([orderId], map: "idx_order_items_order")
+  @@index([productId], map: "idx_order_items_product")
   @@index([status], map: "idx_order_items_status")
   @@map("order_items")
 }
@@ -1112,9 +1180,10 @@ model ModifierGroup {
   sortOrder     Int                   @default(0) @map("sort_order")
   isActive      Boolean               @default(true) @map("is_active")
   createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business              Business               @relation(fields: [businessId], references: [id])
+  business              Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   modifiers             Modifier[]
   productModifierGroups ProductModifierGroup[]
 
@@ -1134,6 +1203,7 @@ model Modifier {
   sortOrder       Int      @default(0) @map("sort_order")
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   modifierGroup            ModifierGroup             @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
@@ -1148,16 +1218,19 @@ model Modifier {
 // ============================================================================
 
 model ProductModifierGroup {
-  id              String @id @default(uuid()) @db.Uuid
-  productId       String @map("product_id") @db.Uuid
-  modifierGroupId String @map("modifier_group_id") @db.Uuid
-  sortOrder       Int    @default(0) @map("sort_order")
+  id              String   @id @default(uuid()) @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  modifierGroupId String   @map("modifier_group_id") @db.Uuid
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   modifierGroup ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@unique([productId, modifierGroupId], map: "uq_product_modifier_group")
+  @@index([modifierGroupId], map: "idx_product_modifier_groups_group")
   @@map("product_modifier_groups")
 }
 
@@ -1168,17 +1241,19 @@ model ProductModifierGroup {
 model TransactionItemModifier {
   id                String   @id @default(uuid()) @db.Uuid
   transactionItemId String   @map("transaction_item_id") @db.Uuid
-  modifierId        String   @map("modifier_id") @db.Uuid
+  modifierId        String?  @map("modifier_id") @db.Uuid
   modifierName      String   @map("modifier_name") @db.VarChar(255)
   price             Decimal  @default(0) @db.Decimal(15, 2)
   quantity          Int      @default(1)
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  // Relations
+  // Append-only (no updatedAt). modifierName/price are snapshotted, so deleting a
+  // modifier keeps the sold line and nulls the reference.
   transactionItem TransactionItem @relation(fields: [transactionItemId], references: [id], onDelete: Cascade)
-  modifier        Modifier        @relation(fields: [modifierId], references: [id])
+  modifier        Modifier?       @relation(fields: [modifierId], references: [id], onDelete: SetNull)
 
   @@index([transactionItemId], map: "idx_trans_item_mods")
+  @@index([modifierId], map: "idx_trans_item_mods_modifier")
   @@map("transaction_item_modifiers")
 }
 
@@ -1199,12 +1274,13 @@ model Ingredient {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business           Business                  @relation(fields: [businessId], references: [id])
-  stockLevels        IngredientStockLevel[]
-  recipeItems        RecipeItem[]
-  stockMovements     IngredientStockMovement[]
-  purchaseOrderItems PurchaseOrderItem[]
-  stockTransferItems StockTransferItem[]
+  business              Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  stockLevels           IngredientStockLevel[]
+  recipeItems           RecipeItem[]
+  stockMovements        IngredientStockMovement[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  stockTransferItems    StockTransferItem[]
+  transferTemplateItems TransferTemplateItem[]
 
   @@unique([businessId, sku], map: "uq_ingredients_business_sku")
   @@index([businessId], map: "idx_ingredients_business")
@@ -1224,7 +1300,7 @@ model IngredientStockLevel {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet     Outlet     @relation(fields: [outletId], references: [id])
+  outlet     Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, ingredientId], map: "uq_ing_stock_outlet_ingredient")
@@ -1251,6 +1327,7 @@ model Recipe {
   items   RecipeItem[]
 
   @@index([productId], map: "idx_recipes_product")
+  @@index([variantId], map: "idx_recipes_variant")
   @@map("recipes")
 }
 
@@ -1265,12 +1342,14 @@ model RecipeItem {
   quantity     Decimal  @db.Decimal(15, 4)
   unit         String   @db.VarChar(50)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
+  // Relations (ingredients are soft-deleted; a used ingredient cannot be hard-deleted)
   recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
 
   @@index([recipeId], map: "idx_recipe_items_recipe")
+  @@index([ingredientId], map: "idx_recipe_items_ingredient")
   @@map("recipe_items")
 }
 
@@ -1291,10 +1370,12 @@ model IngredientStockMovement {
   createdAt     DateTime                    @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  outlet     Outlet     @relation(fields: [outletId], references: [id])
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
-  employee   Employee?  @relation(fields: [createdBy], references: [id])
+  // Append-only ledger: no updatedAt by design.
+  outlet     Outlet     @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  employee   Employee?  @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@index([ingredientId], map: "idx_ing_movements_ingredient")
   @@index([outletId], map: "idx_ing_movements_outlet")
   @@index([createdAt], map: "idx_ing_movements_date")
   @@map("ingredient_stock_movements")
@@ -1318,7 +1399,7 @@ model Supplier {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business       Business        @relation(fields: [businessId], references: [id])
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
   purchaseOrders PurchaseOrder[]
 
   @@index([businessId], map: "idx_suppliers_business")
@@ -1333,7 +1414,7 @@ model PurchaseOrder {
   id          String              @id @default(uuid()) @db.Uuid
   outletId    String              @map("outlet_id") @db.Uuid
   supplierId  String              @map("supplier_id") @db.Uuid
-  poNumber    String              @unique @map("po_number") @db.VarChar(50)
+  poNumber    String              @map("po_number") @db.VarChar(50)
   status      PurchaseOrderStatus @default(draft)
   totalAmount Decimal             @default(0) @map("total_amount") @db.Decimal(15, 2)
   notes       String?             @db.Text
@@ -1344,11 +1425,14 @@ model PurchaseOrder {
   updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet              @relation(fields: [outletId], references: [id])
-  supplier Supplier            @relation(fields: [supplierId], references: [id])
-  employee Employee?           @relation(fields: [createdBy], references: [id])
+  outlet   Outlet              @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  supplier Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  employee Employee?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   items    PurchaseOrderItem[]
 
+  // PO numbers are unique per outlet (the model has no businessId), not globally.
+  @@unique([outletId, poNumber], map: "uq_po_outlet_number")
+  @@index([createdBy], map: "idx_po_created_by")
   @@index([outletId], map: "idx_po_outlet")
   @@index([supplierId], map: "idx_po_supplier")
   @@map("purchase_orders")
@@ -1370,14 +1454,18 @@ model PurchaseOrderItem {
   unitCost         Decimal  @map("unit_cost") @db.Decimal(15, 4)
   subtotal         Decimal  @db.Decimal(15, 2)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   purchaseOrder PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product       Product?        @relation(fields: [productId], references: [id])
-  variant       ProductVariant? @relation(fields: [variantId], references: [id])
-  ingredient    Ingredient?     @relation(fields: [ingredientId], references: [id])
+  product       Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  ingredient    Ingredient?     @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
 
   @@index([purchaseOrderId], map: "idx_po_items_po")
+  @@index([productId], map: "idx_po_items_product")
+  @@index([variantId], map: "idx_po_items_variant")
+  @@index([ingredientId], map: "idx_po_items_ingredient")
   @@map("purchase_order_items")
 }
 
@@ -1388,7 +1476,7 @@ model PurchaseOrderItem {
 model StockTransfer {
   id                  String              @id @default(uuid()) @db.Uuid
   businessId          String              @map("business_id") @db.Uuid
-  transferNumber      String              @unique @map("transfer_number") @db.VarChar(50)
+  transferNumber      String              @map("transfer_number") @db.VarChar(50)
   sourceOutletId      String              @map("source_outlet_id") @db.Uuid
   destinationOutletId String              @map("destination_outlet_id") @db.Uuid
   status              StockTransferStatus @default(pending)
@@ -1396,6 +1484,8 @@ model StockTransfer {
   requestedBy         String?             @map("requested_by") @db.Uuid
   approvedBy          String?             @map("approved_by") @db.Uuid
   receivedBy          String?             @map("received_by") @db.Uuid
+  /// Template the transfer was created from (usage counts); SetNull when the template is deleted.
+  templateId          String?             @map("template_id") @db.Uuid
   requestedAt         DateTime            @default(now()) @map("requested_at") @db.Timestamptz()
   approvedAt          DateTime?           @map("approved_at") @db.Timestamptz()
   shippedAt           DateTime?           @map("shipped_at") @db.Timestamptz()
@@ -1404,18 +1494,21 @@ model StockTransfer {
   updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business            Business            @relation(fields: [businessId], references: [id])
-  sourceOutlet        Outlet              @relation("SourceOutlet", fields: [sourceOutletId], references: [id])
-  destinationOutlet   Outlet              @relation("DestinationOutlet", fields: [destinationOutletId], references: [id])
-  requestedByEmployee Employee?           @relation("TransferRequestedBy", fields: [requestedBy], references: [id])
-  approvedByEmployee  Employee?           @relation("TransferApprovedBy", fields: [approvedBy], references: [id])
-  receivedByEmployee  Employee?           @relation("TransferReceivedBy", fields: [receivedBy], references: [id])
+  business            Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  sourceOutlet        Outlet              @relation("SourceOutlet", fields: [sourceOutletId], references: [id], onDelete: Restrict)
+  destinationOutlet   Outlet              @relation("DestinationOutlet", fields: [destinationOutletId], references: [id], onDelete: Restrict)
+  requestedByEmployee Employee?           @relation("TransferRequestedBy", fields: [requestedBy], references: [id], onDelete: SetNull)
+  approvedByEmployee  Employee?           @relation("TransferApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  receivedByEmployee  Employee?           @relation("TransferReceivedBy", fields: [receivedBy], references: [id], onDelete: SetNull)
+  template            TransferTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
   items               StockTransferItem[]
 
+  @@unique([businessId, transferNumber], map: "uq_transfer_business_number")
   @@index([businessId], map: "idx_transfers_business")
   @@index([sourceOutletId], map: "idx_transfers_source")
   @@index([destinationOutletId], map: "idx_transfers_dest")
   @@index([status], map: "idx_transfers_status")
+  @@index([templateId], map: "idx_transfers_template")
   @@map("stock_transfers")
 }
 
@@ -1434,14 +1527,18 @@ model StockTransferItem {
   quantityReceived Decimal? @map("quantity_received") @db.Decimal(15, 3)
   notes            String?  @db.Text
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   transfer   StockTransfer   @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  product    Product?        @relation(fields: [productId], references: [id])
-  variant    ProductVariant? @relation(fields: [variantId], references: [id])
-  ingredient Ingredient?     @relation(fields: [ingredientId], references: [id])
+  product    Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  ingredient Ingredient?     @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
 
   @@index([transferId], map: "idx_transfer_items")
+  @@index([productId], map: "idx_transfer_items_product")
+  @@index([variantId], map: "idx_transfer_items_variant")
+  @@index([ingredientId], map: "idx_transfer_items_ingredient")
   @@map("stock_transfer_items")
 }
 
@@ -1462,10 +1559,12 @@ model LoyaltyTransaction {
   createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  customer    Customer     @relation(fields: [customerId], references: [id])
-  transaction Transaction? @relation(fields: [transactionId], references: [id])
-  employee    Employee?    @relation(fields: [createdBy], references: [id])
+  // Append-only ledger: no updatedAt by design.
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  employee    Employee?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@index([transactionId], map: "idx_loyalty_tx_transaction")
   @@index([customerId], map: "idx_loyalty_tx_customer")
   @@index([createdAt], map: "idx_loyalty_tx_date")
   @@index([customerId, createdAt(sort: Desc)], map: "idx_loyalty_tx_customer_date")
@@ -1487,9 +1586,10 @@ model LoyaltyTier {
   sortOrder       Int      @default(0) @map("sort_order")
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId], map: "idx_loyalty_tiers_business")
   @@map("loyalty_tiers")
@@ -1512,7 +1612,7 @@ model LoyaltyProgram {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId], map: "idx_loyalty_prog_business")
   @@map("loyalty_programs")
@@ -1538,11 +1638,15 @@ model AuditLog {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  business Business  @relation(fields: [businessId], references: [id])
-  outlet   Outlet?   @relation(fields: [outletId], references: [id])
-  employee Employee? @relation(fields: [employeeId], references: [id])
-  device   Device?   @relation(fields: [deviceId], references: [id])
+  // Append-only: no updatedAt by design. Never cascade-deleted with the tenant.
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  outlet   Outlet?   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  device   Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
+  @@index([entityId], map: "idx_audit_entity_id")
+  @@index([outletId, createdAt], map: "idx_audit_outlet_date")
+  @@index([deviceId], map: "idx_audit_device")
   @@index([businessId], map: "idx_audit_business")
   @@index([employeeId], map: "idx_audit_employee")
   @@index([entityType, entityId], map: "idx_audit_entity")
@@ -1572,9 +1676,11 @@ model PaymentSettlement {
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  outlet Outlet @relation(fields: [outletId], references: [id])
+  // Relations (financial)
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Restrict)
 
+  // Idempotency: one settlement per outlet, business day and payment method (settlement cron upserts on this).
+  @@unique([outletId, settlementDate, paymentMethod], map: "uq_settlement_outlet_date_method")
   @@index([outletId], map: "idx_settlement_outlet")
   @@index([settlementDate], map: "idx_settlement_date")
   @@index([paymentMethod], map: "idx_settlement_method")
@@ -1617,10 +1723,11 @@ model OnlineOrder {
   updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet      Outlet       @relation(fields: [outletId], references: [id])
-  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  outlet      Outlet       @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
 
   @@unique([outletId, platform, platformOrderId], map: "uq_online_order_platform")
+  @@index([transactionId], map: "idx_online_orders_transaction")
   @@index([outletId], map: "idx_online_orders_outlet")
   @@index([platform, platformOrderId], map: "idx_online_orders_platform")
   @@index([status], map: "idx_online_orders_status")
@@ -1650,8 +1757,8 @@ model Device {
   updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business  Business   @relation(fields: [businessId], references: [id])
-  outlet    Outlet?    @relation(fields: [outletId], references: [id])
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  outlet    Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
   auditLogs AuditLog[]
 
   @@unique([businessId, deviceIdentifier], map: "uq_device_business")
@@ -1677,12 +1784,16 @@ model NotificationSetting {
   updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business  @relation(fields: [businessId], references: [id])
-  outlet   Outlet?   @relation(fields: [outletId], references: [id])
-  employee Employee? @relation(fields: [employeeId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  outlet   Outlet?   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
+  // outletId/employeeId are nullable: the migration recreates this index with NULLS NOT DISTINCT
+  // (PG15+) so business-level settings are unique too. Prisma does not model that flag.
   @@unique([businessId, outletId, employeeId, notificationType, channel], map: "uq_notification_setting")
   @@index([businessId], map: "idx_notif_settings_business")
+  @@index([outletId], map: "idx_notif_settings_outlet")
+  @@index([employeeId], map: "idx_notif_settings_employee")
   @@map("notification_settings")
 }
 
@@ -1703,12 +1814,15 @@ model NotificationLog {
   metadata         Json                  @default("{}") @db.JsonB
   sentAt           DateTime              @default(now()) @map("sent_at") @db.Timestamptz()
   readAt           DateTime?             @map("read_at") @db.Timestamptz()
+  updatedAt        DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business  Business  @relation(fields: [businessId], references: [id])
-  outlet    Outlet?   @relation(fields: [outletId], references: [id])
-  recipient Employee? @relation(fields: [recipientId], references: [id])
+  business  Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  outlet    Outlet?   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  recipient Employee? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
 
+  @@index([businessId, sentAt(sort: Desc)], map: "idx_notif_logs_business_date")
+  @@index([outletId], map: "idx_notif_logs_outlet")
   @@index([recipientId], map: "idx_notif_logs_recipient")
   @@index([sentAt], map: "idx_notif_logs_date")
   @@map("notification_logs")
@@ -1735,10 +1849,11 @@ model SelfOrderSession {
   updatedAt     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet Outlet          @relation(fields: [outletId], references: [id])
-  table  Table?          @relation(fields: [tableId], references: [id])
+  outlet Outlet          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  table  Table?          @relation(fields: [tableId], references: [id], onDelete: SetNull)
   items  SelfOrderItem[]
 
+  @@index([tableId], map: "idx_self_order_table")
   @@index([outletId], map: "idx_self_order_outlet")
   @@index([sessionCode], map: "idx_self_order_code")
   @@map("self_order_sessions")
@@ -1760,11 +1875,13 @@ model SelfOrderItem {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
+  // Cart lines of a transient session: removing the product removes the cart line.
   session SelfOrderSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  product Product          @relation(fields: [productId], references: [id])
-  variant ProductVariant?  @relation(fields: [variantId], references: [id])
+  product Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant?  @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([sessionId], map: "idx_self_order_items_session")
+  @@index([productId], map: "idx_self_order_items_product")
   @@map("self_order_items")
 }
 
@@ -1790,7 +1907,7 @@ model OnlineStore {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business    Business     @relation(fields: [businessId], references: [id])
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   storeOrders StoreOrder[]
 
   @@index([businessId], map: "idx_online_stores_business")
@@ -1806,7 +1923,7 @@ model StoreOrder {
   id              String                  @id @default(uuid()) @db.Uuid
   storeId         String                  @map("store_id") @db.Uuid
   outletId        String                  @map("outlet_id") @db.Uuid
-  orderNumber     String                  @unique @map("order_number") @db.VarChar(50)
+  orderNumber     String                  @map("order_number") @db.VarChar(50)
   customerName    String                  @map("customer_name") @db.VarChar(255)
   customerEmail   String?                 @map("customer_email") @db.VarChar(255)
   customerPhone   String                  @map("customer_phone") @db.VarChar(20)
@@ -1829,10 +1946,13 @@ model StoreOrder {
   updatedAt       DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  store  OnlineStore      @relation(fields: [storeId], references: [id])
-  outlet Outlet           @relation(fields: [outletId], references: [id])
+  store  OnlineStore      @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  outlet Outlet           @relation(fields: [outletId], references: [id], onDelete: Restrict)
   items  StoreOrderItem[]
 
+  // Store order numbers are unique per store (tenant-scoped), not globally.
+  @@unique([storeId, orderNumber], map: "uq_store_order_number")
+  @@index([outletId, createdAt], map: "idx_store_orders_outlet_date")
   @@index([storeId], map: "idx_store_orders_store")
   @@index([orderStatus], map: "idx_store_orders_status")
   @@index([createdAt], map: "idx_store_orders_date")
@@ -1854,13 +1974,15 @@ model StoreOrderItem {
   unitPrice    Decimal  @map("unit_price") @db.Decimal(15, 2)
   subtotal     Decimal  @db.Decimal(15, 2)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   storeOrder StoreOrder      @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
-  product    Product?        @relation(fields: [productId], references: [id])
-  variant    ProductVariant? @relation(fields: [variantId], references: [id])
+  product    Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([storeOrderId], map: "idx_store_order_items")
+  @@index([productId], map: "idx_store_order_items_product")
   @@map("store_order_items")
 }
 
@@ -1883,11 +2005,13 @@ model WaitingList {
   notifiedAt       DateTime?         @map("notified_at") @db.Timestamptz()
   seatedAt         DateTime?         @map("seated_at") @db.Timestamptz()
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet Outlet @relation(fields: [outletId], references: [id])
-  table  Table? @relation(fields: [tableId], references: [id])
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  table  Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
 
+  @@index([tableId], map: "idx_waitlist_table")
   @@index([outletId], map: "idx_waitlist_outlet")
   @@index([status], map: "idx_waitlist_status")
   @@map("waiting_list")
@@ -1913,9 +2037,10 @@ model Promotion {
   applicableTo  Json         @default("{}") @map("applicable_to") @db.JsonB
   isActive      Boolean      @default(true) @map("is_active")
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business  @relation(fields: [businessId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   vouchers Voucher[]
 
   @@index([businessId], map: "idx_promotions_business")
@@ -1930,7 +2055,7 @@ model Promotion {
 model Voucher {
   id             String    @id @default(uuid()) @db.Uuid
   businessId     String    @map("business_id") @db.Uuid
-  code           String    @unique @db.VarChar(50)
+  code           String    @db.VarChar(50)
   promotionId    String?   @map("promotion_id") @db.Uuid
   initialValue   Decimal?  @map("initial_value") @db.Decimal(15, 2)
   remainingValue Decimal?  @map("remaining_value") @db.Decimal(15, 2)
@@ -1939,12 +2064,18 @@ model Voucher {
   usedBy         String?   @map("used_by") @db.Uuid
   isActive       Boolean   @default(true) @map("is_active")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  business  Business   @relation(fields: [businessId], references: [id])
-  promotion Promotion? @relation(fields: [promotionId], references: [id])
-  customer  Customer?  @relation(fields: [usedBy], references: [id])
+  // Relations (vouchers may carry stored value: a promotion with vouchers cannot be deleted)
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  promotion Promotion? @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  customer  Customer?  @relation(fields: [usedBy], references: [id], onDelete: SetNull)
 
+  // Voucher codes are unique per tenant; always look them up together with businessId.
+  @@unique([businessId, code], map: "uq_voucher_business_code")
+  @@index([businessId], map: "idx_vouchers_business")
+  @@index([promotionId], map: "idx_vouchers_promotion")
+  @@index([usedBy], map: "idx_vouchers_used_by")
   @@index([code], map: "idx_vouchers_code")
   @@map("vouchers")
 }
@@ -2004,7 +2135,7 @@ model ReportTemplate {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId], map: "idx_report_templates_business")
   @@map("report_templates")
@@ -2024,6 +2155,7 @@ model AppVersion {
   forceUpdate  Boolean  @default(false) @map("force_update")
   publishedAt  DateTime @default(now()) @map("published_at") @db.Timestamptz()
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@unique([version, platform], map: "uq_app_version_platform")
   @@index([platform], map: "idx_app_versions_platform")
@@ -2098,10 +2230,12 @@ model BatchLot {
   updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  outlet  Outlet  @relation(fields: [outletId], references: [id])
+  // Lot/expiry history: product and outlet are soft-deleted, never cascade.
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Restrict)
 
   @@unique([productId, outletId, batchNumber], map: "uq_batch_lot")
+  @@index([outletId, expiresAt], map: "idx_batch_lots_outlet_expiry")
   @@index([productId, outletId], map: "idx_batch_lots_product_outlet")
   @@index([expiresAt], map: "idx_batch_lots_expiry")
   @@index([status], map: "idx_batch_lots_status")
@@ -2208,10 +2342,12 @@ model Appointment {
   updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet    @relation(fields: [outletId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id])
-  employee Employee? @relation(fields: [employeeId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  outlet   Outlet    @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
+  @@index([businessId, startTime], map: "idx_appointments_business_time")
   @@index([outletId, startTime], map: "idx_appointments_outlet_time")
   @@index([employeeId, startTime], map: "idx_appointments_employee_time")
   @@index([customerId], map: "idx_appointments_customer")
@@ -2251,12 +2387,14 @@ model WorkOrder {
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet          @relation(fields: [outletId], references: [id])
-  customer Customer?       @relation(fields: [customerId], references: [id])
-  employee Employee?       @relation(fields: [employeeId], references: [id])
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  outlet   Outlet          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  customer Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  employee Employee?       @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   items    WorkOrderItem[]
 
   @@unique([businessId, orderNumber], map: "uq_work_order_business")
+  @@index([employeeId], map: "idx_work_orders_employee")
   @@index([outletId, status], map: "idx_work_orders_outlet_status")
   @@index([customerId], map: "idx_work_orders_customer")
   @@index([status], map: "idx_work_orders_status")
@@ -2272,6 +2410,7 @@ model WorkOrderItem {
   unitPrice   Decimal  @map("unit_price") @db.Decimal(15, 2)
   subtotal    Decimal  @db.Decimal(15, 2)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
@@ -2301,12 +2440,14 @@ model SerialNumber {
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
-  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  outlet   Outlet    @relation(fields: [outletId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id])
+  // Relations (sold serials / warranty records survive product deletion attempts)
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  outlet   Outlet    @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@unique([businessId, serialNumber], map: "uq_serial_number_business")
+  @@index([outletId, status], map: "idx_serial_numbers_outlet_status")
   @@index([productId, outletId], map: "idx_serial_numbers_product_outlet")
   @@index([status], map: "idx_serial_numbers_status")
   @@index([serialNumber], map: "idx_serial_numbers_sn")
@@ -2341,10 +2482,12 @@ model ServiceItem {
   updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  outlet   Outlet    @relation(fields: [outletId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  outlet   Outlet    @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@unique([outletId, ticketNumber], map: "uq_ticket_per_outlet")
+  @@index([businessId, status], map: "idx_service_items_business_status")
   @@index([outletId, status], map: "idx_service_items_outlet_status")
   @@index([customerId], map: "idx_service_items_customer")
   @@index([status], map: "idx_service_items_status")
@@ -2413,10 +2556,11 @@ model CreditSale {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  transaction       Transaction     @relation(fields: [transactionId], references: [id])
-  customer          Customer        @relation(fields: [customerId], references: [id])
-  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  createdByEmployee Employee?       @relation("CreditSaleCreatedBy", fields: [createdBy], references: [id])
+  // Receivables are financial records: Restrict everywhere.
+  transaction       Transaction     @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  customer          Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  createdByEmployee Employee?       @relation("CreditSaleCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   payments          CreditPayment[]
 
   @@unique([transactionId], map: "uq_credit_sale_transaction")
@@ -2437,8 +2581,9 @@ model CreditPayment {
   receivedBy      String?       @map("received_by") @db.Uuid
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
 
-  creditSale         CreditSale @relation(fields: [creditSaleId], references: [id], onDelete: Cascade)
-  receivedByEmployee Employee?  @relation("CreditPaymentReceivedBy", fields: [receivedBy], references: [id])
+  // Append-only record of money received: no updatedAt, never cascade-deleted.
+  creditSale         CreditSale @relation(fields: [creditSaleId], references: [id], onDelete: Restrict)
+  receivedByEmployee Employee?  @relation("CreditPaymentReceivedBy", fields: [receivedBy], references: [id], onDelete: SetNull)
 
   @@index([creditSaleId], map: "idx_credit_payments_credit_sale")
   @@map("credit_payments")
@@ -2461,7 +2606,7 @@ model BundlePackage {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  business         Business              @relation(fields: [businessId], references: [id])
+  business         Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   items            BundlePackageItem[]
   outlets          BundlePackageOutlet[]
   transactionItems TransactionItem[]
@@ -2479,13 +2624,15 @@ model BundlePackageItem {
   quantity  Decimal  @default(1) @db.Decimal(10, 3)
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  // Relations
+  // Relations (bundle composition is config: deleting a product removes it from bundles)
   bundle  BundlePackage   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
-  product Product         @relation(fields: [productId], references: [id])
-  variant ProductVariant? @relation(fields: [variantId], references: [id])
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([bundleId], map: "idx_bundle_items_bundle")
+  @@index([productId], map: "idx_bundle_items_product")
   @@map("bundle_package_items")
 }
 
@@ -2495,6 +2642,7 @@ model BundlePackageOutlet {
   outletId  String   @map("outlet_id") @db.Uuid
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   bundle BundlePackage @relation(fields: [bundleId], references: [id], onDelete: Cascade)
@@ -2520,8 +2668,10 @@ model Subscription {
   trialEndsAt  DateTime?          @map("trial_ends_at") @db.Timestamptz()
   cancelledAt  DateTime?          @map("cancelled_at") @db.Timestamptz()
   createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  // Billing history: tenant offboarding is a soft delete (Business.status), never a cascade.
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
   invoices Invoice[]
 
   @@index([businessId], map: "idx_subscriptions_business")
@@ -2544,11 +2694,14 @@ model Invoice {
   provider       String?       @db.VarChar(20)
   metadata       Json          @default("{}") @db.JsonB
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
 
+  // Invoice numbers are per business (generated by DocumentNumberService).
   @@unique([businessId, invoiceNumber], map: "uq_invoice_business")
+  @@index([subscriptionId], map: "idx_invoices_subscription")
   @@index([businessId], map: "idx_invoices_business")
   @@index([status], map: "idx_invoices_status")
   @@index([invoiceNumber], map: "idx_invoices_number")
@@ -2562,7 +2715,7 @@ model Invoice {
 model StockOpname {
   id           String            @id @default(uuid()) @db.Uuid
   outletId     String            @map("outlet_id") @db.Uuid
-  opnameNumber String            @unique @map("opname_number") @db.VarChar(50)
+  opnameNumber String            @map("opname_number") @db.VarChar(50)
   status       StockOpnameStatus @default(draft)
   notes        String?           @db.Text
   createdBy    String            @map("created_by") @db.Uuid
@@ -2572,11 +2725,15 @@ model StockOpname {
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  outlet             Outlet            @relation(fields: [outletId], references: [id])
-  createdByEmployee  Employee          @relation("OpnameCreatedBy", fields: [createdBy], references: [id])
-  approvedByEmployee Employee?         @relation("OpnameApprovedBy", fields: [approvedBy], references: [id])
+  outlet             Outlet            @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  createdByEmployee  Employee          @relation("OpnameCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  approvedByEmployee Employee?         @relation("OpnameApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
   items              StockOpnameItem[]
 
+  // Opname numbers are unique per outlet (the model has no businessId), not globally.
+  @@unique([outletId, opnameNumber], map: "uq_opname_outlet_number")
+  @@index([createdBy], map: "idx_opname_created_by")
+  @@index([approvedBy], map: "idx_opname_approved_by")
   @@index([outletId], map: "idx_opname_outlet")
   @@index([status], map: "idx_opname_status")
   @@index([createdAt], map: "idx_opname_date")
@@ -2596,10 +2753,12 @@ model StockOpnameItem {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   opname  StockOpname     @relation(fields: [opnameId], references: [id], onDelete: Cascade)
-  product Product?        @relation(fields: [productId], references: [id])
-  variant ProductVariant? @relation(fields: [variantId], references: [id])
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([opnameId], map: "idx_opname_items_opname")
+  @@index([productId], map: "idx_opname_items_product")
+  @@index([variantId], map: "idx_opname_items_variant")
   @@map("stock_opname_items")
 }
 
@@ -2621,11 +2780,122 @@ model CostPriceHistory {
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  product Product?        @relation(fields: [productId], references: [id])
-  variant ProductVariant? @relation(fields: [variantId], references: [id])
+  // Append-only audit trail: no updatedAt by design.
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([productId], map: "idx_cost_history_product")
   @@index([variantId], map: "idx_cost_history_variant")
   @@index([createdAt], map: "idx_cost_history_date")
   @@map("cost_price_history")
+}
+
+// ============================================================================
+// DOCUMENT SEQUENCE (per-tenant atomic document numbering, R15)
+// ============================================================================
+
+/// One counter row per (business, prefix, day). Incremented atomically by
+/// DocumentNumberService with INSERT ... ON CONFLICT DO UPDATE ... RETURNING.
+model DocumentSequence {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  prefix     String   @db.VarChar(20)
+  /// YYYYMMDD (business day, Asia/Jakarta) for daily sequences, '' for non-daily ones.
+  dateKey    String   @default("") @map("date_key") @db.VarChar(8)
+  lastValue  Int      @default(0) @map("last_value")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, prefix, dateKey], map: "uq_document_sequence")
+  @@map("document_sequences")
+}
+
+// ============================================================================
+// TRANSFER TEMPLATES (reusable inter-outlet transfer presets)
+// ============================================================================
+
+model TransferTemplate {
+  id                  String   @id @default(uuid()) @db.Uuid
+  businessId          String   @map("business_id") @db.Uuid
+  name                String   @db.VarChar(255)
+  description         String?  @db.Text
+  sourceOutletId      String   @map("source_outlet_id") @db.Uuid
+  destinationOutletId String   @map("destination_outlet_id") @db.Uuid
+  /// Employee id of the creator. Kept as VARCHAR for compatibility with the original table.
+  createdBy           String   @map("created_by") @db.VarChar(255)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  business          Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceOutlet      Outlet                 @relation("TemplateSourceOutlet", fields: [sourceOutletId], references: [id], onDelete: Cascade)
+  destinationOutlet Outlet                 @relation("TemplateDestinationOutlet", fields: [destinationOutletId], references: [id], onDelete: Cascade)
+  items             TransferTemplateItem[]
+  transfers         StockTransfer[]
+
+  // CHECK (source_outlet_id <> destination_outlet_id) exists in the migration (raw SQL).
+  @@index([businessId], map: "idx_transfer_templates_business_id")
+  @@index([sourceOutletId], map: "idx_transfer_templates_source_outlet")
+  @@index([destinationOutletId], map: "idx_transfer_templates_dest_outlet")
+  @@map("transfer_templates")
+}
+
+model TransferTemplateItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  templateId      String   @map("template_id") @db.Uuid
+  productId       String?  @map("product_id") @db.Uuid
+  variantId       String?  @map("variant_id") @db.Uuid
+  ingredientId    String?  @map("ingredient_id") @db.Uuid
+  itemName        String   @map("item_name") @db.VarChar(255)
+  /// CHECK (default_quantity > 0) exists in the migration (raw SQL).
+  defaultQuantity Decimal  @map("default_quantity") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  template   TransferTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  product    Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant    ProductVariant?  @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  ingredient Ingredient?      @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+
+  @@index([templateId], map: "idx_transfer_template_items_template_id")
+  @@index([productId], map: "idx_transfer_template_items_product_id")
+  @@index([variantId], map: "idx_transfer_template_items_variant_id")
+  @@index([ingredientId], map: "idx_transfer_template_items_ingredient_id")
+  @@map("transfer_template_items")
+}
+
+// A session is one refresh-token family. Consumed hashes remain until expiry so
+// replay of any ancestor can revoke the entire family.
+model AuthSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  employeeId String    @map("employee_id") @db.Uuid
+  outletId   String?   @map("outlet_id") @db.Uuid
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz()
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tokens     RefreshToken[]
+
+  @@unique([id, businessId])
+  @@index([businessId])
+  @@index([employeeId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  sessionId  String    @map("session_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  session    AuthSession @relation(fields: [sessionId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([sessionId, businessId])
+  @@map("refresh_tokens")
 }

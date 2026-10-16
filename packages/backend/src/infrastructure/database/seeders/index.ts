@@ -10,63 +10,69 @@ import { seedOrders } from './orders.seeder';
 import { seedLoyalty } from './loyalty.seeder';
 import { seedOnlineStore } from './online-store.seeder';
 import { seedSettings } from './settings.seeder';
+import { seedPricingRules } from './pricing-rules.seeder';
 
 const prisma = new PrismaClient();
 
-async function cleanupDatabase() {
-  console.log('Cleaning existing data...');
+/**
+ * The demo seed wipes every table before inserting fixtures. It must never touch a
+ * production database, and it only runs when explicitly requested (R17):
+ *   NODE_ENV !== 'production' AND ALLOW_DESTRUCTIVE_SEED=true
+ */
+function assertDestructiveSeedAllowed(): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new SeedAbortedError(
+      'Refusing to run the destructive demo seed: NODE_ENV is "production".',
+    );
+  }
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+    throw new SeedAbortedError(
+      'The demo seed DELETES ALL DATA in the target database before seeding. ' +
+        'Re-run with ALLOW_DESTRUCTIVE_SEED=true to confirm, e.g. ' +
+        '`ALLOW_DESTRUCTIVE_SEED=true npm run db:seed`.',
+    );
+  }
+}
 
-  // Delete in reverse order of dependencies
-  await prisma.storeOrderItem.deleteMany();
-  await prisma.storeOrder.deleteMany();
-  await prisma.onlineStore.deleteMany();
-  await prisma.selfOrderItem.deleteMany();
-  await prisma.selfOrderSession.deleteMany();
-  await prisma.waitingList.deleteMany();
-  await prisma.notificationLog.deleteMany();
-  await prisma.notificationSetting.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.loyaltyTransaction.deleteMany();
-  await prisma.loyaltyTier.deleteMany();
-  await prisma.loyaltyProgram.deleteMany();
-  await prisma.voucher.deleteMany();
-  await prisma.promotion.deleteMany();
-  await prisma.paymentSettlement.deleteMany();
-  await prisma.onlineOrder.deleteMany();
-  await prisma.payment.deleteMany();
-  await prisma.transactionItemModifier.deleteMany();
-  await prisma.transactionItem.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.recipeItem.deleteMany();
-  await prisma.recipe.deleteMany();
-  await prisma.ingredientStockMovement.deleteMany();
-  await prisma.ingredientStockLevel.deleteMany();
-  await prisma.stockTransferItem.deleteMany();
-  await prisma.stockTransfer.deleteMany();
-  await prisma.purchaseOrderItem.deleteMany();
-  await prisma.purchaseOrder.deleteMany();
-  await prisma.productModifierGroup.deleteMany();
-  await prisma.modifier.deleteMany();
-  await prisma.modifierGroup.deleteMany();
-  await prisma.stockMovement.deleteMany();
-  await prisma.stockLevel.deleteMany();
-  await prisma.productVariant.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.category.deleteMany();
-  await prisma.ingredient.deleteMany();
-  await prisma.supplier.deleteMany();
-  await prisma.device.deleteMany();
-  await prisma.shift.deleteMany();
-  await prisma.table.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.employee.deleteMany();
-  await prisma.outlet.deleteMany();
-  await prisma.business.deleteMany();
+class SeedAbortedError extends Error {}
+
+/** PIN for every seeded demo login (SEED_DEFAULT_PIN, default 1234 for local dev/tests). */
+function resolveDemoPin(): string {
+  const pin = process.env.SEED_DEFAULT_PIN ?? '1234';
+  if (!/^\d{4,8}$/.test(pin)) {
+    throw new SeedAbortedError('SEED_DEFAULT_PIN must be 4-8 digits.');
+  }
+  return pin;
+}
+
+async function cleanupDatabase() {
+  console.log('Cleaning existing data (TRUNCATE ... CASCADE)...');
+
+  // Truncate every application table (all models, including ones added later),
+  // keeping only Prisma's migration history.
+  const tables = await prisma.$queryRaw<Array<{ tablename: string }>>`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = current_schema() AND tablename <> '_prisma_migrations'
+  `;
+  if (tables.length > 0) {
+    const list = tables.map((t) => `"${t.tablename.replace(/"/g, '""')}"`).join(', ');
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
+  }
 
   console.log('Done.\n');
 }
+
+/** Must match employees.seeder.ts (and test/integration/helpers/auth.helper.ts). */
+const DEMO_LOGINS: Array<[string, string]> = [
+  ['Super Admin', 'superadmin@tilopos.id'],
+  ['Owner', 'budi@brewbites.id'],
+  ['Manager', 'siti@brewbites.id'],
+  ['Supervisor', 'agus@brewbites.id'],
+  ['Cashier', 'dewi@brewbites.id'],
+  ['Cashier (M)', 'rina@brewbites.id'],
+  ['Kitchen', 'joko@brewbites.id'],
+  ['Inventory', 'hendra@brewbites.id'],
+];
 
 async function main() {
   console.log('========================================');
@@ -74,6 +80,9 @@ async function main() {
   console.log('========================================\n');
 
   try {
+    assertDestructiveSeedAllowed();
+    const demoPin = resolveDemoPin();
+
     // Cleanup
     await cleanupDatabase();
 
@@ -85,6 +94,7 @@ async function main() {
       businessId: business.id,
       outletPusatId: outletPusat.id,
       outletCabangId: outletCabang.id,
+      pin: demoPin,
     });
 
     // 3. Products (Categories, Modifiers, Products, Variants)
@@ -140,6 +150,9 @@ async function main() {
       },
     });
 
+    // 8b. Pricing rules (needs products)
+    await seedPricingRules(prisma, business.id);
+
     // 9. Online Store & Self-Order Session
     const { selfOrderSession } = await seedOnlineStore(prisma, {
       businessId: business.id,
@@ -176,19 +189,11 @@ async function main() {
     console.log('\n========================================');
     console.log('SEED COMPLETED SUCCESSFULLY');
     console.log('========================================\n');
-    console.log('Login credentials for testing:');
-    console.log('┌──────────────┬─────────────────────────────────┬──────┐');
-    console.log('│ Role         │ Email                           │ PIN  │');
-    console.log('├──────────────┼─────────────────────────────────┼──────┤');
-    console.log('│ Super Admin  │ superadmin@tilopos.id            │ 1234 │');
-    console.log('│ Owner        │ budi@brewbites.id               │ 1234 │');
-    console.log('│ Manager      │ siti@brewbites.id               │ 1234 │');
-    console.log('│ Supervisor   │ agus@brewbites.id               │ 1234 │');
-    console.log('│ Cashier      │ dewi@brewbites.id               │ 1234 │');
-    console.log('│ Cashier (M)  │ rina@brewbites.id               │ 1234 │');
-    console.log('│ Kitchen      │ joko@brewbites.id               │ 1234 │');
-    console.log('│ Inventory    │ hendra@brewbites.id             │ 1234 │');
-    console.log('└──────────────┴─────────────────────────────────┴──────┘\n');
+    console.log(`Login credentials for testing (all demo accounts use PIN ${demoPin}):`);
+    for (const [role, email] of DEMO_LOGINS) {
+      console.log(`  ${role.padEnd(12)} ${email}`);
+    }
+    console.log('');
     console.log('API: http://localhost:3001/api/v1');
     console.log('Swagger: http://localhost:3001/api/docs');
     console.log(`Business ID: ${business.id}`);
@@ -199,7 +204,11 @@ async function main() {
     console.log(`Online Store Slug: brew-and-bites`);
     console.log('');
   } catch (error) {
-    console.error('\n❌ SEED FAILED:', error);
+    if (error instanceof SeedAbortedError) {
+      console.error(`\nSEED ABORTED: ${error.message}\n`);
+    } else {
+      console.error('\n❌ SEED FAILED:', error);
+    }
     throw error;
   }
 }
@@ -209,7 +218,9 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (e) => {
-    console.error('Seed failed:', e);
+    if (!(e instanceof SeedAbortedError)) {
+      console.error('Seed failed:', e);
+    }
     await prisma.$disconnect();
     process.exit(1);
   });

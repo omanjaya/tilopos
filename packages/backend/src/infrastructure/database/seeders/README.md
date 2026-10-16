@@ -6,27 +6,58 @@ Modular database seeding system for TiloPOS.
 
 ```
 seeders/
-├── index.ts                    # Main orchestrator (211 lines)
-├── business.seeder.ts          # Business & outlets (62 lines)
-├── employees.seeder.ts         # Employees & roles (123 lines)
-├── products.seeder.ts          # Products, categories, variants, modifiers (403 lines)
-├── customers.seeder.ts         # Customers (68 lines)
-├── inventory.seeder.ts         # Stock, ingredients, recipes, suppliers, POs (318 lines)
-├── tables.seeder.ts            # Tables & waiting list (71 lines)
-├── orders.seeder.ts            # Shifts, transactions, orders, payments (397 lines)
-├── loyalty.seeder.ts           # Loyalty programs, tiers, promotions, vouchers (127 lines)
-├── online-store.seeder.ts      # Online store & self-order sessions (52 lines)
-└── settings.seeder.ts          # Devices, notifications, audit logs, stock transfers (201 lines)
+├── index.ts                    # Orchestrator (guard + TRUNCATE cleanup + all seeders)
+├── business.seeder.ts          # Business & outlets
+├── employees.seeder.ts         # Employees & roles (demo logins)
+├── products.seeder.ts          # Products, categories, variants, modifiers
+├── customers.seeder.ts         # Customers
+├── inventory.seeder.ts         # Stock, ingredients, recipes, suppliers, POs
+├── tables.seeder.ts            # Tables & waiting list
+├── orders.seeder.ts            # Shifts, transactions, orders, payments
+├── loyalty.seeder.ts           # Loyalty programs, tiers, promotions, vouchers
+├── pricing-rules.seeder.ts     # Dynamic pricing rules
+├── online-store.seeder.ts      # Online store & self-order sessions
+├── settings.seeder.ts          # Devices, notifications, audit logs, stock transfers
+└── seed-udsayan.ts             # One-off tenant import from Excel (non-destructive)
 ```
 
 ## Usage
 
-### Run all seeders
+### Run all seeders (destructive)
+
+The demo seed **truncates every table** (except `_prisma_migrations`) before inserting
+fixtures. It refuses to run unless both conditions hold:
+
+- `NODE_ENV` is not `production`
+- `ALLOW_DESTRUCTIVE_SEED=true`
+
 ```bash
-npm run db:seed
+ALLOW_DESTRUCTIVE_SEED=true npm run db:seed
 # or
-npx prisma db seed
+ALLOW_DESTRUCTIVE_SEED=true npx prisma db seed
 ```
+
+`prisma migrate reset` also runs the seed; without the flag the seed step aborts with a message.
+
+All demo accounts share one PIN: `SEED_DEFAULT_PIN` (4-8 digits, default `1234` for local
+development and the integration tests). Demo logins:
+
+| Role | Email |
+| --- | --- |
+| Super Admin | superadmin@tilopos.id |
+| Owner | budi@brewbites.id |
+| Manager | siti@brewbites.id |
+| Supervisor | agus@brewbites.id |
+| Cashier | dewi@brewbites.id |
+| Cashier | rina@brewbites.id |
+| Kitchen | joko@brewbites.id |
+| Inventory | hendra@brewbites.id |
+
+### UD Sayan import
+
+`seed-udsayan.ts` imports one tenant from spreadsheets in `UDSAYAN_DIR` (keep that customer
+data outside the repository). It runs in a single transaction and uses `SEED_INITIAL_PIN`
+(or prints a random 6-digit PIN once).
 
 ### Run specific seeder (for development)
 ```typescript
@@ -102,13 +133,6 @@ export async function seedEntity(prisma: PrismaClient, params: SeedEntityParams)
 5. **Readability**: Smaller files are easier to understand and modify
 6. **Scalability**: Easy to add new seeders without touching existing code
 
-## File Size Comparison
-
-- **Original seed.ts**: 1,828 lines (monolithic)
-- **New modular seeders**: 10 files, largest is 403 lines
-- **Total lines**: ~2,033 lines (including orchestrator)
-- **Average per file**: ~185 lines
-
 ## Database Setup
 
 Before running seeders, ensure:
@@ -117,7 +141,7 @@ Before running seeders, ensure:
 2. Database exists: `tilopos`
 3. User has proper permissions
 4. Prisma schema is up to date: `npm run db:generate`
-5. Migrations are applied: `npm run db:migrate`
+5. Migrations are applied: `npm run db:migrate` (dev) or `npm run db:migrate:prod`
 
 ### Docker Setup (Recommended)
 ```bash
@@ -126,7 +150,7 @@ npm run docker:dev
 
 # Run seeders
 cd packages/backend
-npm run db:seed
+ALLOW_DESTRUCTIVE_SEED=true npm run db:seed
 ```
 
 ### Local PostgreSQL Setup
@@ -143,7 +167,7 @@ psql -d tilopos -c "GRANT ALL ON SCHEMA public TO tilopos;"
 npm run db:migrate
 
 # Run seeders
-npm run db:seed
+ALLOW_DESTRUCTIVE_SEED=true npm run db:seed
 ```
 
 ## Troubleshooting
@@ -162,4 +186,4 @@ npm run db:seed
 ### Seeder fails in the middle
 - Check the error message to identify which seeder failed
 - Fix the issue in that specific seeder file
-- Re-run: `npm run db:seed` (cleanup happens automatically)
+- Re-run: `ALLOW_DESTRUCTIVE_SEED=true npm run db:seed` (all tables are truncated first)

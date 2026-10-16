@@ -6,11 +6,13 @@ interface SeedEmployeesParams {
   businessId: string;
   outletPusatId: string;
   outletCabangId: string;
+  /** Plain PIN shared by all demo accounts (see index.ts). */
+  pin: string;
 }
 
 export async function seedEmployees(prisma: PrismaClient, params: SeedEmployeesParams) {
   console.log('Creating employees...');
-  const hashedPin = await bcrypt.hash('1234', 10);
+  const hashedPin = await bcrypt.hash(params.pin, 10);
 
   const superAdmin = await prisma.employee.create({
     data: {
