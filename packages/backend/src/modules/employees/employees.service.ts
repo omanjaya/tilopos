@@ -55,20 +55,29 @@ export class EmployeesService {
   // Schedule Management - Delegated to EmployeeScheduleService
   // ==========================================================================
 
-  async createSchedule(data: CreateScheduleData): Promise<ScheduleEntry> {
-    return this.scheduleService.createSchedule(data);
+  async createSchedule(data: CreateScheduleData, businessId: string): Promise<ScheduleEntry> {
+    return this.scheduleService.createSchedule(data, businessId);
   }
 
-  async getWeeklySchedule(outletId: string, weekStart: Date): Promise<WeeklyScheduleGrid> {
+  async getWeeklySchedule(outletId: string, weekStart: string): Promise<WeeklyScheduleGrid> {
     return this.scheduleService.getWeeklySchedule(outletId, weekStart);
   }
 
-  async updateSchedule(scheduleId: string, data: UpdateScheduleData): Promise<ScheduleEntry> {
-    return this.scheduleService.updateSchedule(scheduleId, data);
+  async updateSchedule(
+    scheduleId: string,
+    data: UpdateScheduleData,
+    businessId: string,
+    outletScope?: string,
+  ): Promise<ScheduleEntry> {
+    return this.scheduleService.updateSchedule(scheduleId, data, businessId, outletScope);
   }
 
-  async deleteSchedule(scheduleId: string): Promise<{ message: string }> {
-    return this.scheduleService.deleteSchedule(scheduleId);
+  async deleteSchedule(
+    scheduleId: string,
+    businessId: string,
+    outletScope?: string,
+  ): Promise<{ message: string }> {
+    return this.scheduleService.deleteSchedule(scheduleId, businessId, outletScope);
   }
 
   // ==========================================================================
@@ -95,8 +104,12 @@ export class EmployeesService {
   // Attendance Tracking - Delegated to EmployeeAttendanceService
   // ==========================================================================
 
-  async clockIn(employeeId: string, outletId: string): Promise<AttendanceClockInResult> {
-    return this.attendanceService.clockIn(employeeId, outletId);
+  async clockIn(
+    employeeId: string,
+    outletId: string,
+    businessId: string,
+  ): Promise<AttendanceClockInResult> {
+    return this.attendanceService.clockIn(employeeId, outletId, businessId);
   }
 
   async clockOut(employeeId: string): Promise<AttendanceClockOutResult> {

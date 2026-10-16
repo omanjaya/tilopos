@@ -1,225 +1,169 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { toNumber } from '../../shared/utils/money';
 import type {
   CustomerSegmentSummary,
   SegmentCustomer,
   SegmentName,
-  CustomerRow,
   SegmentsSummaryResult,
 } from './customers.types';
 import { SEGMENT_TIME_PERIODS, SEGMENT_CRITERIA } from './customers.types';
 
+export const SEGMENT_NAMES: readonly SegmentName[] = [
+  'new',
+  'returning',
+  'vip',
+  'at-risk',
+  'inactive',
+];
+
+const DEFAULT_SEGMENT_PAGE_SIZE = 100;
+const MAX_SEGMENT_PAGE_SIZE = 500;
+
+const SEGMENT_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  totalSpent: true,
+  visitCount: true,
+  loyaltyTier: true,
+  loyaltyPoints: true,
+  lastVisitAt: true,
+  createdAt: true,
+} as const;
+
 /**
- * Service responsible for customer segmentation logic
+ * Customer segmentation computed in the database (R13): counts use COUNT queries
+ * and segment lists are paginated, so no request loads every customer.
  *
- * Segments customers into categories:
- * - New: Created in the last 30 days
- * - Returning: 3 or more transactions
- * - VIP: Top 10% by total spend
- * - At-Risk: No transaction in 60-90 days
- * - Inactive: No transaction in 90+ days
+ * - New: created in the last 30 days
+ * - Returning: 3 or more visits
+ * - VIP: top 10% by total spend
+ * - At-Risk: last visit 60-90 days ago
+ * - Inactive: no visit in 90+ days
  */
 @Injectable()
 export class CustomerSegmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Get summary of all customer segments with counts
-   */
   async getSegmentsSummary(businessId: string): Promise<SegmentsSummaryResult> {
-    const customers = await this.fetchCustomersForSegmentation(businessId);
+    const base = { businessId, isActive: true };
+    const [totalCustomers, vipThreshold] = await Promise.all([
+      this.prisma.customer.count({ where: base }),
+      this.vipThreshold(businessId),
+    ]);
     const now = new Date();
-    const timeThresholds = this.calculateTimeThresholds(now);
 
-    const counts = {
-      new: this.countNewCustomers(customers, timeThresholds.thirtyDaysAgo),
-      returning: this.countReturningCustomers(customers),
-      vip: this.countVIPCustomers(customers),
-      atRisk: this.countAtRiskCustomers(customers, timeThresholds),
-      inactive: this.countInactiveCustomers(customers, timeThresholds),
-    };
+    const counts = await Promise.all(
+      SEGMENT_NAMES.map((segment) =>
+        segment === 'vip' && vipThreshold === null
+          ? Promise.resolve(0)
+          : this.prisma.customer.count({
+              where: this.segmentWhere(businessId, segment, now, vipThreshold),
+            }),
+      ),
+    );
 
+    const [newCount, returning, vip, atRisk, inactive] = counts;
     return {
-      totalCustomers: customers.length,
-      segments: this.buildSegmentsSummary(counts),
+      totalCustomers,
+      segments: this.buildSegmentsSummary({ new: newCount, returning, vip, atRisk, inactive }),
     };
   }
 
-  /**
-   * Get list of customers in a specific segment
-   */
   async getCustomersBySegment(
     businessId: string,
     segment: SegmentName,
+    page: { page?: number; limit?: number } = {},
   ): Promise<SegmentCustomer[]> {
-    const customers = await this.fetchCustomersForSegmentation(businessId);
-    const filtered = this.filterCustomersBySegment(customers, segment);
+    if (!SEGMENT_NAMES.includes(segment)) return [];
+    const vipThreshold = segment === 'vip' ? await this.vipThreshold(businessId) : null;
+    if (segment === 'vip' && vipThreshold === null) return [];
 
-    return filtered.map((c) => this.toSegmentCustomer(c));
-  }
+    const take = Math.min(
+      Math.max(page.limit ?? DEFAULT_SEGMENT_PAGE_SIZE, 1),
+      MAX_SEGMENT_PAGE_SIZE,
+    );
+    const skip = (Math.max(page.page ?? 1, 1) - 1) * take;
 
-  /**
-   * Fetch all active customers for segmentation analysis
-   * @private
-   */
-  private async fetchCustomersForSegmentation(businessId: string): Promise<CustomerRow[]> {
-    return this.prisma.customer.findMany({
-      where: { businessId, isActive: true },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        totalSpent: true,
-        visitCount: true,
-        loyaltyTier: true,
-        loyaltyPoints: true,
-        lastVisitAt: true,
-        createdAt: true,
-      },
+    const rows = await this.prisma.customer.findMany({
+      where: this.segmentWhere(businessId, segment, new Date(), vipThreshold),
+      select: SEGMENT_SELECT,
+      orderBy:
+        segment === 'vip'
+          ? [{ totalSpent: 'desc' }, { id: 'asc' }]
+          : [{ name: 'asc' }, { id: 'asc' }],
+      take,
+      skip,
     });
+
+    return rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      totalSpent: toNumber(c.totalSpent),
+      visitCount: c.visitCount,
+      loyaltyTier: c.loyaltyTier,
+      loyaltyPoints: c.loyaltyPoints,
+      lastVisitAt: c.lastVisitAt,
+      createdAt: c.createdAt,
+    }));
   }
 
-  /**
-   * Calculate time threshold dates for segmentation
-   * @private
-   */
-  private calculateTimeThresholds(now: Date): {
-    thirtyDaysAgo: Date;
-    sixtyDaysAgo: Date;
-    ninetyDaysAgo: Date;
-  } {
-    return {
-      thirtyDaysAgo: new Date(now.getTime() - SEGMENT_TIME_PERIODS.THIRTY_DAYS),
-      sixtyDaysAgo: new Date(now.getTime() - SEGMENT_TIME_PERIODS.SIXTY_DAYS),
-      ninetyDaysAgo: new Date(now.getTime() - SEGMENT_TIME_PERIODS.NINETY_DAYS),
-    };
-  }
-
-  /**
-   * Count new customers (created in last 30 days)
-   * @private
-   */
-  private countNewCustomers(customers: CustomerRow[], thirtyDaysAgo: Date): number {
-    return customers.filter((c) => c.createdAt >= thirtyDaysAgo).length;
-  }
-
-  /**
-   * Count returning customers (3+ visits)
-   * @private
-   */
-  private countReturningCustomers(customers: CustomerRow[]): number {
-    return customers.filter((c) => c.visitCount >= SEGMENT_CRITERIA.RETURNING_MIN_VISITS).length;
-  }
-
-  /**
-   * Count VIP customers (top 10% by spend)
-   * @private
-   */
-  private countVIPCustomers(customers: CustomerRow[]): number {
-    const vipThreshold = this.calculateVIPThreshold(customers);
-    return customers.filter((c) => c.totalSpent.toNumber() >= vipThreshold && vipThreshold > 0)
-      .length;
-  }
-
-  /**
-   * Count at-risk customers (no visit in 60-90 days)
-   * @private
-   */
-  private countAtRiskCustomers(
-    customers: CustomerRow[],
-    thresholds: { sixtyDaysAgo: Date; ninetyDaysAgo: Date },
-  ): number {
-    return customers.filter((c) => {
-      if (!c.lastVisitAt) return false;
-      return c.lastVisitAt < thresholds.sixtyDaysAgo && c.lastVisitAt >= thresholds.ninetyDaysAgo;
-    }).length;
-  }
-
-  /**
-   * Count inactive customers (no visit in 90+ days)
-   * @private
-   */
-  private countInactiveCustomers(
-    customers: CustomerRow[],
-    thresholds: { ninetyDaysAgo: Date },
-  ): number {
-    return customers.filter((c) => {
-      if (!c.lastVisitAt) {
-        // No visit and created more than 90 days ago
-        return c.createdAt < thresholds.ninetyDaysAgo;
-      }
-      return c.lastVisitAt < thresholds.ninetyDaysAgo;
-    }).length;
-  }
-
-  /**
-   * Calculate VIP threshold (top 10% by spend)
-   * @private
-   */
-  private calculateVIPThreshold(customers: CustomerRow[]): number {
-    if (customers.length === 0) return 0;
-
-    const sortedBySpend = [...customers].sort(
-      (a, b) => b.totalSpent.toNumber() - a.totalSpent.toNumber(),
-    );
-
-    const vipThresholdIndex = Math.max(
-      1,
-      Math.ceil(customers.length * SEGMENT_CRITERIA.VIP_PERCENTILE),
-    );
-
-    return sortedBySpend[
-      Math.min(vipThresholdIndex - 1, sortedBySpend.length - 1)
-    ].totalSpent.toNumber();
-  }
-
-  /**
-   * Filter customers by segment criteria
-   * @private
-   */
-  private filterCustomersBySegment(customers: CustomerRow[], segment: SegmentName): CustomerRow[] {
-    const now = new Date();
-    const timeThresholds = this.calculateTimeThresholds(now);
+  /** Prisma filter for a segment; exported shape is reused by the customer export. */
+  segmentWhere(
+    businessId: string,
+    segment: SegmentName,
+    now: Date,
+    vipThreshold: Prisma.Decimal | null,
+  ): Prisma.CustomerWhereInput {
+    const base: Prisma.CustomerWhereInput = { businessId, isActive: true };
+    const thirtyDaysAgo = new Date(now.getTime() - SEGMENT_TIME_PERIODS.THIRTY_DAYS);
+    const sixtyDaysAgo = new Date(now.getTime() - SEGMENT_TIME_PERIODS.SIXTY_DAYS);
+    const ninetyDaysAgo = new Date(now.getTime() - SEGMENT_TIME_PERIODS.NINETY_DAYS);
 
     switch (segment) {
       case 'new':
-        return customers.filter((c) => c.createdAt >= timeThresholds.thirtyDaysAgo);
-
+        return { ...base, createdAt: { gte: thirtyDaysAgo } };
       case 'returning':
-        return customers.filter((c) => c.visitCount >= SEGMENT_CRITERIA.RETURNING_MIN_VISITS);
-
-      case 'vip': {
-        const vipThreshold = this.calculateVIPThreshold(customers);
-        return customers.filter((c) => c.totalSpent.toNumber() >= vipThreshold && vipThreshold > 0);
-      }
-
+        return { ...base, visitCount: { gte: SEGMENT_CRITERIA.RETURNING_MIN_VISITS } };
+      case 'vip':
+        // Callers skip the query when there is no positive threshold.
+        return { ...base, totalSpent: { gte: vipThreshold ?? new Prisma.Decimal(0) } };
       case 'at-risk':
-        return customers.filter((c) => {
-          if (!c.lastVisitAt) return false;
-          return (
-            c.lastVisitAt < timeThresholds.sixtyDaysAgo &&
-            c.lastVisitAt >= timeThresholds.ninetyDaysAgo
-          );
-        });
-
+        return { ...base, lastVisitAt: { lt: sixtyDaysAgo, gte: ninetyDaysAgo } };
       case 'inactive':
-        return customers.filter((c) => {
-          if (!c.lastVisitAt) {
-            return c.createdAt < timeThresholds.ninetyDaysAgo;
-          }
-          return c.lastVisitAt < timeThresholds.ninetyDaysAgo;
-        });
-
-      default:
-        return [];
+        return {
+          ...base,
+          OR: [
+            { lastVisitAt: { lt: ninetyDaysAgo } },
+            { lastVisitAt: null, createdAt: { lt: ninetyDaysAgo } },
+          ],
+        };
     }
   }
 
   /**
-   * Build segments summary array with metadata
-   * @private
+   * Spend of the customer at the top-10% boundary (Decimal compare, no floats).
+   * Null when there are no customers or the boundary spend is zero.
    */
+  async vipThreshold(businessId: string): Promise<Prisma.Decimal | null> {
+    const total = await this.prisma.customer.count({ where: { businessId, isActive: true } });
+    if (total === 0) return null;
+    const rank = Math.max(1, Math.ceil(total * SEGMENT_CRITERIA.VIP_PERCENTILE));
+    const boundary = await this.prisma.customer.findFirst({
+      where: { businessId, isActive: true },
+      orderBy: [{ totalSpent: 'desc' }, { id: 'asc' }],
+      skip: rank - 1,
+      select: { totalSpent: true },
+    });
+    if (!boundary || new Prisma.Decimal(boundary.totalSpent).lte(0)) return null;
+    return new Prisma.Decimal(boundary.totalSpent);
+  }
+
   private buildSegmentsSummary(counts: {
     new: number;
     returning: number;
@@ -259,24 +203,5 @@ export class CustomerSegmentsService {
         count: counts.inactive,
       },
     ];
-  }
-
-  /**
-   * Convert database customer row to segment customer DTO
-   * @private
-   */
-  private toSegmentCustomer(c: CustomerRow): SegmentCustomer {
-    return {
-      id: c.id,
-      name: c.name,
-      email: c.email,
-      phone: c.phone,
-      totalSpent: c.totalSpent.toNumber(),
-      visitCount: c.visitCount,
-      loyaltyTier: c.loyaltyTier,
-      loyaltyPoints: c.loyaltyPoints,
-      lastVisitAt: c.lastVisitAt,
-      createdAt: c.createdAt,
-    };
   }
 }

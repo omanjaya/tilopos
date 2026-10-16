@@ -6,328 +6,159 @@ import {
   Param,
   Query,
   Put,
-  UseGuards,
   Headers,
+  Req,
+  ParseUUIDPipe,
   UnauthorizedException,
+  type RawBodyRequest,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiQuery, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import type { Request } from 'express';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { CreateSelfOrderSessionUseCase } from '../../application/use-cases/self-order/create-session.use-case';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { EventBusService } from '../../infrastructure/events/event-bus.service';
-import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
 import { SelfOrderPaymentService } from './self-order-payment.service';
 import { SelfOrderScheduler } from './self-order.scheduler';
-import { MenuTranslationBatchDto } from '../../application/dtos/self-order-features.dto';
+import { SelfOrderSessionService } from './self-order-session.service';
+import {
+  AddSelfOrderItemDto,
+  CreateSelfOrderSessionDto,
+  ExtendSelfOrderSessionDto,
+  MenuTranslationBatchDto,
+  SelfOrderLanguageQueryDto,
+  SelfOrderMenuQueryDto,
+  SelfOrderPaymentCallbackAltDto,
+  SelfOrderPaymentCallbackDto,
+  SelfOrderPaymentDto,
+  SelfOrderQrisPaymentDto,
+} from '../../application/dtos/self-order-features.dto';
 import { getTranslations, getSupportedLocales, isSupportedLocale } from './i18n';
-import { AppError, ErrorCode } from '../../shared/errors/app-error';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { Public } from '@shared/decorators/public.decorator';
+import { Roles } from '@infrastructure/auth/roles.decorator';
+import { CurrentUser } from '@infrastructure/auth/current-user.decorator';
+import type { AuthUser } from '@infrastructure/auth/auth-user.interface';
+import { EmployeeRole } from '@shared/constants/roles';
+
+/** Rate limits for anonymous endpoints (named throttlers from throttle.config.ts). */
+const PUBLIC_WRITE_LIMIT = { short: { limit: 3, ttl: 1000 }, long: { limit: 30, ttl: 60000 } };
+const PUBLIC_SESSION_CREATE_LIMIT = {
+  short: { limit: 2, ttl: 1000 },
+  long: { limit: 10, ttl: 60000 },
+};
+const PUBLIC_READ_LIMIT = { short: { limit: 10, ttl: 1000 }, long: { limit: 120, ttl: 60000 } };
+const WEBHOOK_LIMIT = { long: { limit: 60, ttl: 60000 } };
 
 @ApiTags('Self Order')
 @Controller('self-order')
 export class SelfOrderController {
   constructor(
     private readonly createSessionUseCase: CreateSelfOrderSessionUseCase,
-    private readonly prisma: PrismaService,
-    private readonly eventBus: EventBusService,
+    private readonly sessions: SelfOrderSessionService,
     private readonly paymentService: SelfOrderPaymentService,
     private readonly scheduler: SelfOrderScheduler,
     private readonly configService: ConfigService,
   ) {}
 
+  @Public()
   @Post('sessions')
+  @Throttle(PUBLIC_SESSION_CREATE_LIMIT)
   @ApiOperation({ summary: 'Create a new self-order session' })
-  async createSession(@Body() dto: { outletId: string; tableId?: string; language?: string }) {
+  async createSession(@Body() dto: CreateSelfOrderSessionDto) {
     return this.createSessionUseCase.execute(dto);
   }
 
+  @Public()
   @Get('sessions/:code')
-  @ApiOperation({ summary: 'Get session by code' })
+  @Throttle(PUBLIC_READ_LIMIT)
+  @ApiOperation({ summary: 'Get session by code (public-safe fields only)' })
   async getSession(@Param('code') code: string) {
-    const session = await this.prisma.selfOrderSession.findUnique({
-      where: { sessionCode: code },
-      include: {
-        items: { include: { product: true } },
-        table: true,
-        outlet: {
-          select: { id: true, name: true },
-        },
-      },
-    });
-
-    if (!session) {
-      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Session not found or expired');
-    }
-
-    // Check if session is expired
-    if (new Date() > session.expiresAt) {
-      throw new AppError(ErrorCode.SESSION_EXPIRED, 'Session has expired');
-    }
-
-    return {
-      ...session,
-      outletName: session.outlet.name,
-      tableNumber: session.table?.name,
-    };
+    return this.sessions.getPublicSession(code);
   }
 
+  @Public()
   @Get('menu')
+  @Throttle(PUBLIC_READ_LIMIT)
   @ApiOperation({ summary: 'Get menu for outlet' })
   @ApiQuery({
     name: 'lang',
     required: false,
     description: 'Language code (id, en). Defaults to id.',
   })
-  async getMenu(@Query('outletId') outletId: string, @Query('lang') lang?: string) {
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true, name: true },
-    });
-    if (!outlet) return [];
-
-    const products = await this.prisma.product.findMany({
-      where: { businessId: outlet.businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: true,
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    const language = lang || 'id';
-    const i18nStrings = getTranslations(language);
-
-    // Transform to menu items with pricing and localization
-    return products.map((product) => {
-      // Get base price from product
-      const basePrice = Number(product.basePrice);
-      const variants = product.variants.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: Number(v.price),
-      }));
-
-      // Use the lowest variant price if available, otherwise base price
-      const price = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : basePrice;
-
-      // Try to get localized product name/description
-      let productName = product.name;
-      let productDescription = product.description;
-      if (language !== 'id' && product.description) {
-        try {
-          const parsed = JSON.parse(product.description);
-          if (parsed.translations && parsed.translations[language]) {
-            productName = parsed.translations[language].name || product.name;
-            productDescription = parsed.translations[language].description || null;
-          }
-        } catch {
-          // Not JSON, use as-is
-        }
-      }
-
-      // Localize category name -- use i18n "all categories" for missing
-      const categoryName = product.category?.name || i18nStrings.menu.allCategories;
-
-      return {
-        id: product.id,
-        name: productName,
-        description: productDescription,
-        price,
-        imageUrl: product.imageUrl,
-        categoryName,
-        isAvailable: true, // Could add stock check here
-        variants: variants.length > 0 ? variants : undefined,
-      };
-    });
+  async getMenu(@Query() query: SelfOrderMenuQueryDto) {
+    return this.sessions.getMenu(query.outletId, query.lang);
   }
 
+  @Public()
   @Post('sessions/:code/items')
+  @Throttle(PUBLIC_WRITE_LIMIT)
   @ApiOperation({ summary: 'Add item to session' })
-  async addItem(
-    @Param('code') code: string,
-    @Body()
-    dto: {
-      productId: string;
-      variantId?: string;
-      quantity: number;
-      modifiers?: unknown[];
-      notes?: string;
-    },
-  ) {
-    const session = await this.prisma.selfOrderSession.findUnique({
-      where: { sessionCode: code },
-      include: { outlet: true },
-    });
-    if (!session) {
-      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Session not found');
-    }
-
-    // Check if session is still active
-    if (session.status !== 'active') {
-      throw new AppError(ErrorCode.SESSION_EXPIRED, 'Session is not active');
-    }
-
-    // Check if session is expired
-    if (new Date() > session.expiresAt) {
-      throw new AppError(ErrorCode.SESSION_EXPIRED, 'Session has expired');
-    }
-
-    // Validate quantity
-    if (!dto.quantity || dto.quantity <= 0 || !Number.isInteger(dto.quantity)) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Quantity must be a positive integer');
-    }
-
-    // Validate product exists
-    const product = await this.prisma.product.findUnique({
-      where: { id: dto.productId },
-      include: { variants: true },
-    });
-
-    if (!product) {
-      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Product not found');
-    }
-
-    // Validate variant if provided
-    if (dto.variantId) {
-      const variant = product.variants.find((v) => v.id === dto.variantId);
-      if (!variant) {
-        throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Variant not found');
-      }
-    }
-
-    return this.prisma.selfOrderItem.create({
-      data: {
-        sessionId: session.id,
-        productId: dto.productId,
-        variantId: dto.variantId || null,
-        quantity: dto.quantity,
-        modifiers: (dto.modifiers as never) || [],
-        notes: dto.notes || null,
-      },
-    });
+  async addItem(@Param('code') code: string, @Body() dto: AddSelfOrderItemDto) {
+    return this.sessions.addItem(code, dto);
   }
 
+  @Public()
   @Post('sessions/:code/submit')
-  @ApiOperation({ summary: 'Submit session order' })
+  @Throttle(PUBLIC_WRITE_LIMIT)
+  @ApiOperation({ summary: 'Submit session order (creates exactly one kitchen order)' })
   async submitSession(@Param('code') code: string) {
-    const session = await this.prisma.selfOrderSession.findUnique({
-      where: { sessionCode: code },
-      include: { items: true, outlet: true, table: true },
-    });
-
-    if (!session) {
-      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Session not found');
-    }
-
-    if (session.status !== 'active') {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Session has already been submitted');
-    }
-
-    if (session.items.length === 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot submit empty order');
-    }
-
-    // Update session status
-    await this.prisma.selfOrderSession.update({
-      where: { sessionCode: code },
-      data: { status: 'submitted' },
-    });
-
-    // Create order from session
-    const orderNumber = this.generateOrderNumber();
-
-    const order = await this.prisma.order.create({
-      data: {
-        outletId: session.outletId,
-        orderNumber,
-        orderType: 'dine_in',
-        tableId: session.tableId,
-        status: 'pending',
-      },
-    });
-
-    // Resolve product names and create order items
-    const productIds = session.items.map((i) => i.productId);
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true, name: true },
-    });
-    const productNameMap = new Map(products.map((p) => [p.id, p.name]));
-
-    for (const item of session.items) {
-      await this.prisma.orderItem.create({
-        data: {
-          orderId: order.id,
-          productId: item.productId,
-          variantId: item.variantId,
-          productName: productNameMap.get(item.productId) || 'Unknown Product',
-          quantity: item.quantity,
-          notes: item.notes,
-          status: 'pending',
-        },
-      });
-    }
-
-    // Emit event so KDS picks up the new order
-    this.eventBus.publish(
-      new OrderStatusChangedEvent(order.id, session.outletId, 'none', 'pending'),
-    );
-
-    return {
-      success: true,
-      orderId: order.id,
-      orderNumber,
-    };
+    return this.sessions.submitSession(code);
   }
 
   // Payment endpoints
+  @Public()
   @Get('sessions/:code/total')
+  @Throttle(PUBLIC_READ_LIMIT)
   @ApiOperation({ summary: 'Calculate session total' })
   async getSessionTotal(@Param('code') code: string) {
     return this.paymentService.calculateSessionTotal(code);
   }
 
+  @Public()
   @Post('sessions/:code/pay')
-  @ApiOperation({ summary: 'Create payment for session' })
-  async createPayment(
-    @Param('code') code: string,
-    @Body()
-    dto: {
-      paymentMethod: 'qris' | 'gopay' | 'ovo' | 'dana' | 'shopeepay';
-      amount: number;
-      customerEmail?: string;
-      customerPhone?: string;
-    },
-  ) {
+  @Throttle(PUBLIC_WRITE_LIMIT)
+  @ApiOperation({
+    summary: 'Create payment for session',
+    description:
+      'Only cash (pay at counter) is supported; digital methods return 501 NOT_CONFIGURED.',
+  })
+  async createPayment(@Param('code') code: string, @Body() dto: SelfOrderPaymentDto) {
     return this.paymentService.createPayment({
       sessionCode: code,
-      ...dto,
+      paymentMethod: dto.paymentMethod,
+      amount: dto.amount,
+      customerEmail: dto.customerEmail,
+      customerPhone: dto.customerPhone,
     });
   }
 
+  @Public()
   @Get('sessions/:code/payment-status')
+  @Throttle(PUBLIC_READ_LIMIT)
   @ApiOperation({ summary: 'Get payment status' })
   async getPaymentStatus(@Param('code') code: string) {
     return this.paymentService.getPaymentStatus(code);
   }
 
+  @Public()
   @Post('payment/callback')
-  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @Throttle(WEBHOOK_LIMIT)
   @ApiOperation({ summary: 'Payment callback webhook' })
   async paymentCallback(
+    @Req() req: RawBodyRequest<Request>,
     @Headers('x-webhook-signature') signature: string,
-    @Body() dto: { orderId: string; status: 'success' | 'failed' | 'pending' },
+    @Body() dto: SelfOrderPaymentCallbackDto,
   ) {
-    this.verifyWebhookSignature(signature, dto);
+    this.verifyWebhookSignature(signature, req, dto);
     await this.paymentService.handlePaymentCallback(dto.orderId, dto.status);
     return { received: true };
   }
 
   // ==================== Multi-language Menu ====================
 
+  @Public()
   @Get('menu/:outletId')
+  @Throttle(PUBLIC_READ_LIMIT)
   @ApiOperation({
     summary: 'Get menu for self-order with language support',
     description:
@@ -338,233 +169,66 @@ export class SelfOrderController {
     required: false,
     description: 'Language code (id, en). Defaults to id.',
   })
-  async getMenuWithLanguage(@Param('outletId') outletId: string, @Query('lang') lang?: string) {
-    const language = lang || 'id';
-
-    const outlet = await this.prisma.outlet.findUnique({
-      where: { id: outletId },
-      select: { businessId: true, name: true, settings: true },
-    });
-
-    if (!outlet) {
-      throw new AppError(ErrorCode.RESOURCE_NOT_FOUND, 'Outlet not found');
-    }
-
-    const products = await this.prisma.product.findMany({
-      where: { businessId: outlet.businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: true,
-        productModifierGroups: {
-          include: {
-            modifierGroup: {
-              include: { modifiers: { where: { isActive: true } } },
-            },
-          },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    // Group by category for better UX
-    const categoryMap = new Map<
-      string,
-      {
-        id: string;
-        name: string;
-        sortOrder: number;
-        products: Array<{
-          id: string;
-          name: string;
-          description?: string;
-          price: number;
-          imageUrl?: string;
-          isAvailable: boolean;
-          variants?: Array<{ id: string; name: string; price: number }>;
-          modifierGroups?: Array<{
-            id: string;
-            name: string;
-            isRequired: boolean;
-            modifiers: Array<{ id: string; name: string; price: number }>;
-          }>;
-        }>;
-      }
-    >();
-
-    for (const product of products) {
-      const categoryId = product.categoryId || 'uncategorized';
-      const categoryName = product.category?.name || 'Uncategorized';
-      const categorySortOrder = product.category?.sortOrder ?? 999;
-
-      if (!categoryMap.has(categoryId)) {
-        categoryMap.set(categoryId, {
-          id: categoryId,
-          name: categoryName,
-          sortOrder: categorySortOrder,
-          products: [],
-        });
-      }
-
-      // Apply translations from product settings/metadata if available
-      // Translations are stored in product description as JSON: {"translations": {"en": {"name": "...", "description": "..."}}}
-      let productName = product.name;
-      let productDescription = product.description || undefined;
-
-      // Check if product has translations stored (in a real app, this would be a separate table)
-      // For now, we check the product's description for a JSON translation block
-      if (language !== 'id' && product.description) {
-        try {
-          // Attempt to parse description as JSON with translations
-          const parsed = JSON.parse(product.description);
-          if (parsed.translations && parsed.translations[language]) {
-            productName = parsed.translations[language].name || product.name;
-            productDescription = parsed.translations[language].description || undefined;
-          }
-        } catch {
-          // Not JSON, use as-is - it's a regular description
-        }
-      }
-
-      const basePrice = Number(product.basePrice);
-      const variants = product.variants.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: Number(v.price),
-      }));
-
-      const price = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : basePrice;
-
-      const category = categoryMap.get(categoryId)!;
-      category.products.push({
-        id: product.id,
-        name: productName,
-        description: productDescription,
-        price,
-        imageUrl: product.imageUrl || undefined,
-        isAvailable: true,
-        variants: variants.length > 0 ? variants : undefined,
-        modifierGroups:
-          product.productModifierGroups.length > 0
-            ? product.productModifierGroups.map((pmg) => ({
-                id: pmg.modifierGroup.id,
-                name: pmg.modifierGroup.name,
-                isRequired: pmg.modifierGroup.isRequired,
-                modifiers: pmg.modifierGroup.modifiers.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  price: Number(m.price),
-                })),
-              }))
-            : undefined,
-      });
-    }
-
-    // Sort categories and return
-    const categories = Array.from(categoryMap.values()).sort((a, b) => a.sortOrder - b.sortOrder);
-
-    return {
-      outletName: outlet.name,
-      language,
-      categories,
-    };
+  async getMenuWithLanguage(
+    @Param('outletId', ParseUUIDPipe) outletId: string,
+    @Query() query: SelfOrderLanguageQueryDto,
+  ) {
+    return this.sessions.getMenuWithLanguage(outletId, query.lang);
   }
 
   // ==================== Menu Translations Management ====================
 
   @Post('menu/translations')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({
     summary: 'Set menu item translations',
     description:
-      'Store translations for product names and descriptions. Translations are embedded in the product description as a JSON structure.',
+      'Store translations for product names and descriptions of the caller business. Translations are embedded in the product description as a JSON structure.',
   })
-  async setMenuTranslations(@Body() dto: MenuTranslationBatchDto) {
-    const results: Array<{ productId: string; success: boolean; error?: string }> = [];
-
-    for (const item of dto.items) {
-      try {
-        const product = await this.prisma.product.findUnique({
-          where: { id: item.productId },
-          select: { id: true, description: true },
-        });
-
-        if (!product) {
-          results.push({ productId: item.productId, success: false, error: 'Product not found' });
-          continue;
-        }
-
-        // Build translation-embedded description
-        let existingData: Record<string, unknown> = {};
-        if (product.description) {
-          try {
-            existingData = JSON.parse(product.description);
-          } catch {
-            // Current description is plain text, preserve it as the default
-            existingData = { defaultDescription: product.description };
-          }
-        }
-
-        existingData.translations = {
-          ...((existingData.translations as Record<string, unknown>) || {}),
-          ...item.translations,
-        };
-
-        await this.prisma.product.update({
-          where: { id: item.productId },
-          data: { description: JSON.stringify(existingData) },
-        });
-
-        results.push({ productId: item.productId, success: true });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        results.push({ productId: item.productId, success: false, error: message });
-      }
-    }
-
-    return { results };
+  async setMenuTranslations(@CurrentUser() user: AuthUser, @Body() dto: MenuTranslationBatchDto) {
+    return this.sessions.setMenuTranslations(user, dto);
   }
 
   // ==================== Session Management ====================
 
+  @Public()
   @Put('sessions/:code/extend')
-  @ApiOperation({ summary: 'Extend session expiry time' })
-  async extendSession(@Param('code') code: string, @Body() dto: { minutes?: number }) {
+  @Throttle(PUBLIC_WRITE_LIMIT)
+  @ApiOperation({ summary: 'Extend an active session (bounded total lifetime)' })
+  async extendSession(@Param('code') code: string, @Body() dto: ExtendSelfOrderSessionDto) {
     return this.scheduler.extendSession(code, dto.minutes);
   }
 
   // ==================== QRIS Payment Shortcut ====================
 
+  @Public()
   @Post('sessions/:code/pay/qris')
-  @ApiOperation({ summary: 'Initiate QRIS payment for session' })
-  async initiateQrisPayment(@Param('code') code: string, @Body() dto: { amount: number }) {
-    if (!dto.amount || dto.amount <= 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be greater than 0');
-    }
+  @Throttle(PUBLIC_WRITE_LIMIT)
+  @ApiOperation({ summary: 'Initiate QRIS payment for session (501: not configured)' })
+  async initiateQrisPayment(@Param('code') code: string, @Body() dto: SelfOrderQrisPaymentDto) {
     return this.paymentService.initiateQRISPayment(code, dto.amount);
   }
 
   // ==================== Payment Callback (webhook) ====================
 
+  @Public()
   @Post('payment-callback')
-  @Throttle({ default: { limit: 60, ttl: 60000 } })
-  @ApiOperation({ summary: 'Payment callback webhook (alternative path)' })
+  @Throttle(WEBHOOK_LIMIT)
+  @ApiOperation({ summary: 'Payment callback webhook (alternative path, same handler)' })
   async paymentCallbackAlt(
+    @Req() req: RawBodyRequest<Request>,
     @Headers('x-webhook-signature') signature: string,
-    @Body()
-    dto: {
-      sessionCode: string;
-      paymentId: string;
-      status: 'success' | 'failed' | 'pending';
-    },
+    @Body() dto: SelfOrderPaymentCallbackAltDto,
   ) {
-    this.verifyWebhookSignature(signature, dto);
+    this.verifyWebhookSignature(signature, req, dto);
     await this.paymentService.handlePaymentCallback(dto.paymentId, dto.status);
     return { received: true };
   }
 
   // ==================== i18n Translations ====================
 
+  @Public()
   @Get('i18n/:locale')
   @ApiOperation({
     summary: 'Get UI translations for a locale',
@@ -589,7 +253,15 @@ export class SelfOrderController {
     };
   }
 
-  private verifyWebhookSignature(signature: string, body: Record<string, unknown>): void {
+  /**
+   * HMAC over the raw request body when available (rawBody must be enabled in
+   * main.ts); falls back to the re-serialized JSON body otherwise.
+   */
+  private verifyWebhookSignature(
+    signature: string,
+    req: RawBodyRequest<Request>,
+    body: object,
+  ): void {
     const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
     if (!webhookSecret) {
       throw new UnauthorizedException('Webhook verification not configured');
@@ -597,20 +269,12 @@ export class SelfOrderController {
     if (!signature) {
       throw new UnauthorizedException('Missing webhook signature');
     }
-    const expectedSignature = createHmac('sha256', webhookSecret)
-      .update(JSON.stringify(body))
-      .digest('hex');
+    const payload = req.rawBody ?? Buffer.from(JSON.stringify(body));
+    const expectedSignature = createHmac('sha256', webhookSecret).update(payload).digest('hex');
     const sigBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(expectedSignature);
     if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
-  }
-
-  private generateOrderNumber(): string {
-    const now = new Date();
-    const dateStr = `${now.getFullYear().toString().slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `ORD-${dateStr}-${random}`;
   }
 }

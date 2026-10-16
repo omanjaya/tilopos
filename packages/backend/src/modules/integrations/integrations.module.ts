@@ -1,10 +1,9 @@
 /**
  * Integrations Module
  *
- * Provides API endpoints for external integrations:
- * - Food Delivery (GoFood, GrabFood, ShopeeFood)
- * - E-commerce (Tokopedia, Shopee)
- * - Social Commerce (WhatsApp, Instagram, Facebook)
+ * Placeholder API for external integrations (food delivery, e-commerce, social
+ * commerce): actions answer 501 (see controller). The infrastructure module is
+ * imported because it hosts MarketplaceService and its polling job.
  */
 
 import { Module } from '@nestjs/common';
@@ -14,6 +13,5 @@ import { IntegrationsModule as InfraIntegrationsModule } from '../../infrastruct
 @Module({
   imports: [InfraIntegrationsModule],
   controllers: [IntegrationsController],
-  exports: [],
 })
 export class IntegrationsModule {}

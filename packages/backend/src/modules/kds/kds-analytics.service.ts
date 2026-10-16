@@ -1,5 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { OrderItemStatus, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { EventBusService } from '../../infrastructure/events/event-bus.service';
+import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
+import {
+  businessDayRange,
+  businessHour,
+  parseBusinessDate,
+} from '../../shared/utils/business-time';
+import { KdsService, type CookingTimerSettings } from './kds.service';
 
 export interface KitchenAnalytics {
   totalOrdersToday: number;
@@ -11,108 +25,110 @@ export interface KitchenAnalytics {
   topDelayedItems: { productName: string; avgTime: number; count: number }[];
 }
 
+/** Maximum span of a performance report (R13). */
+export const MAX_PERFORMANCE_RANGE_DAYS = 92;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function slaFor(orderType: string, settings: CookingTimerSettings): number {
+  if (orderType === 'takeaway') return settings.takeaway;
+  if (orderType === 'delivery') return settings.delivery;
+  return settings.dineIn;
+}
+
 @Injectable()
 export class KdsAnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly kdsService: KdsService,
+    private readonly eventBus: EventBusService,
+  ) {}
 
-  async getAnalytics(outletId: string, date?: Date): Promise<KitchenAnalytics> {
-    const targetDate = date || new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+  /**
+   * Kitchen analytics for one business day (Asia/Jakarta). `outletId` must be
+   * access-checked by the caller.
+   */
+  async getAnalytics(
+    outletId: string,
+    businessId: string,
+    date?: string,
+  ): Promise<KitchenAnalytics> {
+    const { start, end } = date ? parseBusinessDate(date) : businessDayRange();
+    const { settings } = await this.kdsService.getCookingTimerSettings(businessId);
 
-    // Get all orders for today
     const orders = await this.prisma.order.findMany({
-      where: {
-        outletId,
-        createdAt: { gte: startOfDay, lte: endOfDay },
-      },
-      include: {
-        items: {
-          include: {
-            product: { select: { name: true } },
-          },
-        },
+      where: { outletId, createdAt: { gte: start, lte: end } },
+      select: {
+        status: true,
+        orderType: true,
+        createdAt: true,
+        completedAt: true,
+        items: { select: { station: true, productName: true } },
       },
     });
 
     const totalOrdersToday = orders.length;
-    const completedOrders = orders.filter((o) => o.status === 'completed');
-    const completedToday = completedOrders.length;
+    const completedToday = orders.filter((o) => o.status === 'completed').length;
 
-    // Calculate average prep time
     let totalPrepTime = 0;
     let prepTimeCount = 0;
-    orders.forEach((order) => {
-      if (order.completedAt && order.createdAt) {
-        const prepTime = (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
-        totalPrepTime += prepTime;
+    for (const order of orders) {
+      if (order.completedAt) {
+        totalPrepTime += (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
         prepTimeCount++;
       }
-    });
+    }
     const avgPrepTime = prepTimeCount > 0 ? Math.round(totalPrepTime / prepTimeCount) : 0;
 
-    // Count overdue orders (pending/preparing for > 15 minutes)
-    const now = new Date();
+    // Overdue = still in the kitchen longer than the configured SLA for its order type.
+    const now = Date.now();
     const overdueOrders = orders.filter((o) => {
-      if (o.status === 'pending' || o.status === 'preparing') {
-        const ageMinutes = (now.getTime() - o.createdAt.getTime()) / 60000;
-        return ageMinutes > 15;
+      if (o.status !== 'pending' && o.status !== 'confirmed' && o.status !== 'preparing') {
+        return false;
       }
-      return false;
+      return (now - o.createdAt.getTime()) / 60000 > slaFor(o.orderType, settings);
     }).length;
 
-    // Orders by hour
-    const hourlyMap = new Map<number, number>();
-    for (let h = 0; h < 24; h++) {
-      hourlyMap.set(h, 0);
+    const hourly = new Array<number>(24).fill(0);
+    for (const order of orders) {
+      hourly[businessHour(order.createdAt)]++;
     }
-    orders.forEach((order) => {
-      const hour = order.createdAt.getHours();
-      hourlyMap.set(hour, (hourlyMap.get(hour) || 0) + 1);
-    });
-    const ordersByHour = Array.from(hourlyMap.entries()).map(([hour, count]) => ({ hour, count }));
+    const ordersByHour = hourly.map((count, hour) => ({ hour, count }));
 
-    // Orders by station (simplified - using notes or category as station indicator)
     const stationMap = new Map<
       string,
       { count: number; completedCount: number; totalTime: number }
     >();
-    orders.forEach((order) => {
-      order.items.forEach((item) => {
-        const station = (item.station as string) || 'general';
-        const current = stationMap.get(station) || { count: 0, completedCount: 0, totalTime: 0 };
+    const itemDelays = new Map<string, { totalTime: number; delayedCount: number }>();
+    for (const order of orders) {
+      const prepTime = order.completedAt
+        ? (order.completedAt.getTime() - order.createdAt.getTime()) / 60000
+        : null;
+      const sla = slaFor(order.orderType, settings);
+      for (const item of order.items) {
+        const station = item.station || 'general';
+        const current = stationMap.get(station) ?? { count: 0, completedCount: 0, totalTime: 0 };
         current.count++;
-        if (order.completedAt && order.createdAt) {
+        if (prepTime !== null) {
           current.completedCount++;
-          current.totalTime += (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
+          current.totalTime += prepTime;
         }
         stationMap.set(station, current);
-      });
-    });
+
+        if (prepTime !== null && prepTime > sla) {
+          const delay = itemDelays.get(item.productName) ?? { totalTime: 0, delayedCount: 0 };
+          delay.delayedCount++;
+          delay.totalTime += prepTime;
+          itemDelays.set(item.productName, delay);
+        }
+      }
+    }
+
     const ordersByStation = Array.from(stationMap.entries()).map(([station, data]) => ({
       station,
       count: data.count,
       avgTime: data.completedCount > 0 ? Math.round(data.totalTime / data.completedCount) : 0,
     }));
 
-    // Top delayed items — only count items where prep time > 10 minutes
-    const itemDelays = new Map<string, { totalTime: number; delayedCount: number }>();
-    orders.forEach((order) => {
-      order.items.forEach((item) => {
-        if (order.completedAt && order.createdAt) {
-          const prepTime = (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
-          if (prepTime > 10) {
-            const productName = item.product?.name || item.productName;
-            const current = itemDelays.get(productName) || { totalTime: 0, delayedCount: 0 };
-            current.delayedCount++;
-            current.totalTime += prepTime;
-            itemDelays.set(productName, current);
-          }
-        }
-      });
-    });
     const topDelayedItems = Array.from(itemDelays.entries())
       .map(([productName, data]) => ({
         productName,
@@ -133,87 +149,120 @@ export class KdsAnalyticsService {
     };
   }
 
-  async markItemPreparing(orderItemId: string, _employeeId: string, station: string) {
-    return this.prisma.orderItem.update({
-      where: { id: orderItemId },
-      data: {
-        status: 'preparing',
-        startedAt: new Date(),
-        station,
-      },
-    });
-  }
-
-  async markItemReady(orderItemId: string, _employeeId: string) {
-    // Wrap in transaction to prevent race conditions when multiple items are marked ready concurrently
-    const item = await this.prisma.$transaction(async (tx) => {
-      const updatedItem = await tx.orderItem.update({
-        where: { id: orderItemId },
-        data: {
-          status: 'ready',
-          completedAt: new Date(),
-        },
-        include: {
-          order: { select: { id: true, outletId: true } },
-        },
-      });
-
-      // Check if all items are ready
-      const allItems = await tx.orderItem.findMany({
-        where: { orderId: updatedItem.order.id },
-        select: { status: true },
-      });
-
-      const allReady = allItems.every((i) => i.status === 'ready' || i.status === 'served');
-      if (allReady) {
-        await tx.order.update({
-          where: { id: updatedItem.order.id },
-          data: { status: 'ready' },
-        });
+  /** pending → preparing. Moves a pending/confirmed order to 'preparing' as well. */
+  async markItemPreparing(orderItemId: string, businessId: string, station?: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const item = await this.findScopedItem(tx, orderItemId, businessId);
+      if (!['pending', 'confirmed', 'preparing'].includes(item.order.status)) {
+        throw new ConflictException(`Order is ${item.order.status}`);
       }
-
-      return updatedItem;
+      const updated = await tx.orderItem.updateMany({
+        where: { id: item.id, status: 'pending' },
+        data: {
+          status: 'preparing',
+          startedAt: new Date(),
+          ...(station ? { station } : {}),
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException(`Item is ${item.status} and cannot start preparing`);
+      }
+      const orderMoved = await tx.order.updateMany({
+        where: { id: item.order.id, status: { in: ['pending', 'confirmed'] } },
+        data: { status: 'preparing', startedAt: new Date() },
+      });
+      return { item, orderMoved: orderMoved.count === 1 };
     });
 
-    return item;
+    if (result.orderMoved) {
+      this.eventBus.publish(
+        new OrderStatusChangedEvent(
+          result.item.order.id,
+          result.item.order.outletId,
+          result.item.order.status,
+          'preparing',
+        ),
+      );
+    }
+    return this.prisma.orderItem.findFirst({ where: { id: orderItemId } });
   }
 
-  async recallItem(orderItemId: string, reason?: string) {
-    return this.prisma.orderItem.update({
-      where: { id: orderItemId },
-      data: {
-        status: 'preparing',
-        notes: reason ? `RECALLED: ${reason}` : 'RECALLED',
-      },
+  /**
+   * Sends a ready/served item back to the kitchen. The reason is appended to the
+   * item notes (original notes are kept) and the order returns to 'preparing'.
+   */
+  async recallItem(orderItemId: string, businessId: string, reason?: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const item = await this.findScopedItem(tx, orderItemId, businessId);
+      const recallable: OrderStatus[] = ['preparing', 'ready', 'served'];
+      if (!recallable.includes(item.order.status)) {
+        throw new ConflictException(`Cannot recall an item of a ${item.order.status} order`);
+      }
+      const recallNote = reason ? `RECALLED: ${reason}` : 'RECALLED';
+      const itemStatuses: OrderItemStatus[] = ['ready', 'served'];
+      const updated = await tx.orderItem.updateMany({
+        where: { id: item.id, status: { in: itemStatuses } },
+        data: {
+          status: 'preparing',
+          completedAt: null,
+          notes: item.notes ? `${item.notes}\n${recallNote}` : recallNote,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException(`Item is ${item.status} and cannot be recalled`);
+      }
+      const orderMoved = await tx.order.updateMany({
+        where: { id: item.order.id, status: { in: ['ready', 'served'] } },
+        data: { status: 'preparing' },
+      });
+      return { item, orderMoved: orderMoved.count === 1 };
     });
+
+    if (result.orderMoved) {
+      this.eventBus.publish(
+        new OrderStatusChangedEvent(
+          result.item.order.id,
+          result.item.order.outletId,
+          result.item.order.status,
+          'preparing',
+        ),
+      );
+    }
+    return this.prisma.orderItem.findFirst({ where: { id: orderItemId } });
   }
 
-  async getPerformanceReport(outletId: string, startDate: Date, endDate: Date) {
+  async getPerformanceReport(outletId: string, businessId: string, startDate: Date, endDate: Date) {
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid date range');
+    }
+    if (endDate < startDate) {
+      throw new BadRequestException('endDate must be after startDate');
+    }
+    if (endDate.getTime() - startDate.getTime() > MAX_PERFORMANCE_RANGE_DAYS * DAY_MS) {
+      throw new BadRequestException(`Date range may not exceed ${MAX_PERFORMANCE_RANGE_DAYS} days`);
+    }
+
+    const { settings } = await this.kdsService.getCookingTimerSettings(businessId);
     const orders = await this.prisma.order.findMany({
       where: {
         outletId,
         createdAt: { gte: startDate, lte: endDate },
         status: 'completed',
+        completedAt: { not: null },
       },
-      select: {
-        createdAt: true,
-        completedAt: true,
-      },
+      select: { orderType: true, createdAt: true, completedAt: true },
     });
 
     const totalOrders = orders.length;
     let totalPrepTime = 0;
     let onTimeCount = 0;
-
-    orders.forEach((order) => {
-      if (order.completedAt && order.createdAt) {
-        const prepTime = (order.completedAt.getTime() - order.createdAt.getTime()) / 60000;
-        totalPrepTime += prepTime;
-        if (prepTime <= 15) {
-          onTimeCount++;
-        }
+    for (const order of orders) {
+      const prepTime = ((order.completedAt as Date).getTime() - order.createdAt.getTime()) / 60000;
+      totalPrepTime += prepTime;
+      if (prepTime <= slaFor(order.orderType, settings)) {
+        onTimeCount++;
       }
-    });
+    }
 
     return {
       totalOrders,
@@ -222,5 +271,25 @@ export class KdsAnalyticsService {
       onTimeCount,
       lateCount: totalOrders - onTimeCount,
     };
+  }
+
+  private async findScopedItem(
+    tx: Pick<PrismaService, 'orderItem'>,
+    orderItemId: string,
+    businessId: string,
+  ) {
+    const item = await tx.orderItem.findFirst({
+      where: { id: orderItemId, order: { outlet: { businessId } } },
+      select: {
+        id: true,
+        status: true,
+        notes: true,
+        order: { select: { id: true, status: true, outletId: true } },
+      },
+    });
+    if (!item) {
+      throw new NotFoundException(`Order item ${orderItemId} not found`);
+    }
+    return item;
   }
 }

@@ -1,6 +1,5 @@
 import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
 import { BusinessScopeGuard } from '../../../shared/guards/business-scope.guard';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
 import type { AuthUser } from '../../../infrastructure/auth/auth-user.interface';
@@ -12,7 +11,6 @@ describe('Orders IDOR Prevention', () => {
   let guard: BusinessScopeGuard;
   let mockPrisma: jest.Mocked<PrismaService>;
   let mockReflector: jest.Mocked<Reflector>;
-  let mockJwtService: jest.Mocked<JwtService>;
   let mockOrderFindUnique: jest.Mock;
 
   const businessA = 'business-a-id';
@@ -48,11 +46,7 @@ describe('Orders IDOR Prevention', () => {
       get: jest.fn(),
     } as unknown as jest.Mocked<Reflector>;
 
-    mockJwtService = {
-      verify: jest.fn(),
-    } as unknown as jest.Mocked<JwtService>;
-
-    guard = new BusinessScopeGuard(mockReflector, mockPrisma, mockJwtService);
+    guard = new BusinessScopeGuard(mockReflector, mockPrisma);
   });
 
   describe('Cross-Business Order Access Prevention', () => {
@@ -136,5 +130,6 @@ function createMockContext(user: AuthUser, params: Record<string, string>): Exec
       }),
     }),
     getHandler: () => ({}),
+    getType: () => 'http',
   } as unknown as ExecutionContext;
 }

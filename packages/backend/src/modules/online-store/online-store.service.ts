@@ -4,25 +4,99 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  NotImplementedException,
 } from '@nestjs/common';
+import { Prisma, StoreOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { EventBusService } from '../../infrastructure/events/event-bus.service';
 import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
+import { DocumentNumberService } from '@shared/numbering';
+import { TenantAccessService } from '@shared/tenant';
+import { PRODUCT_PUBLIC_SELECT } from '@shared/constants/selects';
+import { BUSINESS_TZ, addBusinessDays, startOfBusinessDay } from '@shared/utils/business-time';
+import { money, multiplyMoney, sumMoney, toNumber } from '@shared/utils/money';
+import { paginated, toPrismaPage, type Paginated } from '@shared/dtos/pagination-query.dto';
+import {
+  MAX_STOREFRONT_LINES,
+  MAX_STOREFRONT_QTY,
+  type StoreOrdersQueryDto,
+  type StoreSettingsDto,
+  type StoreShippingCalculateDto,
+  type StorefrontOrderDto,
+  type StorefrontStockCheckQueryDto,
+} from '../../application/dtos/online-store.dto';
 import {
   CatalogSyncResult,
   StoreAnalyticsResult,
   StoreInventoryItem,
   StoreInventoryResult,
-  StoreSettingsInput,
   StoreSettingsResult,
   ShippingMode,
   ShippingEstimate,
   DeliveryZone,
   StorefrontData,
   StorefrontProductDetail,
-  StorefrontOrderInput,
   StorefrontOrderResult,
 } from './interfaces';
+
+type Db = Prisma.TransactionClient | PrismaService;
+type StoreSettings = Record<string, unknown>;
+
+/** Hard cap for public product lists (R13). */
+export const MAX_STOREFRONT_PRODUCTS = 500;
+
+/**
+ * Allowed store order status transitions. Anything else is rejected (409).
+ * Shipping normally goes through PUT orders/:id/fulfill (tracking number).
+ */
+export const STORE_ORDER_TRANSITIONS: Record<StoreOrderStatus, readonly StoreOrderStatus[]> = {
+  pending: ['confirmed', 'cancelled'],
+  confirmed: ['processing', 'shipped', 'cancelled'],
+  processing: ['shipped', 'cancelled'],
+  shipped: ['delivered'],
+  delivered: [],
+  cancelled: [],
+};
+
+const NOT_CONFIGURED_DISTANCE = {
+  success: false,
+  reason: 'NOT_CONFIGURED',
+  message:
+    'Ongkir berbasis jarak belum didukung (tidak ada layanan geocoding). Atur mode ongkir flat atau gratis.',
+};
+
+const STORE_ORDER_ITEM_SELECT = {
+  id: true,
+  productId: true,
+  variantId: true,
+  productName: true,
+  variantName: true,
+  quantity: true,
+  unitPrice: true,
+  subtotal: true,
+} as const;
+
+function num(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** Current time of day in WIB as minutes since midnight. */
+function businessMinutesNow(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: BUSINESS_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+function hhmmToMinutes(value: string): number {
+  const [h, m] = value.split(':').map(Number);
+  return h * 60 + m;
+}
 
 @Injectable()
 export class OnlineStoreService {
@@ -31,565 +105,28 @@ export class OnlineStoreService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventBus: EventBusService,
+    private readonly numbering: DocumentNumberService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
   // ========================================================================
-  // CATALOG SYNC WITH STOCK CHECK
+  // HELPERS
   // ========================================================================
 
-  /**
-   * Syncs products from main catalog to online store catalog,
-   * checking stock availability for each product.
-   */
-  async syncCatalog(businessId: string, storeId: string): Promise<CatalogSyncResult> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
+  /** Store of the caller's business, 404 otherwise (never trusts storeId alone). */
+  private async findOwnedStore(businessId: string, storeId: string) {
+    const store = await this.prisma.onlineStore.findFirst({
+      where: { id: storeId, businessId },
       select: { id: true, businessId: true, themeSettings: true },
     });
-
     if (!store) {
       throw new NotFoundException('Online store not found');
     }
-
-    if (store.businessId !== businessId) {
-      throw new BadRequestException('Store does not belong to this business');
-    }
-
-    // Fetch all active products
-    const products = await this.prisma.product.findMany({
-      where: { businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: { select: { id: true, name: true } },
-        stockLevels: {
-          select: { quantity: true, outletId: true },
-        },
-      },
-    });
-
-    let synced = 0;
-    let skipped = 0;
-    let outOfStock = 0;
-
-    const catalogEntries: Record<string, unknown>[] = [];
-
-    for (const product of products) {
-      // Check total stock across all outlets
-      const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
-
-      if (!product.trackStock || totalStock > 0) {
-        catalogEntries.push({
-          productId: product.id,
-          name: product.name,
-          sku: product.sku,
-          basePrice: Number(product.basePrice),
-          categoryId: product.categoryId,
-          categoryName: product.category?.name ?? null,
-          imageUrl: product.imageUrl,
-          hasVariants: product.hasVariants,
-          inStock: !product.trackStock || totalStock > 0,
-          totalStock: product.trackStock ? totalStock : null,
-          variants: product.variants.map((v) => ({
-            variantId: v.id,
-            name: v.name,
-            price: Number(v.price),
-            sku: v.sku,
-          })),
-        });
-        synced++;
-      } else {
-        outOfStock++;
-        skipped++;
-      }
-    }
-
-    const currentSettings = (store.themeSettings as Record<string, unknown>) || {};
-    const now = new Date().toISOString();
-
-    await this.prisma.onlineStore.update({
-      where: { id: storeId },
-      data: {
-        themeSettings: {
-          ...currentSettings,
-          lastCatalogSync: now,
-          catalogEntries,
-          productCount: synced,
-          outOfStockCount: outOfStock,
-        } as never,
-      },
-    });
-
-    this.logger.log(
-      `Catalog sync for store ${storeId}: ${synced} synced, ${skipped} skipped, ${outOfStock} out of stock`,
-    );
-
-    return {
-      synced,
-      skipped,
-      outOfStock,
-      lastSyncAt: now,
-    };
+    return store;
   }
 
-  // ========================================================================
-  // STORE ANALYTICS
-  // ========================================================================
-
-  /**
-   * Returns store analytics: total orders, revenue, avg order value, popular products.
-   */
-  async getStoreAnalytics(businessId: string, storeId: string): Promise<StoreAnalyticsResult> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
-      select: { id: true, businessId: true },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Online store not found');
-    }
-
-    if (store.businessId !== businessId) {
-      throw new BadRequestException('Store does not belong to this business');
-    }
-
-    // Get all store orders
-    const orders = await this.prisma.storeOrder.findMany({
-      where: { storeId },
-      include: {
-        items: {
-          select: {
-            productId: true,
-            productName: true,
-            quantity: true,
-            subtotal: true,
-          },
-        },
-      },
-    });
-
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.grandTotal), 0);
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    // Count orders by status
-    const ordersByStatus: Record<string, number> = {};
-    for (const order of orders) {
-      const status = order.orderStatus;
-      ordersByStatus[status] = (ordersByStatus[status] ?? 0) + 1;
-    }
-
-    // Popular products
-    const productSales = new Map<
-      string,
-      { productId: string | null; productName: string; totalQuantity: number; totalRevenue: number }
-    >();
-
-    for (const order of orders) {
-      for (const item of order.items) {
-        const key = item.productId ?? item.productName;
-        const existing = productSales.get(key) ?? {
-          productId: item.productId,
-          productName: item.productName,
-          totalQuantity: 0,
-          totalRevenue: 0,
-        };
-        existing.totalQuantity += item.quantity;
-        existing.totalRevenue += Number(item.subtotal);
-        productSales.set(key, existing);
-      }
-    }
-
-    const popularProducts = Array.from(productSales.values())
-      .sort((a, b) => b.totalQuantity - a.totalQuantity)
-      .slice(0, 10);
-
-    // Recent orders (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentOrders = orders.filter((o) => o.createdAt >= sevenDaysAgo).length;
-
-    return {
-      totalOrders,
-      totalRevenue,
-      avgOrderValue: Math.round(avgOrderValue * 100) / 100,
-      popularProducts,
-      ordersByStatus,
-      recentOrders,
-    };
-  }
-
-  // ========================================================================
-  // STORE INVENTORY
-  // ========================================================================
-
-  /**
-   * Returns inventory status for store products (in stock, low stock, out of stock).
-   */
-  async getStoreInventory(businessId: string, storeId: string): Promise<StoreInventoryResult> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
-      select: { id: true, businessId: true },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Online store not found');
-    }
-
-    if (store.businessId !== businessId) {
-      throw new BadRequestException('Store does not belong to this business');
-    }
-
-    // Get all active products with stock levels
-    const products = await this.prisma.product.findMany({
-      where: { businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        stockLevels: {
-          select: {
-            quantity: true,
-            lowStockAlert: true,
-            variantId: true,
-          },
-        },
-      },
-    });
-
-    const items: StoreInventoryItem[] = [];
-
-    for (const product of products) {
-      if (product.hasVariants && product.variants.length > 0) {
-        // Report per variant
-        for (const variant of product.variants) {
-          const stockLevel = product.stockLevels.find((sl) => sl.variantId === variant.id);
-          const qty = stockLevel ? Number(stockLevel.quantity) : 0;
-          const alert = stockLevel?.lowStockAlert ?? 10;
-
-          let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-          if (qty <= 0) {
-            status = 'out_of_stock';
-          } else if (qty <= alert) {
-            status = 'low_stock';
-          } else {
-            status = 'in_stock';
-          }
-
-          items.push({
-            productId: product.id,
-            variantId: variant.id,
-            productName: product.name,
-            variantName: variant.name,
-            quantity: qty,
-            lowStockAlert: alert,
-            status,
-          });
-        }
-      } else {
-        // Report at product level
-        const totalQty = product.stockLevels
-          .filter((sl) => sl.variantId === null)
-          .reduce((sum, sl) => sum + Number(sl.quantity), 0);
-        const alert = product.stockLevels.find((sl) => sl.variantId === null)?.lowStockAlert ?? 10;
-
-        let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-        if (!product.trackStock) {
-          status = 'in_stock';
-        } else if (totalQty <= 0) {
-          status = 'out_of_stock';
-        } else if (totalQty <= alert) {
-          status = 'low_stock';
-        } else {
-          status = 'in_stock';
-        }
-
-        items.push({
-          productId: product.id,
-          variantId: null,
-          productName: product.name,
-          variantName: null,
-          quantity: totalQty,
-          lowStockAlert: alert,
-          status,
-        });
-      }
-    }
-
-    const summary = {
-      total: items.length,
-      inStock: items.filter((i) => i.status === 'in_stock').length,
-      lowStock: items.filter((i) => i.status === 'low_stock').length,
-      outOfStock: items.filter((i) => i.status === 'out_of_stock').length,
-    };
-
-    return { items, summary };
-  }
-
-  // ========================================================================
-  // STORE SETTINGS
-  // ========================================================================
-
-  /**
-   * Update store settings (delivery radius, min order, fees, etc.)
-   */
-  async updateStoreSettings(
-    businessId: string,
-    storeId: string,
-    settings: StoreSettingsInput,
-  ): Promise<StoreSettingsResult> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
-      select: { id: true, businessId: true, themeSettings: true },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Online store not found');
-    }
-
-    if (store.businessId !== businessId) {
-      throw new BadRequestException('Store does not belong to this business');
-    }
-
-    const currentSettings = (store.themeSettings as Record<string, unknown>) || {};
-
-    const mergedSettings: Record<string, unknown> = {
-      ...currentSettings,
-    };
-
-    // Only update provided settings
-    if (settings.deliveryRadius !== undefined) {
-      mergedSettings['deliveryRadius'] = settings.deliveryRadius;
-    }
-    if (settings.minOrderAmount !== undefined) {
-      mergedSettings['minOrderAmount'] = settings.minOrderAmount;
-    }
-    if (settings.deliveryFee !== undefined) {
-      mergedSettings['deliveryFee'] = settings.deliveryFee;
-    }
-    if (settings.freeDeliveryThreshold !== undefined) {
-      mergedSettings['freeDeliveryThreshold'] = settings.freeDeliveryThreshold;
-    }
-    if (settings.isDeliveryEnabled !== undefined) {
-      mergedSettings['isDeliveryEnabled'] = settings.isDeliveryEnabled;
-    }
-    if (settings.isPickupEnabled !== undefined) {
-      mergedSettings['isPickupEnabled'] = settings.isPickupEnabled;
-    }
-    if (settings.operatingHoursStart !== undefined) {
-      mergedSettings['operatingHoursStart'] = settings.operatingHoursStart;
-    }
-    if (settings.operatingHoursEnd !== undefined) {
-      mergedSettings['operatingHoursEnd'] = settings.operatingHoursEnd;
-    }
-
-    const updated = await this.prisma.onlineStore.update({
-      where: { id: storeId },
-      data: {
-        themeSettings: mergedSettings as never,
-      },
-    });
-
-    this.logger.log(`Store settings updated for store ${storeId}`);
-
-    return {
-      storeId: updated.id,
-      settings: mergedSettings,
-      updatedAt: updated.updatedAt,
-    };
-  }
-
-  // ========================================================================
-  // SHIPPING CALCULATOR (distance-based with store settings support)
-  // ========================================================================
-
-  /** Default distance-based delivery zones */
-  private readonly defaultDeliveryZones: DeliveryZone[] = [
-    { name: 'Gratis Ongkir', minDistanceKm: 0, maxDistanceKm: 5, cost: 0, estimatedDays: 0 },
-    { name: 'Zona 1', minDistanceKm: 5, maxDistanceKm: 10, cost: 10000, estimatedDays: 1 },
-    { name: 'Zona 2', minDistanceKm: 10, maxDistanceKm: 20, cost: 20000, estimatedDays: 1 },
-    { name: 'Zona 3', minDistanceKm: 20, maxDistanceKm: Infinity, cost: 35000, estimatedDays: 2 },
-  ];
-
-  /**
-   * Calculate shipping cost for a store order.
-   *
-   * Supports three shipping modes from store settings:
-   * - 'distance': Flat rate tiers based on distance (<5km free, 5-10km Rp 10k, 10-20km Rp 20k, >20km Rp 35k)
-   * - 'flat_rate': Fixed shipping cost regardless of distance
-   * - 'free': Free shipping for all orders
-   *
-   * @param storeId - The store ID
-   * @param destination - Destination address/city
-   * @param weight - Total weight in grams
-   */
-  async calculateShipping(
-    storeId: string,
-    destination: string,
-    weight: number,
-  ): Promise<ShippingEstimate> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
-      select: { id: true, themeSettings: true },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Online store not found');
-    }
-
-    const settings = (store.themeSettings as Record<string, unknown>) || {};
-    const shippingMode = (settings['shippingMode'] as ShippingMode) || 'distance';
-
-    // Free shipping mode
-    if (shippingMode === 'free') {
-      return {
-        shippingMode: 'free',
-        cost: 0,
-        estimatedDays: 1,
-        distanceKm: null,
-        description: 'Gratis ongkir',
-      };
-    }
-
-    // Flat rate mode
-    if (shippingMode === 'flat_rate') {
-      const flatRate =
-        typeof settings['flatRateAmount'] === 'number'
-          ? settings['flatRateAmount']
-          : typeof settings['deliveryFee'] === 'number'
-            ? settings['deliveryFee']
-            : 15000;
-
-      return {
-        shippingMode: 'flat_rate',
-        cost: flatRate,
-        estimatedDays: 1,
-        distanceKm: null,
-        description: `Ongkir flat rate: Rp ${flatRate.toLocaleString('id-ID')}`,
-      };
-    }
-
-    // Distance-based mode (default)
-    // Simple distance estimation from destination string length as a proxy
-    // In production, this would use a geocoding/distance API
-    const distanceKm = this.estimateDistance(destination, weight);
-
-    const zone =
-      this.defaultDeliveryZones.find(
-        (z) => distanceKm >= z.minDistanceKm && distanceKm < z.maxDistanceKm,
-      ) ?? this.defaultDeliveryZones[this.defaultDeliveryZones.length - 1];
-
-    return {
-      shippingMode: 'distance',
-      cost: zone.cost,
-      estimatedDays: zone.estimatedDays,
-      distanceKm,
-      description:
-        zone.cost === 0
-          ? 'Gratis ongkir (jarak < 5km)'
-          : `Ongkir ${zone.name}: Rp ${zone.cost.toLocaleString('id-ID')} (${zone.minDistanceKm}-${zone.maxDistanceKm === Infinity ? '20+' : zone.maxDistanceKm}km)`,
-    };
-  }
-
-  /**
-   * Approximate distance estimator based on destination string hash.
-   *
-   * WARNING: This is NOT a real distance calculation. It produces a deterministic
-   * but arbitrary distance (1-30km) from the destination string. Replace with a
-   * geocoding API (Google Maps, Mapbox, etc.) by setting GEOCODING_API_KEY for
-   * accurate shipping cost calculations.
-   */
-  private estimateDistance(destination: string, _weight: number): number {
-    this.logger.warn(
-      'Using estimated distance calculation \u2014 configure GEOCODING_API_KEY for accurate shipping costs',
-    );
-
-    // Use a simple hash-based estimator for consistent results per destination
-    const normalized = destination.trim().toLowerCase();
-    let hash = 0;
-    for (let i = 0; i < normalized.length; i++) {
-      hash = (hash << 5) - hash + normalized.charCodeAt(i);
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    // Map to a reasonable distance range (1-30km)
-    return Math.abs(hash % 30) + 1;
-  }
-
-  /**
-   * Get available delivery zones for a store.
-   */
-  async getDeliveryZones(storeId: string): Promise<{
-    storeId: string;
-    shippingMode: ShippingMode;
-    zones: DeliveryZone[];
-  }> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { id: storeId },
-      select: { id: true, themeSettings: true },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Online store not found');
-    }
-
-    const settings = (store.themeSettings as Record<string, unknown>) || {};
-    const shippingMode = (settings['shippingMode'] as ShippingMode) || 'distance';
-
-    if (shippingMode === 'free') {
-      return {
-        storeId,
-        shippingMode,
-        zones: [
-          {
-            name: 'Semua Area',
-            minDistanceKm: 0,
-            maxDistanceKm: Infinity,
-            cost: 0,
-            estimatedDays: 1,
-          },
-        ],
-      };
-    }
-
-    if (shippingMode === 'flat_rate') {
-      const flatRate =
-        typeof settings['flatRateAmount'] === 'number'
-          ? settings['flatRateAmount']
-          : typeof settings['deliveryFee'] === 'number'
-            ? settings['deliveryFee']
-            : 15000;
-
-      return {
-        storeId,
-        shippingMode,
-        zones: [
-          {
-            name: 'Flat Rate',
-            minDistanceKm: 0,
-            maxDistanceKm: Infinity,
-            cost: flatRate,
-            estimatedDays: 1,
-          },
-        ],
-      };
-    }
-
-    return {
-      storeId,
-      shippingMode,
-      zones: this.defaultDeliveryZones.map((z) => ({
-        ...z,
-        maxDistanceKm: z.maxDistanceKm === Infinity ? 9999 : z.maxDistanceKm,
-      })),
-    };
-  }
-
-  // ========================================================================
-  // STOREFRONT PUBLIC API
-  // ========================================================================
-
-  /**
-   * Get public storefront data: store info, categories, products with prices/images.
-   * No authentication required.
-   */
-  async getStorefrontData(slug: string): Promise<StorefrontData> {
+  /** Active store by public slug, 404 when unknown or inactive. */
+  private async findActiveStoreBySlug(slug: string) {
     const store = await this.prisma.onlineStore.findUnique({
       where: { slug },
       select: {
@@ -605,66 +142,708 @@ export class OnlineStoreService {
         isActive: true,
       },
     });
-
     if (!store || !store.isActive) {
       throw new NotFoundException('Store not found');
     }
+    return store;
+  }
 
-    const settings = (store.themeSettings as Record<string, unknown>) || {};
+  /** Active store by id (public shipping endpoints), 404 when unknown or inactive. */
+  private async findActiveStoreById(storeId: string) {
+    const store = await this.prisma.onlineStore.findUnique({
+      where: { id: storeId },
+      select: { id: true, businessId: true, themeSettings: true, isActive: true },
+    });
+    if (!store || !store.isActive) {
+      throw new NotFoundException('Online store not found');
+    }
+    return store;
+  }
 
-    // Fetch active products with categories and stock
+  private settingsOf(store: { themeSettings: unknown }): StoreSettings {
+    const raw = store.themeSettings;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as StoreSettings) : {};
+  }
+
+  /** Product ids selected via catalog sync, or null when every active product is published. */
+  private publishedIds(settings: StoreSettings): string[] | null {
+    const ids = settings['publishedProductIds'];
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : null;
+  }
+
+  private productScope(businessId: string, settings: StoreSettings): Prisma.ProductWhereInput {
+    const published = this.publishedIds(settings);
+    return {
+      businessId,
+      isActive: true,
+      ...(published ? { id: { in: published } } : {}),
+    };
+  }
+
+  /**
+   * The single outlet that fulfils storefront orders (stock source):
+   * `fulfillmentOutletId` from the store settings, otherwise the oldest active outlet.
+   */
+  private async findFulfillmentOutlet(
+    db: Db,
+    businessId: string,
+    settings: StoreSettings,
+  ): Promise<{ id: string } | null> {
+    const configured = settings['fulfillmentOutletId'];
+    if (typeof configured === 'string' && configured) {
+      return db.outlet.findFirst({
+        where: { id: configured, businessId, isActive: true },
+        select: { id: true },
+      });
+    }
+    return db.outlet.findFirst({
+      where: { businessId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+  }
+
+  private async requireFulfillmentOutlet(db: Db, businessId: string, settings: StoreSettings) {
+    const outlet = await this.findFulfillmentOutlet(db, businessId, settings);
+    if (!outlet) {
+      throw new BadRequestException('No active fulfilment outlet configured for this store');
+    }
+    return outlet;
+  }
+
+  /** Effective shipping mode. Unset: flat rate when a fee is configured, otherwise free. */
+  private shippingModeOf(settings: StoreSettings): ShippingMode {
+    const mode = settings['shippingMode'];
+    if (mode === 'distance' || mode === 'flat_rate' || mode === 'free') {
+      return mode;
+    }
+    const fee = num(settings['flatRateAmount']) ?? num(settings['deliveryFee']);
+    return fee !== undefined && fee > 0 ? 'flat_rate' : 'free';
+  }
+
+  private flatRateOf(settings: StoreSettings): Prisma.Decimal {
+    return money(num(settings['flatRateAmount']) ?? num(settings['deliveryFee']) ?? 0);
+  }
+
+  /**
+   * Server-side shipping cost (R8): never taken from the client.
+   * Distance-based pricing needs a geocoding provider and fails honestly.
+   */
+  computeShipping(
+    settings: StoreSettings,
+    method: 'delivery' | 'pickup',
+    subtotal: Prisma.Decimal,
+  ): { mode: ShippingMode | 'pickup'; cost: Prisma.Decimal } {
+    if (method === 'pickup') {
+      if (settings['isPickupEnabled'] !== true) {
+        throw new BadRequestException('Pengambilan di toko tidak tersedia');
+      }
+      return { mode: 'pickup', cost: money(0) };
+    }
+    if (settings['isDeliveryEnabled'] === false) {
+      throw new BadRequestException('Pengiriman tidak tersedia untuk toko ini');
+    }
+    const mode = this.shippingModeOf(settings);
+    if (mode === 'distance') {
+      throw new NotImplementedException(NOT_CONFIGURED_DISTANCE);
+    }
+    if (mode === 'free') {
+      return { mode, cost: money(0) };
+    }
+    const threshold = num(settings['freeDeliveryThreshold']);
+    if (threshold !== undefined && threshold > 0 && subtotal.gte(threshold)) {
+      return { mode, cost: money(0) };
+    }
+    return { mode, cost: this.flatRateOf(settings) };
+  }
+
+  private assertOpen(settings: StoreSettings, now: Date = new Date()): void {
+    const start = settings['operatingHoursStart'];
+    const end = settings['operatingHoursEnd'];
+    if (typeof start !== 'string' || typeof end !== 'string') return;
+    const from = hhmmToMinutes(start);
+    const to = hhmmToMinutes(end);
+    const current = businessMinutesNow(now);
+    const open = from <= to ? current >= from && current < to : current >= from || current < to;
+    if (!open) {
+      throw new BadRequestException(`Toko sedang tutup (jam operasional ${start}-${end} WIB)`);
+    }
+  }
+
+  // ========================================================================
+  // CATALOG SYNC WITH STOCK CHECK
+  // ========================================================================
+
+  /**
+   * Snapshots the published catalog with stock availability of the fulfilment outlet.
+   */
+  async syncCatalog(businessId: string, storeId: string): Promise<CatalogSyncResult> {
+    const store = await this.findOwnedStore(businessId, storeId);
+    const settings = this.settingsOf(store);
+    const outlet = await this.findFulfillmentOutlet(this.prisma, businessId, settings);
+
     const products = await this.prisma.product.findMany({
-      where: { businessId: store.businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        category: { select: { id: true, name: true, imageUrl: true } },
+      where: this.productScope(businessId, settings),
+      select: {
+        id: true,
+        name: true,
+        basePrice: true,
+        categoryId: true,
+        imageUrl: true,
+        hasVariants: true,
+        trackStock: true,
+        category: { select: { name: true } },
+        variants: { where: { isActive: true }, select: { id: true, name: true, price: true } },
+        stockLevels: outlet
+          ? { where: { outletId: outlet.id }, select: { quantity: true } }
+          : { where: { outletId: { in: [] } }, select: { quantity: true } },
+      },
+    });
+
+    let synced = 0;
+    let outOfStock = 0;
+    const catalogEntries: Record<string, unknown>[] = [];
+
+    for (const product of products) {
+      const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
+      if (!product.trackStock || totalStock > 0) {
+        catalogEntries.push({
+          productId: product.id,
+          name: product.name,
+          basePrice: toNumber(product.basePrice),
+          categoryId: product.categoryId,
+          categoryName: product.category?.name ?? null,
+          imageUrl: product.imageUrl,
+          hasVariants: product.hasVariants,
+          inStock: true,
+          totalStock: product.trackStock ? totalStock : null,
+          variants: product.variants.map((v) => ({
+            variantId: v.id,
+            name: v.name,
+            price: toNumber(v.price),
+          })),
+        });
+        synced++;
+      } else {
+        outOfStock++;
+      }
+    }
+
+    const now = new Date().toISOString();
+    await this.prisma.onlineStore.updateMany({
+      where: { id: store.id, businessId },
+      data: {
+        themeSettings: {
+          ...settings,
+          lastCatalogSync: now,
+          catalogEntries,
+          productCount: synced,
+          outOfStockCount: outOfStock,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    this.logger.log(
+      `Catalog sync for store ${storeId}: ${synced} synced, ${outOfStock} out of stock`,
+    );
+
+    return { synced, skipped: outOfStock, outOfStock, lastSyncAt: now };
+  }
+
+  // ========================================================================
+  // STORE ORDERS (admin)
+  // ========================================================================
+
+  async getStoreOrders(
+    businessId: string,
+    slug: string,
+    query: StoreOrdersQueryDto,
+  ): Promise<Paginated<Record<string, unknown>>> {
+    const store = await this.prisma.onlineStore.findFirst({
+      where: { slug, businessId },
+      select: { id: true },
+    });
+    if (!store) throw new NotFoundException('Store not found');
+
+    const where: Prisma.StoreOrderWhereInput = {
+      storeId: store.id,
+      ...(query.status ? { orderStatus: query.status } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.storeOrder.findMany({
+        where,
+        include: { items: { select: STORE_ORDER_ITEM_SELECT } },
+        orderBy: { createdAt: 'desc' },
+        ...toPrismaPage(query),
+      }),
+      this.prisma.storeOrder.count({ where }),
+    ]);
+
+    const data = rows.map((order) => ({
+      ...order,
+      shippingCost: toNumber(order.shippingCost),
+      subtotal: toNumber(order.subtotal),
+      discountAmount: toNumber(order.discountAmount),
+      grandTotal: toNumber(order.grandTotal),
+      items: order.items.map((item) => ({
+        ...item,
+        unitPrice: toNumber(item.unitPrice),
+        subtotal: toNumber(item.subtotal),
+      })),
+    }));
+    return paginated(data, total, query);
+  }
+
+  /**
+   * Moves a store order of `businessId` through the allowed transitions.
+   * - confirm: creates the kitchen (KDS) order — unpaid/unconfirmed orders never reach the kitchen.
+   * - cancel: releases the stock deducted at checkout and cancels the kitchen order.
+   * All writes happen in one transaction behind a conditional status update.
+   */
+  async updateOrderStatus(businessId: string, orderId: string, status: StoreOrderStatus) {
+    let kitchenOrder: { id: string; outletId: string } | null = null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await tx.storeOrder.findFirst({
+        where: { id: orderId, store: { businessId } },
+        include: { items: { select: STORE_ORDER_ITEM_SELECT } },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+
+      const allowed = STORE_ORDER_TRANSITIONS[order.orderStatus];
+      if (!allowed.includes(status)) {
+        throw new ConflictException(
+          `Cannot change order status from '${order.orderStatus}' to '${status}'`,
+        );
+      }
+
+      const now = new Date();
+      const { count } = await tx.storeOrder.updateMany({
+        where: { id: order.id, store: { businessId }, orderStatus: order.orderStatus },
+        data: {
+          orderStatus: status,
+          ...(status === 'shipped' ? { shippedAt: now } : {}),
+          ...(status === 'delivered' ? { deliveredAt: now } : {}),
+          ...(status === 'cancelled' ? { cancelledAt: now } : {}),
+        },
+      });
+      if (count === 0) {
+        throw new ConflictException('Order was modified concurrently, please retry');
+      }
+
+      const kitchenNotePrefix = `Online order ${order.orderNumber} -`;
+
+      if (status === 'confirmed') {
+        const orderNumber = await this.numbering.next(tx, businessId, 'ORD');
+        kitchenOrder = await tx.order.create({
+          data: {
+            outletId: order.outletId,
+            orderNumber,
+            orderType: order.shippingMethod === 'pickup' ? 'takeaway' : 'delivery',
+            status: 'pending',
+            notes: `${kitchenNotePrefix} ${order.customerName}`,
+            items: {
+              create: order.items.map((item) => ({
+                productId: item.productId,
+                variantId: item.variantId,
+                productName: item.variantName
+                  ? `${item.productName} (${item.variantName})`
+                  : item.productName,
+                quantity: item.quantity,
+                status: 'pending',
+              })),
+            },
+          },
+          select: { id: true, outletId: true },
+        });
+      }
+
+      if (status === 'cancelled') {
+        await this.releaseStock(tx, businessId, order.outletId, order.items);
+        await tx.order.updateMany({
+          where: {
+            outletId: order.outletId,
+            notes: { startsWith: kitchenNotePrefix },
+            status: { in: ['pending', 'confirmed', 'preparing'] },
+          },
+          data: { status: 'cancelled' },
+        });
+      }
+
+      return tx.storeOrder.findFirstOrThrow({
+        where: { id: order.id, store: { businessId } },
+      });
+    });
+
+    const created = kitchenOrder as { id: string; outletId: string } | null;
+    if (created) {
+      this.eventBus.publish(
+        new OrderStatusChangedEvent(created.id, created.outletId, '', 'pending'),
+      );
+    }
+
+    return {
+      ...updated,
+      shippingCost: toNumber(updated.shippingCost),
+      subtotal: toNumber(updated.subtotal),
+      discountAmount: toNumber(updated.discountAmount),
+      grandTotal: toNumber(updated.grandTotal),
+    };
+  }
+
+  /** Returns checkout stock deductions of stock-tracked products to the outlet. */
+  private async releaseStock(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    outletId: string,
+    items: { productId: string | null; variantId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const productIds = [
+      ...new Set(items.map((i) => i.productId).filter((id): id is string => !!id)),
+    ];
+    if (productIds.length === 0) return;
+    const tracked = await tx.product.findMany({
+      where: { id: { in: productIds }, businessId, trackStock: true },
+      select: { id: true },
+    });
+    const trackedIds = new Set(tracked.map((p) => p.id));
+    for (const item of items) {
+      if (!item.productId || !trackedIds.has(item.productId)) continue;
+      await tx.stockLevel.updateMany({
+        where: { outletId, productId: item.productId, variantId: item.variantId },
+        data: { quantity: { increment: item.quantity } },
+      });
+    }
+  }
+
+  // ========================================================================
+  // STORE ANALYTICS
+  // ========================================================================
+
+  /**
+   * Store analytics computed with aggregate queries. Revenue and popular products
+   * exclude cancelled orders.
+   */
+  async getStoreAnalytics(businessId: string, storeId: string): Promise<StoreAnalyticsResult> {
+    const store = await this.findOwnedStore(businessId, storeId);
+    const notCancelled: Prisma.StoreOrderWhereInput = {
+      storeId: store.id,
+      orderStatus: { not: 'cancelled' },
+    };
+    const sevenDaysAgo = addBusinessDays(startOfBusinessDay(), -6);
+
+    const [byStatus, revenue, popular, recentOrders] = await Promise.all([
+      this.prisma.storeOrder.groupBy({
+        by: ['orderStatus'],
+        where: { storeId: store.id },
+        _count: { _all: true },
+      }),
+      this.prisma.storeOrder.aggregate({
+        where: notCancelled,
+        _sum: { grandTotal: true },
+        _count: { _all: true },
+      }),
+      this.prisma.storeOrderItem.groupBy({
+        by: ['productId', 'productName'],
+        where: { storeOrder: notCancelled },
+        _sum: { quantity: true, subtotal: true },
+        orderBy: { _sum: { quantity: 'desc' } },
+        take: 10,
+      }),
+      this.prisma.storeOrder.count({
+        where: { storeId: store.id, createdAt: { gte: sevenDaysAgo } },
+      }),
+    ]);
+
+    const ordersByStatus: Record<string, number> = {};
+    let totalOrders = 0;
+    for (const row of byStatus) {
+      ordersByStatus[row.orderStatus] = row._count._all;
+      totalOrders += row._count._all;
+    }
+
+    const totalRevenue = money(revenue._sum.grandTotal);
+    const paidCount = revenue._count._all;
+    const avgOrderValue =
+      paidCount > 0 ? totalRevenue.dividedBy(paidCount).toDecimalPlaces(2).toNumber() : 0;
+
+    return {
+      totalOrders,
+      totalRevenue: totalRevenue.toNumber(),
+      avgOrderValue,
+      popularProducts: popular.map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        totalQuantity: p._sum.quantity ?? 0,
+        totalRevenue: toNumber(p._sum.subtotal),
+      })),
+      ordersByStatus,
+      recentOrders,
+    };
+  }
+
+  // ========================================================================
+  // STORE INVENTORY
+  // ========================================================================
+
+  /**
+   * Inventory status of the published products at the store's fulfilment outlet
+   * (the same outlet checkout deducts from).
+   */
+  async getStoreInventory(businessId: string, storeId: string): Promise<StoreInventoryResult> {
+    const store = await this.findOwnedStore(businessId, storeId);
+    const settings = this.settingsOf(store);
+    const outlet = await this.findFulfillmentOutlet(this.prisma, businessId, settings);
+    const outletFilter = outlet ? outlet.id : { in: [] as string[] };
+
+    const products = await this.prisma.product.findMany({
+      where: this.productScope(businessId, settings),
+      select: {
+        id: true,
+        name: true,
+        hasVariants: true,
+        trackStock: true,
+        variants: { where: { isActive: true }, select: { id: true, name: true } },
         stockLevels: {
-          select: { quantity: true },
+          where: { outletId: outletFilter },
+          select: { quantity: true, lowStockAlert: true, variantId: true },
         },
       },
+      take: MAX_STOREFRONT_PRODUCTS,
       orderBy: { name: 'asc' },
     });
 
-    // Build category list with product counts
+    const statusOf = (
+      tracked: boolean,
+      qty: number,
+      alert: number,
+    ): StoreInventoryItem['status'] => {
+      if (!tracked) return 'in_stock';
+      if (qty <= 0) return 'out_of_stock';
+      if (qty <= alert) return 'low_stock';
+      return 'in_stock';
+    };
+
+    const items: StoreInventoryItem[] = [];
+    for (const product of products) {
+      if (product.hasVariants && product.variants.length > 0) {
+        for (const variant of product.variants) {
+          const stockLevel = product.stockLevels.find((sl) => sl.variantId === variant.id);
+          const qty = stockLevel ? Number(stockLevel.quantity) : 0;
+          const alert = stockLevel?.lowStockAlert ?? 10;
+          items.push({
+            productId: product.id,
+            variantId: variant.id,
+            productName: product.name,
+            variantName: variant.name,
+            quantity: qty,
+            lowStockAlert: alert,
+            status: statusOf(product.trackStock, qty, alert),
+          });
+        }
+      } else {
+        const stockLevel = product.stockLevels.find((sl) => sl.variantId === null);
+        const qty = stockLevel ? Number(stockLevel.quantity) : 0;
+        const alert = stockLevel?.lowStockAlert ?? 10;
+        items.push({
+          productId: product.id,
+          variantId: null,
+          productName: product.name,
+          variantName: null,
+          quantity: qty,
+          lowStockAlert: alert,
+          status: statusOf(product.trackStock, qty, alert),
+        });
+      }
+    }
+
+    return {
+      items,
+      summary: {
+        total: items.length,
+        inStock: items.filter((i) => i.status === 'in_stock').length,
+        lowStock: items.filter((i) => i.status === 'low_stock').length,
+        outOfStock: items.filter((i) => i.status === 'out_of_stock').length,
+      },
+    };
+  }
+
+  // ========================================================================
+  // STORE SETTINGS
+  // ========================================================================
+
+  /** Updates store settings; every setting is persisted and enforced at checkout. */
+  async updateStoreSettings(
+    businessId: string,
+    storeId: string,
+    dto: StoreSettingsDto,
+  ): Promise<StoreSettingsResult> {
+    const store = await this.findOwnedStore(businessId, storeId);
+    if (dto.fulfillmentOutletId) {
+      await this.tenant.assertOwned('outlet', dto.fulfillmentOutletId, businessId);
+    }
+
+    const merged: StoreSettings = { ...this.settingsOf(store) };
+    const fields: (keyof StoreSettingsDto)[] = [
+      'deliveryRadius',
+      'minOrderAmount',
+      'deliveryFee',
+      'freeDeliveryThreshold',
+      'isDeliveryEnabled',
+      'isPickupEnabled',
+      'operatingHoursStart',
+      'operatingHoursEnd',
+      'shippingMode',
+      'flatRateAmount',
+      'fulfillmentOutletId',
+    ];
+    for (const field of fields) {
+      if (dto[field] !== undefined) {
+        merged[field] = dto[field];
+      }
+    }
+
+    const updated = await this.prisma.onlineStore.update({
+      where: { id: store.id },
+      data: { themeSettings: merged as Prisma.InputJsonValue },
+      select: { id: true, updatedAt: true },
+    });
+
+    this.logger.log(`Store settings updated for store ${storeId}`);
+    return { storeId: updated.id, settings: merged, updatedAt: updated.updatedAt };
+  }
+
+  // ========================================================================
+  // SHIPPING
+  // ========================================================================
+
+  /** Shipping quote from the store's own settings (public). */
+  async calculateShipping(
+    storeId: string,
+    dto: StoreShippingCalculateDto,
+  ): Promise<ShippingEstimate> {
+    const store = await this.findActiveStoreById(storeId);
+    const settings = this.settingsOf(store);
+    const { mode, cost } = this.computeShipping(settings, 'delivery', money(dto.subtotal ?? 0));
+    const amount = toNumber(cost);
+    return {
+      shippingMode: mode as ShippingMode,
+      cost: amount,
+      estimatedDays: 1,
+      distanceKm: null,
+      description:
+        amount === 0 ? 'Gratis ongkir' : `Ongkir flat rate: Rp ${amount.toLocaleString('id-ID')}`,
+    };
+  }
+
+  /** Delivery zones derived from the store settings (public). */
+  async getDeliveryZones(storeId: string): Promise<{
+    storeId: string;
+    shippingMode: ShippingMode;
+    zones: DeliveryZone[];
+  }> {
+    const store = await this.findActiveStoreById(storeId);
+    const settings = this.settingsOf(store);
+    const shippingMode = this.shippingModeOf(settings);
+
+    if (shippingMode === 'distance') {
+      // Distance pricing is not supported: no invented zones.
+      return { storeId, shippingMode, zones: [] };
+    }
+    const cost = shippingMode === 'free' ? 0 : toNumber(this.flatRateOf(settings));
+    return {
+      storeId,
+      shippingMode,
+      zones: [
+        {
+          name: shippingMode === 'free' ? 'Semua Area' : 'Flat Rate',
+          minDistanceKm: 0,
+          maxDistanceKm: 9999,
+          cost,
+          estimatedDays: 1,
+        },
+      ],
+    };
+  }
+
+  // ========================================================================
+  // STOREFRONT PUBLIC API
+  // ========================================================================
+
+  /** Legacy public storefront (GET s/:slug): public projections only, no cost price. */
+  async getPublicStore(slug: string) {
+    const store = await this.findActiveStoreBySlug(slug);
+    const settings = this.settingsOf(store);
+    const products = await this.prisma.product.findMany({
+      where: this.productScope(store.businessId, settings),
+      select: {
+        ...PRODUCT_PUBLIC_SELECT,
+        variants: { where: { isActive: true }, select: { id: true, name: true, price: true } },
+      },
+      orderBy: { name: 'asc' },
+      take: MAX_STOREFRONT_PRODUCTS,
+    });
+
+    return {
+      store: {
+        id: store.id,
+        storeName: store.storeName,
+        slug: store.slug,
+        description: store.description,
+        logoUrl: store.logoUrl,
+        bannerUrl: store.bannerUrl,
+        socialLinks: store.socialLinks,
+        isActive: store.isActive,
+      },
+      products: products.map((p) => ({
+        ...p,
+        basePrice: toNumber(p.basePrice),
+        variants: p.variants.map((v) => ({ id: v.id, name: v.name, price: toNumber(v.price) })),
+      })),
+    };
+  }
+
+  /**
+   * Public storefront data. Stock availability is computed for the fulfilment outlet;
+   * the product list is capped at MAX_STOREFRONT_PRODUCTS.
+   */
+  async getStorefrontData(slug: string): Promise<StorefrontData> {
+    const store = await this.findActiveStoreBySlug(slug);
+    const settings = this.settingsOf(store);
+    const outlet = await this.findFulfillmentOutlet(this.prisma, store.businessId, settings);
+    const outletFilter = outlet ? outlet.id : { in: [] as string[] };
+
+    const products = await this.prisma.product.findMany({
+      where: this.productScope(store.businessId, settings),
+      select: {
+        ...PRODUCT_PUBLIC_SELECT,
+        trackStock: true,
+        variants: { where: { isActive: true }, select: { id: true, name: true, price: true } },
+        category: { select: { id: true, name: true, imageUrl: true } },
+        stockLevels: { where: { outletId: outletFilter }, select: { quantity: true } },
+      },
+      orderBy: { name: 'asc' },
+      take: MAX_STOREFRONT_PRODUCTS,
+    });
+
     const categoryMap = new Map<
       string,
       { id: string; name: string; imageUrl: string | null; productCount: number }
     >();
     for (const product of products) {
       const catId = product.categoryId || 'uncategorized';
-      const catName = product.category?.name || 'Uncategorized';
-      const catImage = product.category?.imageUrl || null;
       const existing = categoryMap.get(catId);
       if (existing) {
         existing.productCount++;
       } else {
-        categoryMap.set(catId, { id: catId, name: catName, imageUrl: catImage, productCount: 1 });
+        categoryMap.set(catId, {
+          id: catId,
+          name: product.category?.name || 'Uncategorized',
+          imageUrl: product.category?.imageUrl || null,
+          productCount: 1,
+        });
       }
     }
-
-    const categories = Array.from(categoryMap.values());
-
-    // Build product list
-    const productList = products.map((product) => {
-      const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
-      const inStock = !product.trackStock || totalStock > 0;
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        basePrice: Number(product.basePrice),
-        imageUrl: product.imageUrl,
-        categoryId: product.categoryId,
-        categoryName: product.category?.name || null,
-        variants: product.variants.map((v) => ({
-          id: v.id,
-          name: v.name,
-          price: Number(v.price),
-        })),
-        inStock,
-      };
-    });
 
     return {
       store: {
@@ -678,40 +857,65 @@ export class OnlineStoreService {
         isDeliveryEnabled: (settings['isDeliveryEnabled'] as boolean) ?? true,
         isPickupEnabled: (settings['isPickupEnabled'] as boolean) ?? false,
       },
-      categories,
-      products: productList,
+      categories: Array.from(categoryMap.values()),
+      products: products.map((product) => {
+        const totalStock = product.stockLevels.reduce((sum, sl) => sum + Number(sl.quantity), 0);
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          basePrice: toNumber(product.basePrice),
+          imageUrl: product.imageUrl,
+          categoryId: product.categoryId,
+          categoryName: product.category?.name || null,
+          variants: product.variants.map((v) => ({
+            id: v.id,
+            name: v.name,
+            price: toNumber(v.price),
+          })),
+          inStock: !product.trackStock || totalStock > 0,
+        };
+      }),
     };
   }
 
-  /**
-   * Get detailed product info for the storefront product detail page.
-   * No authentication required.
-   */
+  /** Public product detail (no cost price). */
   async getStorefrontProduct(slug: string, productId: string): Promise<StorefrontProductDetail> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { slug },
-      select: { id: true, businessId: true, isActive: true },
-    });
-
-    if (!store || !store.isActive) {
-      throw new NotFoundException('Store not found');
-    }
+    const store = await this.findActiveStoreBySlug(slug);
+    const settings = this.settingsOf(store);
+    const outlet = await this.findFulfillmentOutlet(this.prisma, store.businessId, settings);
+    const outletFilter = outlet ? outlet.id : { in: [] as string[] };
 
     const product = await this.prisma.product.findFirst({
-      where: { id: productId, businessId: store.businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
+      where: { ...this.productScope(store.businessId, settings), AND: [{ id: productId }] },
+      select: {
+        ...PRODUCT_PUBLIC_SELECT,
+        trackStock: true,
+        variants: {
+          where: { isActive: true },
+          select: { id: true, name: true, sku: true, price: true },
+        },
         category: { select: { id: true, name: true } },
         productModifierGroups: {
-          include: {
+          select: {
             modifierGroup: {
-              include: { modifiers: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
+              select: {
+                id: true,
+                name: true,
+                isRequired: true,
+                selectionType: true,
+                minSelection: true,
+                maxSelection: true,
+                modifiers: {
+                  where: { isActive: true },
+                  orderBy: { sortOrder: 'asc' },
+                  select: { id: true, name: true, price: true },
+                },
+              },
             },
           },
         },
-        stockLevels: {
-          select: { quantity: true },
-        },
+        stockLevels: { where: { outletId: outletFilter }, select: { quantity: true } },
       },
     });
 
@@ -725,7 +929,7 @@ export class OnlineStoreService {
       id: product.id,
       name: product.name,
       description: product.description,
-      basePrice: Number(product.basePrice),
+      basePrice: toNumber(product.basePrice),
       imageUrl: product.imageUrl,
       categoryId: product.categoryId,
       categoryName: product.category?.name || null,
@@ -733,7 +937,7 @@ export class OnlineStoreService {
         id: v.id,
         name: v.name,
         sku: v.sku,
-        price: Number(v.price),
+        price: toNumber(v.price),
       })),
       modifierGroups: product.productModifierGroups.map((pmg) => ({
         id: pmg.modifierGroup.id,
@@ -745,7 +949,7 @@ export class OnlineStoreService {
         modifiers: pmg.modifierGroup.modifiers.map((m) => ({
           id: m.id,
           name: m.name,
-          price: Number(m.price),
+          price: toNumber(m.price),
         })),
       })),
       inStock: !product.trackStock || totalStock > 0,
@@ -753,192 +957,199 @@ export class OnlineStoreService {
     };
   }
 
+  /** Public stock check against the store's fulfilment outlet. */
+  async checkStorefrontStock(slug: string, query: StorefrontStockCheckQueryDto) {
+    const store = await this.findActiveStoreBySlug(slug);
+    const settings = this.settingsOf(store);
+    const product = await this.prisma.product.findFirst({
+      where: { ...this.productScope(store.businessId, settings), AND: [{ id: query.productId }] },
+      select: { id: true, trackStock: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    let inStock = true;
+    if (product.trackStock) {
+      const outlet = await this.findFulfillmentOutlet(this.prisma, store.businessId, settings);
+      const level = outlet
+        ? await this.prisma.stockLevel.findFirst({
+            where: {
+              outletId: outlet.id,
+              productId: product.id,
+              variantId: query.variantId ?? null,
+            },
+            select: { quantity: true },
+          })
+        : null;
+      inStock = !!level && Number(level.quantity) >= query.quantity;
+    }
+    return {
+      productId: query.productId,
+      variantId: query.variantId ?? null,
+      quantity: query.quantity,
+      inStock,
+    };
+  }
+
   /**
-   * Create a storefront order - customer places order without authentication.
-   * Validates stock availability and creates the store order.
+   * Public checkout (the only storefront order path).
+   *
+   * Prices and shipping come from the server. Stock is deducted from the single
+   * fulfilment outlet with a conditional decrement (quantity >= n) in the same
+   * transaction that creates the order, so a failed decrement creates nothing.
+   * The kitchen order is created when the merchant confirms the order.
    */
   async createStorefrontOrder(
     slug: string,
-    orderData: StorefrontOrderInput,
+    orderData: StorefrontOrderDto,
   ): Promise<StorefrontOrderResult> {
-    const store = await this.prisma.onlineStore.findUnique({
-      where: { slug },
+    const items = orderData.items ?? [];
+    if (items.length === 0 || items.length > MAX_STOREFRONT_LINES) {
+      throw new BadRequestException('Order must contain between 1 and 50 items');
+    }
+    for (const item of items) {
+      if (
+        !Number.isInteger(item.quantity) ||
+        item.quantity < 1 ||
+        item.quantity > MAX_STOREFRONT_QTY
+      ) {
+        throw new BadRequestException('Quantity must be a positive integer');
+      }
+    }
+
+    const store = await this.findActiveStoreBySlug(slug);
+    const settings = this.settingsOf(store);
+    this.assertOpen(settings);
+
+    // Merge duplicate lines so each (product, variant) is priced and deducted once.
+    const lines = new Map<
+      string,
+      { productId: string; variantId: string | null; quantity: number }
+    >();
+    for (const item of items) {
+      const variantId = item.variantId || null;
+      const key = `${item.productId}:${variantId ?? ''}`;
+      const existing = lines.get(key);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        lines.set(key, { productId: item.productId, variantId, quantity: item.quantity });
+      }
+    }
+
+    const productIds = [...new Set(items.map((i) => i.productId))];
+    const products = await this.prisma.product.findMany({
+      where: {
+        ...this.productScope(store.businessId, settings),
+        AND: [{ id: { in: productIds } }],
+      },
       select: {
         id: true,
-        businessId: true,
-        isActive: true,
-        storeOrders: { select: { id: true }, take: 0 },
+        name: true,
+        basePrice: true,
+        trackStock: true,
+        variants: { where: { isActive: true }, select: { id: true, name: true, price: true } },
       },
     });
-
-    if (!store || !store.isActive) {
-      throw new NotFoundException('Store not found');
-    }
-
-    if (!orderData.items || orderData.items.length === 0) {
-      throw new BadRequestException('Order must contain at least one item');
-    }
-
-    // Fetch all products referenced in the order
-    const productIds = [...new Set(orderData.items.map((i) => i.productId))];
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds }, businessId: store.businessId, isActive: true },
-      include: {
-        variants: { where: { isActive: true } },
-        stockLevels: { select: { quantity: true, variantId: true } },
-      },
-    });
-
     const productMap = new Map(products.map((p) => [p.id, p]));
 
-    // Validate and build order items
-    const orderItems: {
-      productId: string;
-      variantId: string | null;
-      productName: string;
-      variantName: string | null;
-      quantity: number;
-      unitPrice: number;
-      subtotal: number;
-    }[] = [];
-
-    for (const item of orderData.items) {
-      const product = productMap.get(item.productId);
+    const orderItems = [...lines.values()].map((line) => {
+      const product = productMap.get(line.productId);
       if (!product) {
-        throw new NotFoundException(`Product not found: ${item.productId}`);
+        throw new NotFoundException(`Product not found: ${line.productId}`);
       }
-
-      let unitPrice = Number(product.basePrice);
+      let unitPrice = money(product.basePrice);
       let variantName: string | null = null;
-      const variantId = item.variantId || null;
-
-      if (variantId) {
-        const variant = product.variants.find((v) => v.id === variantId);
+      if (line.variantId) {
+        const variant = product.variants.find((v) => v.id === line.variantId);
         if (!variant) {
-          throw new NotFoundException(`Variant not found: ${variantId}`);
+          throw new NotFoundException(`Variant not found: ${line.variantId}`);
         }
-        unitPrice = Number(variant.price);
+        unitPrice = money(variant.price);
         variantName = variant.name;
       }
-
-      // Check stock if product tracks stock
-      if (product.trackStock) {
-        const relevantStock = product.stockLevels.filter((sl) => sl.variantId === variantId);
-        const totalStock = relevantStock.reduce((sum, sl) => sum + Number(sl.quantity), 0);
-        if (totalStock < item.quantity) {
-          throw new ConflictException(
-            `Insufficient stock for ${product.name}. Available: ${totalStock}, Requested: ${item.quantity}`,
-          );
-        }
-      }
-
-      orderItems.push({
+      return {
         productId: product.id,
-        variantId,
+        variantId: line.variantId,
         productName: product.name,
         variantName,
-        quantity: item.quantity,
+        quantity: line.quantity,
+        trackStock: product.trackStock,
         unitPrice,
-        subtotal: unitPrice * item.quantity,
-      });
-    }
-
-    const subtotal = orderItems.reduce((sum, i) => sum + i.subtotal, 0);
-
-    // Get first outlet for the business as default fulfillment outlet
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { businessId: store.businessId, isActive: true },
-      select: { id: true },
+        subtotal: multiplyMoney(unitPrice, line.quantity),
+      };
     });
 
-    if (!outlet) {
-      throw new BadRequestException('No active outlet found for this store');
+    const subtotal = sumMoney(orderItems.map((i) => i.subtotal));
+    const minOrder = num(settings['minOrderAmount']);
+    if (minOrder !== undefined && subtotal.lt(minOrder)) {
+      throw new BadRequestException(`Minimal pembelian Rp ${minOrder.toLocaleString('id-ID')}`);
     }
 
-    const shippingCost = 0; // Shipping calculated separately via calculateShipping
-    const orderNumber = `SO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const shippingMethod = orderData.shippingMethod ?? 'delivery';
+    if (shippingMethod === 'delivery' && !orderData.shippingAddress?.trim()) {
+      throw new BadRequestException('Alamat pengiriman wajib diisi');
+    }
+    const { cost: shippingCost } = this.computeShipping(settings, shippingMethod, subtotal);
+    const grandTotal = subtotal.plus(shippingCost);
 
-    const storeOrder = await this.prisma.storeOrder.create({
-      data: {
-        storeId: store.id,
-        outletId: outlet.id,
-        orderNumber,
-        customerName: orderData.customerName,
-        customerPhone: orderData.customerPhone,
-        customerEmail: orderData.customerEmail || null,
-        shippingAddress: orderData.shippingAddress || null,
-        shippingMethod: orderData.shippingMethod || null,
-        notes: orderData.notes || null,
-        subtotal,
-        shippingCost,
-        grandTotal: subtotal + shippingCost,
-        items: {
-          create: orderItems.map((i) => ({
-            productId: i.productId,
-            variantId: i.variantId,
-            productName: i.productName,
-            variantName: i.variantName,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-            subtotal: i.subtotal,
-          })),
-        },
-      },
-    });
+    const outlet = await this.requireFulfillmentOutlet(this.prisma, store.businessId, settings);
 
-    this.logger.log(`Storefront order created: ${orderNumber} for store ${slug}`);
-
-    // Deduct inventory for products that track stock
-    for (const item of orderItems) {
-      const product = productMap.get(item.productId);
-      if (product?.trackStock) {
-        await this.prisma.stockLevel.updateMany({
+    const storeOrder = await this.prisma.$transaction(async (tx) => {
+      for (const item of orderItems) {
+        if (!item.trackStock) continue;
+        const { count } = await tx.stockLevel.updateMany({
           where: {
             outletId: outlet.id,
             productId: item.productId,
-            variantId: item.variantId || null,
+            variantId: item.variantId,
+            quantity: { gte: item.quantity },
           },
           data: { quantity: { decrement: item.quantity } },
         });
+        if (count === 0) {
+          throw new ConflictException(`Stok ${item.productName} tidak mencukupi`);
+        }
       }
-    }
 
-    // Create kitchen order for KDS so kitchen can prepare the food
-    const kitchenOrderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
-    const kitchenOrder = await this.prisma.order.create({
-      data: {
-        outletId: outlet.id,
-        orderNumber: kitchenOrderNumber,
-        orderType: orderData.shippingMethod === 'pickup' ? 'takeaway' : 'delivery',
-        status: 'pending',
-        notes: `Online order ${orderNumber} - ${orderData.customerName}`,
-      },
+      const orderNumber = await this.numbering.next(tx, store.businessId, 'WEB');
+      return tx.storeOrder.create({
+        data: {
+          storeId: store.id,
+          outletId: outlet.id,
+          orderNumber,
+          customerName: orderData.customerName,
+          customerPhone: orderData.customerPhone,
+          customerEmail: orderData.customerEmail || null,
+          shippingAddress: shippingMethod === 'delivery' ? orderData.shippingAddress || null : null,
+          shippingMethod,
+          notes: orderData.notes || null,
+          subtotal,
+          shippingCost,
+          grandTotal,
+          items: {
+            create: orderItems.map((i) => ({
+              productId: i.productId,
+              variantId: i.variantId,
+              productName: i.productName,
+              variantName: i.variantName,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              subtotal: i.subtotal,
+            })),
+          },
+        },
+        select: { id: true, orderNumber: true, orderStatus: true, createdAt: true },
+      });
     });
 
-    for (const item of orderItems) {
-      await this.prisma.orderItem.create({
-        data: {
-          orderId: kitchenOrder.id,
-          productId: item.productId,
-          variantId: item.variantId,
-          productName: item.productName,
-          quantity: item.quantity,
-          status: 'pending',
-        },
-      });
-    }
-
-    // Notify KDS via event bus
-    this.eventBus.publish(new OrderStatusChangedEvent(kitchenOrder.id, outlet.id, '', 'pending'));
-
-    this.logger.log(`Kitchen order ${kitchenOrderNumber} created for online order ${orderNumber}`);
+    this.logger.log(`Storefront order created: ${storeOrder.orderNumber} for store ${slug}`);
 
     return {
       orderId: storeOrder.id,
       orderNumber: storeOrder.orderNumber,
-      subtotal,
-      shippingCost,
-      grandTotal: subtotal + shippingCost,
+      subtotal: toNumber(subtotal),
+      shippingCost: toNumber(shippingCost),
+      grandTotal: toNumber(grandTotal),
       status: storeOrder.orderStatus,
       createdAt: storeOrder.createdAt,
     };

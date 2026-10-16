@@ -1,269 +1,172 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TablesService } from '../tables.service';
-import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import type { PrismaService } from '../../../infrastructure/database/prisma.service';
+
+const makeTable = (overrides: Record<string, unknown> = {}) => ({
+  id: 'table-1',
+  outletId: 'outlet-1',
+  name: 'Table 1',
+  capacity: 4,
+  section: 'Main Hall',
+  positionX: 10,
+  positionY: 20,
+  status: 'available',
+  currentOrderId: null,
+  occupiedAt: null,
+  isActive: true,
+  createdAt: new Date(),
+  ...overrides,
+});
+
+function buildPrisma() {
+  const prisma = {
+    table: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    order: { findFirst: jest.fn() },
+    waitingList: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+  prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
+  return prisma;
+}
 
 describe('TablesService', () => {
+  let prisma: ReturnType<typeof buildPrisma>;
   let service: TablesService;
-  let mockPrisma: jest.Mocked<PrismaService>;
-
-  const now = new Date();
-
-  const makeTable = (overrides: Record<string, unknown> = {}) => ({
-    id: 'table-1',
-    outletId: 'outlet-1',
-    name: 'Table 1',
-    capacity: 4,
-    section: 'Main Hall',
-    positionX: 10,
-    positionY: 20,
-    status: 'available',
-    currentOrderId: null,
-    occupiedAt: null,
-    isActive: true,
-    createdAt: now,
-    ...overrides,
-  });
 
   beforeEach(() => {
-    mockPrisma = {
-      table: {
-        findUnique: jest.fn(),
-        findFirst: jest.fn(),
-        findMany: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-      },
-    } as unknown as jest.Mocked<PrismaService>;
-
-    service = new TablesService(mockPrisma);
+    prisma = buildPrisma();
+    service = new TablesService(prisma as unknown as PrismaService);
   });
 
   describe('findById', () => {
-    it('should return a table when found', async () => {
-      const prismaTable = makeTable();
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(prismaTable);
-
-      const result = await service.findById('table-1');
-
-      expect(mockPrisma.table.findUnique).toHaveBeenCalledWith({
-        where: { id: 'table-1' },
+    it('scopes the lookup to the caller business', async () => {
+      prisma.table.findFirst.mockResolvedValue(makeTable());
+      const result = await service.findById('table-1', 'biz-1');
+      expect(prisma.table.findFirst).toHaveBeenCalledWith({
+        where: { id: 'table-1', outlet: { businessId: 'biz-1' } },
       });
       expect(result.id).toBe('table-1');
-      expect(result.name).toBe('Table 1');
-      expect(result.capacity).toBe(4);
-      expect(result.section).toBe('Main Hall');
     });
 
-    it('should throw NotFoundException when table is not found', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.findById('nonexistent')).rejects.toThrow(NotFoundException);
-      await expect(service.findById('nonexistent')).rejects.toThrow('Table nonexistent not found');
-    });
-  });
-
-  describe('findByOutlet', () => {
-    it('should return all active tables for an outlet', async () => {
-      const tables = [
-        makeTable({ id: 'table-1', name: 'Table 1' }),
-        makeTable({ id: 'table-2', name: 'Table 2' }),
-      ];
-      (mockPrisma.table.findMany as jest.Mock).mockResolvedValue(tables);
-
-      const result = await service.findByOutlet('outlet-1');
-
-      expect(mockPrisma.table.findMany).toHaveBeenCalledWith({
-        where: { outletId: 'outlet-1', isActive: true },
-        orderBy: [{ section: 'asc' }, { name: 'asc' }],
-      });
-      expect(result).toHaveLength(2);
-    });
-
-    it('should filter by section when provided', async () => {
-      (mockPrisma.table.findMany as jest.Mock).mockResolvedValue([]);
-
-      await service.findByOutlet('outlet-1', { section: 'VIP' });
-
-      expect(mockPrisma.table.findMany).toHaveBeenCalledWith({
-        where: expect.objectContaining({ section: 'VIP' }),
-        orderBy: [{ section: 'asc' }, { name: 'asc' }],
-      });
-    });
-
-    it('should filter by status when provided', async () => {
-      (mockPrisma.table.findMany as jest.Mock).mockResolvedValue([]);
-
-      await service.findByOutlet('outlet-1', { status: 'occupied' });
-
-      expect(mockPrisma.table.findMany).toHaveBeenCalledWith({
-        where: expect.objectContaining({ status: 'occupied' }),
-        orderBy: [{ section: 'asc' }, { name: 'asc' }],
-      });
-    });
-  });
-
-  describe('create', () => {
-    it('should create a new table successfully', async () => {
-      (mockPrisma.table.findFirst as jest.Mock).mockResolvedValue(null);
-      const created = makeTable({ id: 'table-new', name: 'Table 10' });
-      (mockPrisma.table.create as jest.Mock).mockResolvedValue(created);
-
-      const result = await service.create({
-        outletId: 'outlet-1',
-        name: 'Table 10',
-        capacity: 6,
-        section: 'Outdoor',
-      });
-
-      expect(mockPrisma.table.findFirst).toHaveBeenCalledWith({
-        where: { outletId: 'outlet-1', name: 'Table 10', isActive: true },
-      });
-      expect(mockPrisma.table.create).toHaveBeenCalledWith({
-        data: {
-          outletId: 'outlet-1',
-          name: 'Table 10',
-          capacity: 6,
-          section: 'Outdoor',
-          positionX: null,
-          positionY: null,
-        },
-      });
-      expect(result.id).toBe('table-new');
-    });
-
-    it('should throw when table name already exists in outlet', async () => {
-      (mockPrisma.table.findFirst as jest.Mock).mockResolvedValue(makeTable());
-
-      await expect(service.create({ outletId: 'outlet-1', name: 'Table 1' })).rejects.toThrow(
-        'Table with this name already exists in the outlet',
-      );
-    });
-
-    it('should default capacity to 4 if not provided', async () => {
-      (mockPrisma.table.findFirst as jest.Mock).mockResolvedValue(null);
-      (mockPrisma.table.create as jest.Mock).mockResolvedValue(makeTable());
-
-      await service.create({ outletId: 'outlet-1', name: 'Table X' });
-
-      expect(mockPrisma.table.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ capacity: 4 }),
-      });
-    });
-  });
-
-  describe('update', () => {
-    it('should update a table successfully', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(makeTable());
-      const updated = makeTable({ name: 'VIP Table 1', capacity: 8 });
-      (mockPrisma.table.update as jest.Mock).mockResolvedValue(updated);
-
-      const result = await service.update('table-1', {
-        name: 'VIP Table 1',
-        capacity: 8,
-      });
-
-      expect(mockPrisma.table.update).toHaveBeenCalledWith({
-        where: { id: 'table-1' },
-        data: { name: 'VIP Table 1', capacity: 8 },
-      });
-      expect(result.name).toBe('VIP Table 1');
-      expect(result.capacity).toBe(8);
-    });
-
-    it('should throw NotFoundException when table does not exist', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.update('nonexistent', { name: 'New' })).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('softDelete', () => {
-    it('should deactivate a table by setting isActive to false', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(makeTable());
-      (mockPrisma.table.update as jest.Mock).mockResolvedValue({});
-
-      await service.softDelete('table-1');
-
-      expect(mockPrisma.table.update).toHaveBeenCalledWith({
-        where: { id: 'table-1' },
-        data: { isActive: false },
-      });
-    });
-
-    it('should throw NotFoundException when table does not exist', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.softDelete('nonexistent')).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw when trying to deactivate an occupied table', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(
-        makeTable({ status: 'occupied' }),
-      );
-
-      await expect(service.softDelete('table-1')).rejects.toThrow(
-        'Cannot deactivate an occupied table',
-      );
+    it('throws 404 for a table of another business', async () => {
+      prisma.table.findFirst.mockResolvedValue(null);
+      await expect(service.findById('table-x', 'biz-1')).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('updateStatus', () => {
-    it('should update table status to occupied with order reference', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(makeTable());
-      const updated = makeTable({
-        status: 'occupied',
-        currentOrderId: 'order-1',
-        occupiedAt: now,
-      });
-      (mockPrisma.table.update as jest.Mock).mockResolvedValue(updated);
+    it('rejects a currentOrderId that is not an order of the table outlet', async () => {
+      prisma.table.findFirst.mockResolvedValue(makeTable());
+      prisma.order.findFirst.mockResolvedValue(null);
 
-      const result = await service.updateStatus('table-1', 'occupied', 'order-1');
-
-      expect(mockPrisma.table.update).toHaveBeenCalledWith({
-        where: { id: 'table-1' },
-        data: {
-          status: 'occupied',
-          currentOrderId: 'order-1',
-          occupiedAt: expect.any(Date),
-        },
+      await expect(
+        service.updateStatus('table-1', 'biz-1', 'occupied', 'foreign-order'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.order.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-order', outletId: 'outlet-1' },
+        select: { id: true },
       });
-      expect(result.status).toBe('occupied');
+      expect(prisma.table.update).not.toHaveBeenCalled();
+    });
+
+    it('links an order of the same outlet', async () => {
+      prisma.table.findFirst.mockResolvedValue(makeTable());
+      prisma.order.findFirst.mockResolvedValue({ id: 'order-1' });
+      prisma.table.update.mockResolvedValue(
+        makeTable({ status: 'occupied', currentOrderId: 'order-1' }),
+      );
+
+      const result = await service.updateStatus('table-1', 'biz-1', 'occupied', 'order-1');
       expect(result.currentOrderId).toBe('order-1');
     });
+  });
 
-    it('should clear occupiedAt when status is not occupied', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(
-        makeTable({ status: 'occupied' }),
-      );
-      const updated = makeTable({
-        status: 'available',
-        currentOrderId: null,
-        occupiedAt: null,
-      });
-      (mockPrisma.table.update as jest.Mock).mockResolvedValue(updated);
+  describe('getSections', () => {
+    it('queries only the given outlets and never runs without outlets', async () => {
+      expect(await service.getSections([])).toEqual([]);
+      expect(prisma.table.findMany).not.toHaveBeenCalled();
 
-      const result = await service.updateStatus('table-1', 'available');
+      prisma.table.findMany.mockResolvedValue([{ section: 'A' }, { section: null }]);
+      expect(await service.getSections(['outlet-1'])).toEqual(['A']);
+      expect(prisma.table.findMany.mock.calls[0][0].where.outletId).toEqual({ in: ['outlet-1'] });
+    });
+  });
 
-      expect(mockPrisma.table.update).toHaveBeenCalledWith({
-        where: { id: 'table-1' },
-        data: {
-          status: 'available',
-          currentOrderId: null,
-          occupiedAt: null,
-        },
-      });
-      expect(result.status).toBe('available');
-      expect(result.occupiedAt).toBeNull();
+  describe('getReservations', () => {
+    it('uses the Asia/Jakarta business day', async () => {
+      prisma.waitingList.findMany.mockResolvedValue([]);
+      await service.getReservations(['outlet-1'], '2026-09-27');
+      const where = prisma.waitingList.findMany.mock.calls[0][0].where;
+      expect(where.queuedAt.gte.toISOString()).toBe('2026-09-26T17:00:00.000Z');
+      expect(where.queuedAt.lte.toISOString()).toBe('2026-09-27T16:59:59.999Z');
     });
 
-    it('should throw NotFoundException when table does not exist', async () => {
-      (mockPrisma.table.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.updateStatus('nonexistent', 'available')).rejects.toThrow(
-        NotFoundException,
+    it('rejects malformed dates', async () => {
+      await expect(service.getReservations(['outlet-1'], '27/09/2026')).rejects.toThrow(
+        BadRequestException,
       );
+    });
+  });
+
+  describe('checkInReservation', () => {
+    const reservation = {
+      id: 'res-1',
+      outletId: 'outlet-1',
+      tableId: 'table-1',
+      status: 'waiting',
+      notes: '[RESERVATION]',
+    };
+
+    it('fails (and rolls back) when the reserved table is occupied by someone else', async () => {
+      prisma.waitingList.findFirst.mockResolvedValue(reservation);
+      prisma.waitingList.updateMany.mockResolvedValue({ count: 1 });
+      prisma.table.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.checkInReservation('res-1', 'biz-1')).rejects.toThrow(ConflictException);
+      expect(prisma.table.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'table-1',
+          outletId: 'outlet-1',
+          status: { in: ['available', 'reserved'] },
+        },
+        data: expect.objectContaining({ status: 'occupied' }),
+      });
+    });
+
+    it('only accepts reservation rows of the caller business', async () => {
+      prisma.waitingList.findFirst.mockResolvedValue(null);
+      await expect(service.checkInReservation('res-1', 'biz-2')).rejects.toThrow(NotFoundException);
+      expect(prisma.waitingList.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'res-1',
+        outlet: { businessId: 'biz-2' },
+        notes: { startsWith: '[RESERVATION]' },
+      });
+    });
+  });
+
+  describe('cancelReservation', () => {
+    it('rejects a second cancel (conditional update count 0)', async () => {
+      prisma.waitingList.findFirst.mockResolvedValue({
+        id: 'res-1',
+        outletId: 'outlet-1',
+        tableId: 'table-1',
+        status: 'cancelled',
+        notes: '[RESERVATION]',
+      });
+      prisma.waitingList.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.cancelReservation('res-1', 'biz-1')).rejects.toThrow(ConflictException);
+      expect(prisma.table.updateMany).not.toHaveBeenCalled();
     });
   });
 });

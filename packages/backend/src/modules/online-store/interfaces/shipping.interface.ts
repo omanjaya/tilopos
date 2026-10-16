@@ -6,11 +6,6 @@
 
 export type ShippingMode = 'distance' | 'flat_rate' | 'free';
 
-export interface ShippingCalculateInput {
-  destination: string;
-  weight: number; // in grams
-}
-
 export interface ShippingEstimate {
   shippingMode: ShippingMode;
   cost: number;

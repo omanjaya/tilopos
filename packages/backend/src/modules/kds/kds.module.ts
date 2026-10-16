@@ -7,14 +7,13 @@ import { BumpOrderUseCase } from '../../application/use-cases/kds/bump-order.use
 import { GetStationOrdersUseCase } from '../../application/use-cases/kds/get-station-orders.use-case';
 import { KdsAnalyticsService } from './kds-analytics.service';
 import { KdsService } from './kds.service';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @Module({
   imports: [
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET'),
+        secret: config.getOrThrow<string>('JWT_SECRET'),
       }),
       inject: [ConfigService],
     }),
@@ -26,7 +25,6 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
     GetStationOrdersUseCase,
     KdsAnalyticsService,
     KdsService,
-    PrismaService,
   ],
   exports: [KdsGateway, KdsAnalyticsService, KdsService],
 })

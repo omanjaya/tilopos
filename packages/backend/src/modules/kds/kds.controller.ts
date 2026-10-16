@@ -1,31 +1,38 @@
-import {
-  Controller,
-  Post,
-  Body,
-  UseGuards,
-  Get,
-  Query,
-  Put,
-  Param,
-  ForbiddenException,
-} from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiQuery, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
+import { Controller, Post, Body, Get, Query, Put, Param, ParseUUIDPipe } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
+import { TenantAccessService } from '../../shared/tenant';
+import { startOfBusinessDay } from '../../shared/utils/business-time';
 import { BumpOrderUseCase } from '../../application/use-cases/kds/bump-order.use-case';
 import { GetStationOrdersUseCase } from '../../application/use-cases/kds/get-station-orders.use-case';
-import { KitchenStation } from './kds.gateway';
 import { KdsAnalyticsService } from './kds-analytics.service';
-import { KdsService, type CookingTimerSettings } from './kds.service';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { KdsService } from './kds.service';
+import {
+  BumpOrderDto,
+  CookingTimerSettingsDto,
+  KdsAnalyticsQueryDto,
+  KdsOrdersQueryDto,
+  KdsOutletQueryDto,
+  KdsPerformanceQueryDto,
+  MarkItemPreparingDto,
+  RecallItemDto,
+} from './dto/kds.dto';
+
+/** Kitchen actions: kitchen staff and supervisors up. */
+const KITCHEN_ROLES = [
+  EmployeeRole.KITCHEN,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.MANAGER,
+  EmployeeRole.OWNER,
+];
+
+const PRIORITY_MAP: Record<string, number> = { normal: 0, urgent: 5, vip: 10 };
 
 @ApiTags('KDS')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('kds')
 export class KdsController {
   constructor(
@@ -33,90 +40,45 @@ export class KdsController {
     private readonly getStationOrdersUseCase: GetStationOrdersUseCase,
     private readonly analyticsService: KdsAnalyticsService,
     private readonly kdsService: KdsService,
-    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
-  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
-
-  private async verifyOrderItemAccess(orderItemId: string, businessId: string): Promise<void> {
-    const item = await this.prisma.orderItem.findUnique({
-      where: { id: orderItemId },
-      include: { order: { include: { outlet: { select: { businessId: true } } } } },
-    });
-    if (!item || item.order.outlet.businessId !== businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-  }
-
   @Post('bump')
-  @ApiOperation({ summary: 'Bump an order item (mark as completed)' })
-  async bumpOrder(
-    @Body() dto: { orderItemId: string; station: string },
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOrderItemAccess(dto.orderItemId, user.businessId);
+  @Roles(...KITCHEN_ROLES)
+  @ApiOperation({ summary: 'Bump an order item (mark as ready)' })
+  async bumpOrder(@Body() dto: BumpOrderDto, @CurrentUser() user: AuthUser) {
     return this.bumpOrderUseCase.execute({
       orderItemId: dto.orderItemId,
+      businessId: user.businessId,
       employeeId: user.employeeId,
       station: dto.station,
     });
   }
 
   @Get('orders')
-  @ApiOperation({ summary: 'Get orders for KDS display, optionally filtered by priority' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({
-    name: 'station',
-    required: false,
-    enum: ['grill', 'fryer', 'cold', 'hot', 'drinks', 'dessert', 'general'],
-  })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    enum: ['pending', 'preparing', 'ready', 'completed'],
-  })
-  @ApiQuery({
-    name: 'priority',
-    required: false,
-    enum: ['normal', 'urgent', 'vip'],
-    description: 'Filter by priority level',
-  })
-  @ApiQuery({ name: 'includeCompleted', required: false, type: Boolean })
-  async getStationOrders(
-    @Query('outletId') outletId: string,
-    @CurrentUser() user: AuthUser,
-    @Query('station') station?: KitchenStation,
-    @Query('status') status?: string,
-    @Query('priority') priority?: 'normal' | 'urgent' | 'vip',
-    @Query('includeCompleted') includeCompleted?: boolean,
-  ) {
-    await this.verifyOutletAccess(outletId, user.businessId);
+  @ApiOperation({ summary: 'Get order items for the KDS display of one outlet' })
+  async getStationOrders(@Query() query: KdsOrdersQueryDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     const result = await this.getStationOrdersUseCase.execute({
       outletId,
-      station,
-      status,
-      includeCompleted: includeCompleted === true,
+      station: query.station,
+      status: query.status,
+      includeCompleted: query.includeCompleted === true,
     });
 
-    if (priority) {
-      const priorityMap: Record<string, number> = { normal: 0, urgent: 5, vip: 10 };
-      const targetPriority = priorityMap[priority];
-      const filteredItems = result.items.filter((item) => item.priority === targetPriority);
+    if (query.priority) {
+      const targetPriority = PRIORITY_MAP[query.priority];
+      const items = result.items.filter((item) => item.priority === targetPriority);
+      const served = items.filter((i) => i.status === 'served').length;
       return {
-        items: filteredItems,
+        items,
         summary: {
-          total: filteredItems.length,
-          pending: filteredItems.filter((i) => i.status === 'pending').length,
-          preparing: filteredItems.filter((i) => i.status === 'preparing').length,
-          ready: filteredItems.filter((i) => i.status === 'ready').length,
-          completed: filteredItems.filter((i) => i.status === 'completed').length,
+          total: items.length,
+          pending: items.filter((i) => i.status === 'pending').length,
+          preparing: items.filter((i) => i.status === 'preparing').length,
+          ready: items.filter((i) => i.status === 'ready').length,
+          served,
+          completed: served,
         },
       };
     }
@@ -126,79 +88,64 @@ export class KdsController {
 
   @Get('stations')
   @ApiOperation({ summary: 'Get available stations for an outlet' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getAvailableStations(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(outletId, user.businessId);
+  async getAvailableStations(@Query() query: KdsOutletQueryDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     return this.getStationOrdersUseCase.getAvailableStations(outletId);
   }
 
-  // Analytics endpoints
   @Get('analytics')
-  @ApiOperation({ summary: 'Get kitchen analytics for outlet' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({
-    name: 'date',
-    required: false,
-    type: String,
-    description: 'Date in ISO format (defaults to today)',
-  })
-  async getAnalytics(
-    @Query('outletId') outletId: string,
-    @CurrentUser() user: AuthUser,
-    @Query('date') date?: string,
-  ) {
-    await this.verifyOutletAccess(outletId, user.businessId);
-    const targetDate = date ? new Date(date) : undefined;
-    return this.analyticsService.getAnalytics(outletId, targetDate);
+  @ApiOperation({ summary: 'Kitchen analytics for one business day (Asia/Jakarta)' })
+  async getAnalytics(@Query() query: KdsAnalyticsQueryDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    return this.analyticsService.getAnalytics(outletId, user.businessId, query.date);
   }
 
   @Get('performance')
-  @ApiOperation({ summary: 'Get kitchen performance report' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({ name: 'startDate', required: true, type: String })
-  @ApiQuery({ name: 'endDate', required: true, type: String })
+  @ApiOperation({ summary: 'Kitchen performance report (max 92 days)' })
   async getPerformanceReport(
-    @Query('outletId') outletId: string,
+    @Query() query: KdsPerformanceQueryDto,
     @CurrentUser() user: AuthUser,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
   ) {
-    await this.verifyOutletAccess(outletId, user.businessId);
-    const now = new Date();
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const end = endDate ? new Date(endDate) : now;
-    return this.analyticsService.getPerformanceReport(outletId, start, end);
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    const start = query.startDate ? new Date(query.startDate) : startOfBusinessDay();
+    const end = query.endDate ? new Date(query.endDate) : new Date();
+    return this.analyticsService.getPerformanceReport(outletId, user.businessId, start, end);
   }
 
   @Put('items/:id/preparing')
+  @Roles(...KITCHEN_ROLES)
   @ApiOperation({ summary: 'Mark order item as preparing' })
   async markItemPreparing(
-    @Param('id') orderItemId: string,
-    @Body() dto: { station: string },
+    @Param('id', ParseUUIDPipe) orderItemId: string,
+    @Body() dto: MarkItemPreparingDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyOrderItemAccess(orderItemId, user.businessId);
-    return this.analyticsService.markItemPreparing(orderItemId, user.employeeId, dto.station);
+    return this.analyticsService.markItemPreparing(orderItemId, user.businessId, dto.station);
   }
 
   @Put('items/:id/ready')
-  @ApiOperation({ summary: 'Mark order item as ready' })
-  async markItemReady(@Param('id') orderItemId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyOrderItemAccess(orderItemId, user.businessId);
-    return this.analyticsService.markItemReady(orderItemId, user.employeeId);
+  @Roles(...KITCHEN_ROLES)
+  @ApiOperation({ summary: 'Mark order item as ready (same as POST /kds/bump)' })
+  async markItemReady(
+    @Param('id', ParseUUIDPipe) orderItemId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bumpOrderUseCase.execute({
+      orderItemId,
+      businessId: user.businessId,
+      employeeId: user.employeeId,
+    });
   }
 
   @Put('items/:id/recall')
+  @Roles(...KITCHEN_ROLES)
   @ApiOperation({ summary: 'Recall order item (send back for re-preparation)' })
   async recallItem(
-    @Param('id') orderItemId: string,
-    @Body() dto: { reason?: string },
+    @Param('id', ParseUUIDPipe) orderItemId: string,
+    @Body() dto: RecallItemDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyOrderItemAccess(orderItemId, user.businessId);
-    return this.analyticsService.recallItem(orderItemId, dto.reason);
+    return this.analyticsService.recallItem(orderItemId, user.businessId, dto.reason);
   }
 
   // ======================================================================
@@ -211,15 +158,15 @@ export class KdsController {
     return this.kdsService.getCookingTimerSettings(user.businessId);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @Put('timer-settings')
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Update cooking timer SLA settings (dine-in, takeaway, delivery)' })
-  async updateTimerSettings(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: Partial<CookingTimerSettings>,
-  ) {
-    return this.kdsService.updateCookingTimerSettings(user.businessId, dto);
+  async updateTimerSettings(@CurrentUser() user: AuthUser, @Body() dto: CookingTimerSettingsDto) {
+    return this.kdsService.updateCookingTimerSettings(user.businessId, {
+      dineIn: dto.dineIn,
+      takeaway: dto.takeaway,
+      delivery: dto.delivery,
+    });
   }
 
   // ======================================================================
@@ -228,8 +175,8 @@ export class KdsController {
 
   @Get('overdue')
   @ApiOperation({ summary: 'Get orders exceeding SLA cooking time' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getOverdueOrders(@CurrentUser() user: AuthUser, @Query('outletId') outletId: string) {
+  async getOverdueOrders(@CurrentUser() user: AuthUser, @Query() query: KdsOutletQueryDto) {
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
     return this.kdsService.getOverdueOrders(user.businessId, outletId);
   }
 
@@ -238,15 +185,12 @@ export class KdsController {
   // ======================================================================
 
   @Post('orders/:id/notify-ready')
+  @Roles(...KITCHEN_ROLES)
   @ApiOperation({ summary: 'Notify cashier that an order is ready (WebSocket event)' })
-  async notifyOrderReady(@Param('id') orderId: string, @CurrentUser() user: AuthUser) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!order || order.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.kdsService.notifyCashierOrderReady(orderId);
+  async notifyOrderReady(
+    @Param('id', ParseUUIDPipe) orderId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.kdsService.notifyCashierOrderReady(orderId, user.businessId);
   }
 }

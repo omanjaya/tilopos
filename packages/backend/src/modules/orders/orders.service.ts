@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import type { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import type { OrderPriorityLevel } from '../../application/dtos/order-priority.dto';
 
@@ -8,243 +9,150 @@ const PRIORITY_MAP: Record<OrderPriorityLevel, number> = {
   vip: 10,
 };
 
+const PRIORITY_EDITABLE_STATUSES: OrderStatus[] = ['pending', 'confirmed', 'preparing'];
+const ACTIVE_STATUSES: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'ready', 'served'];
+const DEFAULT_LIST_LIMIT = 200;
+
 export interface SetPriorityResult {
   orderId: string;
   priority: OrderPriorityLevel;
   numericPriority: number;
 }
 
-export interface ModifyItemsInput {
-  addItems?: Array<{
-    productId: string;
-    variantId?: string;
-    quantity: number;
-    station?: string;
-    notes?: string;
-  }>;
-  removeItemIds?: string[];
-  updateItems?: Array<{
-    itemId: string;
-    quantity?: number;
-    notes?: string;
-  }>;
-}
-
-export interface ModifyItemsResult {
-  orderId: string;
-  itemsAdded: number;
-  itemsRemoved: number;
-  itemsUpdated: number;
-}
-
-export interface CancelOrderResult {
-  orderId: string;
-  previousStatus: string;
-  cancelledAt: Date;
-  reason: string;
-  wastedItems: Array<{
-    itemId: string;
+export interface OrderListItem {
+  id: string;
+  outletId: string;
+  orderNumber: string;
+  orderType: string;
+  tableId: string | null;
+  customerId: string | null;
+  status: string;
+  priority: number;
+  notes: string | null;
+  estimatedTime: number | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  items: Array<{
+    id: string;
+    productId: string | null;
+    variantId: string | null;
     productName: string;
     quantity: number;
+    station: string | null;
     status: string;
+    notes: string | null;
+    modifiers: unknown[];
   }>;
+  tableName: string | null;
+  customerName: string | null;
+  elapsedMinutes: number;
+}
+
+const ORDER_LIST_INCLUDE = {
+  items: true,
+  table: { select: { name: true } },
+  customer: { select: { name: true } },
+} satisfies Prisma.OrderInclude;
+
+type OrderListRow = Prisma.OrderGetPayload<{ include: typeof ORDER_LIST_INCLUDE }>;
+
+function toOrderListItem(order: OrderListRow, now: number): OrderListItem {
+  return {
+    id: order.id,
+    outletId: order.outletId,
+    orderNumber: order.orderNumber,
+    orderType: order.orderType,
+    tableId: order.tableId,
+    customerId: order.customerId,
+    status: order.status,
+    priority: order.priority,
+    notes: order.notes,
+    estimatedTime: order.estimatedTime,
+    startedAt: order.startedAt,
+    completedAt: order.completedAt,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    items: order.items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      variantId: item.variantId,
+      productName: item.productName,
+      quantity: item.quantity,
+      station: item.station,
+      status: item.status,
+      notes: item.notes,
+      modifiers: [], // OrderItems don't have modifiers in the current schema
+    })),
+    tableName: order.table?.name ?? null,
+    customerName: order.customer?.name ?? null,
+    elapsedMinutes: Math.floor((now - order.createdAt.getTime()) / 60000),
+  };
 }
 
 @Injectable()
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async modifyItems(
-    orderId: string,
-    _employeeId: string,
-    input: ModifyItemsInput,
-  ): Promise<ModifyItemsResult> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
-    }
-
-    const modifiableStatuses = ['pending', 'confirmed'];
-    if (!modifiableStatuses.includes(order.status)) {
-      throw new BadRequestException(`Cannot modify order in status: ${order.status}`);
-    }
-
-    let itemsAdded = 0;
-    let itemsRemoved = 0;
-    let itemsUpdated = 0;
-
-    // Add new items
-    if (input.addItems && input.addItems.length > 0) {
-      const productIds = input.addItems.map((i) => i.productId);
-      const products = await this.prisma.product.findMany({
-        where: { id: { in: productIds }, isActive: true },
-      });
-
-      for (const item of input.addItems) {
-        const product = products.find((p) => p.id === item.productId);
-        if (!product) {
-          throw new NotFoundException(`Product ${item.productId} not found`);
-        }
-
-        await this.prisma.orderItem.create({
-          data: {
-            orderId,
-            productId: item.productId,
-            variantId: item.variantId ?? null,
-            productName: product.name,
-            quantity: item.quantity,
-            station: item.station ?? null,
-            notes: item.notes ?? null,
-            status: 'pending',
-          },
-        });
-        itemsAdded++;
-      }
-    }
-
-    // Remove items (only pending items can be removed)
-    if (input.removeItemIds && input.removeItemIds.length > 0) {
-      const deleteResult = await this.prisma.orderItem.deleteMany({
-        where: {
-          id: { in: input.removeItemIds },
-          orderId,
-          status: 'pending',
-        },
-      });
-      itemsRemoved = deleteResult.count;
-    }
-
-    // Update existing items
-    if (input.updateItems && input.updateItems.length > 0) {
-      for (const update of input.updateItems) {
-        const updateData: Record<string, unknown> = {};
-        if (update.quantity !== undefined) {
-          if (update.quantity < 1) {
-            throw new BadRequestException(`Quantity must be at least 1, got ${update.quantity}`);
-          }
-          updateData.quantity = update.quantity;
-        }
-        if (update.notes !== undefined) updateData.notes = update.notes;
-
-        if (Object.keys(updateData).length > 0) {
-          await this.prisma.orderItem.updateMany({
-            where: { id: update.itemId, orderId },
-            data: updateData,
-          });
-          itemsUpdated++;
-        }
-      }
-    }
-
-    return {
-      orderId,
-      itemsAdded,
-      itemsRemoved,
-      itemsUpdated,
-    };
-  }
-
-  async cancel(orderId: string, _employeeId: string, reason: string): Promise<CancelOrderResult> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: true,
-      },
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
-    }
-
-    const cancellableStatuses = ['pending', 'confirmed', 'preparing', 'ready'];
-    if (!cancellableStatuses.includes(order.status)) {
-      throw new BadRequestException(`Cannot cancel order in status: ${order.status}`);
-    }
-
-    const previousStatus = order.status;
-    const cancelledAt = new Date();
-
-    // Identify items that were already being prepared or ready (wasted items)
-    const wastedItems = order.items
-      .filter((item) => item.status === 'preparing' || item.status === 'ready')
-      .map((item) => ({
-        itemId: item.id,
-        productName: item.productName,
-        quantity: item.quantity,
-        status: item.status,
-      }));
-
-    // Update order status and append cancellation reason
-    const updatedNotes = order.notes
-      ? `${order.notes}\n[CANCELLED] ${reason}`
-      : `[CANCELLED] ${reason}`;
-
-    await this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'cancelled',
-        notes: updatedNotes,
-      },
-    });
-
-    // Cancel all non-served, non-cancelled items
-    await this.prisma.orderItem.updateMany({
+  /**
+   * Orders of the given (already access-checked) outlets. Without a status the
+   * active orders are returned. Capped, newest first.
+   */
+  async listOrders(
+    outletIds: string[],
+    filter: { status?: OrderStatus; limit?: number } = {},
+  ): Promise<OrderListItem[]> {
+    if (outletIds.length === 0) return [];
+    const orders = await this.prisma.order.findMany({
       where: {
-        orderId,
-        status: { notIn: ['served', 'cancelled'] },
+        outletId: { in: outletIds },
+        status: filter.status ?? { in: ACTIVE_STATUSES },
       },
-      data: { status: 'cancelled' },
+      include: ORDER_LIST_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(filter.limit ?? DEFAULT_LIST_LIMIT, DEFAULT_LIST_LIMIT),
     });
 
-    // Free up the table if one was assigned
-    if (order.tableId) {
-      await this.prisma.table.update({
-        where: { id: order.tableId },
-        data: {
-          status: 'available',
-          currentOrderId: null,
-          occupiedAt: null,
-        },
-      });
-    }
-
-    return {
-      orderId,
-      previousStatus,
-      cancelledAt,
-      reason,
-      wastedItems,
-    };
+    const now = Date.now();
+    return orders.map((order) => toOrderListItem(order, now));
   }
 
-  async setPriority(orderId: string, priority: OrderPriorityLevel): Promise<SetPriorityResult> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+  /**
+   * One order of the caller's business with table and customer names (same shape as
+   * a list row). 404 for unknown or foreign orders.
+   */
+  async getOrder(orderId: string, businessId: string): Promise<OrderListItem> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, outlet: { businessId } },
+      include: ORDER_LIST_INCLUDE,
     });
-
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
     }
+    return toOrderListItem(order, Date.now());
+  }
 
-    const activeStatuses = ['pending', 'confirmed', 'preparing'];
-    if (!activeStatuses.includes(order.status)) {
-      throw new BadRequestException(`Cannot change priority for order in status: ${order.status}`);
-    }
-
+  async setPriority(
+    orderId: string,
+    businessId: string,
+    priority: OrderPriorityLevel,
+  ): Promise<SetPriorityResult> {
     const numericPriority = PRIORITY_MAP[priority];
+    const where: Prisma.OrderWhereInput = { id: orderId, outlet: { businessId } };
 
-    await this.prisma.order.update({
-      where: { id: orderId },
+    const updated = await this.prisma.order.updateMany({
+      where: { ...where, status: { in: PRIORITY_EDITABLE_STATUSES } },
       data: { priority: numericPriority },
     });
+    if (updated.count === 0) {
+      const order = await this.prisma.order.findFirst({ where, select: { status: true } });
+      if (!order) {
+        throw new NotFoundException(`Order ${orderId} not found`);
+      }
+      throw new ConflictException(`Cannot change priority for order in status: ${order.status}`);
+    }
 
-    return {
-      orderId,
-      priority,
-      numericPriority,
-    };
+    return { orderId, priority, numericPriority };
   }
 }

@@ -1,12 +1,30 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { EventBusService } from '../../infrastructure/events/event-bus.service';
-import { OrderStatusChangedEvent } from '../../domain/events/order-status-changed.event';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+  NotImplementedException,
+} from '@nestjs/common';
+import { PrismaService } from '@infrastructure/database/prisma.service';
+import { AppError, ErrorCode } from '@shared/errors/app-error';
+import { money } from '@shared/utils/money';
+import { secureToken } from '@shared/utils/secure-code';
+import type {
+  SelfOrderCallbackStatus,
+  SelfOrderPaymentMethod,
+} from '@application/dtos/self-order-features.dto';
+import {
+  computeSessionTotals,
+  loadModifiers,
+  modifierIdsOf,
+  type SessionTotals,
+} from './self-order-pricing';
 
-export interface CreatePaymentDto {
+export interface CreatePaymentInput {
   sessionCode: string;
-  paymentMethod: 'qris' | 'cash' | 'gopay' | 'ovo' | 'dana' | 'shopeepay';
+  paymentMethod: SelfOrderPaymentMethod;
   amount: number;
   customerEmail?: string;
   customerPhone?: string;
@@ -16,217 +34,110 @@ export interface PaymentResult {
   success: boolean;
   transactionId: string;
   paymentMethod: string;
-  paymentUrl?: string;
-  qrCode?: string;
-  qrCodeData?: string;
-  expiresAt?: Date;
   message?: string;
 }
 
-export interface QrisPaymentData {
-  transactionId: string;
-  qrCodeUrl: string;
-  qrCodeData: string;
-  amount: number;
-  expiresAt: Date;
-  merchantName: string;
-}
-
+/**
+ * Self-order payments.
+ *
+ * Only pay-at-counter (cash) is supported. No QRIS / e-wallet gateway is
+ * integrated for self-order, so those methods fail honestly with 501
+ * NOT_CONFIGURED instead of returning a placeholder QR code (R10).
+ *
+ * The kitchen order is created exactly once, by submitSession. Payment
+ * callbacks only move the session submitted -> paid (idempotent) and never
+ * create kitchen orders.
+ */
 @Injectable()
 export class SelfOrderPaymentService {
   private readonly logger = new Logger(SelfOrderPaymentService.name);
-  private readonly qrisApiUrl: string;
-  private readonly paymentGatewayUrl: string;
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly eventBus: EventBusService,
-    private readonly configService: ConfigService,
-  ) {
-    this.qrisApiUrl = this.configService.get<string>('QRIS_API_URL', '');
-    this.paymentGatewayUrl = this.configService.get<string>('PAYMENT_GATEWAY_URL', '');
+  constructor(private readonly prisma: PrismaService) {}
 
-    if (!this.qrisApiUrl) {
-      this.logger.warn(
-        'QRIS_API_URL is not configured. QRIS QR code URLs will use a placeholder value.',
-      );
-    }
-    if (!this.paymentGatewayUrl) {
-      this.logger.warn(
-        'PAYMENT_GATEWAY_URL is not configured. E-wallet payment URLs will use a placeholder value.',
-      );
-    }
+  async calculateSessionTotal(sessionCode: string): Promise<SessionTotals> {
+    const totals = await this.computeTotals(sessionCode);
+    return {
+      subtotal: totals.subtotal,
+      taxAmount: totals.taxAmount,
+      serviceChargeAmount: totals.serviceChargeAmount,
+      grandTotal: totals.grandTotal,
+      itemCount: totals.itemCount,
+    };
   }
 
-  async calculateSessionTotal(sessionCode: string) {
+  private async computeTotals(sessionCode: string) {
     const session = await this.prisma.selfOrderSession.findUnique({
       where: { sessionCode },
-      include: {
+      select: {
+        outlet: { select: { businessId: true, taxRate: true, serviceCharge: true } },
         items: {
-          include: {
+          select: {
+            productId: true,
+            quantity: true,
+            modifiers: true,
             product: { select: { basePrice: true } },
             variant: { select: { price: true } },
           },
         },
-        outlet: { select: { taxRate: true, serviceCharge: true } },
       },
     });
-
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    let subtotal = 0;
-    for (const item of session.items) {
-      const unitPrice = item.variant ? Number(item.variant.price) : Number(item.product.basePrice);
-      subtotal += unitPrice * item.quantity;
-    }
-
-    const taxRate = Number(session.outlet.taxRate) / 100;
-    const serviceChargeRate = Number(session.outlet.serviceCharge) / 100;
-
-    const taxAmount = subtotal * taxRate;
-    const serviceChargeAmount = subtotal * serviceChargeRate;
-    const grandTotal = subtotal + taxAmount + serviceChargeAmount;
-
-    return {
-      subtotal,
-      taxAmount,
-      serviceChargeAmount,
-      grandTotal,
-      itemCount: session.items.reduce((sum, i) => sum + i.quantity, 0),
-    };
+    const modifiers = await loadModifiers(
+      this.prisma,
+      session.outlet.businessId,
+      session.items.flatMap((i) => modifierIdsOf(i.modifiers)),
+    );
+    return computeSessionTotals(
+      session.items,
+      modifiers,
+      session.outlet.taxRate,
+      session.outlet.serviceCharge,
+    );
   }
 
-  /**
-   * Create payment for self-order session.
-   * Supports QRIS (generates QR code) and cash (pay-at-counter).
-   */
-  async createPayment(dto: CreatePaymentDto): Promise<PaymentResult> {
-    const session = await this.prisma.selfOrderSession.findUnique({
-      where: { sessionCode: dto.sessionCode },
-      include: {
-        outlet: {
-          include: { business: { select: { name: true } } },
-        },
-      },
-    });
+  async createPayment(input: CreatePaymentInput): Promise<PaymentResult> {
+    if (input.paymentMethod !== 'cash') {
+      throw new NotImplementedException({
+        success: false,
+        reason: 'NOT_CONFIGURED',
+        message: `Payment method ${input.paymentMethod} is not available for self-order. Please pay at the counter.`,
+      });
+    }
 
+    const session = await this.prisma.selfOrderSession.findUnique({
+      where: { sessionCode: input.sessionCode },
+      select: { id: true, status: true },
+    });
     if (!session) {
       throw new NotFoundException('Session not found');
     }
-
     if (session.status !== 'submitted') {
       throw new BadRequestException('Session must be submitted before payment');
     }
 
-    // Calculate actual total
-    const totals = await this.calculateSessionTotal(dto.sessionCode);
-
-    if (Math.abs(totals.grandTotal - dto.amount) > 1) {
+    const totals = await this.computeTotals(input.sessionCode);
+    if (!money(input.amount).equals(totals.grandTotalDecimal)) {
       throw new BadRequestException('Payment amount does not match order total');
     }
 
-    // Generate payment reference
-    const transactionId = `SO-${dto.sessionCode}-${Date.now()}`;
-
-    // Store payment reference in DB
-    await this.prisma.selfOrderSession.update({
-      where: { sessionCode: dto.sessionCode },
+    const transactionId = `SO-${secureToken(12)}`;
+    const updated = await this.prisma.selfOrderSession.updateMany({
+      where: { id: session.id, status: 'submitted' },
       data: {
         paymentRef: transactionId,
-        paymentMethod: dto.paymentMethod,
+        paymentMethod: input.paymentMethod,
         paymentStatus: 'pending',
         paymentAt: new Date(),
       },
     });
-
-    // Handle different payment methods
-    if (dto.paymentMethod === 'cash') {
-      return this.createCashPayment(dto.sessionCode, transactionId, totals.grandTotal);
+    if (updated.count !== 1) {
+      throw new ConflictException('Session payment state changed, please retry');
     }
 
-    if (dto.paymentMethod === 'qris') {
-      return this.createQrisPayment(
-        dto.sessionCode,
-        transactionId,
-        totals.grandTotal,
-        session.outlet.business.name,
-      );
-    }
-
-    // For e-wallet methods (gopay, ovo, dana, shopeepay)
-    return this.createEwalletPayment(
-      dto.sessionCode,
-      transactionId,
-      dto.paymentMethod,
-      totals.grandTotal,
-    );
-  }
-
-  /**
-   * Create QRIS payment - generates QR code data for customer to scan.
-   */
-  private async createQrisPayment(
-    sessionCode: string,
-    transactionId: string,
-    amount: number,
-    merchantName: string,
-  ): Promise<PaymentResult> {
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 15);
-
-    // PLACEHOLDER: QRIS QR code data generation using EMVCo standard format.
-    // In production, this should be generated by a real payment gateway (e.g., Midtrans, Xendit).
-    // This placeholder generates a structurally valid but non-functional QR code string.
-    this.logger.warn(
-      `QRIS QR code generation is using placeholder implementation for session ${sessionCode}. ` +
-        'Integrate a real payment gateway for production use.',
-    );
-    const amountStr = amount.toFixed(0);
-    const qrCodeData = [
-      '00020101021226',
-      `6014ID.CO.QRIS.WWW`,
-      `0215ID10${transactionId.slice(-10)}`,
-      `52045399`,
-      `5303360`,
-      `54${String(amountStr.length).padStart(2, '0')}${amountStr}`,
-      `5802ID`,
-      `59${String(merchantName.length).padStart(2, '0')}${merchantName}`,
-      `6007Jakarta`,
-      `6304`,
-    ].join('');
-
-    const qrCodeUrl = this.qrisApiUrl
-      ? `${this.qrisApiUrl}/qr/${transactionId}`
-      : `[NOT_CONFIGURED] QRIS_API_URL not set - /qr/${transactionId}`;
-
-    this.logger.log(
-      `QRIS payment created for session ${sessionCode}: ${transactionId}, amount: ${amount}`,
-    );
-
-    return {
-      success: true,
-      transactionId,
-      paymentMethod: 'qris',
-      qrCode: qrCodeUrl,
-      qrCodeData,
-      expiresAt,
-      message: 'Scan QR code to complete payment. Expires in 15 minutes.',
-    };
-  }
-
-  /**
-   * Create cash payment - customer pays at counter.
-   * Marks order as pending cash payment.
-   */
-  private async createCashPayment(
-    sessionCode: string,
-    transactionId: string,
-    _amount: number,
-  ): Promise<PaymentResult> {
-    this.logger.log(`Cash payment created for session ${sessionCode}: pay at counter`);
-
+    this.logger.log(`Cash (pay at counter) payment registered for session ${session.id}`);
     return {
       success: true,
       transactionId,
@@ -235,172 +146,74 @@ export class SelfOrderPaymentService {
     };
   }
 
-  /**
-   * Create e-wallet payment (GoPay, OVO, DANA, ShopeePay).
-   */
-  private async createEwalletPayment(
-    sessionCode: string,
-    transactionId: string,
-    method: string,
-    _amount: number,
-  ): Promise<PaymentResult> {
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 15);
-
-    this.logger.log(
-      `E-wallet payment (${method}) created for session ${sessionCode}: ${transactionId}`,
-    );
-
-    return {
-      success: true,
-      transactionId,
-      paymentMethod: method,
-      paymentUrl: this.paymentGatewayUrl
-        ? `${this.paymentGatewayUrl}/${method}/${transactionId}`
-        : `[NOT_CONFIGURED] PAYMENT_GATEWAY_URL not set - /${method}/${transactionId}`,
-      expiresAt,
-      message: `Complete payment via ${method}. Expires in 15 minutes.`,
-    };
-  }
-
-  /**
-   * Initiate a QRIS-specific payment for a self-order session.
-   * Generates a QRIS code string, stores payment reference in the session.
-   */
-  async initiateQRISPayment(sessionCode: string, amount: number): Promise<PaymentResult> {
-    return this.createPayment({
-      sessionCode,
-      paymentMethod: 'qris',
-      amount,
+  /** QRIS shortcut: no gateway is integrated for self-order. */
+  async initiateQRISPayment(_sessionCode: string, _amount: number): Promise<PaymentResult> {
+    throw new NotImplementedException({
+      success: false,
+      reason: 'NOT_CONFIGURED',
+      message: 'QRIS payment is not available for self-order. Please pay at the counter.',
     });
   }
 
   /**
-   * Handle payment gateway callback (webhook).
-   * Updates session status to 'paid' on success and auto-submits the order to KDS.
+   * Payment callback (webhook). Matches the session by the exact payment
+   * reference we issued and applies the status with conditional updates, so a
+   * replayed/duplicated callback is a no-op. It never creates a kitchen order:
+   * that already happened, once, on submit.
    */
-  async handlePaymentCallback(orderId: string, status: 'success' | 'failed' | 'pending') {
-    // Extract session code from orderId (format: SO-{sessionCode}-{timestamp})
-    const match = orderId.match(/^SO-(.+)-\d+$/);
-    if (!match) {
-      this.logger.warn(`Invalid order ID format: ${orderId}`);
-      return;
-    }
-
-    const sessionCode = match[1];
-    const session = await this.prisma.selfOrderSession.findUnique({
-      where: { sessionCode },
-      include: { items: true },
+  async handlePaymentCallback(
+    paymentRef: string,
+    status: SelfOrderCallbackStatus,
+  ): Promise<{ applied: boolean; sessionStatus: string }> {
+    const session = await this.prisma.selfOrderSession.findFirst({
+      where: { paymentRef },
+      select: { id: true, status: true },
     });
-
     if (!session) {
-      this.logger.warn(`Session not found for order ${orderId}`);
-      return;
+      this.logger.warn(`Self-order payment callback for unknown reference`);
+      throw new AppError(
+        ErrorCode.RESOURCE_NOT_FOUND,
+        'Unknown payment reference',
+        HttpStatus.NOT_FOUND,
+      );
     }
-
-    // Update payment reference status in DB
-    await this.prisma.selfOrderSession.update({
-      where: { sessionCode },
-      data: { paymentStatus: status },
-    });
 
     if (status === 'success') {
-      await this.prisma.selfOrderSession.update({
-        where: { sessionCode },
-        data: { status: 'paid' },
+      const res = await this.prisma.selfOrderSession.updateMany({
+        where: { id: session.id, paymentRef, status: 'submitted' },
+        data: { status: 'paid', paymentStatus: 'success' },
       });
-      this.logger.log(`Session ${sessionCode} marked as paid via callback`);
-
-      // Auto-submit order to KDS if session has items but no order yet
-      if (session.items.length > 0) {
-        await this.autoSubmitToKDS(session.id, session.outletId, session.tableId, session.items);
+      if (res.count === 1) {
+        this.logger.log(`Self-order session ${session.id} marked as paid via callback`);
+        return { applied: true, sessionStatus: 'paid' };
       }
-    } else if (status === 'failed') {
-      await this.prisma.selfOrderSession.update({
-        where: { sessionCode },
+      // Already paid (replay) or not in a payable state: nothing to do.
+      return { applied: false, sessionStatus: session.status };
+    }
+
+    if (status === 'failed') {
+      const res = await this.prisma.selfOrderSession.updateMany({
+        where: { id: session.id, paymentRef, status: 'submitted' },
         data: { paymentStatus: 'failed' },
       });
-      this.logger.log(`Payment failed for session ${sessionCode}`);
-    }
-  }
-
-  /**
-   * Auto-submit self-order items to KDS after successful payment.
-   */
-  private async autoSubmitToKDS(
-    _sessionId: string,
-    outletId: string,
-    tableId: string | null,
-    items: {
-      productId: string;
-      variantId: string | null;
-      quantity: number;
-      notes: string | null;
-    }[],
-  ) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const count = await this.prisma.order.count({
-      where: {
-        outletId,
-        createdAt: { gte: today },
-      },
-    });
-
-    const orderNumber = `ORD-${today.getFullYear().toString().slice(-2)}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}-${String(count + 1).padStart(3, '0')}`;
-
-    const order = await this.prisma.order.create({
-      data: {
-        outletId,
-        orderNumber,
-        orderType: 'dine_in',
-        tableId,
-        status: 'pending',
-      },
-    });
-
-    for (const item of items) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: item.productId },
-        select: { name: true },
-      });
-
-      await this.prisma.orderItem.create({
-        data: {
-          orderId: order.id,
-          productId: item.productId,
-          variantId: item.variantId,
-          productName: product?.name || 'Unknown Product',
-          quantity: item.quantity,
-          notes: item.notes,
-          status: 'pending',
-        },
-      });
+      return { applied: res.count === 1, sessionStatus: session.status };
     }
 
-    // Notify KDS via event bus
-    this.eventBus.publish(new OrderStatusChangedEvent(order.id, outletId, '', 'pending'));
-
-    this.logger.log(`Auto-submitted order ${orderNumber} to KDS for paid session`);
+    return { applied: false, sessionStatus: session.status };
   }
 
-  /**
-   * Get detailed payment status for a session (from DB).
-   */
+  /** Payment status for the customer page (no internal payment reference). */
   async getPaymentStatus(sessionCode: string) {
     const session = await this.prisma.selfOrderSession.findUnique({
       where: { sessionCode },
       select: {
         status: true,
-        paymentRef: true,
         paymentMethod: true,
         paymentStatus: true,
         paymentAt: true,
         updatedAt: true,
       },
     });
-
     if (!session) {
       throw new NotFoundException('Session not found');
     }
@@ -408,7 +221,6 @@ export class SelfOrderPaymentService {
     return {
       sessionStatus: session.status,
       isPaid: session.status === 'paid',
-      paymentReference: session.paymentRef,
       paymentMethod: session.paymentMethod,
       paymentStatus: session.paymentStatus,
       paymentCreatedAt: session.paymentAt,

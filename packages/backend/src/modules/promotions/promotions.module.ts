@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PromotionsController } from './promotions.controller';
+import { PromotionsService } from './promotions.service';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
 import { PrismaPromotionRepository } from '../../infrastructure/repositories/prisma-promotion.repository';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 // Use Cases - Promotion Rules
 import { ApplyPromotionUseCase } from '../../application/use-cases/promotions/apply-promotion.use-case';
@@ -12,17 +12,13 @@ import { GenerateVoucherBatchUseCase } from '../../application/use-cases/promoti
 // Services - Rules Engine
 import { PromotionRulesEngine } from '../../application/services/promotion-rules.engine';
 
+// PrismaService comes from the global DatabaseModule, TenantAccessService from the global TenantModule.
 @Module({
   controllers: [PromotionsController],
   providers: [
-    // Repositories
     { provide: REPOSITORY_TOKENS.PROMOTION, useClass: PrismaPromotionRepository },
-
-    // Services
-    PrismaService,
+    PromotionsService,
     PromotionRulesEngine,
-
-    // Use Cases
     ApplyPromotionUseCase,
     ValidateVoucherUseCase,
     GenerateVoucherBatchUseCase,

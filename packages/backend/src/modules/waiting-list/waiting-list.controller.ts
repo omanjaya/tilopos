@@ -7,198 +7,155 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Roles } from '../../infrastructure/auth/roles.decorator';
+import { EmployeeRole } from '../../shared/constants/roles';
+import { Public } from '@shared/decorators/public.decorator';
+import { TenantAccessService } from '@shared/tenant';
+import {
+  CreateWaitingListEntryDto,
+  SeatFromWaitingListDto,
+  UpdateWaitingListEntryDto,
+  WaitingListQueryDto,
+  WaitingListStatsQueryDto,
+} from '../../application/dtos/waiting-list.dto';
 import { WaitingListService } from './waiting-list.service';
-import { WaitingListStatus } from '@prisma/client';
+
+const FRONT_OF_HOUSE = [
+  EmployeeRole.CASHIER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.MANAGER,
+  EmployeeRole.OWNER,
+];
 
 @ApiTags('Waiting List')
 @Controller('waiting-list')
 export class WaitingListController {
   constructor(
     private readonly waitingListService: WaitingListService,
-    private readonly prisma: PrismaService,
+    private readonly tenant: TenantAccessService,
   ) {}
 
-  private async verifyOutletAccess(outletId: string, user: AuthUser): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId: user.businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
-
-  private async verifyEntryAccess(entryId: string, user: AuthUser): Promise<void> {
-    const entry = await this.prisma.waitingList.findUnique({
-      where: { id: entryId },
-      select: { outlet: { select: { businessId: true } } },
-    });
-    if (!entry || entry.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied to this entry');
-    }
-  }
-
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Post()
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Add customer to waiting list' })
-  async create(
-    @Body()
-    dto: {
-      outletId: string;
-      customerName: string;
-      customerPhone?: string;
-      partySize: number;
-      preferredSection?: string;
-      notes?: string;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOutletAccess(dto.outletId, user);
-    return this.waitingListService.create(dto);
+  async create(@Body() dto: CreateWaitingListEntryDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, dto.outletId);
+    return this.waitingListService.create({
+      outletId,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      partySize: dto.partySize,
+      preferredSection: dto.preferredSection,
+      notes: dto.notes,
+    });
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get()
-  @ApiOperation({ summary: 'Get waiting list for outlet' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    enum: ['waiting', 'notified', 'seated', 'cancelled', 'no_show'],
-  })
-  async findByOutlet(
-    @Query('outletId') outletId: string,
-    @Query('status') status: WaitingListStatus | undefined,
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOutletAccess(outletId, user);
-    return this.waitingListService.findByOutlet(outletId, status);
+  @ApiOperation({ summary: 'Get waiting list (one outlet, or all outlets of the business)' })
+  async findByOutlet(@Query() query: WaitingListQueryDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    return this.waitingListService.findByOutlet(outletIds, query.status, query.limit);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get('stats')
-  @ApiOperation({ summary: 'Get waiting list statistics for outlet' })
-  @ApiQuery({ name: 'outletId', required: true, type: String })
-  async getStats(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(outletId, user);
-    return this.waitingListService.getStats(outletId);
+  @ApiOperation({ summary: 'Get waiting list statistics (one outlet, or all outlets)' })
+  async getStats(@Query() query: WaitingListStatsQueryDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    return this.waitingListService.getStats(outletIds);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get waiting list entry by ID' })
-  async findById(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.findById(id);
+  async findById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.waitingListService.findById(id, user.businessId);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get(':id/position')
   @ApiOperation({ summary: 'Get queue position for entry' })
-  async getQueuePosition(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
+  async getQueuePosition(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.waitingListService.findById(id, user.businessId);
     return this.waitingListService.getQueuePosition(id);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Put(':id')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Update waiting list entry' })
   async update(
-    @Param('id') id: string,
-    @Body()
-    dto: {
-      status?: WaitingListStatus;
-      tableId?: string;
-      notes?: string;
-      estimatedWait?: number;
-    },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateWaitingListEntryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.update(id, dto);
+    return this.waitingListService.update(id, user.businessId, {
+      status: dto.status,
+      tableId: dto.tableId,
+      notes: dto.notes,
+      estimatedWait: dto.estimatedWait,
+    });
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Put(':id/notify')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Notify customer that table is ready' })
-  async notify(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.notify(id);
+  async notify(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.waitingListService.notify(id, user.businessId);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Put(':id/seat')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Seat customer at table' })
   async seat(
-    @Param('id') id: string,
-    @Body() dto: { tableId: string },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SeatFromWaitingListDto,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!dto.tableId) {
-      throw new BadRequestException('tableId is required');
-    }
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.seat(id, dto.tableId);
+    return this.waitingListService.seat(id, user.businessId, dto.tableId);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Put(':id/cancel')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Cancel waiting list entry' })
-  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.cancel(id);
+  async cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.waitingListService.cancel(id, user.businessId);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Put(':id/no-show')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Mark customer as no-show' })
-  async markNoShow(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
-    return this.waitingListService.markNoShow(id);
+  async markNoShow(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.waitingListService.markNoShow(id, user.businessId);
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Delete(':id')
+  @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
   @ApiOperation({ summary: 'Delete waiting list entry' })
-  async delete(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyEntryAccess(id, user);
-    await this.waitingListService.delete(id);
+  async delete(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.waitingListService.delete(id, user.businessId);
     return { message: 'Waiting list entry deleted' };
   }
 
-  // Public endpoint untuk customer check status
+  /** Customer-facing queue status: position and status only, no personal data. */
+  @Public()
+  @Throttle({ short: { limit: 30, ttl: 60000 } })
   @Get('public/:id')
   @ApiOperation({ summary: 'Public: Check queue position (no auth required)' })
-  async publicGetPosition(@Param('id') id: string) {
-    const entry = await this.waitingListService.findById(id);
-    if (!entry) {
-      return { error: 'Entry not found' };
-    }
-    const position = await this.waitingListService.getQueuePosition(id);
-    return {
-      customerName: entry.customerName,
-      partySize: entry.partySize,
-      status: entry.status,
-      ...position,
-    };
+  async publicGetPosition(@Param('id', ParseUUIDPipe) id: string) {
+    return this.waitingListService.getPublicPosition(id);
   }
 }

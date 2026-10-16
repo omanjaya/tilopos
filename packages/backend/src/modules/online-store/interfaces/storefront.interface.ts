@@ -57,20 +57,6 @@ export interface StorefrontProductDetail {
   totalStock: number | null;
 }
 
-export interface StorefrontOrderInput {
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string;
-  shippingAddress?: string;
-  shippingMethod?: string;
-  notes?: string;
-  items: {
-    productId: string;
-    variantId?: string;
-    quantity: number;
-  }[];
-}
-
 export interface StorefrontOrderResult {
   orderId: string;
   orderNumber: string;

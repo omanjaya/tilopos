@@ -1,23 +1,45 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { money, sumMoney, toNumber } from '../../shared/utils/money';
 import { EmployeeShiftReport, EmployeeShiftSummary, ShiftDetail } from './employee.types';
+
+/** Hard cap on shifts loaded for one report. */
+const MAX_REPORT_SHIFTS = 1000;
+const HOUR_MS = 1000 * 60 * 60;
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 /**
  * Service responsible for generating shift reports and summaries for employees.
- * Handles shift data aggregation, sales calculations, and performance metrics.
+ * Sales are summed in the database (groupBy) and money uses Prisma.Decimal.
  */
 @Injectable()
 export class EmployeeShiftReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Completed-sales totals per shift, in one query. */
+  private async salesByShift(
+    shiftIds: string[],
+  ): Promise<Map<string, { sales: Prisma.Decimal; count: number }>> {
+    if (shiftIds.length === 0) return new Map();
+    const rows = await this.prisma.transaction.groupBy({
+      by: ['shiftId'],
+      where: { shiftId: { in: shiftIds }, status: 'completed' },
+      _sum: { grandTotal: true },
+      _count: { id: true },
+    });
+    return new Map(
+      rows
+        .filter((r) => r.shiftId !== null)
+        .map((r) => [r.shiftId as string, { sales: money(r._sum.grandTotal), count: r._count.id }]),
+    );
+  }
+
   /**
-   * Get detailed shift report for a specific employee within a date range.
-   * Includes individual shift details with sales, transactions, and cash variance.
-   *
-   * @param employeeId - Employee ID
-   * @param from - Start date
-   * @param to - End date
-   * @returns Detailed shift report with aggregated metrics
+   * Detailed shift report for one employee within a date range.
    */
   async getEmployeeShiftReport(
     employeeId: string,
@@ -34,76 +56,53 @@ export class EmployeeShiftReportsService {
     }
 
     const shifts = await this.prisma.shift.findMany({
-      where: {
-        employeeId,
-        startedAt: { gte: from, lte: to },
-      },
-      include: {
-        transactions: {
-          where: { status: 'completed' },
-          select: { id: true, grandTotal: true },
-        },
-      },
+      where: { employeeId, startedAt: { gte: from, lte: to } },
+      select: { id: true, startedAt: true, endedAt: true, cashDifference: true },
       orderBy: { startedAt: 'asc' },
+      take: MAX_REPORT_SHIFTS,
     });
+    const sales = await this.salesByShift(shifts.map((s) => s.id));
 
     let totalHoursWorked = 0;
-    let totalSales = 0;
     let totalTransactions = 0;
-    let cashVariance = 0;
 
     const shiftDetails: ShiftDetail[] = shifts.map((shift) => {
       const endTime = shift.endedAt;
-      const durationMs = endTime ? endTime.getTime() - shift.startedAt.getTime() : 0;
-      const durationHours = durationMs / (1000 * 60 * 60);
-
-      const shiftSales = shift.transactions.reduce((sum, t) => sum + t.grandTotal.toNumber(), 0);
-      const shiftTransactions = shift.transactions.length;
-      const shiftCashDiff = shift.cashDifference ? shift.cashDifference.toNumber() : null;
+      const durationHours = endTime ? (endTime.getTime() - shift.startedAt.getTime()) / HOUR_MS : 0;
+      const shiftSales = sales.get(shift.id);
 
       totalHoursWorked += durationHours;
-      totalSales += shiftSales;
-      totalTransactions += shiftTransactions;
-      if (shiftCashDiff !== null) {
-        cashVariance += shiftCashDiff;
-      }
+      totalTransactions += shiftSales?.count ?? 0;
 
       return {
         shiftId: shift.id,
         startTime: shift.startedAt.toISOString(),
         endTime: endTime ? endTime.toISOString() : null,
-        duration: Math.round(durationHours * 100) / 100,
-        sales: shiftSales,
-        transactions: shiftTransactions,
-        cashDifference: shiftCashDiff,
+        duration: round2(durationHours),
+        sales: toNumber(shiftSales?.sales),
+        transactions: shiftSales?.count ?? 0,
+        cashDifference: shift.cashDifference ? toNumber(shift.cashDifference) : null,
       };
     });
 
     const totalShifts = shifts.length;
-    const averageShiftDuration =
-      totalShifts > 0 ? Math.round((totalHoursWorked / totalShifts) * 100) / 100 : 0;
 
     return {
       employeeId: employee.id,
       employeeName: employee.name,
       totalShifts,
-      totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
-      averageShiftDuration,
-      totalSales,
+      totalHoursWorked: round2(totalHoursWorked),
+      averageShiftDuration: totalShifts > 0 ? round2(totalHoursWorked / totalShifts) : 0,
+      totalSales: toNumber(sumMoney([...sales.values()].map((s) => s.sales))),
       totalTransactions,
-      cashVariance: Math.round(cashVariance * 100) / 100,
+      cashVariance: toNumber(sumMoney(shifts.map((s) => s.cashDifference))),
       shifts: shiftDetails,
     };
   }
 
   /**
-   * Get shift summary for all active employees at an outlet within a date range.
-   * Provides aggregated metrics without individual shift details.
-   *
-   * @param outletId - Outlet ID
-   * @param from - Start date
-   * @param to - End date
-   * @returns Array of employee shift summaries
+   * Shift summary for all active employees at an outlet: three queries total
+   * (employees, shifts, sales groupBy) instead of one per employee.
    */
   async getAllEmployeeShiftSummary(
     outletId: string,
@@ -114,52 +113,44 @@ export class EmployeeShiftReportsService {
       where: { outletId, isActive: true },
       select: { id: true, name: true },
     });
+    if (employees.length === 0) return [];
 
-    const summaries: EmployeeShiftSummary[] = [];
+    const shifts = await this.prisma.shift.findMany({
+      where: {
+        employeeId: { in: employees.map((e) => e.id) },
+        outletId,
+        startedAt: { gte: from, lte: to },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        startedAt: true,
+        endedAt: true,
+        cashDifference: true,
+      },
+    });
+    const sales = await this.salesByShift(shifts.map((s) => s.id));
 
-    for (const employee of employees) {
-      const shifts = await this.prisma.shift.findMany({
-        where: {
-          employeeId: employee.id,
-          outletId,
-          startedAt: { gte: from, lte: to },
-        },
-        include: {
-          transactions: {
-            where: { status: 'completed' },
-            select: { grandTotal: true },
-          },
-        },
-      });
-
+    return employees.map((employee) => {
+      const own = shifts.filter((s) => s.employeeId === employee.id);
       let totalHoursWorked = 0;
-      let totalSales = 0;
       let totalTransactions = 0;
-      let cashVariance = 0;
-
-      for (const shift of shifts) {
+      for (const shift of own) {
         if (shift.endedAt) {
-          const durationMs = shift.endedAt.getTime() - shift.startedAt.getTime();
-          totalHoursWorked += durationMs / (1000 * 60 * 60);
+          totalHoursWorked += (shift.endedAt.getTime() - shift.startedAt.getTime()) / HOUR_MS;
         }
-        totalSales += shift.transactions.reduce((sum, t) => sum + t.grandTotal.toNumber(), 0);
-        totalTransactions += shift.transactions.length;
-        if (shift.cashDifference) {
-          cashVariance += shift.cashDifference.toNumber();
-        }
+        totalTransactions += sales.get(shift.id)?.count ?? 0;
       }
 
-      summaries.push({
+      return {
         employeeId: employee.id,
         employeeName: employee.name,
-        totalShifts: shifts.length,
-        totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
-        totalSales,
+        totalShifts: own.length,
+        totalHoursWorked: round2(totalHoursWorked),
+        totalSales: toNumber(sumMoney(own.map((s) => sales.get(s.id)?.sales))),
         totalTransactions,
-        cashVariance: Math.round(cashVariance * 100) / 100,
-      });
-    }
-
-    return summaries;
+        cashVariance: toNumber(sumMoney(own.map((s) => s.cashDifference))),
+      };
+    });
   }
 }

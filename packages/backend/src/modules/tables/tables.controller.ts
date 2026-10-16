@@ -7,14 +7,14 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
-  BadRequestException,
-  ForbiddenException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
+import { Roles } from '../../infrastructure/auth/roles.decorator';
+import { EmployeeRole } from '../../shared/constants/roles';
+import { TenantAccessService } from '@shared/tenant';
 import { SplitBillUseCase } from '../../application/use-cases/tables/split-bill.use-case';
 import { MergeBillUseCase } from '../../application/use-cases/tables/merge-bill.use-case';
 import { CreateTableUseCase } from '../../application/use-cases/tables/create-table.use-case';
@@ -22,13 +22,32 @@ import { GetTablesUseCase } from '../../application/use-cases/tables/get-tables.
 import { UpdateTableUseCase } from '../../application/use-cases/tables/update-table.use-case';
 import { DeleteTableUseCase } from '../../application/use-cases/tables/delete-table.use-case';
 import { MergeBillDto } from '../../application/dtos/merge-bill.dto';
+import { SplitBillDto } from '../../application/dtos/split-bill.dto';
+import {
+  CreateTableDto,
+  CreateTableReservationDto,
+  GetTableReservationsQueryDto,
+  GetTablesQueryDto,
+  TableOutletQueryDto,
+  UpdateTableDto,
+  UpdateTableStatusDto,
+} from '../../application/dtos/table.dto';
+import {
+  AddToWaitingListDto,
+  SeatFromWaitingListDto,
+} from '../../application/dtos/waiting-list.dto';
 import { TablesService } from './tables.service';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { WaitingListService } from '../waiting-list/waiting-list.service';
+
+const FRONT_OF_HOUSE = [
+  EmployeeRole.CASHIER,
+  EmployeeRole.SUPERVISOR,
+  EmployeeRole.MANAGER,
+  EmployeeRole.OWNER,
+];
 
 @ApiTags('Tables')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('tables')
 export class TablesController {
   constructor(
@@ -39,176 +58,39 @@ export class TablesController {
     private readonly splitBillUseCase: SplitBillUseCase,
     private readonly mergeBillUseCase: MergeBillUseCase,
     private readonly tablesService: TablesService,
-    private readonly prisma: PrismaService,
+    private readonly waitingListService: WaitingListService,
+    private readonly tenant: TenantAccessService,
   ) {}
-
-  private async verifyOutletAccess(outletId: string, businessId: string): Promise<void> {
-    const outlet = await this.prisma.outlet.findFirst({
-      where: { id: outletId, businessId },
-    });
-    if (!outlet) {
-      throw new ForbiddenException('Access denied to this outlet');
-    }
-  }
 
   // ==================== Table CRUD ====================
 
   @Get('sections')
-  @ApiOperation({ summary: 'Get unique sections for an outlet' })
-  async getSections(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(outletId, user.businessId);
-    return this.tablesService.getSections(outletId);
+  @ApiOperation({ summary: 'Get unique sections (one outlet, or all outlets of the business)' })
+  async getSections(@Query() query: TableOutletQueryDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    return this.tablesService.getSections(outletIds);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get tables by outlet' })
-  async list(
-    @Query('outletId') outletId: string,
-    @Query('section') section?: string,
-    @Query('status') status?: 'available' | 'occupied' | 'reserved' | 'cleaning',
-    @Query('activeOnly') activeOnly?: string,
-    @CurrentUser() user?: AuthUser,
-  ) {
-    if (user) await this.verifyOutletAccess(outletId, user.businessId);
+  @ApiOperation({ summary: 'Get tables (one outlet, or all outlets of the business)' })
+  async list(@Query() query: GetTablesQueryDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
     return this.getTablesUseCase.execute({
-      outletId,
-      section,
-      status,
-      activeOnly: activeOnly === 'true',
-    });
-  }
-
-  @Get(':id')
-  @BusinessScoped({ resource: 'table', param: 'id' })
-  @ApiOperation({ summary: 'Get single table by ID' })
-  async getById(@Param('id') id: string) {
-    return this.tablesService.findById(id);
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create a new table' })
-  async create(
-    @Body()
-    dto: {
-      outletId: string;
-      name: string;
-      capacity?: number;
-      section?: string;
-      positionX?: number;
-      positionY?: number;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
-    return this.createTableUseCase.execute(dto);
-  }
-
-  @Put(':id')
-  @BusinessScoped({ resource: 'table', param: 'id' })
-  @ApiOperation({ summary: 'Update table' })
-  async update(
-    @Param('id') id: string,
-    @Body()
-    dto: {
-      name?: string;
-      capacity?: number;
-      section?: string;
-      positionX?: number;
-      positionY?: number;
-      status?: 'available' | 'occupied' | 'reserved' | 'cleaning';
-      isActive?: boolean;
-    },
-  ) {
-    return this.updateTableUseCase.execute({ id, ...dto });
-  }
-
-  @Delete(':id')
-  @BusinessScoped({ resource: 'table', param: 'id' })
-  @ApiOperation({ summary: 'Delete (deactivate) table' })
-  async remove(@Param('id') id: string) {
-    await this.deleteTableUseCase.execute(id);
-    return { message: 'Table deactivated' };
-  }
-
-  @Put(':id/status')
-  @BusinessScoped({ resource: 'table', param: 'id' })
-  @ApiOperation({ summary: 'Update table status' })
-  async updateStatus(
-    @Param('id') id: string,
-    @Body()
-    dto: {
-      status: 'available' | 'occupied' | 'reserved' | 'cleaning';
-      currentOrderId?: string;
-    },
-  ) {
-    return this.tablesService.updateStatus(id, dto.status, dto.currentOrderId);
-  }
-
-  // ==================== Bill Operations ====================
-
-  @Post('split-bill')
-  @ApiOperation({ summary: 'Split bill into multiple transactions' })
-  async splitBill(
-    @Body()
-    dto: {
-      transactionId: string;
-      splitType: 'equal' | 'by_item' | 'by_amount';
-      splits: {
-        customerName?: string;
-        itemIds?: string[];
-        amount?: number;
-        paymentMethod: string;
-      }[];
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    const tx = await this.prisma.transaction.findUnique({
-      where: { id: dto.transactionId },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!tx || tx.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.splitBillUseCase.execute(dto);
-  }
-
-  @Post('merge-bill')
-  @ApiOperation({ summary: 'Merge multiple transactions into one' })
-  async mergeBill(@Body() dto: MergeBillDto, @CurrentUser() user: AuthUser) {
-    if (!user.outletId) throw new BadRequestException('Outlet not assigned');
-    return this.mergeBillUseCase.execute({
-      transactionIds: dto.transactionIds,
-      employeeId: user.employeeId,
-      businessId: user.businessId,
-      outletId: user.outletId,
-      paymentMethod: dto.paymentMethod,
+      outletIds,
+      section: query.section,
+      status: query.status,
+      activeOnly: query.activeOnly === true,
     });
   }
 
   // ==================== Reservations ====================
+  // (declared before ':id' so 'reservations' is never parsed as an id)
 
   @Post('reservations')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Create a table reservation' })
-  async createReservation(
-    @Body()
-    dto: {
-      tableId: string;
-      customerName: string;
-      customerPhone: string;
-      partySize: number;
-      reservedAt: string;
-      notes?: string;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    const table = await this.prisma.table.findUnique({
-      where: { id: dto.tableId },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!table || table.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.tablesService.createReservation({
+  async createReservation(@Body() dto: CreateTableReservationDto, @CurrentUser() user: AuthUser) {
+    return this.tablesService.createReservation(user.businessId, {
       tableId: dto.tableId,
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
@@ -219,101 +101,169 @@ export class TablesController {
   }
 
   @Get('reservations')
-  @ApiOperation({ summary: 'List reservations for an outlet on a given date' })
+  @ApiOperation({ summary: 'List reservations for an outlet on a given business date' })
   async getReservations(
-    @Query('outletId') outletId: string,
-    @Query('date') date: string,
+    @Query() query: GetTableReservationsQueryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyOutletAccess(outletId, user.businessId);
-    return this.tablesService.getReservations(outletId, new Date(date));
+    const outletId = await this.tenant.assertOutlet(user, query.outletId);
+    return this.tablesService.getReservations([outletId], query.date);
   }
 
   @Put('reservations/:id/cancel')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Cancel a reservation' })
-  async cancelReservation(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    const entry = await this.prisma.waitingList.findUnique({
-      where: { id },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!entry || entry.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.tablesService.cancelReservation(id);
+  async cancelReservation(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.tablesService.cancelReservation(id, user.businessId);
   }
 
   @Put('reservations/:id/check-in')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Check in a reservation (mark table as occupied)' })
-  async checkInReservation(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    const entry = await this.prisma.waitingList.findUnique({
-      where: { id },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!entry || entry.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.tablesService.checkInReservation(id);
+  async checkInReservation(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.tablesService.checkInReservation(id, user.businessId);
   }
 
-  // ==================== Waiting List ====================
+  // ==================== Waiting List (delegates to WaitingListService) ====================
 
   @Get('waiting-list')
-  @ApiOperation({ summary: 'Get waiting list for outlet' })
-  async waitingList(@Query('outletId') outletId: string, @CurrentUser() user: AuthUser) {
-    await this.verifyOutletAccess(outletId, user.businessId);
-    return this.tablesService.getWaitingList(outletId);
+  @ApiOperation({ summary: 'Get open waiting list for an outlet' })
+  async waitingList(@Query() query: TableOutletQueryDto, @CurrentUser() user: AuthUser) {
+    const outletIds = await this.tenant.resolveOutletIds(user, query.outletId);
+    const [waiting, notified] = await Promise.all([
+      this.waitingListService.findByOutlet(outletIds, 'waiting'),
+      this.waitingListService.findByOutlet(outletIds, 'notified'),
+    ]);
+    return [...waiting, ...notified].sort((a, b) => a.queuedAt.getTime() - b.queuedAt.getTime());
   }
 
   @Post('waiting-list')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Add customer to waiting list' })
-  async addToWaitingList(
-    @Body()
-    dto: {
-      outletId: string;
-      customerName: string;
-      partySize: number;
-      phone?: string;
-      preferredSection?: string;
-    },
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyOutletAccess(dto.outletId, user.businessId);
-    return this.tablesService.addToWaitingList({
-      outletId: dto.outletId,
+  async addToWaitingList(@Body() dto: AddToWaitingListDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, dto.outletId);
+    return this.waitingListService.create({
+      outletId,
       customerName: dto.customerName,
       partySize: dto.partySize,
-      phone: dto.phone,
+      customerPhone: dto.phone,
       preferredSection: dto.preferredSection,
     });
   }
 
   @Put('waiting-list/:id/notify')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Notify a customer from waiting list' })
-  async notifyFromWaitingList(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    const entry = await this.prisma.waitingList.findUnique({
-      where: { id },
-      include: { outlet: { select: { businessId: true } } },
-    });
-    if (!entry || entry.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.tablesService.notifyFromWaitingList(id);
+  async notifyFromWaitingList(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.waitingListService.notify(id, user.businessId);
   }
 
   @Put('waiting-list/:id/seat')
+  @Roles(...FRONT_OF_HOUSE)
   @ApiOperation({ summary: 'Seat a customer from waiting list at a table' })
   async seatFromWaitingList(
-    @Param('id') id: string,
-    @Body() dto: { tableId: string },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SeatFromWaitingListDto,
     @CurrentUser() user: AuthUser,
   ) {
-    const entry = await this.prisma.waitingList.findUnique({
-      where: { id },
-      include: { outlet: { select: { businessId: true } } },
+    return this.waitingListService.seat(id, user.businessId, dto.tableId);
+  }
+
+  // ==================== Bill Operations ====================
+
+  @Post('split-bill')
+  @Roles(...FRONT_OF_HOUSE)
+  @ApiOperation({ summary: 'Split bill into multiple transactions' })
+  async splitBill(@Body() dto: SplitBillDto, @CurrentUser() user: AuthUser) {
+    return this.splitBillUseCase.execute({
+      transactionId: dto.transactionId,
+      businessId: user.businessId,
+      splitType: dto.splitType,
+      splits: dto.splits.map((s) => ({
+        customerName: s.customerName,
+        itemIds: s.itemIds,
+        amount: s.amount,
+        paymentMethod: s.paymentMethod,
+      })),
     });
-    if (!entry || entry.outlet.businessId !== user.businessId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.tablesService.seatFromWaitingList(id, dto.tableId);
+  }
+
+  @Post('merge-bill')
+  @Roles(...FRONT_OF_HOUSE)
+  @ApiOperation({ summary: 'Merge multiple transactions of one outlet into one' })
+  async mergeBill(@Body() dto: MergeBillDto, @CurrentUser() user: AuthUser) {
+    return this.mergeBillUseCase.execute({
+      transactionIds: dto.transactionIds,
+      employeeId: user.employeeId,
+      businessId: user.businessId,
+      paymentMethod: dto.paymentMethod,
+    });
+  }
+
+  // ==================== Single table ====================
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get single table by ID' })
+  async getById(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.tablesService.findById(id, user.businessId);
+  }
+
+  @Post()
+  @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Create a new table' })
+  async create(@Body() dto: CreateTableDto, @CurrentUser() user: AuthUser) {
+    const outletId = await this.tenant.assertOutlet(user, dto.outletId);
+    return this.createTableUseCase.execute({
+      outletId,
+      name: dto.name,
+      capacity: dto.capacity,
+      section: dto.section,
+      positionX: dto.positionX,
+      positionY: dto.positionY,
+    });
+  }
+
+  @Put(':id')
+  @Roles(EmployeeRole.SUPERVISOR, EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Update table (status changes go through PUT :id/status)' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTableDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.tenant.assertOwned('table', id, user.businessId);
+    return this.updateTableUseCase.execute({
+      id,
+      businessId: user.businessId,
+      name: dto.name,
+      capacity: dto.capacity,
+      section: dto.section,
+      positionX: dto.positionX,
+      positionY: dto.positionY,
+      isActive: dto.isActive,
+    });
+  }
+
+  @Delete(':id')
+  @Roles(EmployeeRole.MANAGER, EmployeeRole.OWNER)
+  @ApiOperation({ summary: 'Delete (deactivate) table' })
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.tenant.assertOwned('table', id, user.businessId);
+    await this.deleteTableUseCase.execute(id, user.businessId);
+    return { message: 'Table deactivated' };
+  }
+
+  @Put(':id/status')
+  @Roles(...FRONT_OF_HOUSE)
+  @ApiOperation({ summary: 'Update table status' })
+  async updateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTableStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.tablesService.updateStatus(id, user.businessId, dto.status, dto.currentOrderId);
   }
 }

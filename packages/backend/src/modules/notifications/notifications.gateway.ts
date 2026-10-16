@@ -1,3 +1,6 @@
+import { watchSocketSession } from '@infrastructure/auth/socket-session';
+import { assertSessionActive } from '@infrastructure/auth/session-access';
+import { AccessTokenPayload, toAuthUser } from '@infrastructure/auth/access-token';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -18,6 +21,8 @@ import { OrderStatusChangedEvent } from '../../domain/events/order-status-change
 import { TransactionCreatedEvent } from '../../domain/events/transaction-created.event';
 import { StockLevelChangedEvent } from '../../domain/events/stock-level-changed.event';
 import { StockTransferStatusChangedEvent } from '../../domain/events/stock-transfer-status-changed.event';
+import type { StockTransferStatus as EventTransferStatus } from '../../domain/events/stock-transfer-status-changed.event';
+import type { StockTransferStatus as DbTransferStatus } from '@prisma/client';
 import { ShiftStartedEvent } from '../../domain/events/shift-started.event';
 import { ShiftEndedEvent } from '../../domain/events/shift-ended.event';
 import { DeviceSyncStatusEvent } from '../../domain/events/device-sync-status.event';
@@ -35,9 +40,51 @@ interface JoinRoomData {
   outletId?: string;
 }
 
+/** Room types a client may join (the room name is always built server-side). */
+const JOINABLE_ROOMS = new Set(['outlet', 'business', 'kds']);
+
+/** Roles allowed to receive money-related events (sales totals, cash collected). */
+const FINANCE_ROLES = new Set(['super_admin', 'owner', 'manager', 'supervisor', 'cashier']);
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * CORS origins for the socket handshake: comma-separated CORS_ORIGIN
+ * (validated at boot in production), localhost only outside production.
+ */
+export function socketCorsOrigins(): string[] {
+  const configured = (process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (configured.length > 0) return configured;
+  return process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173'];
+}
+
+const financeRoom = (outletId: string) => `outlet-finance:${outletId}`;
+
+/*
+ * Scaling note: there is no Socket.IO Redis adapter yet, so events only reach
+ * clients connected to the replica that published them. Run a single replica
+ * for realtime features or add @socket.io/redis-adapter.
+ */
+
+/**
+ * The domain event speaks "requested"/"shipped"; REST and the web client use the DB enum
+ * ("pending"/"in_transit"). Socket payloads use the DB enum so clients see one vocabulary.
+ */
+export const TRANSFER_STATUS_TO_DB: Record<EventTransferStatus, DbTransferStatus> = {
+  requested: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  shipped: 'in_transit',
+  received: 'received',
+  cancelled: 'cancelled',
+};
+
 @WebSocketGateway({
   namespace: '/notifications',
-  cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:5173' },
+  cors: { origin: socketCorsOrigins() },
 })
 export class NotificationsGateway
   implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect
@@ -65,7 +112,8 @@ export class NotificationsGateway
       });
 
       // Emit order:new when a new order is created (pending status from empty previous)
-      if (event.newStatus === 'pending' && !event.previousStatus) {
+      const isNewOrder = !event.previousStatus || event.previousStatus === 'none';
+      if (event.newStatus === 'pending' && isNewOrder) {
         this.server.to(`outlet:${event.outletId}`).emit('order:new', {
           orderId: event.orderId,
           outletId: event.outletId,
@@ -86,8 +134,8 @@ export class NotificationsGateway
 
     // Transaction events
     this.eventBus.ofType(TransactionCreatedEvent).subscribe((event) => {
-      // Emit to the specific outlet
-      this.server.to(`outlet:${event.outletId}`).emit('transaction:created', {
+      // Amounts go only to roles allowed to see sales figures
+      this.server.to(financeRoom(event.outletId)).emit('transaction:created', {
         transactionId: event.transactionId,
         outletId: event.outletId,
         amount: event.grandTotal,
@@ -137,8 +185,8 @@ export class NotificationsGateway
         sourceOutletId: event.sourceOutletId,
         destinationOutletId: event.destinationOutletId,
         businessId: event.businessId,
-        previousStatus: event.previousStatus,
-        newStatus: event.newStatus,
+        previousStatus: TRANSFER_STATUS_TO_DB[event.previousStatus],
+        newStatus: TRANSFER_STATUS_TO_DB[event.newStatus],
         updatedBy: event.updatedBy,
         occurredOn: event.occurredOn,
       };
@@ -182,7 +230,7 @@ export class NotificationsGateway
     });
 
     this.eventBus.ofType(ShiftEndedEvent).subscribe((event) => {
-      this.server.to(`outlet:${event.outletId}`).emit('shift:ended', {
+      this.server.to(financeRoom(event.outletId)).emit('shift:ended', {
         shiftId: event.shiftId,
         employeeId: event.employeeId,
         employeeName: event.employeeName,
@@ -213,7 +261,7 @@ export class NotificationsGateway
     this.logger.log('Subscribed to domain events for real-time notifications');
   }
 
-  handleConnection(client: AuthenticatedSocket) {
+  async handleConnection(client: AuthenticatedSocket) {
     const token =
       client.handshake.auth?.token ||
       client.handshake.headers?.authorization?.replace('Bearer ', '');
@@ -223,12 +271,19 @@ export class NotificationsGateway
       return;
     }
     try {
-      const payload = this.jwtService.verify(token as string);
-      client.userId = payload.sub;
+      const claims = this.jwtService.verify<AccessTokenPayload>(token as string);
+      await assertSessionActive(this.prisma, claims);
+      const payload = toAuthUser(claims);
+      watchSocketSession(this.prisma, claims, client);
+      client.userId = payload.employeeId;
       client.businessId = payload.businessId;
-      client.outletId = payload.outletId;
+      client.outletId = payload.outletId ?? undefined;
       client.role = payload.role;
-      this.logger.debug(`Notifications client authenticated: ${client.id} user=${payload.sub}`);
+      // Personal room so sendToUser / emitNotification({ userId }) reach this user.
+      void client.join(`user:${payload.employeeId}`);
+      this.logger.debug(
+        `Notifications client authenticated: ${client.id} user=${payload.employeeId}`,
+      );
     } catch {
       this.logger.warn(`Notifications client rejected - invalid token: ${client.id}`);
       client.disconnect();
@@ -257,7 +312,15 @@ export class NotificationsGateway
       return { error: 'Not authenticated' };
     }
 
-    const { room, businessId, outletId } = data;
+    const { room, businessId, outletId } = data ?? ({} as JoinRoomData);
+
+    if (typeof room !== 'string' || !JOINABLE_ROOMS.has(room)) {
+      return { error: 'Invalid room' };
+    }
+    const needsOutlet = room === 'outlet' || room === 'kds';
+    if (needsOutlet && (typeof outletId !== 'string' || !UUID_RE.test(outletId))) {
+      return { error: 'outletId is required' };
+    }
 
     // Validate that client can only join rooms for their own business/outlet
     if (businessId && businessId !== client.businessId) {
@@ -268,7 +331,7 @@ export class NotificationsGateway
     }
 
     // Validate outletId belongs to client's business when joining outlet-scoped rooms
-    if (outletId && (room === 'outlet' || room === 'kds')) {
+    if (needsOutlet) {
       const outlet = await this.prisma.outlet.findFirst({
         where: { id: outletId, businessId: client.businessId },
         select: { id: true },
@@ -281,30 +344,27 @@ export class NotificationsGateway
       }
     }
 
-    // Build room name with context
-    let roomName = room;
+    // Build room name server-side
+    const roomName =
+      room === 'outlet'
+        ? `outlet:${outletId}`
+        : room === 'kds'
+          ? `kds:${outletId}`
+          : `business:${client.businessId}`;
 
-    switch (room) {
-      case 'outlet':
-        roomName = `outlet:${outletId}`;
-        break;
-      case 'business':
-        roomName = `business:${client.businessId}`;
-        break;
-      case 'kds':
-        roomName = `kds:${outletId}`;
-        break;
-      default:
-        roomName = `${room}:${client.businessId}`;
+    const joined = [roomName];
+    if (room === 'outlet' && client.role && FINANCE_ROLES.has(client.role)) {
+      joined.push(financeRoom(outletId as string));
     }
-
-    await client.join(roomName);
+    await client.join(joined);
 
     // Track room membership
     if (!this.userRooms.has(client.id)) {
       this.userRooms.set(client.id, new Set());
     }
-    this.userRooms.get(client.id)!.add(roomName);
+    for (const name of joined) {
+      this.userRooms.get(client.id)!.add(name);
+    }
 
     this.logger.debug(`Client ${client.id} joined room: ${roomName}`);
     return { event: 'joined', data: { room: roomName } };
@@ -315,16 +375,23 @@ export class NotificationsGateway
     @MessageBody() data: { room: string },
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
-    await client.leave(data.room);
-
-    // Remove from tracking
     const rooms = this.userRooms.get(client.id);
-    if (rooms) {
-      rooms.delete(data.room);
+    const room = typeof data?.room === 'string' ? data.room : '';
+    // Only rooms this socket joined through joinRoom can be left.
+    if (!rooms || !rooms.has(room)) {
+      return { error: 'Not in room' };
+    }
+    await client.leave(room);
+    rooms.delete(room);
+    if (room.startsWith('outlet:')) {
+      const finance = financeRoom(room.slice('outlet:'.length));
+      if (rooms.delete(finance)) {
+        await client.leave(finance);
+      }
     }
 
-    this.logger.debug(`Client ${client.id} left room: ${data.room}`);
-    return { event: 'left', data: { room: data.room } };
+    this.logger.debug(`Client ${client.id} left room: ${room}`);
+    return { event: 'left', data: { room } };
   }
 
   // --- Queue events for waiting list ---
@@ -393,11 +460,6 @@ export class NotificationsGateway
     this.server.to(`business:${businessId}`).emit(event, data);
   }
 
-  // Helper method to broadcast to all
-  broadcast(event: string, data: Record<string, unknown>) {
-    this.server.emit(event, data);
-  }
-
   /**
    * Look up the active shift for a transaction's employee and emit shift:sales_updated.
    */
@@ -422,7 +484,7 @@ export class NotificationsGateway
         _count: true,
       });
 
-      this.server.to(`outlet:${outletId}`).emit('shift:sales_updated', {
+      this.server.to(financeRoom(outletId)).emit('shift:sales_updated', {
         shiftId: activeShift.id,
         totalSales: Number(aggregate._sum?.grandTotal ?? 0),
         totalTransactions: aggregate._count,

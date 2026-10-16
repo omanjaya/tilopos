@@ -42,6 +42,8 @@ export interface OverdueOrdersResult {
   total: number;
 }
 
+const MAX_OVERDUE_ORDERS = 200;
+
 const DEFAULT_TIMER_SETTINGS: CookingTimerSettings = {
   dineIn: 15,
   takeaway: 10,
@@ -119,16 +121,16 @@ export class KdsService {
 
     const now = new Date().toISOString();
 
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: {
-        settings: {
-          ...currentSettings,
-          cookingTimerSettings: updatedTimerSettings,
-          cookingTimerUpdatedAt: now,
-        } as never,
-      },
-    });
+    // Merge only our two keys into settings in one statement, so concurrent
+    // updates of other business settings are never overwritten.
+    await this.prisma.$executeRaw`
+      UPDATE businesses
+      SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object(
+        'cookingTimerSettings', ${JSON.stringify(updatedTimerSettings)}::jsonb,
+        'cookingTimerUpdatedAt', ${now}::text
+      )
+      WHERE id = ${businessId}::uuid
+    `;
 
     this.logger.log(`Cooking timer settings updated for business ${businessId}`);
 
@@ -147,6 +149,9 @@ export class KdsService {
    * Returns orders exceeding SLA time for the given outlet.
    */
   async getOverdueOrders(businessId: string, outletId: string): Promise<OverdueOrdersResult> {
+    if (!businessId || !outletId) {
+      throw new NotFoundException('Outlet not found');
+    }
     // Get timer settings
     const timerResult = await this.getCookingTimerSettings(businessId);
     const timerSettings = timerResult.settings;
@@ -158,11 +163,14 @@ export class KdsService {
       delivery: timerSettings.delivery,
     };
 
-    // Get active orders (not completed/cancelled)
+    // Only orders older than the shortest SLA can be overdue: filter in SQL.
+    const minSla = Math.min(timerSettings.dineIn, timerSettings.takeaway, timerSettings.delivery);
     const orders = await this.prisma.order.findMany({
       where: {
         outletId,
+        outlet: { businessId },
         status: { in: ['pending', 'confirmed', 'preparing'] },
+        createdAt: { lt: new Date(Date.now() - minSla * 60000) },
       },
       include: {
         items: {
@@ -176,6 +184,7 @@ export class KdsService {
         },
       },
       orderBy: { createdAt: 'asc' },
+      take: MAX_OVERDUE_ORDERS,
     });
 
     const now = new Date();
@@ -227,9 +236,10 @@ export class KdsService {
    */
   async notifyCashierOrderReady(
     orderId: string,
+    businessId: string,
   ): Promise<{ notified: boolean; orderId: string; orderNumber: string }> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, outlet: { businessId } },
       select: {
         id: true,
         orderNumber: true,

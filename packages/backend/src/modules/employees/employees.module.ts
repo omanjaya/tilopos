@@ -5,6 +5,7 @@ import { EmployeeShiftReportsService } from './employee-shift-reports.service';
 import { EmployeeScheduleService } from './employee-schedule.service';
 import { EmployeeCommissionService } from './employee-commission.service';
 import { EmployeeAttendanceService } from './employee-attendance.service';
+import { EmployeeManagementService } from './employee-management.service';
 import { StartShiftUseCase } from '../../application/use-cases/employees/start-shift.use-case';
 import { EndShiftUseCase } from '../../application/use-cases/employees/end-shift.use-case';
 import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
@@ -21,6 +22,7 @@ import { PrismaAuditRepository } from '../../infrastructure/repositories/prisma-
     EmployeeScheduleService,
     EmployeeCommissionService,
     EmployeeAttendanceService,
+    EmployeeManagementService,
     StartShiftUseCase,
     EndShiftUseCase,
     LogAuditEventUseCase,

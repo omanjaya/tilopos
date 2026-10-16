@@ -4,7 +4,6 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import { PrismaOnlineStoreRepository } from '../../infrastructure/repositories/prisma-online-store.repository';
 import { OnlineStoreSyncService } from './online-store-sync.service';
 import { OnlineStoreService } from './online-store.service';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @Module({
   controllers: [OnlineStoreController],
@@ -12,7 +11,6 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
     { provide: REPOSITORY_TOKENS.ONLINE_STORE, useClass: PrismaOnlineStoreRepository },
     OnlineStoreSyncService,
     OnlineStoreService,
-    PrismaService,
   ],
   exports: [OnlineStoreSyncService, OnlineStoreService],
 })

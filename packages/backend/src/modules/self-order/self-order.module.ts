@@ -3,15 +3,16 @@ import { SelfOrderController } from './self-order.controller';
 import { CreateSelfOrderSessionUseCase } from '../../application/use-cases/self-order/create-session.use-case';
 import { SelfOrderPaymentService } from './self-order-payment.service';
 import { SelfOrderScheduler } from './self-order.scheduler';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { SelfOrderSessionService } from './self-order-session.service';
 
+// PrismaService, DocumentNumberService and DistributedLockService come from global modules.
 @Module({
   controllers: [SelfOrderController],
   providers: [
     CreateSelfOrderSessionUseCase,
+    SelfOrderSessionService,
     SelfOrderPaymentService,
     SelfOrderScheduler,
-    PrismaService,
   ],
   exports: [SelfOrderPaymentService, SelfOrderScheduler],
 })

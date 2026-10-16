@@ -7,25 +7,21 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
-  Inject,
-  NotFoundException,
   Res,
   BadRequestException,
-  ConflictException,
+  ParseUUIDPipe,
+  ParseEnumPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Response } from 'express';
-import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
-import { RolesGuard } from '../../infrastructure/auth/roles.guard';
 import { Roles } from '../../infrastructure/auth/roles.decorator';
 import { CurrentUser } from '../../infrastructure/auth/current-user.decorator';
 import type { AuthUser } from '../../infrastructure/auth/auth-user.interface';
 import { EmployeeRole } from '../../shared/constants/roles';
-import { AddLoyaltyPointsUseCase } from '../../application/use-cases/customers/add-loyalty-points.use-case';
+import { businessDateKey } from '../../shared/utils/business-time';
 import { EarnLoyaltyPointsUseCase } from '../../application/use-cases/loyalty/earn-loyalty-points.use-case';
 import { RedeemLoyaltyPointsUseCase } from '../../application/use-cases/loyalty/redeem-loyalty-points.use-case';
 import { GetLoyaltyBalanceUseCase } from '../../application/use-cases/loyalty/get-loyalty-balance.use-case';
@@ -35,91 +31,66 @@ import {
   CustomerExportQueryDto,
   BirthdayQueryDto,
   BirthdayNotifyDto,
+  type CustomerImportRow,
 } from '../../application/dtos/customer-import-export.dto';
-import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
-import type { ICustomerRepository } from '../../domain/interfaces/repositories/customer.repository';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { ExcelParserService } from '../../infrastructure/import/excel-parser.service';
+import {
+  CreateCustomerDto,
+  CustomerHistoryQueryDto,
+  CustomerListQueryDto,
+  CustomerXlsxImportDto,
+  SegmentCustomersQueryDto,
+  UpdateCustomerDto,
+} from '../../application/dtos/customer.dto';
+import {
+  EarnCustomerLoyaltyDto,
+  LoyaltyHistoryQueryDto,
+  RedeemCustomerLoyaltyDto,
+} from '../../application/dtos/loyalty.dto';
+import {
+  ExcelParserService,
+  MAX_XLSX_FILE_BYTES,
+  type ColumnMapping,
+} from '../../infrastructure/import/excel-parser.service';
 import { CustomersService } from './customers.service';
-import { BusinessScoped } from '../../shared/guards/business-scope.guard';
+import type { SegmentName } from './customers.types';
+
+const SEGMENTS = ['new', 'returning', 'vip', 'at-risk', 'inactive'] as const;
+const IMPORT_FIELDS = new Set(['name', 'email', 'phone', 'birthday', 'address', 'notes']);
+const XLSX_UPLOAD = FileInterceptor('file', {
+  limits: { fileSize: MAX_XLSX_FILE_BYTES, files: 1 },
+});
 
 @ApiTags('Customers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('customers')
 export class CustomersController {
   constructor(
-    private readonly addLoyaltyPointsUseCase: AddLoyaltyPointsUseCase,
     private readonly earnLoyaltyPointsUseCase: EarnLoyaltyPointsUseCase,
     private readonly redeemLoyaltyPointsUseCase: RedeemLoyaltyPointsUseCase,
     private readonly getLoyaltyBalanceUseCase: GetLoyaltyBalanceUseCase,
     private readonly getLoyaltyHistoryUseCase: GetLoyaltyHistoryUseCase,
-    @Inject(REPOSITORY_TOKENS.CUSTOMER)
-    private readonly customerRepo: ICustomerRepository,
-    private readonly prisma: PrismaService,
     private readonly excelParser: ExcelParserService,
     private readonly customersService: CustomersService,
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all customers for business' })
-  async list(@CurrentUser() user: AuthUser) {
-    return this.customerRepo.findByBusinessId(user.businessId);
+  @ApiOperation({
+    summary: 'List customers',
+    description:
+      'Without page/limit returns an array (max 1000, legacy). With page or limit returns { data, meta }.',
+  })
+  async list(@CurrentUser() user: AuthUser, @Query() query: CustomerListQueryDto) {
+    return this.customersService.list(user.businessId, query);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR, EmployeeRole.CASHIER)
   @ApiOperation({ summary: 'Create a new customer' })
-  async create(
-    @Body() dto: { name: string; email?: string; phone?: string },
-    @CurrentUser() user: AuthUser,
-  ) {
-    if (!dto.name || dto.name.trim().length === 0) {
-      throw new BadRequestException('Customer name must not be empty');
-    }
-    if (dto.name.length > 255) {
-      throw new BadRequestException('Customer name must not exceed 255 characters');
-    }
-    if (dto.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dto.email)) {
-      throw new BadRequestException('Invalid email format');
-    }
-
-    // Check for duplicate customer by email or phone within the same business
-    if (dto.email) {
-      const existingByEmail = await this.prisma.customer.findFirst({
-        where: { businessId: user.businessId, email: dto.email },
-      });
-      if (existingByEmail) {
-        throw new ConflictException('A customer with this email already exists');
-      }
-    }
-    if (dto.phone) {
-      const existingByPhone = await this.prisma.customer.findFirst({
-        where: { businessId: user.businessId, phone: dto.phone },
-      });
-      if (existingByPhone) {
-        throw new ConflictException('A customer with this phone number already exists');
-      }
-    }
-
-    return this.prisma.customer.create({
-      data: {
-        businessId: user.businessId,
-        name: dto.name.trim(),
-        email: dto.email || null,
-        phone: dto.phone || null,
-        loyaltyPoints: 0,
-        loyaltyTier: 'regular',
-        totalSpent: 0,
-        visitCount: 0,
-        isActive: true,
-      },
-    });
+  async create(@Body() dto: CreateCustomerDto, @CurrentUser() user: AuthUser) {
+    return this.customersService.create(user.businessId, dto);
   }
 
   @Get('segments')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Get customer segments (new, returning, vip, at-risk, inactive)' })
   async getSegments(@CurrentUser() user: AuthUser) {
@@ -127,25 +98,17 @@ export class CustomersController {
   }
 
   @Get('segments/:segment')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
-  @ApiOperation({ summary: 'Get customers in a specific segment' })
-  async getCustomersBySegment(@Param('segment') segment: string, @CurrentUser() user: AuthUser) {
-    const validSegments = ['new', 'returning', 'vip', 'at-risk', 'inactive'];
-    if (!validSegments.includes(segment)) {
-      throw new BadRequestException(
-        `Invalid segment "${segment}". Valid segments: ${validSegments.join(', ')}`,
-      );
-    }
-
-    return this.customersService.getCustomersBySegment(
-      user.businessId,
-      segment as 'new' | 'returning' | 'vip' | 'at-risk' | 'inactive',
-    );
+  @ApiOperation({ summary: 'Get customers in a specific segment (paginated, default 100)' })
+  async getCustomersBySegment(
+    @Param('segment', new ParseEnumPipe(SEGMENTS)) segment: SegmentName,
+    @Query() query: SegmentCustomersQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customersService.getCustomersBySegment(user.businessId, segment, query);
   }
 
   @Get('export')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Export customers as CSV or JSON' })
   async exportCustomers(
@@ -153,18 +116,19 @@ export class CustomersController {
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
+    const dateKey = businessDateKey();
     if (query.format === 'csv') {
       const csv = await this.customersService.exportCustomersCsv(user.businessId, query.segment);
       res.set({
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="customers-${new Date().toISOString().split('T')[0]}.csv"`,
+        'Content-Disposition': `attachment; filename="customers-${dateKey}.csv"`,
       });
       res.send(csv);
     } else {
       const json = await this.customersService.exportCustomersJson(user.businessId, query.segment);
       res.set({
         'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="customers-${new Date().toISOString().split('T')[0]}.json"`,
+        'Content-Disposition': `attachment; filename="customers-${dateKey}.json"`,
       });
       res.send(json);
     }
@@ -173,9 +137,8 @@ export class CustomersController {
   // ==================== XLSX Import Endpoints ====================
 
   @Post('import-xlsx/preview')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(XLSX_UPLOAD)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Preview XLSX file sheets and headers for customer import' })
   @ApiBody({
@@ -183,87 +146,56 @@ export class CustomersController {
   })
   async previewXlsxImport(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('File is required');
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      throw new BadRequestException('File size must be under 10MB');
-    }
-
-    const sheets = await this.excelParser.getSheetNames(file.buffer);
-    const previews = await Promise.all(
-      sheets.map((name) => this.excelParser.previewSheet(file.buffer, name)),
-    );
-    return previews;
+    return this.excelParser.previewAllSheets(file.buffer);
   }
 
   @Post('import-xlsx')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(XLSX_UPLOAD)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import customers from XLSX file' })
   async importXlsx(
     @UploadedFile() file: Express.Multer.File,
-    @Body('sheetName') sheetName: string,
-    @Body('mappings') mappingsJson: string,
+    @Body() dto: CustomerXlsxImportDto,
     @CurrentUser() user: AuthUser,
   ) {
     if (!file) throw new BadRequestException('File is required');
-    if (!sheetName) throw new BadRequestException('Sheet name is required');
-    if (!mappingsJson) throw new BadRequestException('Column mappings are required');
+    const mappings = parseMappings(dto.mappings);
+    const parsed = await this.excelParser.parseRows(file.buffer, dto.sheetName, mappings);
 
-    let mappings: { excelColumn: string; field: string }[];
-    try {
-      mappings = JSON.parse(mappingsJson);
-    } catch {
-      throw new BadRequestException('Invalid mappings JSON');
-    }
+    const str = (v: unknown): string | undefined =>
+      v === null || v === undefined || v === '' ? undefined : String(v);
+    const rows: CustomerImportRow[] = parsed.map((row) => ({
+      name: str(row.name) ?? '',
+      email: str(row.email),
+      phone: str(row.phone),
+      birthday: str(row.birthday),
+      address: str(row.address),
+      notes: str(row.notes),
+    }));
 
-    const rows = await this.excelParser.parseRows(file.buffer, sheetName, mappings);
-
-    let imported = 0;
-    const errors: string[] = [];
-
-    for (const row of rows) {
-      try {
-        const name = String(row.name || '').trim();
-        if (!name) {
-          errors.push(`Row ${imported + errors.length + 2}: Customer name is required`);
-          continue;
-        }
-
-        await this.prisma.customer.create({
-          data: {
-            businessId: user.businessId,
-            name,
-            phone: row.phone ? String(row.phone) : undefined,
-            email: row.email ? String(row.email) : undefined,
-            address: row.address ? String(row.address) : undefined,
-            notes: row.notes ? String(row.notes) : undefined,
-          },
-        });
-        imported++;
-      } catch (e) {
-        errors.push(`Row ${imported + errors.length + 2}: ${(e as Error).message}`);
-      }
-    }
-
-    return { imported, errors, total: rows.length };
+    const result = await this.customersService.importCustomers(user.businessId, rows);
+    // Legacy response shape of this endpoint: { imported, errors: string[], total }.
+    return {
+      imported: result.imported,
+      skipped: result.skipped,
+      errors: result.errors.map((e) => `Row ${e.row + 1}: ${e.message}`),
+      total: rows.length,
+    };
   }
 
   @Post('import')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Batch import customers from CSV or JSON' })
   async importCustomers(@Body() dto: CustomerImportDto, @CurrentUser() user: AuthUser) {
-    let rows;
-
+    let rows: CustomerImportRow[];
     if (dto.format === 'csv') {
       rows = this.customersService.parseCsvToCustomerRows(dto.data);
     } else {
       try {
         rows = this.customersService.parseJsonToCustomerRows(dto.data);
-      } catch {
+      } catch (error) {
+        if (error instanceof BadRequestException) throw error;
         throw new BadRequestException('Invalid JSON data');
       }
     }
@@ -271,132 +203,148 @@ export class CustomersController {
     if (rows.length === 0) {
       throw new BadRequestException('No valid data rows found');
     }
-
     return this.customersService.importCustomers(user.businessId, rows);
   }
 
   // ==================== Birthday Endpoints ====================
 
   @Get('birthdays')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Get customers with upcoming birthdays' })
   async getUpcomingBirthdays(@Query() query: BirthdayQueryDto, @CurrentUser() user: AuthUser) {
-    const daysAhead = query.daysAhead ? parseInt(query.daysAhead, 10) : 7;
-    return this.customersService.getUpcomingBirthdays(user.businessId, daysAhead);
+    return this.customersService.getUpcomingBirthdays(user.businessId, query.daysAhead ?? 7);
   }
 
   @Post('birthdays/notify')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
-  @ApiOperation({ summary: 'Send birthday notifications to selected customers' })
+  @ApiOperation({ summary: 'Send birthday notifications (501 until a customer channel exists)' })
   async sendBirthdayNotifications(@Body() dto: BirthdayNotifyDto, @CurrentUser() user: AuthUser) {
     return this.customersService.sendBirthdayNotifications(user.businessId, dto.customerIds);
   }
 
+  // ==================== Single customer ====================
+
   @Get(':id')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer by ID' })
-  async get(@Param('id') id: string) {
-    const c = await this.customerRepo.findById(id);
-    if (!c) throw new NotFoundException('Customer not found');
-    return c;
+  async get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.customersService.findOne(user.businessId, id);
   }
 
   @Put(':id')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
-  @BusinessScoped({ resource: 'customer', param: 'id' })
-  @ApiOperation({ summary: 'Update customer' })
+  @ApiOperation({ summary: 'Update customer contact details' })
   async update(
-    @Param('id') id: string,
-    @Body() dto: { name?: string; email?: string; phone?: string },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCustomerDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.customerRepo.update(id, dto);
+    return this.customersService.update(user.businessId, id, dto);
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
-  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Soft delete (deactivate) customer' })
-  async remove(@Param('id') id: string) {
-    await this.customerRepo.delete(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.customersService.deactivate(user.businessId, id);
     return { message: 'Customer deactivated' };
   }
 
   @Get(':id/history')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer purchase history' })
   async getPurchaseHistory(
-    @Param('id') id: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: CustomerHistoryQueryDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    const customer = await this.customerRepo.findById(id);
-    if (!customer) throw new NotFoundException('Customer not found');
-
-    const take = limit ? parseInt(limit, 10) : 20;
-    const skip = offset ? parseInt(offset, 10) : 0;
-
-    return this.customersService.getPurchaseHistory(id, take, skip);
+    return this.customersService.getPurchaseHistory(
+      user.businessId,
+      id,
+      query.limit ?? 20,
+      query.offset ?? 0,
+    );
   }
 
   // ==================== Loyalty Endpoints ====================
 
   @Post(':id/loyalty/earn')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
-  @ApiOperation({ summary: 'Earn loyalty points from transaction' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Earn loyalty points for a completed sale (amount read server-side)' })
   async earnLoyalty(
-    @Param('id') id: string,
-    @Body() dto: { transactionId: string; transactionTotal: number },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EarnCustomerLoyaltyDto,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.earnLoyaltyPointsUseCase.execute({
+      businessId: user.businessId,
       customerId: id,
       transactionId: dto.transactionId,
-      transactionTotal: dto.transactionTotal,
+      employeeId: user.employeeId,
     });
   }
 
   @Post(':id/loyalty/redeem')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
+  @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER, EmployeeRole.SUPERVISOR)
   @ApiOperation({ summary: 'Redeem loyalty points for discount' })
   async redeemLoyalty(
-    @Param('id') id: string,
-    @Body() dto: { transactionId: string; pointsToRedeem: number },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RedeemCustomerLoyaltyDto,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.redeemLoyaltyPointsUseCase.execute({
+      businessId: user.businessId,
       customerId: id,
       transactionId: dto.transactionId,
       pointsToRedeem: dto.pointsToRedeem,
+      employeeId: user.employeeId,
     });
   }
 
   @Get(':id/loyalty/balance')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer loyalty balance' })
-  async getLoyaltyBalance(@Param('id') id: string) {
-    return this.getLoyaltyBalanceUseCase.execute({ customerId: id });
+  async getLoyaltyBalance(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.getLoyaltyBalanceUseCase.execute({ businessId: user.businessId, customerId: id });
   }
 
   @Get(':id/loyalty/history')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
   @ApiOperation({ summary: 'Get customer loyalty transaction history' })
-  async getLoyaltyHistory(@Param('id') id: string, @Query('limit') limit?: string) {
+  async getLoyaltyHistory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: LoyaltyHistoryQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.getLoyaltyHistoryUseCase.execute({
+      businessId: user.businessId,
       customerId: id,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      limit: query.limit,
     });
   }
+}
 
-  // Legacy endpoint - kept for backward compatibility
-  @Post(':id/loyalty/add')
-  @BusinessScoped({ resource: 'customer', param: 'id' })
-  @ApiOperation({ summary: 'Add loyalty points (legacy)' })
-  async addLoyalty(
-    @Param('id') id: string,
-    @Body() dto: { transactionId: string; transactionTotal: number },
-  ) {
-    return this.addLoyaltyPointsUseCase.execute({ customerId: id, ...dto });
+function parseMappings(json: string): ColumnMapping[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new BadRequestException('Invalid mappings JSON');
   }
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 50) {
+    throw new BadRequestException('mappings must be a non-empty array (max 50)');
+  }
+  return parsed.map((m: unknown) => {
+    const item = (m ?? {}) as Record<string, unknown>;
+    const excelColumn = item['excelColumn'];
+    const field = item['field'];
+    if (
+      typeof excelColumn !== 'string' ||
+      excelColumn.length === 0 ||
+      excelColumn.length > 200 ||
+      typeof field !== 'string' ||
+      !IMPORT_FIELDS.has(field)
+    ) {
+      throw new BadRequestException(
+        `Each mapping needs excelColumn and a field in: ${[...IMPORT_FIELDS].join(', ')}`,
+      );
+    }
+    return { excelColumn, field };
+  });
 }

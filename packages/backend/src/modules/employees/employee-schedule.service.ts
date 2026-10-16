@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { BusinessError } from '../../shared/errors/business-error';
 import { ErrorCode } from '../../shared/constants/error-codes';
@@ -11,205 +12,214 @@ import {
 } from './employee.types';
 import { DAY_NAMES } from './employee.constants';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Service responsible for managing employee schedules.
- * Handles creation, updates, deletion, and retrieval of employee work schedules.
+ * Schedule `date` is a calendar date column (@db.Date). Work with it purely as
+ * UTC midnight of the `YYYY-MM-DD` value so no server/WIB offset can shift it.
+ */
+function toDateColumn(value: string): Date {
+  const key = value.slice(0, 10);
+  const date = new Date(`${key}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`Invalid date "${value}"`);
+  }
+  return date;
+}
+
+function dateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Service responsible for managing employee schedules. Every read/write by id
+ * is scoped to the caller's business through the employee relation.
  */
 @Injectable()
 export class EmployeeScheduleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Create a new schedule entry for an employee.
-   *
-   * @param data - Schedule creation data
-   * @returns Created schedule entry
-   */
-  async createSchedule(data: CreateScheduleData): Promise<ScheduleEntry> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: data.employeeId },
-      select: { id: true, name: true },
-    });
-
-    if (!employee) {
-      throw new NotFoundException('Employee not found');
+  /** Throws when [startTime, endTime) overlaps another schedule of the employee that day. */
+  private async assertNoOverlap(
+    tx: Tx,
+    employeeId: string,
+    date: Date,
+    startTime: string,
+    endTime: string,
+    excludeId?: string,
+  ): Promise<void> {
+    if (startTime >= endTime) {
+      throw new BadRequestException('startTime must be before endTime');
     }
-
-    // Check for overlapping schedules on the same day
-    const existingSchedule = await this.prisma.employeeSchedule.findFirst({
+    const overlapping = await tx.employeeSchedule.findFirst({
       where: {
-        employeeId: data.employeeId,
-        date: new Date(data.date),
-        OR: [
-          {
-            startTime: { lte: data.startTime },
-            endTime: { gt: data.startTime },
-          },
-          {
-            startTime: { lt: data.endTime },
-            endTime: { gte: data.endTime },
-          },
-          {
-            startTime: { gte: data.startTime },
-            endTime: { lte: data.endTime },
-          },
-        ],
+        employeeId,
+        date,
+        startTime: { lt: endTime },
+        endTime: { gt: startTime },
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
       },
+      select: { startTime: true, endTime: true },
     });
-
-    if (existingSchedule) {
+    if (overlapping) {
       throw new BadRequestException(
-        `Jadwal tumpang tindih: karyawan sudah dijadwalkan ${existingSchedule.startTime} - ${existingSchedule.endTime}`,
+        `Jadwal tumpang tindih: karyawan sudah dijadwalkan ${overlapping.startTime} - ${overlapping.endTime}`,
       );
     }
+  }
 
-    const schedule = await this.prisma.employeeSchedule.create({
-      data: {
-        employeeId: data.employeeId,
-        outletId: data.outletId,
-        date: new Date(data.date),
-        startTime: data.startTime,
-        endTime: data.endTime,
-        notes: data.notes ?? null,
-      },
-      include: {
-        employee: { select: { name: true } },
-      },
-    });
-
+  private toEntry(s: {
+    id: string;
+    employeeId: string;
+    outletId: string;
+    date: Date;
+    startTime: string;
+    endTime: string;
+    notes: string | null;
+    employee: { name: string };
+  }): ScheduleEntry {
     return {
-      id: schedule.id,
-      employeeId: schedule.employeeId,
-      employeeName: schedule.employee.name,
-      outletId: schedule.outletId,
-      date: schedule.date.toISOString().split('T')[0],
-      startTime: schedule.startTime,
-      endTime: schedule.endTime,
-      notes: schedule.notes,
+      id: s.id,
+      employeeId: s.employeeId,
+      employeeName: s.employee.name,
+      outletId: s.outletId,
+      date: dateKey(s.date),
+      startTime: s.startTime,
+      endTime: s.endTime,
+      notes: s.notes,
     };
   }
 
   /**
-   * Get weekly schedule grid for an outlet.
-   * Returns a 7-day schedule starting from the specified week start date.
-   *
-   * @param outletId - Outlet ID
-   * @param weekStart - Week start date (typically Monday)
-   * @returns Weekly schedule grid with all employee schedules
+   * Create a schedule entry. The overlap check and insert run in one
+   * Serializable transaction so concurrent requests cannot double-book.
    */
-  async getWeeklySchedule(outletId: string, weekStart: Date): Promise<WeeklyScheduleGrid> {
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+  async createSchedule(data: CreateScheduleData, businessId: string): Promise<ScheduleEntry> {
+    const date = toDateColumn(data.date);
+    const schedule = await this.prisma.$transaction(
+      async (tx) => {
+        const employee = await tx.employee.findFirst({
+          where: { id: data.employeeId, businessId },
+          select: { id: true },
+        });
+        if (!employee) {
+          throw new NotFoundException('Employee not found');
+        }
+        await this.assertNoOverlap(tx, data.employeeId, date, data.startTime, data.endTime);
+
+        return tx.employeeSchedule.create({
+          data: {
+            employeeId: data.employeeId,
+            outletId: data.outletId,
+            date,
+            startTime: data.startTime,
+            endTime: data.endTime,
+            notes: data.notes ?? null,
+          },
+          include: { employee: { select: { name: true } } },
+        });
+      },
+      { isolationLevel: 'Serializable' },
+    );
+
+    return this.toEntry(schedule);
+  }
+
+  /**
+   * Weekly schedule grid for an outlet, 7 days from `weekStart` (YYYY-MM-DD).
+   */
+  async getWeeklySchedule(outletId: string, weekStart: string): Promise<WeeklyScheduleGrid> {
+    const start = toDateColumn(weekStart);
+    const end = new Date(start.getTime() + 6 * DAY_MS);
 
     const schedules = await this.prisma.employeeSchedule.findMany({
-      where: {
-        outletId,
-        date: { gte: weekStart, lte: weekEnd },
-      },
-      include: {
-        employee: { select: { name: true } },
-      },
+      where: { outletId, date: { gte: start, lte: end } },
+      include: { employee: { select: { name: true } } },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
     });
 
     const days: WeeklyScheduleDay[] = [];
-
     for (let i = 0; i < 7; i++) {
-      const currentDate = new Date(weekStart);
-      currentDate.setDate(currentDate.getDate() + i);
-      const dateStr = currentDate.toISOString().split('T')[0];
-
-      const dayEntries = schedules
-        .filter((s) => s.date.toISOString().split('T')[0] === dateStr)
-        .map((s) => ({
-          id: s.id,
-          employeeId: s.employeeId,
-          employeeName: s.employee.name,
-          outletId: s.outletId,
-          date: dateStr,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          notes: s.notes,
-        }));
-
+      const current = new Date(start.getTime() + i * DAY_MS);
+      const key = dateKey(current);
       days.push({
-        date: dateStr,
-        dayOfWeek: DAY_NAMES[currentDate.getDay()],
-        entries: dayEntries,
+        date: key,
+        dayOfWeek: DAY_NAMES[current.getUTCDay()],
+        entries: schedules.filter((s) => dateKey(s.date) === key).map((s) => this.toEntry(s)),
       });
     }
 
-    return {
-      weekStart: weekStart.toISOString().split('T')[0],
-      weekEnd: weekEnd.toISOString().split('T')[0],
-      days,
-    };
+    return { weekStart: dateKey(start), weekEnd: dateKey(end), days };
   }
 
   /**
-   * Update an existing schedule entry.
-   *
-   * @param scheduleId - Schedule entry ID
-   * @param data - Update data
-   * @returns Updated schedule entry
+   * Update a schedule entry of the caller's business, re-checking overlap.
+   * `outletScope` limits non-owner callers to schedules of their own outlet.
    */
-  async updateSchedule(scheduleId: string, data: UpdateScheduleData): Promise<ScheduleEntry> {
-    const existing = await this.prisma.employeeSchedule.findUnique({
-      where: { id: scheduleId },
-    });
+  async updateSchedule(
+    scheduleId: string,
+    data: UpdateScheduleData,
+    businessId: string,
+    outletScope?: string,
+  ): Promise<ScheduleEntry> {
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.employeeSchedule.findFirst({
+          where: {
+            id: scheduleId,
+            employee: { businessId },
+            ...(outletScope ? { outletId: outletScope } : {}),
+          },
+        });
+        if (!existing) {
+          throw new BusinessError(ErrorCode.SCHEDULE_NOT_FOUND, 'Schedule entry not found');
+        }
 
-    if (!existing) {
-      throw new BusinessError(ErrorCode.SCHEDULE_NOT_FOUND, 'Schedule entry not found');
-    }
+        const employeeId = data.employeeId ?? existing.employeeId;
+        const date = data.date !== undefined ? toDateColumn(data.date) : existing.date;
+        const startTime = data.startTime ?? existing.startTime;
+        const endTime = data.endTime ?? existing.endTime;
+        await this.assertNoOverlap(tx, employeeId, date, startTime, endTime, scheduleId);
 
-    const updateData: Record<string, unknown> = {};
-    if (data.employeeId !== undefined) updateData.employeeId = data.employeeId;
-    if (data.outletId !== undefined) updateData.outletId = data.outletId;
-    if (data.date !== undefined) updateData.date = new Date(data.date);
-    if (data.startTime !== undefined) updateData.startTime = data.startTime;
-    if (data.endTime !== undefined) updateData.endTime = data.endTime;
-    if (data.notes !== undefined) updateData.notes = data.notes;
+        return tx.employeeSchedule.update({
+          where: { id: existing.id },
+          data: {
+            employeeId,
+            outletId: data.outletId ?? existing.outletId,
+            date,
+            startTime,
+            endTime,
+            ...(data.notes !== undefined && { notes: data.notes }),
+          },
+          include: { employee: { select: { name: true } } },
+        });
+      },
+      { isolationLevel: 'Serializable' },
+    );
 
-    const updated = await this.prisma.employeeSchedule.update({
-      where: { id: scheduleId },
-      data: updateData,
-      include: {
-        employee: { select: { name: true } },
+    return this.toEntry(updated);
+  }
+
+  /**
+   * Delete a schedule entry of the caller's business.
+   */
+  async deleteSchedule(
+    scheduleId: string,
+    businessId: string,
+    outletScope?: string,
+  ): Promise<{ message: string }> {
+    const deleted = await this.prisma.employeeSchedule.deleteMany({
+      where: {
+        id: scheduleId,
+        employee: { businessId },
+        ...(outletScope ? { outletId: outletScope } : {}),
       },
     });
-
-    return {
-      id: updated.id,
-      employeeId: updated.employeeId,
-      employeeName: updated.employee.name,
-      outletId: updated.outletId,
-      date: updated.date.toISOString().split('T')[0],
-      startTime: updated.startTime,
-      endTime: updated.endTime,
-      notes: updated.notes,
-    };
-  }
-
-  /**
-   * Delete a schedule entry.
-   *
-   * @param scheduleId - Schedule entry ID
-   * @returns Success message
-   */
-  async deleteSchedule(scheduleId: string): Promise<{ message: string }> {
-    const existing = await this.prisma.employeeSchedule.findUnique({
-      where: { id: scheduleId },
-    });
-
-    if (!existing) {
+    if (deleted.count === 0) {
       throw new BusinessError(ErrorCode.SCHEDULE_NOT_FOUND, 'Schedule entry not found');
     }
-
-    await this.prisma.employeeSchedule.delete({
-      where: { id: scheduleId },
-    });
-
     return { message: 'Schedule entry deleted' };
   }
 }

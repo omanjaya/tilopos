@@ -1,3 +1,6 @@
+import { watchSocketSession } from '@infrastructure/auth/socket-session';
+import { assertSessionActive } from '@infrastructure/auth/session-access';
+import { AccessTokenPayload, toAuthUser } from '@infrastructure/auth/access-token';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -24,13 +27,51 @@ interface KdsSocket extends Socket {
   station?: KitchenStation;
 }
 
+const OUTLET_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KITCHEN_STATIONS: readonly KitchenStation[] = [
+  'grill',
+  'fryer',
+  'cold',
+  'hot',
+  'drinks',
+  'dessert',
+  'general',
+];
+
+/**
+ * Allowed socket origins: CORS_ORIGIN split on commas (validated at boot, required
+ * in production by env.validation.ts); the Vite dev server only outside production.
+ */
+function socketCorsOrigins(): string[] {
+  const configured = (process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (configured.length > 0) return configured;
+  return process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173'];
+}
+
+function isValidOutletId(value: unknown): value is string {
+  return typeof value === 'string' && OUTLET_ID_PATTERN.test(value);
+}
+
+function isKitchenStation(value: unknown): value is KitchenStation {
+  return typeof value === 'string' && (KITCHEN_STATIONS as readonly string[]).includes(value);
+}
+
 // Rate limiting: max requests per window
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
+/**
+ * Scaling note: without a Socket.IO Redis adapter, events emitted on one API
+ * replica only reach sockets connected to that replica, and the rate-limit map
+ * is per process. Run a single replica for sockets (sticky sessions) until the
+ * adapter is configured.
+ */
 @WebSocketGateway({
   namespace: '/kds',
-  cors: { origin: process.env.CORS_ORIGIN || 'http://localhost:5173' },
+  cors: { origin: socketCorsOrigins() },
 })
 export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -56,8 +97,11 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
         occurredOn: event.occurredOn,
       });
 
-      // Emit order:new when a new order is created (pending status from empty previous)
-      if (event.newStatus === 'pending' && !event.previousStatus) {
+      // order:new when an order is created (previous status empty, or 'none' from older publishers)
+      if (
+        event.newStatus === 'pending' &&
+        (!event.previousStatus || event.previousStatus === 'none')
+      ) {
         this.server.to(`outlet:${event.outletId}`).emit('order:new', {
           orderId: event.orderId,
           outletId: event.outletId,
@@ -89,7 +133,7 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
     );
   }
 
-  handleConnection(client: KdsSocket) {
+  async handleConnection(client: KdsSocket) {
     const token =
       client.handshake.auth?.token ||
       client.handshake.headers?.authorization?.replace('Bearer ', '');
@@ -99,10 +143,13 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
       return;
     }
     try {
-      const payload = this.jwtService.verify(token as string);
-      client.userId = payload.sub;
+      const claims = this.jwtService.verify<AccessTokenPayload>(token as string);
+      await assertSessionActive(this.prisma, claims);
+      const payload = toAuthUser(claims);
+      watchSocketSession(this.prisma, claims, client);
+      client.userId = payload.employeeId;
       client.businessId = payload.businessId;
-      this.logger.debug(`KDS client authenticated: ${client.id} user=${payload.sub}`);
+      this.logger.debug(`KDS client authenticated: ${client.id} user=${payload.employeeId}`);
     } catch {
       this.logger.warn(`KDS client rejected - invalid token: ${client.id}`);
       client.disconnect();
@@ -136,6 +183,10 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
       return { error: 'Rate limit exceeded. Try again later.' };
     }
 
+    if (!isValidOutletId(data?.outletId)) {
+      return { error: 'A valid outletId is required' };
+    }
+
     // Validate outlet belongs to user's business
     const outlet = await this.prisma.outlet.findFirst({
       where: { id: data.outletId, businessId: client.businessId },
@@ -167,6 +218,10 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
       return { error: 'Rate limit exceeded. Try again later.' };
     }
 
+    if (!isValidOutletId(data?.outletId) || !isKitchenStation(data?.station)) {
+      return { error: 'A valid outletId and station are required' };
+    }
+
     // Validate outlet belongs to user's business
     const outlet = await this.prisma.outlet.findFirst({
       where: { id: data.outletId, businessId: client.businessId },
@@ -193,6 +248,9 @@ export class KdsGateway implements OnModuleInit, OnGatewayConnection, OnGatewayD
     @MessageBody() data: { outletId: string; station: KitchenStation },
     @ConnectedSocket() client: KdsSocket,
   ) {
+    if (!isValidOutletId(data?.outletId) || !isKitchenStation(data?.station)) {
+      return { error: 'A valid outletId and station are required' };
+    }
     const room = `station:${data.outletId}:${data.station}`;
     void client.leave(room);
 

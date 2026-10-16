@@ -1,531 +1,284 @@
-/**
- * Promotions & Rules Engine
- *
- * Features:
- * - BOGO (Buy One Get One)
- * - Bundle discounts
- * - Time-based promotions
- * - Customer-specific promotions
- * - Voucher/coupon codes
- * - Auto-apply at POS
- */
-
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { Promotion, Voucher, DiscountType, Prisma } from '@prisma/client';
+import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.tokens';
+import type { PrismaPromotionRepository } from '../../infrastructure/repositories/prisma-promotion.repository';
+import type { PromotionRecord } from '../../domain/interfaces/repositories/promotion.repository';
+import { toNumber } from '../../shared/utils/money';
+import { TenantAccessService } from '../../shared/tenant/tenant-access.service';
+import type {
+  CreatePromotionDto,
+  GenerateVouchersDto,
+  UpdatePromotionDto,
+} from '../../application/dtos/promotion.dto';
 
-// Types
-export type PromotionType =
-  | 'percentage_discount'
-  | 'fixed_discount'
-  | 'bogo' // Buy One Get One
-  | 'bundle' // Bundle pricing
-  | 'free_item' // Free item with purchase
-  | 'minimum_spend' // Discount on min spend
-  | 'happy_hour' // Time-based discount
-  | 'first_purchase' // New customer discount
-  | 'birthday' // Birthday discount
-  | 'loyalty_tier'; // Tier-specific discount
+/** Max vouchers returned by the list endpoint / exported to CSV (R13). */
+export const MAX_VOUCHER_LIST = 500;
+export const MAX_VOUCHER_EXPORT = 20_000;
 
-export interface PromotionRule {
-  type: PromotionType;
-
-  // Discount configuration
-  discountType?: DiscountType; // 'percentage' | 'fixed' | 'bogo'
-  discountValue?: number; // Amount or percentage
-  maxDiscount?: number; // Cap for percentage discounts
-
-  // Conditions
-  minPurchase?: number; // Minimum transaction amount
-  minQuantity?: number; // Minimum quantity for BOGO
-  buyQuantity?: number; // BOGO: buy X
-  getQuantity?: number; // BOGO: get Y free
-
-  // Product targeting
-  applicableProducts?: string[]; // Specific product IDs
-  applicableCategories?: string[]; // Specific category IDs
-  excludeProducts?: string[]; // Excluded products
-
-  // Time conditions
-  dayOfWeek?: number[]; // 0-6 (Sunday-Saturday)
-  startTime?: string; // HH:mm
-  endTime?: string; // HH:mm
-
-  // Customer conditions
-  loyaltyTiers?: string[]; // Applicable tiers
-  customerTypes?: string[]; // individual, company
-  firstPurchaseOnly?: boolean;
-  birthdayOnly?: boolean;
-
-  // Bundle configuration
-  bundleProducts?: string[]; // Products in bundle
-  bundlePrice?: number; // Fixed bundle price
-
-  // Usage limits
-  maxUsageTotal?: number; // Total uses allowed
-  maxUsagePerCustomer?: number; // Per customer limit
+export interface VoucherView {
+  id: string;
+  code: string;
+  prefix: string;
+  discountType: string;
+  discountValue: number;
+  validFrom: string;
+  validTo: string;
+  usageLimit: number;
+  usageCount: number;
+  isActive: boolean;
+  createdAt: string;
 }
 
-export interface CreatePromotionDto {
-  businessId: string;
-  name: string;
-  description?: string;
-  type: PromotionType;
-  rules: PromotionRule;
-  startDate: Date;
-  endDate?: Date;
-  priority?: number; // Higher = applied first
-  stackable?: boolean; // Can combine with other promos
-  autoApply?: boolean; // Auto-apply at POS
+/** Cross-field rules shared by create and update. */
+export function assertPromotionConsistent(p: {
+  discountType: string;
+  discountValue: number;
+  validFrom: Date;
+  validUntil: Date;
+}): void {
+  if (isNaN(p.validFrom.getTime()) || isNaN(p.validUntil.getTime())) {
+    throw new BadRequestException('validFrom/validUntil must be valid dates');
+  }
+  if (p.validUntil <= p.validFrom) {
+    throw new BadRequestException('validUntil must be after validFrom');
+  }
+  if (p.discountType === 'percentage' && p.discountValue > 100) {
+    throw new BadRequestException('Percentage discount cannot exceed 100');
+  }
 }
-
-export interface CartItem {
-  productId: string;
-  variantId?: string;
-  categoryId?: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-}
-
-export interface AppliedPromotion {
-  promotionId: string;
-  promotionName: string;
-  type: PromotionType;
-  discountAmount: number;
-  appliedToItems?: string[]; // Product IDs affected
-  freeItems?: CartItem[]; // Free items to add
-  description: string;
-  voucherId?: string; // Voucher ID to be consumed during transaction commit
-}
-
-export interface PromotionResult {
-  appliedPromotions: AppliedPromotion[];
-  totalDiscount: number;
-  freeItems: CartItem[];
-  originalTotal: number;
-  finalTotal: number;
-}
-
-// ========================================
-// PROMOTIONS SERVICE
-// ========================================
 
 @Injectable()
 export class PromotionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REPOSITORY_TOKENS.PROMOTION)
+    private readonly promotionRepo: PrismaPromotionRepository,
+    private readonly tenant: TenantAccessService,
+  ) {}
 
-  // ========================================
-  // PROMOTION CRUD
-  // ========================================
+  list(businessId: string): Promise<PromotionRecord[]> {
+    return this.promotionRepo.findByBusinessId(businessId);
+  }
 
-  async getPromotions(businessId: string, activeOnly = true): Promise<Promotion[]> {
-    const where: Prisma.PromotionWhereInput = { businessId };
+  async findOne(businessId: string, id: string): Promise<PromotionRecord> {
+    const promotion = await this.promotionRepo.findById(id, businessId);
+    if (!promotion) throw new NotFoundException('Promotion not found');
+    return promotion;
+  }
 
-    if (activeOnly) {
-      const now = new Date();
-      where.isActive = true;
-      where.validFrom = { lte: now };
-      where.validUntil = { gte: now };
+  async create(businessId: string, dto: CreatePromotionDto): Promise<PromotionRecord> {
+    const validFrom = new Date(dto.validFrom);
+    const validUntil = new Date(dto.validUntil);
+    assertPromotionConsistent({
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+      validFrom,
+      validUntil,
+    });
+    await this.assertApplicableToOwned(businessId, dto.applicableTo);
+
+    return this.promotionRepo.save({
+      businessId,
+      name: dto.name,
+      description: dto.description ?? null,
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+      minPurchase: dto.minPurchase ?? null,
+      maxDiscount: dto.maxDiscount ?? null,
+      validFrom,
+      validUntil,
+      usageLimit: dto.usageLimit ?? null,
+      applicableTo: dto.applicableTo ? { ...dto.applicableTo } : {},
+    });
+  }
+
+  /** Explicit field mapping (R7): businessId/usedCount/isActive can never be set. */
+  async update(businessId: string, id: string, dto: UpdatePromotionDto): Promise<PromotionRecord> {
+    const current = await this.findOne(businessId, id);
+
+    const data: Record<string, unknown> = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.discountType !== undefined) data.discountType = dto.discountType;
+    if (dto.discountValue !== undefined) data.discountValue = dto.discountValue;
+    if (dto.minPurchase !== undefined) data.minPurchase = dto.minPurchase;
+    if (dto.maxDiscount !== undefined) data.maxDiscount = dto.maxDiscount;
+    if (dto.validFrom !== undefined) data.validFrom = new Date(dto.validFrom);
+    if (dto.validUntil !== undefined) data.validUntil = new Date(dto.validUntil);
+    if (dto.usageLimit !== undefined) data.usageLimit = dto.usageLimit;
+    if (dto.applicableTo !== undefined) {
+      await this.assertApplicableToOwned(businessId, dto.applicableTo);
+      data.applicableTo = { ...dto.applicableTo };
     }
 
-    return this.prisma.promotion.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
+    assertPromotionConsistent({
+      discountType: dto.discountType ?? current.discountType,
+      discountValue: dto.discountValue ?? current.discountValue,
+      validFrom: (data.validFrom as Date | undefined) ?? current.validFrom,
+      validUntil: (data.validUntil as Date | undefined) ?? current.validUntil,
     });
+
+    return this.promotionRepo.update(id, data, businessId);
   }
 
-  async getPromotionById(id: string): Promise<Promotion> {
-    const promo = await this.prisma.promotion.findUnique({ where: { id } });
-    if (!promo) throw new NotFoundException(`Promotion ${id} not found`);
-    return promo;
+  deactivate(businessId: string, id: string): Promise<void> {
+    return this.promotionRepo.deactivate(id, businessId);
   }
 
-  async createPromotion(data: CreatePromotionDto): Promise<Promotion> {
-    return this.prisma.promotion.create({
-      data: {
-        businessId: data.businessId,
-        name: data.name,
-        description: data.description,
-        discountType: data.rules.discountType ?? 'percentage',
-        discountValue: data.rules.discountValue ?? 0,
-        validFrom: data.startDate,
-        validUntil: data.endDate ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        applicableTo: data.rules as unknown as Prisma.InputJsonValue,
-      },
-    });
-  }
+  // ==================== Vouchers ====================
 
-  async updatePromotion(id: string, data: Partial<CreatePromotionDto>): Promise<Promotion> {
-    return this.prisma.promotion.update({
-      where: { id },
-      data: {
-        name: data.name,
-        description: data.description,
-        applicableTo: data.rules as unknown as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  async deletePromotion(id: string): Promise<void> {
-    await this.prisma.promotion.update({
-      where: { id },
-      data: { isActive: false },
-    });
-  }
-
-  // ========================================
-  // VOUCHER/COUPON MANAGEMENT
-  // ========================================
-
-  async createVoucher(
-    businessId: string,
-    promotionId: string,
-    code: string,
-    _maxUses?: number,
-    _customerId?: string,
-  ): Promise<Voucher> {
-    return this.prisma.voucher.create({
-      data: {
-        businessId,
-        promotionId,
-        code: code.toUpperCase(),
-      },
-    });
-  }
-
-  async validateVoucher(
-    code: string,
-    businessId: string,
-    _customerId?: string,
-  ): Promise<(Voucher & { promotion: Promotion | null }) | null> {
-    const voucher = await this.prisma.voucher.findFirst({
+  async listVouchers(businessId: string, search?: string): Promise<VoucherView[]> {
+    const vouchers = await this.prisma.voucher.findMany({
       where: {
-        code: code.toUpperCase(),
         businessId,
-        isActive: true,
+        ...(search ? { code: { contains: search.trim(), mode: 'insensitive' } } : {}),
       },
       include: { promotion: true },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_VOUCHER_LIST,
     });
-
-    if (!voucher) return null;
-
-    // Check if already used
-    if (voucher.usedAt) {
-      return null;
-    }
-
-    // Check expiry
-    if (voucher.expiresAt && voucher.expiresAt < new Date()) {
-      return null;
-    }
-
-    // Check promotion validity
-    const now = new Date();
-    const promo = voucher.promotion;
-    if (!promo?.isActive) return null;
-    if (promo.validFrom > now) return null;
-    if (promo.validUntil && promo.validUntil < now) return null;
-
-    return voucher;
+    return vouchers.map((v) => this.toVoucherView(v));
   }
-
-  async useVoucher(id: string): Promise<void> {
-    await this.prisma.voucher.update({
-      where: { id },
-      data: { usedAt: new Date() },
-    });
-  }
-
-  // ========================================
-  // RULES ENGINE - AUTO-APPLY PROMOTIONS
-  // ========================================
 
   /**
-   * Apply all eligible promotions to cart
+   * Creates the parent promotion and its single-use voucher codes in one DB
+   * transaction, so a failure never leaves an orphan (auto-applied) promotion.
+   * Codes are unique per business (@@unique[businessId, code]); collisions are
+   * retried and a short batch is an error, never a silent partial result.
    */
-  async applyPromotions(
-    businessId: string,
-    items: CartItem[],
-    customerId?: string,
-    voucherCode?: string,
-  ): Promise<PromotionResult> {
-    const appliedPromotions: AppliedPromotion[] = [];
-    const freeItems: CartItem[] = [];
-    let totalDiscount = 0;
-    const originalTotal = items.reduce((sum, item) => sum + item.subtotal, 0);
+  async generateVouchers(businessId: string, dto: GenerateVouchersDto): Promise<VoucherView[]> {
+    const validFrom = new Date(dto.validFrom);
+    const validUntil = new Date(dto.validTo);
+    assertPromotionConsistent({
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+      validFrom,
+      validUntil,
+    });
 
-    // Get active promotions
-    const promotions = await this.getPromotions(businessId, true);
-    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const promotion = await tx.promotion.create({
+        data: {
+          businessId,
+          name: `Voucher ${dto.prefix}`,
+          discountType: dto.discountType,
+          discountValue: dto.discountValue,
+          validFrom,
+          validUntil,
+          usageLimit: dto.usageLimit,
+          applicableTo: {},
+        },
+      });
 
-    // Get customer info if provided
-    let customer = null;
-    if (customerId) {
-      customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
-    }
-
-    // Apply voucher first if provided
-    if (voucherCode) {
-      const voucher = await this.validateVoucher(voucherCode, businessId, customerId);
-      if (voucher?.promotion) {
-        const result = this.evaluatePromotion(
-          voucher.promotion,
-          voucher.promotion.applicableTo as unknown as PromotionRule,
-          items,
-          customer,
-          now,
-        );
-        if (result) {
-          appliedPromotions.push({ ...result, voucherId: voucher.id });
-          totalDiscount += result.discountAmount;
-          if (result.freeItems) freeItems.push(...result.freeItems);
+      const codes = new Set<string>();
+      for (let attempt = 0; attempt < 5 && codes.size < dto.quantity; attempt++) {
+        const candidates = new Set<string>();
+        while (candidates.size < (dto.quantity - codes.size) * 2) {
+          candidates.add(`${dto.prefix}-${randomBytes(4).toString('hex').toUpperCase()}`);
+        }
+        const taken = await tx.voucher.findMany({
+          where: { businessId, code: { in: [...candidates] } },
+          select: { code: true },
+        });
+        const takenSet = new Set(taken.map((t) => t.code));
+        for (const code of candidates) {
+          if (codes.size >= dto.quantity) break;
+          if (!takenSet.has(code)) codes.add(code);
         }
       }
-    }
-
-    // Apply auto-apply promotions
-    for (const promo of promotions) {
-      const rules = promo.applicableTo as unknown as PromotionRule;
-
-      // Skip if we already have a promo applied
-      if (appliedPromotions.length > 0) continue;
-
-      const result = this.evaluatePromotion(promo, rules, items, customer, now);
-      if (result) {
-        appliedPromotions.push(result);
-        totalDiscount += result.discountAmount;
-        if (result.freeItems) freeItems.push(...result.freeItems);
-      }
-    }
-
-    return {
-      appliedPromotions,
-      totalDiscount,
-      freeItems,
-      originalTotal,
-      finalTotal: Math.max(0, originalTotal - totalDiscount),
-    };
-  }
-
-  /**
-   * Evaluate single promotion against cart
-   */
-  private evaluatePromotion(
-    promo: Promotion,
-    rules: PromotionRule,
-    items: CartItem[],
-    customer: { loyaltyTier: string; visitCount: number; dateOfBirth?: Date | null } | null,
-    now: Date,
-  ): AppliedPromotion | null {
-    // Check time conditions
-    if (!this.checkTimeConditions(rules, now)) return null;
-
-    // Check customer conditions
-    if (!this.checkCustomerConditions(rules, customer, now)) return null;
-
-    // Get applicable items
-    const applicableItems = this.getApplicableItems(items, rules);
-    if (applicableItems.length === 0 && !['minimum_spend', 'first_purchase'].includes(rules.type)) {
-      return null;
-    }
-
-    const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-
-    // Check minimum purchase
-    if (rules.minPurchase && subtotal < rules.minPurchase) return null;
-
-    // Evaluate based on type
-    switch (rules.type) {
-      case 'percentage_discount':
-        return this.applyPercentageDiscount(promo, rules, applicableItems);
-
-      case 'fixed_discount':
-        return this.applyFixedDiscount(promo, rules, subtotal);
-
-      case 'bogo':
-        return this.applyBogo(promo, rules, applicableItems);
-
-      case 'bundle':
-        return this.applyBundle(promo, rules, items);
-
-      case 'happy_hour':
-        return this.applyPercentageDiscount(promo, rules, applicableItems);
-
-      case 'minimum_spend':
-        return this.applyFixedDiscount(promo, rules, subtotal);
-
-      case 'first_purchase':
-      case 'birthday':
-      case 'loyalty_tier':
-        return this.applyPercentageDiscount(
-          promo,
-          rules,
-          applicableItems.length > 0 ? applicableItems : items,
-        );
-
-      default:
-        return null;
-    }
-  }
-
-  private checkTimeConditions(rules: PromotionRule, now: Date): boolean {
-    // Check day of week
-    if (rules.dayOfWeek && rules.dayOfWeek.length > 0) {
-      if (!rules.dayOfWeek.includes(now.getDay())) return false;
-    }
-
-    // Check time range (supports cross-midnight ranges like 22:00 - 02:00)
-    if (rules.startTime && rules.endTime) {
-      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      if (rules.startTime <= rules.endTime) {
-        // Normal range (e.g., 09:00 - 17:00)
-        if (currentTime < rules.startTime || currentTime > rules.endTime) return false;
-      } else {
-        // Cross-midnight range (e.g., 22:00 - 02:00)
-        if (currentTime < rules.startTime && currentTime > rules.endTime) return false;
-      }
-    }
-
-    return true;
-  }
-
-  private checkCustomerConditions(
-    rules: PromotionRule,
-    customer: { loyaltyTier: string; visitCount: number; dateOfBirth?: Date | null } | null,
-    now: Date,
-  ): boolean {
-    // First purchase only
-    if (rules.firstPurchaseOnly) {
-      if (!customer || customer.visitCount > 0) return false;
-    }
-
-    // Birthday only
-    if (rules.birthdayOnly) {
-      if (!customer?.dateOfBirth) return false;
-      const bday = new Date(customer.dateOfBirth);
-      if (bday.getMonth() !== now.getMonth() || bday.getDate() !== now.getDate()) return false;
-    }
-
-    // Loyalty tier check
-    if (rules.loyaltyTiers && rules.loyaltyTiers.length > 0) {
-      if (!customer || !rules.loyaltyTiers.includes(customer.loyaltyTier)) return false;
-    }
-
-    return true;
-  }
-
-  private getApplicableItems(items: CartItem[], rules: PromotionRule): CartItem[] {
-    return items.filter((item) => {
-      // Exclude check
-      if (rules.excludeProducts?.includes(item.productId)) return false;
-
-      // Include check
-      if (rules.applicableProducts && rules.applicableProducts.length > 0) {
-        return rules.applicableProducts.includes(item.productId);
-      }
-      if (rules.applicableCategories && rules.applicableCategories.length > 0) {
-        return item.categoryId && rules.applicableCategories.includes(item.categoryId);
+      if (codes.size < dto.quantity) {
+        throw new ConflictException('Could not generate enough unique voucher codes, try again');
       }
 
-      return true; // All items applicable
+      const { count } = await tx.voucher.createMany({
+        data: [...codes].map((code) => ({
+          businessId,
+          promotionId: promotion.id,
+          code,
+          expiresAt: validUntil,
+        })),
+      });
+      if (count !== codes.size) {
+        throw new ConflictException('Voucher code collision, try again');
+      }
+
+      const created = await tx.voucher.findMany({
+        where: { businessId, promotionId: promotion.id },
+        include: { promotion: true },
+        orderBy: { code: 'asc' },
+      });
+      return created.map((v) => this.toVoucherView(v));
     });
   }
 
-  private applyPercentageDiscount(
-    promo: Promotion,
-    rules: PromotionRule,
-    items: CartItem[],
-  ): AppliedPromotion | null {
-    const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-    let discount = subtotal * ((rules.discountValue || 0) / 100);
+  async exportVouchersCsv(businessId: string): Promise<string> {
+    const vouchers = await this.prisma.voucher.findMany({
+      where: { businessId },
+      include: { promotion: true },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_VOUCHER_EXPORT,
+    });
 
-    // Apply max discount cap
-    if (rules.maxDiscount && discount > rules.maxDiscount) {
-      discount = rules.maxDiscount;
-    }
+    const header = 'Code,Discount Type,Discount Value,Valid From,Valid To,Used,Active,Created At';
+    const rows = vouchers.map((v) => {
+      const view = this.toVoucherView(v);
+      return [
+        csvCell(view.code),
+        view.discountType,
+        String(view.discountValue),
+        v.promotion?.validFrom?.toISOString() ?? '',
+        view.validTo,
+        v.usedAt ? 'Yes' : 'No',
+        v.isActive ? 'Yes' : 'No',
+        view.createdAt,
+      ].join(',');
+    });
+    return [header, ...rows].join('\n');
+  }
 
+  private toVoucherView(
+    v: Prisma.VoucherGetPayload<{ include: { promotion: true } }>,
+  ): VoucherView {
+    const promo = v.promotion;
     return {
-      promotionId: promo.id,
-      promotionName: promo.name,
-      type: rules.type,
-      discountAmount: discount,
-      appliedToItems: items.map((i) => i.productId),
-      description: `${rules.discountValue}% off`,
+      id: v.id,
+      code: v.code,
+      prefix: v.code.split('-')[0] || v.code,
+      discountType: promo?.discountType ?? 'fixed',
+      discountValue: promo ? toNumber(promo.discountValue) : toNumber(v.initialValue),
+      validFrom: promo?.validFrom?.toISOString() ?? v.createdAt.toISOString(),
+      validTo:
+        promo?.validUntil?.toISOString() ?? v.expiresAt?.toISOString() ?? v.createdAt.toISOString(),
+      usageLimit: 1,
+      usageCount: v.usedAt ? 1 : 0,
+      isActive: v.isActive,
+      createdAt: v.createdAt.toISOString(),
     };
   }
 
-  private applyFixedDiscount(
-    promo: Promotion,
-    rules: PromotionRule,
-    subtotal: number,
-  ): AppliedPromotion | null {
-    const discountAmount = Math.min(rules.discountValue || 0, subtotal);
-    return {
-      promotionId: promo.id,
-      promotionName: promo.name,
-      type: rules.type,
-      discountAmount,
-      description: `Rp ${(rules.discountValue || 0).toLocaleString()} off`,
-    };
+  /** Outlet/product/category ids inside applicableTo must belong to the tenant (R3). */
+  private async assertApplicableToOwned(
+    businessId: string,
+    applicableTo?: { outlets?: string[]; productIds?: string[]; categoryIds?: string[] },
+  ): Promise<void> {
+    if (!applicableTo) return;
+    await this.tenant.assertOwned('outlet', applicableTo.outlets, businessId);
+    await this.tenant.assertOwned('product', applicableTo.productIds, businessId);
+    await this.tenant.assertOwned('category', applicableTo.categoryIds, businessId);
   }
+}
 
-  private applyBogo(
-    promo: Promotion,
-    rules: PromotionRule,
-    items: CartItem[],
-  ): AppliedPromotion | null {
-    const buyQty = rules.buyQuantity || 1;
-    const getQty = rules.getQuantity || 1;
-
-    // Find cheapest applicable item for free
-    const applicableItems = items.filter((i) => i.quantity >= buyQty + getQty);
-    if (applicableItems.length === 0) return null;
-
-    const cheapest = applicableItems.reduce((min, item) =>
-      item.unitPrice < min.unitPrice ? item : min,
-    );
-
-    const freeItemsCount = Math.floor(cheapest.quantity / (buyQty + getQty)) * getQty;
-    const discount = cheapest.unitPrice * freeItemsCount;
-
-    return {
-      promotionId: promo.id,
-      promotionName: promo.name,
-      type: 'bogo',
-      discountAmount: discount,
-      appliedToItems: [cheapest.productId],
-      description: `Buy ${buyQty} Get ${getQty} Free`,
-    };
-  }
-
-  private applyBundle(
-    promo: Promotion,
-    rules: PromotionRule,
-    items: CartItem[],
-  ): AppliedPromotion | null {
-    if (!rules.bundleProducts || !rules.bundlePrice) return null;
-
-    // Check if all bundle products are present
-    const presentProducts = items.map((i) => i.productId);
-    const hasAllBundleProducts = rules.bundleProducts.every((p) => presentProducts.includes(p));
-
-    if (!hasAllBundleProducts) return null;
-
-    // Calculate bundle discount
-    const bundleItems = items.filter((i) => rules.bundleProducts!.includes(i.productId));
-    const regularTotal = bundleItems.reduce((sum, i) => sum + i.subtotal, 0);
-    const discount = regularTotal - rules.bundlePrice;
-
-    if (discount <= 0) return null;
-
-    return {
-      promotionId: promo.id,
-      promotionName: promo.name,
-      type: 'bundle',
-      discountAmount: discount,
-      appliedToItems: rules.bundleProducts,
-      description: `Bundle deal: Rp ${rules.bundlePrice.toLocaleString()}`,
-    };
-  }
+/** CSV cell with formula-injection neutralisation. */
+function csvCell(value: string): string {
+  let safe = value;
+  if (/^[=+\-@\t\r]/.test(safe)) safe = `'${safe}`;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

@@ -14,7 +14,6 @@ import { REPOSITORY_TOKENS } from '../../infrastructure/repositories/repository.
 import { PrismaNotificationRepository } from '../../infrastructure/repositories/prisma-notification.repository';
 import { EventBusModule } from '../../infrastructure/events/event-bus.module';
 import { RealtimeMetricsService } from '../../infrastructure/services/realtime-metrics.service';
-import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 @Module({
   imports: [
@@ -23,7 +22,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
+        secret: config.getOrThrow<string>('JWT_SECRET'),
       }),
     }),
   ],
@@ -31,7 +30,6 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
   providers: [
     { provide: REPOSITORY_TOKENS.NOTIFICATION, useClass: PrismaNotificationRepository },
     NotificationsGateway,
-    PrismaService,
     RealtimeMetricsService,
     // Real notification channels
     PushNotificationChannel,
