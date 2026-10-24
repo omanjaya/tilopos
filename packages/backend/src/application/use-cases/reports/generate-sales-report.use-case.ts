@@ -64,6 +64,7 @@ export class GenerateSalesReportUseCase {
         status: 'completed',
         createdAt: { gte: start, lte: end },
       },
+      take: 20001,
       select: {
         createdAt: true,
         grandTotal: true,
@@ -72,6 +73,8 @@ export class GenerateSalesReportUseCase {
         taxAmount: true,
       },
     });
+    if (transactions.length > 20000)
+      throw new BadRequestException('Report exceeds 20000 rows; narrow the report scope');
 
     // Group by WIB business day, summing in Decimal (R8/R14)
     const zero = money(0);

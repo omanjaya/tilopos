@@ -39,7 +39,10 @@ import {
 } from 'lucide-react';
 import { handleMutationError } from '@/lib/api-error-handler';
 
-const REPORT_TYPE_CONFIG: Record<ReportType, { label: string; icon: typeof BarChart3; color: string }> = {
+const REPORT_TYPE_CONFIG: Record<
+  ReportType,
+  { label: string; icon: typeof BarChart3; color: string }
+> = {
   sales: { label: 'Penjualan', icon: BarChart3, color: 'bg-success/10 text-success' },
   financial: { label: 'Keuangan', icon: DollarSign, color: 'bg-info/10 text-info' },
   inventory: { label: 'Inventori', icon: Package, color: 'bg-warning/10 text-warning' },
@@ -67,6 +70,23 @@ const EMPTY_FORM: ScheduleForm = {
   isActive: true,
 };
 
+function scheduleDate(value: string | null): string {
+  if (!value) return 'Belum ada';
+  return `${new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))} WIB`;
+}
+
+function deliveryLabel(schedule: ReportSchedule): string {
+  if (!schedule.deliveryConfigured) return 'Email belum dikonfigurasi (SMTP)';
+  const labels = {
+    pending: 'Menunggu jadwal',
+    processing: 'Sedang diproses',
+    sent: 'Diterima server email',
+    failed: 'Pengiriman gagal',
+    unknown: 'Perlu diperiksa',
+  };
+  return labels[schedule.lastStatus ?? 'pending'];
+}
+
 export function ReportSchedulePage() {
   const queryClient = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
@@ -74,19 +94,35 @@ export function ReportSchedulePage() {
   const [form, setForm] = useState<ScheduleForm>(EMPTY_FORM);
   const [deleteConfirm, setDeleteConfirm] = useState<ReportSchedule | null>(null);
 
-  const { data: business } = useQuery({
+  const {
+    data: business,
+    isError: businessError,
+    error: businessFailure,
+    refetch: refetchBusiness,
+  } = useQuery({
     queryKey: ['business'],
     queryFn: settingsApi.getBusiness,
   });
 
-  const { data: schedules, isLoading, isError, error, refetch } = useQuery({
+  const {
+    data: schedules,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['report-schedules'],
     queryFn: settingsApi.listReportSchedules,
+    refetchInterval: 30_000,
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { reportType: ReportType; frequency: ReportFrequency; recipients: string[]; isActive: boolean }) =>
-      settingsApi.createReportSchedule(data),
+    mutationFn: (data: {
+      reportType: ReportType;
+      frequency: ReportFrequency;
+      recipients: string[];
+      isActive: boolean;
+    }) => settingsApi.createReportSchedule(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
       toast.success({ title: 'Jadwal ditambahkan' });
@@ -96,8 +132,18 @@ export function ReportSchedulePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { reportType: ReportType; frequency: ReportFrequency; recipients: string[]; isActive: boolean } }) =>
-      settingsApi.updateReportSchedule(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: {
+        reportType: ReportType;
+        frequency: ReportFrequency;
+        recipients: string[];
+        isActive: boolean;
+      };
+    }) => settingsApi.updateReportSchedule(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
       toast.success({ title: 'Jadwal diperbarui' });
@@ -197,17 +243,31 @@ export function ReportSchedulePage() {
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
         <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <p>
-          Pengiriman laporan otomatis ke email belum aktif. Jadwal yang Anda simpan di sini belum
-          akan mengirim email; unduh laporan secara manual dari menu Laporan.
+          Laporan PDF seluruh outlet dijadwalkan pukul 07.00 WIB: harian, setiap Senin, atau tanggal
+          1. Penjualan dan keuangan memakai periode sebelumnya; inventori adalah stok saat laporan
+          dibuat. Laporan dibatasi 20 outlet dan 10 MB lampiran. Status diterima server email bukan
+          jaminan masuk kotak masuk.
         </p>
       </div>
+
+      {businessError && (
+        <ErrorState
+          title="Gagal memuat profil bisnis"
+          error={businessFailure}
+          onRetry={() => void refetchBusiness()}
+        />
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : isError ? (
-        <ErrorState title="Gagal memuat jadwal laporan" error={error} onRetry={() => void refetch()} />
+        <ErrorState
+          title="Gagal memuat jadwal laporan"
+          error={error}
+          onRetry={() => void refetch()}
+        />
       ) : !schedules?.length ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <CalendarClock className="mx-auto h-10 w-10 text-muted-foreground/50" />
@@ -243,7 +303,10 @@ export function ReportSchedulePage() {
                   </div>
                   <Switch
                     checked={schedule.isActive}
-                    onCheckedChange={(checked) => toggleMutation.mutate({ id: schedule.id, isActive: checked })}
+                    disabled={schedule.lastStatus === 'processing' || toggleMutation.isPending}
+                    onCheckedChange={(checked) =>
+                      toggleMutation.mutate({ id: schedule.id, isActive: checked })
+                    }
                     aria-label={`Aktifkan jadwal ${typeConfig.label}`}
                   />
                 </div>
@@ -255,8 +318,44 @@ export function ReportSchedulePage() {
                   </div>
                 </div>
 
+                <div className="mt-3 space-y-1 text-xs">
+                  <p
+                    className={
+                      schedule.lastStatus === 'failed' || schedule.lastStatus === 'unknown'
+                        ? 'text-destructive'
+                        : 'text-muted-foreground'
+                    }
+                  >
+                    {deliveryLabel(schedule)}
+                  </p>
+                  {schedule.lastStatus === 'unknown' && (
+                    <p>
+                      Pengiriman periode ini tidak diulang otomatis. Periksa email penerima;
+                      sebagian email mungkin sudah diterima. Jadwal periode berikutnya tetap
+                      berjalan.
+                    </p>
+                  )}
+                  {schedule.lastStatus === 'failed' && (
+                    <p>
+                      Dicoba kembali setelah 15 menit.{' '}
+                      {schedule.lastError === 'REPORT_GENERATION_FAILED'
+                        ? 'Laporan gagal dibuat; periksa batas data atau hubungi administrator.'
+                        : ''}
+                    </p>
+                  )}
+                  <p>
+                    Berikutnya: {schedule.isActive ? scheduleDate(schedule.nextSendAt) : 'Nonaktif'}
+                  </p>
+                  <p>Terakhir diterima server email: {scheduleDate(schedule.lastSentAt)}</p>
+                </div>
+
                 <div className="mt-3 flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(schedule)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={schedule.lastStatus === 'processing'}
+                    onClick={() => openEdit(schedule)}
+                  >
                     <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                   </Button>
                   <Button
@@ -264,6 +363,7 @@ export function ReportSchedulePage() {
                     size="sm"
                     className="text-destructive"
                     onClick={() => setDeleteConfirm(schedule)}
+                    disabled={schedule.lastStatus === 'processing'}
                     aria-label={`Hapus jadwal laporan ${typeConfig.label}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -281,7 +381,8 @@ export function ReportSchedulePage() {
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Jadwal' : 'Tambah Jadwal Laporan'}</DialogTitle>
             <DialogDescription>
-              Pengiriman email otomatis belum aktif; jadwal ini disimpan untuk digunakan nanti.
+              Laporan seluruh outlet dikirim sebagai PDF pukul 07.00 WIB sesuai frekuensi. SMTP
+              harus dikonfigurasi oleh administrator.
             </DialogDescription>
           </DialogHeader>
 
@@ -292,10 +393,14 @@ export function ReportSchedulePage() {
                 value={form.reportType}
                 onValueChange={(v) => setForm({ ...form, reportType: v as ReportType })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {Object.entries(REPORT_TYPE_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                    <SelectItem key={key} value={key}>
+                      {cfg.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -307,10 +412,14 @@ export function ReportSchedulePage() {
                 value={form.frequency}
                 onValueChange={(v) => setForm({ ...form, frequency: v as ReportFrequency })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {Object.entries(FREQUENCY_CONFIG).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                    <SelectItem key={key} value={key}>
+                      {label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -330,7 +439,9 @@ export function ReportSchedulePage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={closeForm}>Batal</Button>
+            <Button variant="outline" onClick={closeForm}>
+              Batal
+            </Button>
             <Button onClick={handleSubmit} disabled={!form.recipients.trim() || isSaving}>
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {editingId ? 'Simpan' : 'Tambah'}
@@ -346,12 +457,14 @@ export function ReportSchedulePage() {
             <DialogTitle>Hapus Jadwal</DialogTitle>
             <DialogDescription>
               Apakah Anda yakin ingin menghapus jadwal laporan{' '}
-              {deleteConfirm && REPORT_TYPE_CONFIG[deleteConfirm.reportType].label}{' '}
-              ({deleteConfirm && FREQUENCY_CONFIG[deleteConfirm.frequency]})?
+              {deleteConfirm && REPORT_TYPE_CONFIG[deleteConfirm.reportType].label} (
+              {deleteConfirm && FREQUENCY_CONFIG[deleteConfirm.frequency]})?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Batal</Button>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Batal
+            </Button>
             <Button
               variant="destructive"
               onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}

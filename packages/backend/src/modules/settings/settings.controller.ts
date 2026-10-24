@@ -1,3 +1,5 @@
+import { EmailService } from '@infrastructure/notifications/email/email.service';
+import { reportScheduleView } from './report-schedule.view';
 import {
   Controller,
   Get,
@@ -102,6 +104,7 @@ export class SettingsController {
     @Inject(REPOSITORY_TOKENS.SETTINGS)
     private readonly settingsRepo: SettingsRepository,
     private readonly tenant: TenantAccessService,
+    private readonly email: EmailService,
   ) {}
 
   // ==================== Business profile (owner only) ====================
@@ -643,19 +646,24 @@ export class SettingsController {
   @Get('report-schedules')
   @ApiOperation({ summary: 'List report schedules for business' })
   async listReportSchedules(@CurrentUser() user: AuthUser) {
-    return this.settingsRepo.getReportSchedules(user.businessId);
+    return (await this.settingsRepo.getReportSchedules(user.businessId)).map((schedule) =>
+      reportScheduleView(schedule, this.email.isConfigured()),
+    );
   }
 
   @Post('report-schedules')
   @Roles(EmployeeRole.OWNER, EmployeeRole.MANAGER)
   @ApiOperation({ summary: 'Create a new report schedule' })
   async createReportSchedule(@CurrentUser() user: AuthUser, @Body() dto: CreateReportScheduleDto) {
-    return this.settingsRepo.createReportSchedule(user.businessId, {
-      reportType: dto.reportType,
-      frequency: dto.frequency,
-      recipients: dto.recipients,
-      isActive: dto.isActive,
-    });
+    return reportScheduleView(
+      await this.settingsRepo.createReportSchedule(user.businessId, {
+        reportType: dto.reportType,
+        frequency: dto.frequency,
+        recipients: dto.recipients,
+        isActive: dto.isActive,
+      }),
+      this.email.isConfigured(),
+    );
   }
 
   @Put('report-schedules/:id')
@@ -666,12 +674,15 @@ export class SettingsController {
     @Param('id') id: string,
     @Body() dto: UpdateReportScheduleDto,
   ) {
-    return this.settingsRepo.updateReportSchedule(user.businessId, id, {
-      reportType: dto.reportType,
-      frequency: dto.frequency,
-      recipients: dto.recipients,
-      isActive: dto.isActive,
-    });
+    return reportScheduleView(
+      await this.settingsRepo.updateReportSchedule(user.businessId, id, {
+        reportType: dto.reportType,
+        frequency: dto.frequency,
+        recipients: dto.recipients,
+        isActive: dto.isActive,
+      }),
+      this.email.isConfigured(),
+    );
   }
 
   @Delete('report-schedules/:id')

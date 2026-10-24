@@ -342,6 +342,9 @@ export interface ReportScheduleRecord {
   isActive: boolean;
   nextSendAt: string | null;
   lastSentAt: string | null;
+  lastStatus?: 'pending' | 'processing' | 'sent' | 'failed' | 'unknown';
+  lastError?: string | null;
+  lastAttemptAt?: string | null;
 }
 
 export interface CreateReportScheduleInput {

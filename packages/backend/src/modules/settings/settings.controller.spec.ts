@@ -1,3 +1,4 @@
+import type { EmailService } from '@infrastructure/notifications/email/email.service';
 import 'reflect-metadata';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ROLES_KEY } from '../../infrastructure/auth/roles.decorator';
@@ -11,6 +12,8 @@ const manager: AuthUser = { employeeId: 'e2', businessId: 'b1', outletId: 'o1', 
 
 function setup() {
   const repo = {
+    getReportSchedules: jest.fn().mockResolvedValue([]),
+    createReportSchedule: jest.fn(),
     updateBusiness: jest.fn().mockResolvedValue({}),
     createPrinterConfig: jest.fn().mockResolvedValue({}),
     updateTaxConfig: jest.fn().mockResolvedValue({}),
@@ -23,6 +26,7 @@ function setup() {
   const controller = new SettingsController(
     repo as unknown as SettingsRepository,
     tenant as unknown as TenantAccessService,
+    { isConfigured: () => false } as EmailService,
   );
   return { repo, tenant, controller };
 }
@@ -149,5 +153,24 @@ describe('SettingsController', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(tenant.assertOutlet).toHaveBeenCalledWith(cashier, 'other');
     });
+  });
+  it('uses the authenticated business for schedules and hides worker fencing tokens', async () => {
+    const { repo, controller } = setup();
+    repo.getReportSchedules.mockResolvedValue([
+      {
+        id: 's',
+        reportType: 'sales',
+        frequency: 'daily',
+        recipients: ['a@example.test'],
+        isActive: true,
+        nextSendAt: null,
+        lastSentAt: null,
+        runId: 'internal',
+      },
+    ]);
+    const response = await controller.listReportSchedules(owner);
+    expect(repo.getReportSchedules).toHaveBeenCalledWith(owner.businessId);
+    expect(response[0]).toMatchObject({ deliveryConfigured: false, lastStatus: 'pending' });
+    expect(response[0]).not.toHaveProperty('runId');
   });
 });

@@ -20,8 +20,8 @@ export class PdfGeneratorService {
   }
 
   async generate(docDefinition: TDocumentDefinitions): Promise<Buffer> {
+    const doc = await this.printer.createPdfKitDocument(docDefinition);
     return new Promise((resolve, reject) => {
-      const doc = this.printer.createPdfKitDocument(docDefinition);
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));

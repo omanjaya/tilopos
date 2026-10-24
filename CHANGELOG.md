@@ -34,6 +34,11 @@ Engineering rules that came out of it: [Docs/ENGINEERING-RULES.md](./Docs/ENGINE
   `prisma migrate reset` needs the same flag.
 
 ### Fixed
+- Scheduled sales, financial and inventory reports now generate PDF attachments and send
+  through configured SMTP at 07:00 WIB. Durable claims prevent concurrent delivery;
+  missing SMTP and uncertain outcomes are visible in settings instead of fake success.
+- PDF generation awaits the installed asynchronous printer; email delivery checks SMTP
+  acceptance, and exports reject oversized result sets instead of exhausting memory.
 - Held bills now sync through tenant/outlet-scoped server APIs with server-priced snapshots,
   offline drafts, atomic claims and retry recovery; logout and 24-hour expiry no longer lose them.
 - Settlement cron ran twice; double refunds; negative quantities at online-store checkout;

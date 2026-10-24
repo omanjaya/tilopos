@@ -96,7 +96,7 @@ export class EmailService {
     }
 
     try {
-      await this.transporter.sendMail({
+      const result = await this.transporter.sendMail({
         from: this.from,
         to: options.to,
         subject: options.subject,
@@ -107,6 +107,9 @@ export class EmailService {
           contentType: a.contentType,
         })),
       });
+      if (!result.accepted?.length || result.rejected?.length) {
+        throw new Error('SMTP did not accept all recipients');
+      }
       this.logger.log(`Email sent to ${maskEmail(options.to)}`);
     } catch (error) {
       this.logger.error(`Failed to send email to ${maskEmail(options.to)}`, error);

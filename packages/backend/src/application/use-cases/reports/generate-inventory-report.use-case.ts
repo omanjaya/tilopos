@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PdfGeneratorService } from '@infrastructure/export/pdf-generator.service';
 import { ExcelGeneratorService } from '@infrastructure/export/excel-generator.service';
@@ -24,6 +24,7 @@ export class GenerateInventoryReportUseCase {
   ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const stockLevels = await this.prisma.stockLevel.findMany({
       where: { outletId: input.outletId, outlet: { businessId: input.businessId } },
+      take: 10001,
       select: {
         quantity: true,
         lowStockAlert: true,
@@ -31,6 +32,8 @@ export class GenerateInventoryReportUseCase {
         variant: { select: { name: true, sku: true } },
       },
     });
+    if (stockLevels.length > 10000)
+      throw new BadRequestException('Report exceeds 10000 rows; narrow the report scope');
 
     const rows = stockLevels.map((sl) => ({
       productName: [sl.product?.name, sl.variant?.name].filter(Boolean).join(' - ') || 'Unknown',

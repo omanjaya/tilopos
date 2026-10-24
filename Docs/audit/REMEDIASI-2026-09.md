@@ -89,7 +89,8 @@ Semua temuan yang dilewati punya alasan di `status_note`. Hampir semuanya pekerj
 
 - Access token berumur pendek + refresh token di cookie httpOnly (F1480, F2013).
 - Held bill disimpan di server (F1803): selesai pada 17 Oktober, lihat hasil di bawah.
-- Pengirim laporan terjadwal (F1848), tabel `ProductTranslation` (F0402), model `Reservation`.
+- Pengirim laporan terjadwal (F1848): selesai pada 24 Oktober, lihat hasil di bawah.
+- Tabel `ProductTranslation` (F0402), model `Reservation`.
 - Redis adapter untuk Socket.IO saat backend dijalankan multi-replika (F0484, F0568).
 - Menyatukan dua stack notifikasi (F0562), integrasi batch lot dengan stok (F0762), migrasi record domain ke `Decimal` (F1245).
 - 17 warning R18: memindahkan query Prisma dari controller laporan ke service.
@@ -215,3 +216,76 @@ Node **22.23.3**; semua pemeriksaan berikut lulus:
 Container tes terisolasi digunakan tanpa menyentuh container proyek lain. Pemilik
 meminta seluruh hasil audit dan follow-up di-commit/push ke `fix/audit-2026-09`.
 `JWT_EXPIRES_IN` tetap tidak berubah; item 3 (pengirim laporan terjadwal) belum dimulai.
+
+
+## Follow-up pengirim laporan — 24 Oktober 2026
+
+F1848 selesai. `ReportScheduleScheduler` berjalan setiap menit dengan zona waktu
+`Asia/Jakarta` dan `DistributedLockService`. Jadwal tetap disimpan di
+`business.settings.reportSchedules`; tidak diperlukan migrasi schema baru.
+
+- Pukul pengiriman adalah **07.00 WIB**: harian untuk hari sebelumnya, Senin untuk
+  pekan sebelumnya (Senin–Minggu), dan tanggal 1 untuk bulan sebelumnya. Snapshot
+  inventori diambil saat rendering, bukan stok historis. Waktu di UI selalu WIB.
+- Scope bisnis berasal dari record jadwal, bukan parameter penerima email. Semua
+  outlet milik bisnis mendapat lampiran PDF terpisah. Sales/inventory memakai use-case
+  ekspor yang ada; laporan keuangan memakai `computeProfit`, COGS, dan generator PDF
+  yang sama. Angka keuangan mengikuti definisi laporan aplikasi (HPP, bukan seluruh
+  biaya operasional). Filename membedakan outlet, termasuk outlet bernama sama.
+- Klaim jadwal memakai row lock PostgreSQL melalui `mutateBusinessSettings` dan token
+  klaim unik. Worker lain tidak boleh mengirim klaim yang sama meskipun lock Redis
+  berakhir. Edit/delete ditolak sementara proses berjalan. Pengaturan bisnis lain
+  tetap dipertahankan saat status pengiriman ditulis.
+- SMTP belum dikonfigurasi dicatat sebagai `failed / NOT_CONFIGURED` dan di-log.
+  Kegagalan sebelum pengiriman dapat diulang setelah 15 menit dengan periode asli.
+  Tidak ada perubahan `lastSentAt` sebelum semua penerima diterima server SMTP.
+- Kegagalan SMTP setelah pengiriman dimulai atau worker terputus bisa berarti email
+  sudah diterima. Statusnya `unknown` ("Perlu diperiksa"), tanpa replay otomatis untuk
+  periode tersebut. Sebagian penerima mungkin sudah menerima lampiran. Worker basi
+  berhenti mengirim sebelum batas klaim 30 menit; cron berikutnya menandai klaim yang
+  terputus. Periode berikutnya tetap dijadwalkan. Ini bukan jaminan exactly-once SMTP
+  atau jaminan masuk kotak masuk; penerima/provider perlu diperiksa untuk hasil ambigu.
+- API tidak mengekspos token klaim. UI menampilkan konfigurasi SMTP, status terakhir,
+  waktu berikutnya, waktu terakhir diterima SMTP, dan kegagalan query.
+
+### Batas dan penerapan
+
+Maksimum 100 jadwal per bisnis, 10 penerima per jadwal (validasi yang sudah ada),
+20 outlet dan 10 MB total lampiran per pengiriman. Ekspor menolak hasil di atas
+20.000 transaksi penjualan atau 10.000 baris stok per outlet, tanpa mengirim hasil
+terpotong. Batas ekspor ini juga berlaku untuk unduhan manual yang memakai use-case
+sama. Inventori besar perlu diunduh/ditangani dengan scope lebih kecil.
+
+Konfigurasi tetap memakai `SMTP_HOST`, `SMTP_FROM`, `SMTP_PORT`, serta
+`SMTP_USER` dan `SMTP_PASS`/`SMTP_PASSWORD` bila autentikasi diperlukan. Tidak ada env
+baru. Jadwal lama dengan `nextSendAt=null` diinisialisasi ke periode berikutnya saat
+cron membaca jadwal; backlog historis tidak langsung dikirim. Kegagalan aman yang
+sudah dicatat tetap mencoba periode aslinya sampai berhasil atau jadwal diedit.
+
+Generator PDF diperbaiki untuk API printer asinkron yang sudah terpasang, tanpa
+upgrade dependency. `EmailService` kini memeriksa hasil accepted/rejected SMTP dan
+melempar error bila provider tidak menerima seluruh penerima.
+
+### Verifikasi
+
+Node **22.23.3**:
+
+- Prisma generate, TypeScript backend/web: lulus, 0 error.
+- ESLint backend: 0 error, 17 warning R18 lama; web: 0 error.
+- Jest: **128 suite / 973 test lulus**, termasuk klaim bersamaan di PostgreSQL nyata,
+  isolasi tenant, ketiga lampiran PDF nyata, serta kirim sekali ke SMTP loopback.
+  Tes integrasi auth PostgreSQL dan held bills Redis juga dijalankan.
+- Vitest: **31 file / 220 test lulus**, termasuk status SMTP, status ambigu, WIB, dan
+  kegagalan query pada halaman jadwal.
+- Build monorepo lulus; peringatan ukuran chunk Vite tetap ada.
+- Seluruh migrasi yang ada diterapkan ke PostgreSQL tes kosong. Tidak ada perubahan
+  schema, database proyek, atau deployment. Tes tidak mengirim email ke alamat luar.
+
+Tes pengiriman terintegrasi diaktifkan melalui `REPORT_TEST_DATABASE_URL` yang harus
+menunjuk database sementara terisolasi. SMTP receiver dibuat di loopback proses tes;
+container PostgreSQL/Redis sementara dihapus sesudah verifikasi.
+
+Pekerjaan berhenti pada item 3. Item 4 (17 warning R18) belum dimulai.
+`JWT_EXPIRES_IN` tetap mengikuti keputusan pemilik. Push belum dijalankan ulang karena
+konfirmasi tujuan remote/branch dari penolakan persetujuan otomatis sebelumnya masih
+belum diberikan; semua hasil verifikasi di atas berlaku untuk perubahan lokal.
